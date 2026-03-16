@@ -35,6 +35,7 @@ export const architectApi = {
   deleteSession: (id: string) => apiClient.delete(`/api/v1/architect/sessions/${id}`).then(r => r.data),
   batchDeleteSessions: (ids: string[]) => apiClient.post<{ deleted: number }>('/api/v1/architect/sessions/batch-delete', { ids }).then(r => r.data),
   redesignPhase: (phaseId: string, data: PhaseRedesignRequest = {}) => apiClient.post<PhaseRedesignResponse>(`/api/v1/architect/redesign/phase/${phaseId}`, data).then(r => r.data),
+  getSessionByProject: (projectId: string) => apiClient.get<DesignSession>(`/api/v1/architect/sessions/by-project/${projectId}`).then(r => r.data),
 
   streamMessage: (sessionId: string, content: string, callbacks: StreamCallbacks): AbortController => {
     const controller = new AbortController()

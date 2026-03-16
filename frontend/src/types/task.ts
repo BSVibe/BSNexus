@@ -1,5 +1,7 @@
 export type TaskStatus = 'waiting' | 'ready' | 'queued' | 'in_progress' | 'review' | 'done' | 'redesign'
 export type TaskPriority = 'low' | 'medium' | 'high' | 'critical'
+export type TaskType = 'feature' | 'bug' | 'improvement' | 'test' | 'chore' | 'refactor'
+export type TaskSource = 'architect' | 'auto_bug' | 'manual'
 
 export interface QAFeedbackEntry {
   type: 'qa_failure' | 'execution_failure'
@@ -18,6 +20,9 @@ export interface Task {
   description: string | null
   status: TaskStatus
   priority: TaskPriority
+  task_type: TaskType
+  source: TaskSource
+  parent_task_id: string | null
   worker_prompt: Record<string, unknown> | null
   qa_prompt: Record<string, unknown> | null
   branch_name: string | null

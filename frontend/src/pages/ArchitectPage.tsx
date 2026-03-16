@@ -12,11 +12,6 @@ import NewSessionModal from '../components/architect/NewSessionModal'
 import FinalizePanel from '../components/architect/FinalizePanel'
 import Header from '../components/layout/Header'
 
-function extractDesignContext(content: string): string | null {
-  const match = content.match(/<design_context>([\s\S]*?)<\/design_context>/)
-  return match ? match[1].trim() : null
-}
-
 function stripDesignContext(content: string): string {
   return content.replace(/<design_context>[\s\S]*?<\/design_context>/g, '').trim()
 }
@@ -109,14 +104,10 @@ export default function ArchitectPage() {
       }))
       setMessages(chatMessages)
 
-      if (session.status === 'finalized' && session.project_id) {
+      if (session.status === 'project_bound' && session.project_id) {
         setFinalizedProjectId(session.project_id)
-        const lastAssistant = [...session.messages].reverse().find(m => m.role === 'assistant')
-        if (lastAssistant) {
-          const ctx = extractDesignContext(lastAssistant.content)
-          setDesignSummary(ctx || stripDesignContext(lastAssistant.content))
-        }
-        setShowFinalizePanel(true)
+        // Project-bound sessions keep chat open - no finalize panel lock
+        setShowFinalizePanel(false)
       } else {
         setFinalizedProjectId(null)
         setShowFinalizePanel(false)
@@ -342,7 +333,7 @@ export default function ArchitectPage() {
             designSummary={designSummary}
             onConfirm={handleFinalize}
             onCancel={() => setShowFinalizePanel(false)}
-            onGoToBoard={(projectId) => navigate(`/board/${projectId}`)}
+            onGoToBoard={(projectId) => navigate(`/projects/${projectId}`)}
             finalizedProjectId={finalizedProjectId}
           />
         )}

@@ -52,6 +52,21 @@ class PhaseStatus(str, enum.Enum):
     completed = "completed"
 
 
+class TaskType(str, enum.Enum):
+    feature = "feature"
+    bug = "bug"
+    improvement = "improvement"
+    test = "test"
+    chore = "chore"
+    refactor = "refactor"
+
+
+class TaskSource(str, enum.Enum):
+    architect = "architect"
+    auto_bug = "auto_bug"
+    manual = "manual"
+
+
 class WorkerStatus(str, enum.Enum):
     idle = "idle"
     busy = "busy"
@@ -120,6 +135,7 @@ class TaskCreate(BaseModel):
     title: str
     description: str
     priority: TaskPriority
+    task_type: TaskType = TaskType.feature
     depends_on: list[uuid.UUID] = Field(default_factory=list)
     worker_prompt: str
     qa_prompt: str
@@ -149,6 +165,9 @@ class TaskResponse(BaseModel):
     description: Optional[str] = None
     status: TaskStatus
     priority: TaskPriority
+    task_type: TaskType = TaskType.feature
+    source: TaskSource = TaskSource.architect
+    parent_task_id: Optional[uuid.UUID] = None
     worker_prompt: Optional[dict] = None
     qa_prompt: Optional[dict] = None
     branch_name: Optional[str] = None
@@ -276,7 +295,7 @@ class TransitionResponse(BaseModel):
 
 class DesignSessionStatus(str, enum.Enum):
     active = "active"
-    finalized = "finalized"
+    project_bound = "project_bound"
     cancelled = "cancelled"
 
 
@@ -374,6 +393,20 @@ class DashboardStatsResponse(BaseModel):
     total_workers: int
     online_workers: int
     busy_workers: int
+
+
+class ProjectDashboardSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    status: ProjectStatus
+    task_counts: dict[str, int]  # status → count
+    bug_count: int = 0
+    active_worker_count: int = 0
+    current_phase: Optional[str] = None
+    has_architect_session: bool = False
+    last_activity: Optional[datetime] = None
 
 
 # ── Settings Schemas ─────────────────────────────────────────────────

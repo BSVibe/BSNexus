@@ -11,12 +11,14 @@ interface ChatMessage {
 
 interface ArchitectState {
   sessionId: string | null
+  projectId: string | null
   sessions: DesignSession[]
   messages: ChatMessage[]
   isStreaming: boolean
   isConnected: boolean
 
   setSessionId: (id: string | null) => void
+  setProjectId: (id: string | null) => void
   setSessions: (sessions: DesignSession[]) => void
   setMessages: (messages: ChatMessage[]) => void
   addMessage: (message: ChatMessage) => void
@@ -28,12 +30,14 @@ interface ArchitectState {
 
 export const useArchitectStore = create<ArchitectState>((set) => ({
   sessionId: null,
+  projectId: null,
   sessions: [],
   messages: [],
   isStreaming: false,
   isConnected: false,
 
   setSessionId: (id) => set({ sessionId: id }),
+  setProjectId: (id) => set({ projectId: id }),
   setSessions: (sessions) => set({ sessions }),
   setMessages: (messages) => set({ messages }),
   addMessage: (message) =>
