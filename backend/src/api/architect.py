@@ -18,6 +18,7 @@ from backend.src.storage.database import async_session, get_db
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from sse_starlette.sse import EventSourceResponse
 
 router = APIRouter(prefix="/api/v1/architect", tags=["architect"])
@@ -102,6 +103,18 @@ def _build_llm_config(llm_config_dict: dict[str, Any] | None) -> LLMConfig:
         model=llm_config_dict.get("model") or "anthropic/claude-sonnet-4-20250514",
         base_url=llm_config_dict.get("base_url"),
     )
+
+
+async def _load_project_with_tasks(project_id: uuid.UUID, db: AsyncSession) -> models.Project | None:
+    """Load a project with phases and tasks eagerly loaded for context building."""
+    result = await db.execute(
+        select(models.Project)
+        .where(models.Project.id == project_id)
+        .options(
+            selectinload(models.Project.phases).selectinload(models.Phase.tasks)
+        )
+    )
+    return result.scalar_one_or_none()
 
 
 def _build_project_context(project: models.Project) -> str:
@@ -427,8 +440,7 @@ async def send_message(
     # Load project for project_bound sessions
     project: models.Project | None = None
     if session.status == models.DesignSessionStatus.project_bound and session.project_id:
-        project_repo = ProjectRepository(db)
-        project = await project_repo.get_by_id(session.project_id)
+        project = await _load_project_with_tasks(session.project_id, db)
 
     # Save user message
     await repo.add_message(session.id, models.MessageRole.user, body.content)
@@ -491,8 +503,7 @@ async def send_message_stream(
     project: models.Project | None = None
     is_project_bound = session.status == models.DesignSessionStatus.project_bound
     if is_project_bound and session.project_id:
-        project_repo = ProjectRepository(db)
-        project = await project_repo.get_by_id(session.project_id)
+        project = await _load_project_with_tasks(session.project_id, db)
 
     # Save user message
     await repo.add_message(session.id, models.MessageRole.user, body.content)
