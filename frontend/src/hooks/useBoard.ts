@@ -20,7 +20,9 @@ export function useBoard(projectId: string) {
   })
 
   const refetchRef = useRef(query.refetch)
-  refetchRef.current = query.refetch
+  useEffect(() => {
+    refetchRef.current = query.refetch
+  }, [query.refetch])
 
   // Set board data when query completes
   useEffect(() => {
@@ -66,7 +68,9 @@ export function useBoard(projectId: string) {
   )
 
   const handleEventRef = useRef(handleEvent)
-  handleEventRef.current = handleEvent
+  useEffect(() => {
+    handleEventRef.current = handleEvent
+  }, [handleEvent])
 
   useEffect(() => {
     if (!projectId) return
