@@ -1,13 +1,12 @@
 import { useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Bot, Kanban, Users, Settings, Sun, Moon, Monitor } from 'lucide-react'
+import { LayoutDashboard, Bot, Users, Settings, Sun, Moon, Monitor } from 'lucide-react'
 import { SettingsModal } from './SettingsModal'
 import { useThemeStore } from '../../stores/themeStore'
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { to: '/architect', label: 'Architect', icon: Bot },
-  { to: '/board', label: 'Board', icon: Kanban, showOnlyWhenActive: true },
+  { to: '/architect', label: 'New Project', icon: Bot },
   { to: '/workers', label: 'Workers', icon: Users },
 ]
 
@@ -25,7 +24,7 @@ export default function Sidebar() {
   const themeLabel = theme === 'light' ? 'Light' : theme === 'dark' ? 'Dark' : 'System'
 
   const isActive = (to: string) => {
-    if (to === '/') return location.pathname === '/'
+    if (to === '/') return location.pathname === '/' || location.pathname.startsWith('/projects/')
     return location.pathname.startsWith(to)
   }
 
@@ -43,7 +42,7 @@ export default function Sidebar() {
 
       {/* Navigation */}
       <nav className="flex flex-col gap-1 px-3">
-        {navItems.filter((item) => !item.showOnlyWhenActive || isActive(item.to)).map((item) => {
+        {navItems.map((item) => {
           const Icon = item.icon
           const active = isActive(item.to)
 

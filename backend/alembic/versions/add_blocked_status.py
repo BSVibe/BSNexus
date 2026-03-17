@@ -17,10 +17,30 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.execute("ALTER TYPE taskstatus ADD VALUE IF NOT EXISTS 'blocked'")
+    # Recreate enum with 'blocked' to avoid transactional ADD VALUE issues
+    op.execute("ALTER TABLE tasks ALTER COLUMN status TYPE VARCHAR(20)")
+    op.execute("ALTER TABLE task_history ALTER COLUMN from_status TYPE VARCHAR(50)")
+    op.execute("ALTER TABLE task_history ALTER COLUMN to_status TYPE VARCHAR(50)")
+    op.execute("DROP TYPE IF EXISTS taskstatus")
+    op.execute(
+        "CREATE TYPE taskstatus AS ENUM "
+        "('waiting', 'ready', 'queued', 'in_progress', 'review', 'done', 'rejected', 'blocked')"
+    )
+    op.execute("ALTER TABLE tasks ALTER COLUMN status TYPE taskstatus USING status::taskstatus")
+    op.execute("ALTER TABLE task_history ALTER COLUMN from_status TYPE taskstatus USING from_status::taskstatus")
+    op.execute("ALTER TABLE task_history ALTER COLUMN to_status TYPE taskstatus USING to_status::taskstatus")
 
 
 def downgrade() -> None:
-    # PostgreSQL does not support removing enum values directly.
-    # A full enum recreation would be needed for a true downgrade.
-    pass
+    # Remove blocked from enum
+    op.execute("ALTER TABLE tasks ALTER COLUMN status TYPE VARCHAR(20)")
+    op.execute("ALTER TABLE task_history ALTER COLUMN from_status TYPE VARCHAR(50)")
+    op.execute("ALTER TABLE task_history ALTER COLUMN to_status TYPE VARCHAR(50)")
+    op.execute("DROP TYPE IF EXISTS taskstatus")
+    op.execute(
+        "CREATE TYPE taskstatus AS ENUM "
+        "('waiting', 'ready', 'queued', 'in_progress', 'review', 'done', 'rejected')"
+    )
+    op.execute("ALTER TABLE tasks ALTER COLUMN status TYPE taskstatus USING status::taskstatus")
+    op.execute("ALTER TABLE task_history ALTER COLUMN from_status TYPE taskstatus USING from_status::taskstatus")
+    op.execute("ALTER TABLE task_history ALTER COLUMN to_status TYPE taskstatus USING to_status::taskstatus")

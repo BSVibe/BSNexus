@@ -21,7 +21,7 @@ config = context.config
 # Set the database URL from environment variable
 database_url = os.environ.get(
     "DATABASE_URL",
-    "postgresql+asyncpg://bsnexus:bsnexus_dev@localhost:5432/bsnexus",
+    "postgresql+asyncpg://bsnexus:bsnexus_dev@postgres:5432/bsnexus",
 )
 config.set_main_option("sqlalchemy.url", database_url)
 

@@ -1,4 +1,4 @@
-export type DesignSessionStatus = 'active' | 'finalized' | 'cancelled'
+export type DesignSessionStatus = 'active' | 'project_bound' | 'cancelled'
 export type MessageRole = 'user' | 'assistant'
 
 export interface DesignMessage {

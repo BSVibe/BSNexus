@@ -168,8 +168,8 @@ async def test_delete_session_not_found(client):
 
 
 @pytest.mark.asyncio
-async def test_delete_finalized_session_keeps_project(client, db_session):
-    """Deleting a finalized session does not delete the linked project."""
+async def test_delete_project_bound_session_keeps_project(client, db_session):
+    """Deleting a project_bound session does not delete the linked project."""
     now = datetime.now(timezone.utc)
 
     project = Project(
@@ -187,7 +187,7 @@ async def test_delete_finalized_session_keeps_project(client, db_session):
     session = DesignSession(
         id=uuid.uuid4(),
         project_id=project.id,
-        status=DesignSessionStatus.finalized,
+        status=DesignSessionStatus.project_bound,
         llm_config={"api_key": "sk-test"},
         created_at=now,
         updated_at=now,

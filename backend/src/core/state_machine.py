@@ -6,18 +6,18 @@ import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Optional
 
-logger = logging.getLogger(__name__)
-
-if TYPE_CHECKING:
-    from backend.src.core.prompt_security import PromptSigner
-    from backend.src.utils.worker_registry import WorkerRegistry
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.models import Phase, PhaseStatus, Task, TaskHistory, TaskStatus
 from backend.src.queue.streams import RedisStreamManager
 from backend.src.repositories.task_repository import TaskRepository
+
+logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from backend.src.core.prompt_security import PromptSigner
+    from backend.src.utils.worker_registry import WorkerRegistry
 
 
 class TaskStateMachine:

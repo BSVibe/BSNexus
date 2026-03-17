@@ -1,10 +1,12 @@
 import { useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { projectsApi } from '../api/projects'
+import { dashboardApi } from '../api/dashboard'
+import type { ProjectDashboardSummary } from '../types/project'
 import { Link, useNavigate } from 'react-router-dom'
 import { Badge, Button, Modal, StatCard } from '../components/common'
 import Header from '../components/layout/Header'
-import { ListChecks } from 'lucide-react'
+import { ListChecks, Bug, MessageSquare } from 'lucide-react'
 
 const statusBadgeColors: Record<string, string> = {
   design: '#8B5CF6',
@@ -20,6 +22,17 @@ export default function DashboardPage() {
     queryKey: ['projects'],
     queryFn: projectsApi.list,
   })
+
+  const { data: projectsSummary } = useQuery({
+    queryKey: ['projects-summary'],
+    queryFn: dashboardApi.getProjectsSummary,
+  })
+
+  const summaryMap = useMemo(() => {
+    const map = new Map<string, ProjectDashboardSummary>()
+    projectsSummary?.forEach((s) => map.set(s.id, s))
+    return map
+  }, [projectsSummary])
 
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
   const [selectMode, setSelectMode] = useState(false)
@@ -65,15 +78,20 @@ export default function DashboardPage() {
 
   const stats = useMemo(() => {
     const list = projects || []
+    const summaries = projectsSummary || []
     const totalProjects = list.length
     const completedProjects = list.filter(p => p.status === 'completed').length
     const activeProjects = list.filter(p => p.status === 'active').length
-    const totalPhases = list.reduce((sum, p) => sum + (p.phases?.length || 0), 0)
-    const completionRate = totalProjects > 0
-      ? `${Math.round((completedProjects / totalProjects) * 100)}%`
+    const totalTasks = summaries.reduce((sum, s) => {
+      return sum + Object.values(s.task_counts).reduce((a, b) => a + b, 0)
+    }, 0)
+    const doneTasks = summaries.reduce((sum, s) => sum + (s.task_counts['done'] || 0), 0)
+    const totalBugs = summaries.reduce((sum, s) => sum + s.bug_count, 0)
+    const completionRate = totalTasks > 0
+      ? `${Math.round((doneTasks / totalTasks) * 100)}%`
       : '0%'
-    return { totalProjects, completedProjects, activeProjects, totalPhases, completionRate }
-  }, [projects])
+    return { totalProjects, completedProjects, activeProjects, totalTasks, doneTasks, totalBugs, completionRate }
+  }, [projects, projectsSummary])
 
   if (isLoading) {
     return (
@@ -106,22 +124,22 @@ export default function DashboardPage() {
           <StatCard
             label="Total Projects"
             value={stats.totalProjects}
-            subtext={`${stats.completedProjects} completed`}
+            subtext={`${stats.activeProjects} active, ${stats.completedProjects} completed`}
           />
           <StatCard
-            label="Active Projects"
-            value={stats.activeProjects}
-            subtext={`${stats.totalPhases} phases total`}
+            label="Total Tasks"
+            value={stats.totalTasks}
+            subtext={`${stats.doneTasks} done`}
           />
           <StatCard
-            label="Workers Online"
-            value="-"
-            subtext="connect workers"
+            label="Bugs"
+            value={stats.totalBugs}
+            subtext="auto-detected"
           />
           <StatCard
             label="Completion Rate"
             value={stats.completionRate}
-            subtext={`${stats.completedProjects} of ${stats.totalProjects} projects`}
+            subtext={`${stats.doneTasks} of ${stats.totalTasks} tasks`}
           />
         </div>
 
@@ -248,7 +266,7 @@ export default function DashboardPage() {
                     </div>
                   ) : (
                     <Link
-                      to={`/board/${project.id}`}
+                      to={`/projects/${project.id}`}
                       className="block cursor-pointer"
                     >
                       <div className="flex items-start justify-between mb-3 pr-6">
@@ -256,6 +274,46 @@ export default function DashboardPage() {
                         <Badge color={badgeColor} label={project.status} />
                       </div>
                       <p className="text-sm text-text-secondary mt-1 mb-4 line-clamp-2">{project.description}</p>
+
+                      {/* Task distribution bar */}
+                      {(() => {
+                        const summary = summaryMap.get(project.id)
+                        if (!summary) return null
+                        const counts = summary.task_counts
+                        const total = Object.values(counts).reduce((a, b) => a + b, 0)
+                        if (total === 0) return null
+                        const done = counts['done'] || 0
+                        const inProgress = (counts['in_progress'] || 0) + (counts['review'] || 0)
+                        const pctDone = Math.round((done / total) * 100)
+                        const pctInProgress = Math.round((inProgress / total) * 100)
+                        return (
+                          <div className="mb-3">
+                            <div className="flex items-center gap-2 mb-1">
+                              <div className="flex-1 h-1.5 rounded-full bg-bg-hover overflow-hidden flex">
+                                <div className="h-full bg-green-500" style={{ width: `${pctDone}%` }} />
+                                <div className="h-full bg-blue-500" style={{ width: `${pctInProgress}%` }} />
+                              </div>
+                              <span className="text-xs text-text-tertiary">{pctDone}%</span>
+                            </div>
+                            <div className="flex items-center gap-3 text-xs text-text-muted">
+                              <span>{total} tasks</span>
+                              {summary.bug_count > 0 && (
+                                <span className="flex items-center gap-0.5 text-red-400">
+                                  <Bug size={11} />
+                                  {summary.bug_count}
+                                </span>
+                              )}
+                              {summary.has_architect_session && (
+                                <span className="flex items-center gap-0.5 text-accent">
+                                  <MessageSquare size={11} />
+                                  Architect
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })()}
+
                       <div className="flex items-center justify-between text-xs text-text-tertiary">
                         <span>{phaseCount} phase{phaseCount !== 1 ? 's' : ''}</span>
                         <span>{new Date(project.updated_at).toLocaleDateString()}</span>

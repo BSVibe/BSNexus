@@ -138,9 +138,9 @@ async def test_list_sessions_filter_by_status(client: AsyncClient, db_session):
     """GET /api/architect/sessions?status=active returns only active sessions."""
     _ = await create_session_via_api(client, db_session)
 
-    # Create and finalize another session
+    # Create and mark another session as project_bound
     session2 = await create_session_in_db(db_session)
-    session2.status = DesignSessionStatus.finalized
+    session2.status = DesignSessionStatus.project_bound
     await db_session.commit()
 
     response = await client.get(
@@ -350,12 +350,11 @@ async def test_send_message_session_not_found(client: AsyncClient, db_session):
     assert response.status_code == 404
 
 
-async def test_send_message_finalized_session(client: AsyncClient, db_session):
-    """POST /api/architect/sessions/{id}/message on finalized session returns 400."""
+async def test_send_message_cancelled_session(client: AsyncClient, db_session):
+    """POST /api/architect/sessions/{id}/message on cancelled session returns 400."""
     session = await create_session_in_db(db_session)
 
-    # Mark session as finalized
-    session.status = DesignSessionStatus.finalized
+    session.status = DesignSessionStatus.cancelled
     await db_session.commit()
 
     response = await client.post(
@@ -363,7 +362,7 @@ async def test_send_message_finalized_session(client: AsyncClient, db_session):
         json={"content": "Hello"},
     )
     assert response.status_code == 400
-    assert "not active" in response.json()["detail"]
+    assert "cancelled" in response.json()["detail"]
 
 
 async def test_send_message_llm_error(client: AsyncClient, db_session):
@@ -421,10 +420,10 @@ async def test_stream_message_session_not_found(client: AsyncClient, db_session)
     assert response.status_code == 404
 
 
-async def test_stream_message_finalized_session(client: AsyncClient, db_session):
-    """POST /api/architect/sessions/{id}/message/stream on finalized session returns 400."""
+async def test_stream_message_cancelled_session(client: AsyncClient, db_session):
+    """POST /api/architect/sessions/{id}/message/stream on cancelled session returns 400."""
     session = await create_session_in_db(db_session)
-    session.status = DesignSessionStatus.finalized
+    session.status = DesignSessionStatus.cancelled
     await db_session.commit()
 
     response = await client.post(
@@ -505,10 +504,10 @@ async def test_finalize_design_success(client: AsyncClient, db_session):
     assert data["phases"][0]["name"] == "Phase 1: Setup"
     assert data["phases"][1]["name"] == "Phase 2: Implementation"
 
-    # Verify session is finalized
+    # Verify session is project_bound
     get_resp = await client.get(f"/api/v1/architect/sessions/{session_id}")
     session = get_resp.json()
-    assert session["status"] == "finalized"
+    assert session["status"] == "project_bound"
     assert session["project_id"] == data["id"]
 
 
@@ -589,13 +588,13 @@ async def test_finalize_session_not_found(client: AsyncClient, db_session):
     assert response.status_code == 404
 
 
-async def test_finalize_already_finalized_returns_existing_project(
+async def test_finalize_already_project_bound_returns_existing_project(
     client: AsyncClient, db_session
 ):
-    """POST /api/architect/sessions/{id}/finalize on already-finalized session returns existing project."""
+    """POST /api/architect/sessions/{id}/finalize on already project_bound session returns existing project."""
     session = await create_session_in_db(db_session)
     project, _phase = await create_project_with_phase(db_session)
-    session.status = DesignSessionStatus.finalized
+    session.status = DesignSessionStatus.project_bound
     session.project_id = project.id
     await db_session.commit()
 
@@ -1078,20 +1077,20 @@ class TestListSessionsDirect:
 
         _ = await create_session_in_db(db_session)
         session2 = await create_session_in_db(db_session)
-        session2.status = DesignSessionStatus.finalized
+        session2.status = DesignSessionStatus.project_bound
         await db_session.commit()
         result = await list_sessions(status="active", db=db_session)
         assert all(r.status.value == "active" for r in result)
 
-    async def test_list_filter_finalized(self, db_session):
+    async def test_list_filter_project_bound(self, db_session):
         from backend.src.api.architect import list_sessions
 
         session = await create_session_in_db(db_session)
-        session.status = DesignSessionStatus.finalized
+        session.status = DesignSessionStatus.project_bound
         await db_session.commit()
-        result = await list_sessions(status="finalized", db=db_session)
+        result = await list_sessions(status="project_bound", db=db_session)
         assert len(result) == 1
-        assert result[0].status.value == "finalized"
+        assert result[0].status.value == "project_bound"
 
     async def test_list_invalid_status(self, db_session):
         from backend.src.api.architect import list_sessions
@@ -1280,12 +1279,12 @@ class TestSendMessageDirect:
         assert result.content == "Sure, I can help!"
         assert result.session_id == session.id
 
-    async def test_send_message_finalized_session(self, db_session):
+    async def test_send_message_cancelled_session(self, db_session):
         from backend.src import schemas
         from backend.src.api.architect import send_message
 
         session = await create_session_in_db(db_session)
-        session.status = DesignSessionStatus.finalized
+        session.status = DesignSessionStatus.cancelled
         await db_session.commit()
 
         body = schemas.MessageRequest(content="Hello")
@@ -1293,7 +1292,7 @@ class TestSendMessageDirect:
         with pytest.raises(HTTPException) as exc_info:
             await send_message(session_id=session.id, body=body, db=db_session)
         assert exc_info.value.status_code == 400
-        assert "not active" in exc_info.value.detail
+        assert "cancelled" in exc_info.value.detail
 
     async def test_send_message_session_not_found(self, db_session):
         from backend.src import schemas
@@ -1352,12 +1351,12 @@ class TestSendMessageStreamDirect:
 
         assert isinstance(result, EventSourceResponse)
 
-    async def test_stream_message_finalized_session(self, db_session):
+    async def test_stream_message_cancelled_session(self, db_session):
         from backend.src import schemas
         from backend.src.api.architect import send_message_stream
 
         session = await create_session_in_db(db_session)
-        session.status = DesignSessionStatus.finalized
+        session.status = DesignSessionStatus.cancelled
         await db_session.commit()
 
         body = schemas.MessageRequest(content="Hello")
@@ -1485,7 +1484,7 @@ class TestFinalizeDesignDirect:
         assert result.llm_config["pm"]["model"] == "gpt-4o"
         assert result.llm_config["pm"]["base_url"] == "https://pm.api"
 
-    async def test_finalize_finalized_session_returns_existing_project(
+    async def test_finalize_project_bound_session_returns_existing_project(
         self, db_session
     ):
         from backend.src import schemas
@@ -1493,7 +1492,7 @@ class TestFinalizeDesignDirect:
 
         session = await create_session_in_db(db_session)
         project, _phase = await create_project_with_phase(db_session)
-        session.status = DesignSessionStatus.finalized
+        session.status = DesignSessionStatus.project_bound
         session.project_id = project.id
         await db_session.commit()
 

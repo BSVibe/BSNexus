@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.src.config import settings
 from backend.src.core.llm_client import LLMError, create_llm_client_from_project
 from backend.src.core.state_machine import TaskStateMachine
-from backend.src.models import Phase, PhaseStatus, Task, TaskPriority, TaskStatus
+from backend.src.models import Phase, PhaseStatus, Task, TaskPriority, TaskSource, TaskStatus, TaskType
 from backend.src.prompts.loader import get_prompt
 from backend.src.queue.streams import RedisStreamManager
 from backend.src.repositories.phase_repository import PhaseRepository
@@ -365,6 +365,8 @@ class PMOrchestrator:
                 db_session=db,
                 stream_manager=self.stream_manager,
             )
+            # Auto-create bug task
+            await self._create_bug_task(task, db, error_msg, error_category)
         else:
             await self.state_machine.transition(
                 task=task,
@@ -412,6 +414,8 @@ class PMOrchestrator:
                 db_session=db,
                 stream_manager=self.stream_manager,
             )
+            # Auto-create bug task
+            await self._create_bug_task(task, db, effective_feedback, error_category)
         else:
             await self.state_machine.transition(
                 task=task,
@@ -423,6 +427,68 @@ class PMOrchestrator:
             )
             # Re-queue the task with QA feedback for the worker
             await self._requeue_with_feedback(task, db, effective_feedback)
+
+    async def _create_bug_task(
+        self, failed_task: Task, db: AsyncSession, error_msg: str, error_category: str = ""
+    ) -> Task | None:
+        """Create a bug task linked to a failed task for explicit tracking."""
+        try:
+            failure_history = json.dumps(failed_task.qa_feedback_history or [], indent=2)
+            description = (
+                f"Bug: {failed_task.title} failed after {failed_task.retry_count} attempts.\n\n"
+                f"Error: {error_msg}\n"
+                f"Category: {error_category or 'unknown'}\n\n"
+                f"Failure History:\n{failure_history}"
+            )
+
+            bug_task = Task(
+                project_id=failed_task.project_id,
+                phase_id=failed_task.phase_id,
+                title=f"Bug: {failed_task.title}",
+                description=description,
+                priority=TaskPriority.critical,
+                task_type=TaskType.bug,
+                source=TaskSource.auto_bug,
+                parent_task_id=failed_task.id,
+                status=TaskStatus.ready,
+                worker_prompt={"prompt": (
+                    f"Fix the bug in task '{failed_task.title}'.\n\n"
+                    f"Original error: {error_msg}\n\n"
+                    f"Review the failure history and fix the root cause:\n{failure_history}"
+                )},
+                qa_prompt={"prompt": (
+                    f"Verify that the bug from '{failed_task.title}' is fixed.\n"
+                    "Run regression tests to ensure the fix doesn't break other functionality."
+                )},
+                branch_name=failed_task.branch_name,
+            )
+            db.add(bug_task)
+            await db.flush()
+
+            # Publish board event
+            if self.stream_manager:
+                await self.stream_manager.publish_board_event(
+                    str(failed_task.project_id),
+                    {
+                        "type": "bug_task_created",
+                        "task_id": str(bug_task.id),
+                        "parent_task_id": str(failed_task.id),
+                        "title": bug_task.title,
+                    },
+                )
+
+            logger.info(
+                "Bug task created",
+                extra={
+                    "bug_task_id": str(bug_task.id),
+                    "parent_task_id": str(failed_task.id),
+                    "project_id": str(failed_task.project_id),
+                },
+            )
+            return bug_task
+        except Exception:
+            logger.exception("Failed to create bug task for %s", failed_task.id)
+            return None
 
     async def _requeue_with_feedback(self, task: Task, db: AsyncSession, feedback: str) -> None:
         """Re-queue a task for execution with QA feedback included in the prompt."""

@@ -60,9 +60,24 @@ class WorkerStatus(str, enum.Enum):
     offline = "offline"
 
 
+class TaskType(str, enum.Enum):
+    feature = "feature"
+    bug = "bug"
+    improvement = "improvement"
+    test = "test"
+    chore = "chore"
+    refactor = "refactor"
+
+
+class TaskSource(str, enum.Enum):
+    architect = "architect"
+    auto_bug = "auto_bug"
+    manual = "manual"
+
+
 class DesignSessionStatus(str, enum.Enum):
     active = "active"
-    finalized = "finalized"
+    project_bound = "project_bound"
     cancelled = "cancelled"
 
 
@@ -143,6 +158,11 @@ class Task(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[TaskStatus] = mapped_column(Enum(TaskStatus), nullable=False, default=TaskStatus.waiting)
     priority: Mapped[TaskPriority] = mapped_column(Enum(TaskPriority), nullable=False, default=TaskPriority.medium)
+    task_type: Mapped[TaskType] = mapped_column(Enum(TaskType), nullable=False, default=TaskType.feature)
+    source: Mapped[TaskSource] = mapped_column(Enum(TaskSource), nullable=False, default=TaskSource.architect)
+    parent_task_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True
+    )
     worker_prompt: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     qa_prompt: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     branch_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -171,6 +191,11 @@ class Task(Base):
     worker: Mapped["Worker | None"] = relationship("Worker", foreign_keys=[worker_id], back_populates="assigned_tasks")
     reviewer: Mapped["Worker | None"] = relationship("Worker", foreign_keys=[reviewer_id], back_populates="review_tasks")
     history: Mapped[list["TaskHistory"]] = relationship("TaskHistory", back_populates="task", cascade="all, delete-orphan")
+
+    # Self-referential: parent task (for bug tasks linked to originals)
+    parent_task: Mapped["Task | None"] = relationship(
+        "Task", remote_side=[id], foreign_keys=[parent_task_id], backref="child_tasks"
+    )
 
     # Self-referential M2M: tasks this task depends on
     depends_on: Mapped[list["Task"]] = relationship(

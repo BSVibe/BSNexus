@@ -18,6 +18,7 @@ from backend.src.storage.database import async_session, get_db
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from sse_starlette.sse import EventSourceResponse
 
 router = APIRouter(prefix="/api/v1/architect", tags=["architect"])
@@ -58,7 +59,7 @@ def _clean_response(text: str) -> tuple[str, bool, str | None]:
     return cleaned, has_finalize, design_context
 
 
-_STREAM_MARKERS = ["<design_context>", "[FINALIZE]"]
+_STREAM_MARKERS = ["<design_context>", "[FINALIZE]", "[CREATE_TASK]", "[MODIFY_TASK]"]
 _MAX_MARKER_LEN = max(len(m) for m in _STREAM_MARKERS)
 
 
@@ -104,14 +105,53 @@ def _build_llm_config(llm_config_dict: dict[str, Any] | None) -> LLMConfig:
     )
 
 
-def _build_message_history(session: models.DesignSession) -> list[dict[str, str]]:
+async def _load_project_with_tasks(project_id: uuid.UUID, db: AsyncSession) -> models.Project | None:
+    """Load a project with phases and tasks eagerly loaded for context building."""
+    result = await db.execute(
+        select(models.Project)
+        .where(models.Project.id == project_id)
+        .options(
+            selectinload(models.Project.phases).selectinload(models.Phase.tasks)
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+def _build_project_context(project: models.Project) -> str:
+    """Build a text summary of current project state for project-bound sessions."""
+    lines = [
+        f"Project: {project.name}",
+        f"Status: {project.status.value}",
+        f"Description: {project.description}",
+        "",
+        "Phases:",
+    ]
+    for phase in sorted(project.phases, key=lambda p: p.order):
+        lines.append(f"  [{phase.status.value}] {phase.name}")
+        for task in sorted(phase.tasks, key=lambda t: t.created_at):
+            task_type_label = f" ({task.task_type.value})" if task.task_type != models.TaskType.feature else ""
+            lines.append(f"    - [{task.status.value}] {task.title}{task_type_label} (id: {task.id})")
+    return "\n".join(lines)
+
+
+def _build_message_history(
+    session: models.DesignSession, project: models.Project | None = None
+) -> list[dict[str, str]]:
     """Build LLM message history from a session's messages.
 
     Prepends the system prompt from the prompt template with role='system',
     then appends all stored messages (user + assistant) in chronological order.
+    For project_bound sessions, uses the project-aware system prompt.
     """
+    if session.status == models.DesignSessionStatus.project_bound and project:
+        project_context = _build_project_context(project)
+        system_template = get_prompt("architect", "system_project_bound")
+        system_content = system_template.format(project_context=project_context)
+    else:
+        system_content = get_prompt("architect", "system")
+
     history: list[dict[str, str]] = [
-        {"role": "system", "content": get_prompt("architect", "system")},
+        {"role": "system", "content": system_content},
     ]
     chat_messages = [
         m for m in session.messages if m.message_type == models.MessageType.chat
@@ -127,6 +167,120 @@ def _build_message_history(session: models.DesignSession) -> list[dict[str, str]
         for m in sorted_messages
     )
     return history
+
+
+# ── Action Markers ──────────────────────────────────────────────────
+
+_CREATE_TASK_RE = re.compile(r"\[CREATE_TASK\](.*?)\[/CREATE_TASK\]", re.DOTALL)
+_MODIFY_TASK_RE = re.compile(r"\[MODIFY_TASK\](.*?)\[/MODIFY_TASK\]", re.DOTALL)
+_ACTION_MARKERS = ["[CREATE_TASK]", "[/CREATE_TASK]", "[MODIFY_TASK]", "[/MODIFY_TASK]"]
+
+
+def _strip_action_markers(text: str) -> str:
+    """Remove action marker blocks from user-visible text."""
+    text = _CREATE_TASK_RE.sub("", text)
+    text = _MODIFY_TASK_RE.sub("", text)
+    return text.strip()
+
+
+async def _execute_action_markers(
+    text: str, session: models.DesignSession, db: AsyncSession
+) -> list[dict[str, Any]]:
+    """Parse and execute action markers from LLM response.
+
+    Returns list of executed actions for board event publishing.
+    """
+    actions: list[dict[str, Any]] = []
+
+    if not session.project_id:
+        return actions
+
+    task_repo = TaskRepository(db)
+
+    # Handle CREATE_TASK markers
+    for match in _CREATE_TASK_RE.finditer(text):
+        try:
+            task_data = json.loads(match.group(1).strip())
+        except json.JSONDecodeError:
+            continue
+
+        # Find target phase (active phase by default)
+        phase_repo = PhaseRepository(db)
+        phases = await phase_repo.list_by_project(session.project_id)
+        active_phase = next((p for p in phases if p.status == models.PhaseStatus.active), None)
+        if not active_phase:
+            continue
+
+        priority_str = task_data.get("priority", "medium")
+        try:
+            priority = models.TaskPriority(priority_str)
+        except ValueError:
+            priority = models.TaskPriority.medium
+
+        task_type_str = task_data.get("task_type", "feature")
+        try:
+            task_type = models.TaskType(task_type_str)
+        except ValueError:
+            task_type = models.TaskType.feature
+
+        new_task = models.Task(
+            project_id=session.project_id,
+            phase_id=active_phase.id,
+            title=task_data.get("title", "Untitled Task"),
+            description=task_data.get("description"),
+            priority=priority,
+            task_type=task_type,
+            source=models.TaskSource.architect,
+            status=models.TaskStatus.ready,
+            worker_prompt={"prompt": task_data.get("worker_prompt", "")},
+            qa_prompt={"prompt": task_data.get("qa_prompt", "")},
+            branch_name=active_phase.branch_name,
+        )
+        db.add(new_task)
+        await db.flush()
+        actions.append({"type": "task_created", "task_id": str(new_task.id), "title": new_task.title})
+
+    # Handle MODIFY_TASK markers
+    for match in _MODIFY_TASK_RE.finditer(text):
+        try:
+            task_data = json.loads(match.group(1).strip())
+        except json.JSONDecodeError:
+            continue
+
+        task_id_str = task_data.get("task_id")
+        if not task_id_str:
+            continue
+
+        try:
+            task_id = uuid.UUID(task_id_str)
+        except ValueError:
+            continue
+
+        task = await task_repo.get_by_id(task_id)
+        if not task or task.project_id != session.project_id:
+            continue
+
+        # Only allow modification of tasks not yet in progress
+        if task.status not in (models.TaskStatus.waiting, models.TaskStatus.ready):
+            continue
+
+        if "title" in task_data:
+            task.title = task_data["title"]
+        if "description" in task_data:
+            task.description = task_data["description"]
+        if "priority" in task_data:
+            try:
+                task.priority = models.TaskPriority(task_data["priority"])
+            except ValueError:
+                pass
+        if "worker_prompt" in task_data:
+            task.worker_prompt = {"prompt": task_data["worker_prompt"]}
+        if "qa_prompt" in task_data:
+            task.qa_prompt = {"prompt": task_data["qa_prompt"]}
+
+        actions.append({"type": "task_modified", "task_id": str(task.id), "title": task.title})
+
+    return actions
 
 
 # ── 0. List Sessions ─────────────────────────────────────────────────
@@ -231,6 +385,22 @@ async def create_session(
 # ── 2. Get Session ───────────────────────────────────────────────────
 
 
+@router.get("/sessions/by-project/{project_id}", response_model=schemas.DesignSessionResponse)
+async def get_session_by_project(
+    project_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> schemas.DesignSessionResponse:
+    """Get the project-bound session for a given project."""
+    repo = DesignSessionRepository(db)
+    session = await repo.get_by_project_id(project_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="No session found for this project")
+    session.messages = [
+        m for m in session.messages if m.message_type == models.MessageType.chat
+    ]
+    return schemas.DesignSessionResponse.model_validate(session)
+
+
 @router.get("/sessions/{session_id}", response_model=schemas.DesignSessionResponse)
 async def get_session(
     session_id: uuid.UUID,
@@ -264,14 +434,19 @@ async def send_message(
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    if session.status != models.DesignSessionStatus.active:
-        raise HTTPException(status_code=400, detail="Session is not active")
+    if session.status == models.DesignSessionStatus.cancelled:
+        raise HTTPException(status_code=400, detail="Session is cancelled")
+
+    # Load project for project_bound sessions
+    project: models.Project | None = None
+    if session.status == models.DesignSessionStatus.project_bound and session.project_id:
+        project = await _load_project_with_tasks(session.project_id, db)
 
     # Save user message
     await repo.add_message(session.id, models.MessageRole.user, body.content)
 
     # Build message history and call LLM
-    messages = _build_message_history(session)
+    messages = _build_message_history(session, project=project)
     messages.append({"role": "user", "content": body.content})
 
     config = _build_llm_config(session.llm_config)
@@ -285,6 +460,11 @@ async def send_message(
     # Detect and strip finalize marker / design_context
     cleaned_text, has_finalize, design_context = _clean_response(response_text)
 
+    # Execute action markers for project-bound sessions
+    if session.status == models.DesignSessionStatus.project_bound:
+        await _execute_action_markers(response_text, session, db)
+        cleaned_text = _strip_action_markers(cleaned_text)
+
     # Save assistant response (original with design_context for later extraction)
     assistant_msg = await repo.add_message(
         session.id,
@@ -295,7 +475,7 @@ async def send_message(
     await repo.refresh(assistant_msg)
 
     response = schemas.DesignMessageResponse.model_validate(assistant_msg)
-    response.content = cleaned_text  # Strip design_context from frontend response
+    response.content = cleaned_text  # Strip design_context + action markers from frontend response
     response.finalize_ready = has_finalize
     response.design_context = design_context
     return response
@@ -316,18 +496,28 @@ async def send_message_stream(
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    if session.status != models.DesignSessionStatus.active:
-        raise HTTPException(status_code=400, detail="Session is not active")
+    if session.status == models.DesignSessionStatus.cancelled:
+        raise HTTPException(status_code=400, detail="Session is cancelled")
+
+    # Load project for project_bound sessions
+    project: models.Project | None = None
+    is_project_bound = session.status == models.DesignSessionStatus.project_bound
+    if is_project_bound and session.project_id:
+        project = await _load_project_with_tasks(session.project_id, db)
 
     # Save user message
     await repo.add_message(session.id, models.MessageRole.user, body.content)
 
     # Build message history
-    messages = _build_message_history(session)
+    messages = _build_message_history(session, project=project)
     messages.append({"role": "user", "content": body.content})
 
     config = _build_llm_config(session.llm_config)
     client = LLMClient(config)
+
+    # Capture session state for use in event generator closure
+    session_id_val = session.id
+    session_project_id = session.project_id
 
     async def event_generator():
         full_response = ""
@@ -364,6 +554,20 @@ async def send_message_stream(
                     suppressed = True
                     continue
 
+                # Check for action markers in project-bound mode
+                if is_project_bound:
+                    for marker in _ACTION_MARKERS:
+                        marker_idx = emit_buffer.find(marker)
+                        if marker_idx != -1:
+                            safe_text = emit_buffer[:marker_idx].rstrip()
+                            if safe_text:
+                                yield {"event": "chunk", "data": safe_text}
+                            emit_buffer = ""
+                            suppressed = True
+                            break
+                    if suppressed:
+                        continue
+
                 # Check if the tail could be the start of a marker
                 marker_start = _find_potential_marker_start(emit_buffer)
                 if marker_start is not None:
@@ -384,16 +588,32 @@ async def send_message_stream(
         if emit_buffer and not suppressed:
             cleaned_buf = emit_buffer.replace(FINALIZE_MARKER, "")
             cleaned_buf = _CONTEXT_RE.sub("", cleaned_buf).strip()
+            if is_project_bound:
+                cleaned_buf = _strip_action_markers(cleaned_buf)
             if cleaned_buf:
                 yield {"event": "chunk", "data": cleaned_buf}
 
         # Detect and strip finalize marker / design_context
         cleaned_response, has_finalize, design_context = _clean_response(full_response)
+        if is_project_bound:
+            cleaned_response = _strip_action_markers(cleaned_response)
+
+        # Execute action markers for project-bound sessions
+        if is_project_bound and session_project_id:
+            async with async_session() as action_db:
+                # Re-load session for action execution
+                action_session = models.DesignSession(
+                    id=session_id_val, project_id=session_project_id
+                )
+                actions = await _execute_action_markers(full_response, action_session, action_db)
+                await action_db.commit()
+                if actions:
+                    yield {"event": "actions_executed", "data": json.dumps(actions)}
 
         # Save assistant response (with design_context preserved for finalize extraction)
         stored_response = full_response.replace(FINALIZE_MARKER, "").strip()
         await repo.add_message(
-            session.id, models.MessageRole.assistant, stored_response
+            session_id_val, models.MessageRole.assistant, stored_response
         )
         await repo.commit()
 
@@ -426,7 +646,7 @@ async def finalize_design(
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    if session.status == models.DesignSessionStatus.finalized:
+    if session.status == models.DesignSessionStatus.project_bound:
         # Already finalized — return the existing project instead of 400
         if session.project_id:
             project_repo = ProjectRepository(db)
@@ -479,7 +699,7 @@ async def finalize_design(
         session = await write_session_repo.get_by_id(session_id, load_messages=False)
         if session is None:
             raise HTTPException(status_code=404, detail="Session not found")
-        if session.status == models.DesignSessionStatus.finalized:
+        if session.status == models.DesignSessionStatus.project_bound:
             if session.project_id:
                 project_repo = ProjectRepository(write_db)
                 existing_project = await project_repo.get_by_id(session.project_id)
@@ -617,7 +837,7 @@ async def finalize_design(
                 worker.project_id = project.id
 
         # Update session status and link to project
-        session.status = models.DesignSessionStatus.finalized
+        session.status = models.DesignSessionStatus.project_bound
         session.project_id = project.id
         await write_db.commit()
 

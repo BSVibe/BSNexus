@@ -8,7 +8,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src import models, schemas
-from backend.src.config import settings
 from backend.src.storage.database import get_db
 
 router = APIRouter(prefix="/api/v1/registration-tokens", tags=["registration-tokens"])

@@ -1,4 +1,5 @@
 import apiClient from './client'
+import type { ProjectDashboardSummary } from '../types/project'
 
 export interface DashboardStats {
   total_projects: number
@@ -16,4 +17,5 @@ export interface DashboardStats {
 
 export const dashboardApi = {
   getStats: () => apiClient.get<DashboardStats>('/api/v1/dashboard/stats').then(r => r.data),
+  getProjectsSummary: () => apiClient.get<ProjectDashboardSummary[]>('/api/v1/dashboard/projects-summary').then(r => r.data),
 }

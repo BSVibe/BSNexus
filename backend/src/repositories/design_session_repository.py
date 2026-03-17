@@ -35,6 +35,23 @@ class DesignSessionRepository(BaseRepository):
         result = await self.db.execute(query)
         return list(result.scalars().all())
 
+    async def get_by_project_id(
+        self, project_id: uuid.UUID, *, load_messages: bool = True
+    ) -> DesignSession | None:
+        """Get the project-bound session for a project."""
+        query = (
+            select(DesignSession)
+            .where(
+                DesignSession.project_id == project_id,
+                DesignSession.status == DesignSessionStatus.project_bound,
+            )
+            .order_by(DesignSession.updated_at.desc())
+        )
+        if load_messages:
+            query = query.options(selectinload(DesignSession.messages))
+        result = await self.db.execute(query)
+        return result.scalars().first()
+
     async def add_message(
         self,
         session_id: uuid.UUID,
