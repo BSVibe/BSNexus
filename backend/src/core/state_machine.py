@@ -113,6 +113,7 @@ class TaskStateMachine:
             TaskStatus.queued: self._on_queued,
             TaskStatus.ready: self._on_ready,
             TaskStatus.in_progress: self._on_in_progress,
+            TaskStatus.review: self._on_review,
             TaskStatus.done: self._on_done,
             TaskStatus.redesign: self._on_redesign,
         }
@@ -131,6 +132,10 @@ class TaskStateMachine:
     ) -> None:
         """Publish task to execution queue when queued."""
         if stream_manager is not None:
+            repo_path = ""
+            if db_session is not None:
+                repo_path = await self._get_repo_path(task, db_session)
+
             message = {
                 "task_id": str(task.id),
                 "project_id": str(task.project_id),
@@ -139,6 +144,7 @@ class TaskStateMachine:
                 "priority": task.priority.value,
                 "worker_prompt": json.dumps(task.worker_prompt) if task.worker_prompt else "",
                 "branch_name": task.branch_name or "",
+                "repo_path": repo_path,
             }
             await stream_manager.publish("tasks:queue", message)
 
@@ -168,6 +174,33 @@ class TaskStateMachine:
     ) -> None:
         """Set started_at timestamp."""
         task.started_at = datetime.now(timezone.utc)
+
+    async def _on_review(
+        self,
+        task: Task,
+        *,
+        old_status: Optional[TaskStatus] = None,
+        db_session: Optional[AsyncSession] = None,
+        stream_manager: Optional[RedisStreamManager] = None,
+        **kwargs: Any,
+    ) -> None:
+        """Publish task to QA review stream when transitioning to review."""
+        if stream_manager is not None:
+            repo_path = ""
+            if db_session is not None:
+                repo_path = await self._get_repo_path(task, db_session)
+
+            message = {
+                "task_id": str(task.id),
+                "project_id": str(task.project_id),
+                "phase_id": str(task.phase_id),
+                "title": task.title,
+                "priority": task.priority.value,
+                "qa_prompt": json.dumps(task.qa_prompt) if task.qa_prompt else "",
+                "branch_name": task.branch_name or "",
+                "repo_path": repo_path,
+            }
+            await stream_manager.publish("tasks:qa", message)
 
     async def _on_done(
         self,
