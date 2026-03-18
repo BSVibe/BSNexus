@@ -1,4 +1,19 @@
-const BASE_URL = 'http://localhost:8000/api/v1';
+let BASE_URL = 'http://localhost:8000/api/v1';
+
+/**
+ * Set the API base URL for all subsequent API calls.
+ * This is typically called during test setup via playwright.config.ts or test fixtures.
+ */
+export function setApiBaseUrl(url: string) {
+  BASE_URL = url;
+}
+
+/**
+ * Get the current API base URL.
+ */
+export function getApiBaseUrl(): string {
+  return BASE_URL;
+}
 
 export interface CreateProjectRequest {
   name: string;

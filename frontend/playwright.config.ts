@@ -1,5 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:8000/api/v1';
+const FRONTEND_BASE_URL = process.env.FRONTEND_BASE_URL || 'http://localhost:3000';
+
 export default defineConfig({
   testDir: './e2e/specs',
   fullyParallel: false,
@@ -8,9 +11,13 @@ export default defineConfig({
   workers: process.env.CI ? 1 : 1,
   reporter: [['html', { outputFolder: 'playwright-report' }], ['list']],
   use: {
-    baseURL: 'http://localhost:3000',
+    baseURL: FRONTEND_BASE_URL,
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
+    // Custom property for API base URL
+    extraHTTPHeaders: {
+      'X-API-Base-URL': API_BASE_URL,
+    },
   },
 
   projects: [
