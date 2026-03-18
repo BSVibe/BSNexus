@@ -249,28 +249,6 @@ async def test_get_board_stats(client, db_session, mock_redis):
 
 
 @pytest.mark.asyncio
-@pytest.mark.skip(reason="Workers model removed in monolithic refactor")
-async def test_get_board_workers(client, db_session, mock_redis):
-    """GET /api/board/{project_id} returns workers section with total, idle, busy counts."""
-    project, _phase, _task = await create_project_phase_task(db_session)
-
-    response = await client.get(f"/api/v1/board/{project.id}")
-
-    assert response.status_code == 200
-    data = response.json()
-
-    # Workers section should be present with expected keys
-    assert "workers" in data
-    assert "total" in data["workers"]
-    assert "idle" in data["workers"]
-    assert "busy" in data["workers"]
-
-    # With mock redis returning no workers, all should be 0
-    assert data["workers"]["total"] == 0
-    assert data["workers"]["idle"] == 0
-    assert data["workers"]["busy"] == 0
-
-
 # -- SSE Board Events ----------------------------------------------------------
 
 

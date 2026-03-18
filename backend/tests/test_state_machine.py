@@ -241,34 +241,6 @@ async def test_valid_transition_review_to_done(
     assert result.completed_at is not None
 
 
-@pytest.mark.skip(reason="Worker/Reviewer model removed in monolithic refactor")
-async def test_valid_transition_review_to_in_progress(
-    state_machine: TaskStateMachine, mock_db: AsyncMock, mock_stream: AsyncMock
-) -> None:
-    """QA failure auto-retry: review -> in_progress keeps worker_id, clears reviewer_id."""
-    worker_id = uuid.uuid4()
-    reviewer_id = uuid.uuid4()
-    task = make_task(
-        status=TaskStatus.review,
-        worker_id=worker_id,
-        reviewer_id=reviewer_id,
-        started_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
-    )
-    old_started_at = task.started_at
-
-    result = await state_machine.transition(
-        task, TaskStatus.in_progress, db_session=mock_db, stream_manager=mock_stream
-    )
-
-    assert result.status == TaskStatus.in_progress
-    # Worker is kept for QA retry
-    assert result.worker_id == worker_id
-    # Reviewer is cleared
-    assert result.reviewer_id is None
-    # started_at is refreshed
-    assert result.started_at is not None
-    assert result.started_at != old_started_at
-
 
 async def test_valid_transition_review_to_redesign(
     state_machine: TaskStateMachine, mock_db: AsyncMock, mock_stream: AsyncMock
@@ -551,81 +523,9 @@ async def test_on_in_progress_sets_started_at(
     assert task.started_at is not None
 
 
-@pytest.mark.skip(reason="Worker/Reviewer model removed in monolithic refactor")
-async def test_on_in_progress_sets_worker_id(
-    state_machine: TaskStateMachine, mock_db: AsyncMock, mock_stream: AsyncMock
-) -> None:
-    task = make_task(status=TaskStatus.queued)
-    worker_id = uuid.uuid4()
-    await state_machine.transition(
-        task, TaskStatus.in_progress, db_session=mock_db, stream_manager=mock_stream, worker_id=str(worker_id)
-    )
-    assert task.worker_id == worker_id
 
 
-@pytest.mark.skip(reason="Worker/Reviewer model removed in monolithic refactor")
-async def test_on_in_progress_from_review_keeps_worker_id(
-    state_machine: TaskStateMachine, mock_db: AsyncMock, mock_stream: AsyncMock
-) -> None:
-    """QA retry: review -> in_progress keeps the original worker_id."""
-    worker_id = uuid.uuid4()
-    reviewer_id = uuid.uuid4()
-    task = make_task(
-        status=TaskStatus.review,
-        worker_id=worker_id,
-        reviewer_id=reviewer_id,
-        started_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
-    )
 
-    await state_machine.transition(
-        task, TaskStatus.in_progress, db_session=mock_db, stream_manager=mock_stream
-    )
-
-    assert task.worker_id == worker_id
-    assert task.reviewer_id is None
-    assert task.started_at is not None
-    # started_at should be refreshed (not the old value)
-    assert task.started_at > datetime(2024, 1, 1, tzinfo=timezone.utc)
-
-
-@pytest.mark.skip(reason="Worker/Reviewer model removed in monolithic refactor")
-async def test_on_in_progress_from_review_does_not_call_worker_registry(
-    mock_db: AsyncMock, mock_stream: AsyncMock,
-) -> None:
-    """QA retry path should not call worker_registry.set_busy since worker is already assigned."""
-    mock_registry = AsyncMock()
-    sm = TaskStateMachine(worker_registry=mock_registry)
-    worker_id = uuid.uuid4()
-    task = make_task(
-        status=TaskStatus.review,
-        worker_id=worker_id,
-        reviewer_id=uuid.uuid4(),
-    )
-
-    await sm.transition(task, TaskStatus.in_progress, db_session=mock_db, stream_manager=mock_stream)
-
-    mock_registry.set_busy.assert_not_called()
-
-
-# -- Side effects: _on_ready from in_progress (execution retry) ---------------
-
-
-@pytest.mark.skip(reason="Worker/Reviewer model removed in monolithic refactor")
-async def test_on_ready_from_in_progress_resets_worker_id(
-    state_machine: TaskStateMachine, mock_db: AsyncMock, mock_stream: AsyncMock
-) -> None:
-    task = make_task(status=TaskStatus.in_progress, worker_id=uuid.uuid4())
-    await state_machine.transition(task, TaskStatus.ready, db_session=mock_db, stream_manager=mock_stream)
-    assert task.worker_id is None
-
-
-@pytest.mark.skip(reason="Worker/Reviewer model removed in monolithic refactor")
-async def test_on_ready_from_in_progress_resets_reviewer_id(
-    state_machine: TaskStateMachine, mock_db: AsyncMock, mock_stream: AsyncMock
-) -> None:
-    task = make_task(status=TaskStatus.in_progress, reviewer_id=uuid.uuid4())
-    await state_machine.transition(task, TaskStatus.ready, db_session=mock_db, stream_manager=mock_stream)
-    assert task.reviewer_id is None
 
 
 async def test_on_ready_from_in_progress_resets_error_message(
@@ -747,43 +647,6 @@ async def test_on_redesign_without_reason_no_error_message(
     assert task.error_message is None
 
 
-@pytest.mark.skip(reason="Worker/Reviewer model removed in monolithic refactor")
-async def test_on_redesign_releases_worker(
-    mock_db: AsyncMock, mock_stream: AsyncMock,
-) -> None:
-    """_on_redesign should release the worker via worker_registry.set_idle."""
-    mock_registry = AsyncMock()
-    sm = TaskStateMachine(worker_registry=mock_registry)
-    worker_id = uuid.uuid4()
-    task = make_task(status=TaskStatus.in_progress, worker_id=worker_id)
-
-    await sm.transition(
-        task, TaskStatus.redesign, db_session=mock_db, stream_manager=mock_stream,
-        reason="Escalate",
-    )
-
-    mock_registry.set_idle.assert_any_call(str(worker_id))
-
-
-@pytest.mark.skip(reason="Worker/Reviewer model removed in monolithic refactor")
-async def test_on_redesign_releases_reviewer(
-    mock_db: AsyncMock, mock_stream: AsyncMock,
-) -> None:
-    """_on_redesign should release the reviewer via worker_registry.set_idle."""
-    mock_registry = AsyncMock()
-    sm = TaskStateMachine(worker_registry=mock_registry)
-    worker_id = uuid.uuid4()
-    reviewer_id = uuid.uuid4()
-    task = make_task(status=TaskStatus.review, worker_id=worker_id, reviewer_id=reviewer_id)
-
-    await sm.transition(
-        task, TaskStatus.redesign, db_session=mock_db, stream_manager=mock_stream,
-        reason="QA escalation",
-    )
-
-    # Both worker and reviewer should be released
-    mock_registry.set_idle.assert_any_call(str(worker_id))
-    mock_registry.set_idle.assert_any_call(str(reviewer_id))
 
 
 async def test_on_redesign_without_worker_registry(
@@ -859,123 +722,11 @@ async def test_on_review_includes_repo_path_and_branch_name(
 # -- PromptSigner integration tests ------------------------------------------
 
 
-@pytest.mark.skip(reason="Worker/Reviewer model removed in monolithic refactor")
-async def test_on_queued_with_prompt_signer_signs_worker_prompt(
-    mock_db: AsyncMock, mock_stream: AsyncMock,
-) -> None:
-    mock_signer = AsyncMock()
-    mock_signer.sign = lambda prompt: {"prompt": prompt, "signature": "test-sig", "nonce": "test-nonce", "timestamp": 0}
-    sm = TaskStateMachine(prompt_signer=mock_signer)
-    task = make_task(status=TaskStatus.ready, worker_prompt={"content": "test"})
-
-    with patch("backend.src.core.state_machine.TaskStateMachine._get_repo_path", return_value=""):
-        await sm.transition(task, TaskStatus.queued, db_session=mock_db, stream_manager=mock_stream)
-
-    call_args = mock_stream.publish.call_args
-    payload = call_args[0][1]
-    assert "signed_worker_prompt" in payload
-    assert payload["signed_worker_prompt"]["signature"] == "test-sig"
 
 
-@pytest.mark.skip(reason="Worker/Reviewer model removed in monolithic refactor")
-async def test_on_queued_without_prompt_signer_no_signature(
-    mock_db: AsyncMock, mock_stream: AsyncMock,
-) -> None:
-    sm = TaskStateMachine()
-    task = make_task(status=TaskStatus.ready, worker_prompt={"content": "test"})
-
-    with patch("backend.src.core.state_machine.TaskStateMachine._get_repo_path", return_value=""):
-        await sm.transition(task, TaskStatus.queued, db_session=mock_db, stream_manager=mock_stream)
-
-    call_args = mock_stream.publish.call_args
-    payload = call_args[0][1]
-    assert "signed_worker_prompt" not in payload
 
 
-@pytest.mark.skip(reason="Worker/Reviewer model removed in monolithic refactor")
-async def test_on_review_with_prompt_signer_signs_qa_prompt(
-    mock_db: AsyncMock, mock_stream: AsyncMock,
-) -> None:
-    mock_signer = AsyncMock()
-    mock_signer.sign = lambda prompt: {"prompt": prompt, "signature": "qa-sig", "nonce": "qa-nonce", "timestamp": 0}
-    sm = TaskStateMachine(prompt_signer=mock_signer)
-    task = make_task(status=TaskStatus.in_progress, qa_prompt={"content": "qa test"})
 
-    with patch("backend.src.core.state_machine.TaskStateMachine._get_repo_path", return_value=""):
-        await sm.transition(task, TaskStatus.review, db_session=mock_db, stream_manager=mock_stream)
-
-    call_args = mock_stream.publish.call_args
-    payload = call_args[0][1]
-    assert "signed_qa_prompt" in payload
-    assert payload["signed_qa_prompt"]["signature"] == "qa-sig"
-
-
-@pytest.mark.skip(reason="Worker/Reviewer model removed in monolithic refactor")
-async def test_on_review_without_prompt_signer_no_signature(
-    mock_db: AsyncMock, mock_stream: AsyncMock,
-) -> None:
-    sm = TaskStateMachine()
-    task = make_task(status=TaskStatus.in_progress, qa_prompt={"content": "qa test"})
-
-    with patch("backend.src.core.state_machine.TaskStateMachine._get_repo_path", return_value=""):
-        await sm.transition(task, TaskStatus.review, db_session=mock_db, stream_manager=mock_stream)
-
-    call_args = mock_stream.publish.call_args
-    payload = call_args[0][1]
-    assert "signed_qa_prompt" not in payload
-
-
-# -- Worker Registry integration tests ----------------------------------------
-
-
-@pytest.mark.skip(reason="Worker/Reviewer model removed in monolithic refactor")
-async def test_on_in_progress_sets_worker_busy(
-    mock_db: AsyncMock, mock_stream: AsyncMock,
-) -> None:
-    mock_registry = AsyncMock()
-    sm = TaskStateMachine(worker_registry=mock_registry)
-    task = make_task(status=TaskStatus.queued)
-    worker_id = uuid.uuid4()
-
-    await sm.transition(
-        task, TaskStatus.in_progress, db_session=mock_db, stream_manager=mock_stream, worker_id=str(worker_id)
-    )
-
-    mock_registry.set_busy.assert_called_once_with(str(worker_id), str(task.id))
-
-
-@pytest.mark.skip(reason="Worker/Reviewer model removed in monolithic refactor")
-async def test_on_review_sets_executor_idle(
-    mock_db: AsyncMock, mock_stream: AsyncMock,
-) -> None:
-    mock_registry = AsyncMock()
-    sm = TaskStateMachine(worker_registry=mock_registry)
-    worker_id = uuid.uuid4()
-    task = make_task(status=TaskStatus.in_progress, worker_id=worker_id)
-
-    with patch("backend.src.core.state_machine.TaskStateMachine._get_repo_path", return_value=""):
-        await sm.transition(task, TaskStatus.review, db_session=mock_db, stream_manager=mock_stream)
-
-    mock_registry.set_idle.assert_called_once_with(str(worker_id))
-
-
-@pytest.mark.skip(reason="Worker/Reviewer model removed in monolithic refactor")
-async def test_on_done_sets_reviewer_idle(
-    mock_db: AsyncMock, mock_stream: AsyncMock,
-) -> None:
-    mock_registry = AsyncMock()
-    sm = TaskStateMachine(worker_registry=mock_registry)
-    reviewer_id = uuid.uuid4()
-    task = make_task(status=TaskStatus.review, reviewer_id=reviewer_id)
-
-    with patch("backend.src.core.state_machine.TaskRepository") as MockRepo:
-        mock_repo_instance = AsyncMock()
-        mock_repo_instance.find_waiting_dependents = AsyncMock(return_value=[])
-        MockRepo.return_value = mock_repo_instance
-
-        await sm.transition(task, TaskStatus.done, db_session=mock_db, stream_manager=mock_stream)
-
-    mock_registry.set_idle.assert_called_once_with(str(reviewer_id))
 
 
 async def test_worker_registry_none_backward_compat(
@@ -991,26 +742,6 @@ async def test_worker_registry_none_backward_compat(
     )
     assert task.status == TaskStatus.in_progress
 
-
-@pytest.mark.skip(reason="Worker/Reviewer model removed in monolithic refactor")
-async def test_worker_registry_failure_does_not_block_transition(
-    mock_db: AsyncMock, mock_stream: AsyncMock,
-) -> None:
-    mock_registry = AsyncMock()
-    mock_registry.set_busy = AsyncMock(side_effect=Exception("Redis down"))
-    sm = TaskStateMachine(worker_registry=mock_registry)
-    task = make_task(status=TaskStatus.queued)
-    worker_id = uuid.uuid4()
-
-    await sm.transition(
-        task, TaskStatus.in_progress, db_session=mock_db, stream_manager=mock_stream, worker_id=str(worker_id)
-    )
-
-    assert task.status == TaskStatus.in_progress
-    assert task.worker_id == worker_id
-
-
-# -- Task model new fields ---------------------------------------------------
 
 
 def test_task_fixture_includes_retry_count() -> None:
