@@ -110,6 +110,7 @@ class TaskStateMachine:
     ) -> None:
         """Dispatch side effects based on the new status."""
         side_effect_map = {
+            TaskStatus.queued: self._on_queued,
             TaskStatus.ready: self._on_ready,
             TaskStatus.in_progress: self._on_in_progress,
             TaskStatus.done: self._on_done,
@@ -118,6 +119,28 @@ class TaskStateMachine:
         handler = side_effect_map.get(new_status)
         if handler is not None:
             await handler(task, old_status=old_status, db_session=db_session, stream_manager=stream_manager, **kwargs)
+
+    async def _on_queued(
+        self,
+        task: Task,
+        *,
+        old_status: Optional[TaskStatus] = None,
+        db_session: Optional[AsyncSession] = None,
+        stream_manager: Optional[RedisStreamManager] = None,
+        **kwargs: Any,
+    ) -> None:
+        """Publish task to execution queue when queued."""
+        if stream_manager is not None:
+            message = {
+                "task_id": str(task.id),
+                "project_id": str(task.project_id),
+                "phase_id": str(task.phase_id),
+                "title": task.title,
+                "priority": task.priority.value,
+                "worker_prompt": json.dumps(task.worker_prompt) if task.worker_prompt else "",
+                "branch_name": task.branch_name or "",
+            }
+            await stream_manager.publish("tasks:queue", message)
 
     async def _on_ready(
         self,
