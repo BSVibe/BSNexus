@@ -49,7 +49,7 @@ async def test_create_bug_task_sets_correct_fields() -> None:
     mock_stream.publish_board_event = AsyncMock()
     orchestrator = PMOrchestrator(
         stream_manager=mock_stream,
-        worker_registry=AsyncMock(),
+        task_runner=AsyncMock(),
         state_machine=AsyncMock(),
     )
 
@@ -90,7 +90,7 @@ async def test_create_bug_task_publishes_board_event() -> None:
     mock_stream.publish_board_event = AsyncMock()
     orchestrator = PMOrchestrator(
         stream_manager=mock_stream,
-        worker_registry=AsyncMock(),
+        task_runner=AsyncMock(),
         state_machine=AsyncMock(),
     )
 
@@ -115,7 +115,7 @@ async def test_create_bug_task_handles_exception() -> None:
     mock_stream = AsyncMock()
     orchestrator = PMOrchestrator(
         stream_manager=mock_stream,
-        worker_registry=AsyncMock(),
+        task_runner=AsyncMock(),
         state_machine=AsyncMock(),
     )
 
@@ -135,7 +135,7 @@ async def test_create_bug_task_worker_prompt_includes_error() -> None:
     mock_stream.publish_board_event = AsyncMock()
     orchestrator = PMOrchestrator(
         stream_manager=mock_stream,
-        worker_registry=AsyncMock(),
+        task_runner=AsyncMock(),
         state_machine=AsyncMock(),
     )
 

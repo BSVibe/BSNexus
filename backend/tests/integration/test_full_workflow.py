@@ -235,7 +235,6 @@ async def test_board_snapshot(client: AsyncClient, db_session: AsyncSession, moc
     assert board["project_id"] == project["id"]
     assert "columns" in board
     assert "stats" in board
-    assert "workers" in board
 
     # Verify columns contain tasks in correct states (BoardColumn format)
     columns = board["columns"]

@@ -160,7 +160,6 @@ async def test_get_status_not_running(api_client: AsyncClient, mock_redis: Async
     data = response.json()
     assert data["project_id"] == project_id
     assert data["running"] is False
-    assert "workers" in data
     assert "tasks" in data
 
 

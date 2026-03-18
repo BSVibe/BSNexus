@@ -112,9 +112,6 @@ async def test_get_board_empty_project(client, db_session, mock_redis):
     # Stats should all be zero
     assert data["stats"]["total"] == 0
 
-    # Workers section should be present
-    assert "workers" in data
-
 
 @pytest.mark.asyncio
 async def test_get_board_with_tasks(client, db_session, mock_redis):
@@ -252,6 +249,7 @@ async def test_get_board_stats(client, db_session, mock_redis):
 
 
 @pytest.mark.asyncio
+@pytest.mark.skip(reason="Workers model removed in monolithic refactor")
 async def test_get_board_workers(client, db_session, mock_redis):
     """GET /api/board/{project_id} returns workers section with total, idle, busy counts."""
     project, _phase, _task = await create_project_phase_task(db_session)

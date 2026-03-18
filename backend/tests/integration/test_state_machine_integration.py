@@ -181,7 +181,6 @@ async def test_execution_failure_auto_retry_via_api(client: AsyncClient, db_sess
     assert task_resp.status_code == 200
     final_task = task_resp.json()
     assert final_task["status"] == "ready"
-    assert final_task["worker_id"] is None
     assert final_task["error_message"] is None
 
 
