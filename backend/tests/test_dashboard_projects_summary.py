@@ -20,8 +20,6 @@ from backend.src.models import (
     TaskSource,
     TaskStatus,
     TaskType,
-    Worker,
-    WorkerStatus,
 )
 
 
@@ -116,31 +114,21 @@ async def test_projects_summary_architect_session(client: AsyncClient, db_sessio
 
 
 @pytest.mark.asyncio
-async def test_projects_summary_worker_count(client: AsyncClient, db_session) -> None:
-    """Returns correct active worker count."""
+async def test_projects_summary_multiple_projects(client: AsyncClient, db_session) -> None:
+    """Returns summary for multiple projects."""
     now = datetime.now(timezone.utc)
 
-    project = Project(
-        id=uuid.uuid4(), name="P", description="d", repo_path="/t",
-        status=ProjectStatus.active, created_at=now, updated_at=now,
-    )
-    db_session.add(project)
+    # Create multiple projects with different statuses
+    for status in (ProjectStatus.active, ProjectStatus.design, ProjectStatus.completed):
+        project = Project(
+            id=uuid.uuid4(), name=f"P-{status.value}", description="d", repo_path="/t",
+            status=status, created_at=now, updated_at=now,
+        )
+        db_session.add(project)
 
-    phase = Phase(
-        id=uuid.uuid4(), project_id=project.id, name="Ph", order=1,
-        status=PhaseStatus.active, branch_name="b",
-        created_at=now, updated_at=now,
-    )
-    db_session.add(phase)
-
-    # 1 idle + 1 busy + 1 offline = 2 active
-    for status in (WorkerStatus.idle, WorkerStatus.busy, WorkerStatus.offline):
-        db_session.add(Worker(
-            id=uuid.uuid4(), project_id=project.id, name=f"w-{status.value}",
-            platform="linux", status=status, last_heartbeat=now,
-        ))
     await db_session.flush()
 
     resp = await client.get("/api/v1/dashboard/projects-summary")
     assert resp.status_code == 200
-    assert resp.json()[0]["active_worker_count"] == 2
+    data = resp.json()
+    assert len(data) == 3

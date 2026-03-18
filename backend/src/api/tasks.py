@@ -37,8 +37,6 @@ def build_task_response(task: Task) -> schemas.TaskResponse:
         qa_prompt=task.qa_prompt,
         branch_name=task.branch_name,
         commit_hash=task.commit_hash,
-        worker_id=task.worker_id,
-        reviewer_id=task.reviewer_id,
         qa_result=task.qa_result,
         output_path=task.output_path,
         error_message=task.error_message,

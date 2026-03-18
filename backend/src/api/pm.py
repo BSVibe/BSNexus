@@ -5,12 +5,14 @@ import logging
 import uuid
 
 from backend.src import models
+from backend.src.config import settings
+from backend.src.core.executor import create_executor
 from backend.src.core.orchestrator import PMOrchestrator
 from backend.src.core.state_machine import TaskStateMachine
+from backend.src.core.task_runner import LocalTaskRunner
 from backend.src.repositories.phase_repository import PhaseRepository
 from backend.src.repositories.task_repository import TaskRepository
 from backend.src.storage.database import async_session, get_db
-from backend.src.utils.worker_registry import WorkerRegistry
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,11 +22,6 @@ router = APIRouter(prefix="/api/v1/pm", tags=["pm"])
 
 
 # -- Dependency helpers --------------------------------------------------------
-
-
-def _get_registry(request: Request) -> WorkerRegistry:
-    """Build a WorkerRegistry from the app-level Redis client."""
-    return WorkerRegistry(request.app.state.redis)
 
 
 def _get_stream_manager(request: Request) -> object:
@@ -37,6 +34,16 @@ def _ensure_orchestrators(request: Request) -> dict[str, dict]:
     if not hasattr(request.app.state, "orchestrators"):
         request.app.state.orchestrators = {}
     return request.app.state.orchestrators
+
+
+def _build_orchestrator(request: Request) -> PMOrchestrator:
+    """Build a PMOrchestrator with LocalTaskRunner."""
+    stream_manager = _get_stream_manager(request)
+    return PMOrchestrator(
+        stream_manager=stream_manager,
+        task_runner=LocalTaskRunner(create_executor(settings.executor_type)),
+        state_machine=TaskStateMachine(),
+    )
 
 
 # -- Endpoints ----------------------------------------------------------------
@@ -56,15 +63,7 @@ async def start_orchestration(
             status_code=409, detail="Orchestrator already running for this project"
         )
 
-    stream_manager = _get_stream_manager(request)
-    registry = _get_registry(request)
-    state_machine = TaskStateMachine()
-
-    orchestrator = PMOrchestrator(
-        stream_manager=stream_manager,
-        worker_registry=registry,
-        state_machine=state_machine,
-    )
+    orchestrator = _build_orchestrator(request)
 
     task = asyncio.create_task(orchestrator.start(project_id, async_session))
 
@@ -122,12 +121,6 @@ async def get_orchestration_status(
     entry = orchestrators.get(pid)
     running = bool(entry and entry.get("running"))
 
-    # Worker counts
-    registry = _get_registry(request)
-    workers = await registry.get_all_workers()
-    idle_count = sum(1 for w in workers if w["status"] == "idle")
-    busy_count = sum(1 for w in workers if w["status"] == "busy")
-
     # Task counts by status
     repo = TaskRepository(db)
     task_counts = await repo.count_by_status(project_id)
@@ -135,11 +128,6 @@ async def get_orchestration_status(
     return {
         "project_id": pid,
         "running": running,
-        "workers": {
-            "idle": idle_count,
-            "busy": busy_count,
-            "total": len(workers),
-        },
         "tasks": task_counts,
     }
 
@@ -182,16 +170,8 @@ async def queue_next_task(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Manually queue the highest-priority READY task."""
-    stream_manager = _get_stream_manager(request)
-    registry = _get_registry(request)
-    state_machine = TaskStateMachine()
-
-    orchestrator = PMOrchestrator(
-        stream_manager=stream_manager,
-        worker_registry=registry,
-        state_machine=state_machine,
-    )
+    """Manually move the highest-priority READY task to in_progress."""
+    orchestrator = _build_orchestrator(request)
 
     task = await orchestrator.queue_next(project_id, db)
     if not task:

@@ -37,15 +37,6 @@ async def get_dashboard_stats(db: AsyncSession = Depends(get_db)) -> schemas.Das
     done_tasks = sum(1 for t in tasks if t.status == models.TaskStatus.done)
     completion_rate = round((done_tasks / total_tasks * 100), 1) if total_tasks > 0 else 0.0
 
-    # Worker stats
-    worker_result = await db.execute(select(models.Worker))
-    workers = worker_result.scalars().all()
-    total_workers = len(workers)
-    online_workers = sum(
-        1 for w in workers if w.status in (models.WorkerStatus.idle, models.WorkerStatus.busy)
-    )
-    busy_workers = sum(1 for w in workers if w.status == models.WorkerStatus.busy)
-
     return schemas.DashboardStatsResponse(
         total_projects=total_projects,
         active_projects=active_projects,
@@ -55,9 +46,6 @@ async def get_dashboard_stats(db: AsyncSession = Depends(get_db)) -> schemas.Das
         in_progress_tasks=in_progress_tasks,
         done_tasks=done_tasks,
         completion_rate=completion_rate,
-        total_workers=total_workers,
-        online_workers=online_workers,
-        busy_workers=busy_workers,
     )
 
 
@@ -107,22 +95,6 @@ async def get_projects_summary(
     for project_id, count in bug_counts_result:
         bug_counts[project_id] = count
 
-    # Batch query: active worker counts by project
-    worker_counts_result = await db.execute(
-        select(
-            models.Worker.project_id,
-            func.count(models.Worker.id),
-        )
-        .where(
-            models.Worker.project_id.in_(project_ids),
-            models.Worker.status.in_([models.WorkerStatus.idle, models.WorkerStatus.busy]),
-        )
-        .group_by(models.Worker.project_id)
-    )
-    worker_counts: dict[uuid.UUID, int] = {}
-    for project_id, count in worker_counts_result:
-        worker_counts[project_id] = count
-
     # Check for architect sessions
     session_result = await db.execute(
         select(models.DesignSession.project_id)
@@ -159,7 +131,6 @@ async def get_projects_summary(
                 status=schemas.ProjectStatus(project.status.value),
                 task_counts=dict(task_counts.get(project.id, {})),
                 bug_count=bug_counts.get(project.id, 0),
-                active_worker_count=worker_counts.get(project.id, 0),
                 current_phase=active_phase.name if active_phase else None,
                 has_architect_session=project.id in projects_with_sessions,
                 last_activity=last_activities.get(project.id),

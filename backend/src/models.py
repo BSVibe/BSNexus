@@ -54,12 +54,6 @@ class TaskPriority(str, enum.Enum):
     critical = "critical"
 
 
-class WorkerStatus(str, enum.Enum):
-    idle = "idle"
-    busy = "busy"
-    offline = "offline"
-
-
 class TaskType(str, enum.Enum):
     feature = "feature"
     bug = "bug"
@@ -122,7 +116,7 @@ class Project(Base):
     design_sessions: Mapped[list["DesignSession"]] = relationship(
         "DesignSession", back_populates="project", cascade="all, delete-orphan"
     )
-    workers: Mapped[list["Worker"]] = relationship("Worker", back_populates="project")
+
 
 
 class Phase(Base):
@@ -148,7 +142,6 @@ class Task(Base):
     __table_args__ = (
         Index("ix_tasks_project_status", "project_id", "status"),
         Index("ix_tasks_phase_status", "phase_id", "status"),
-        Index("ix_tasks_worker_id", "worker_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
@@ -167,12 +160,6 @@ class Task(Base):
     qa_prompt: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     branch_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     commit_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    worker_id: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid, ForeignKey("workers.id", ondelete="SET NULL"), nullable=True
-    )
-    reviewer_id: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid, ForeignKey("workers.id", ondelete="SET NULL"), nullable=True
-    )
     qa_result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     output_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -188,8 +175,6 @@ class Task(Base):
     # Relationships
     project: Mapped["Project"] = relationship("Project")
     phase: Mapped["Phase"] = relationship("Phase", back_populates="tasks")
-    worker: Mapped["Worker | None"] = relationship("Worker", foreign_keys=[worker_id], back_populates="assigned_tasks")
-    reviewer: Mapped["Worker | None"] = relationship("Worker", foreign_keys=[reviewer_id], back_populates="review_tasks")
     history: Mapped[list["TaskHistory"]] = relationship("TaskHistory", back_populates="task", cascade="all, delete-orphan")
 
     # Self-referential: parent task (for bug tasks linked to originals)
@@ -224,41 +209,12 @@ class TaskHistory(Base):
     task: Mapped["Task"] = relationship("Task", back_populates="history")
 
 
-class Worker(Base):
-    __tablename__ = "workers"
-
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
-    platform: Mapped[str] = mapped_column(String(50), nullable=False)
-    capabilities: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    status: Mapped[WorkerStatus] = mapped_column(Enum(WorkerStatus), nullable=False, default=WorkerStatus.idle)
-    current_task_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
-    executor_type: Mapped[str] = mapped_column(String(50), nullable=False, default="claude-code")
-    project_id: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid, ForeignKey("projects.id", ondelete="SET NULL"), nullable=True
-    )
-    registered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    last_heartbeat: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-
-    # Relationships
-    project: Mapped["Project | None"] = relationship("Project", back_populates="workers")
-    assigned_tasks: Mapped[list["Task"]] = relationship(
-        "Task", foreign_keys=[Task.worker_id], back_populates="worker"
-    )
-    review_tasks: Mapped[list["Task"]] = relationship(
-        "Task", foreign_keys=[Task.reviewer_id], back_populates="reviewer"
-    )
-
-
 class DesignSession(Base):
     __tablename__ = "design_sessions"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     project_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("projects.id", ondelete="SET NULL"), nullable=True
-    )
-    worker_id: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid, ForeignKey("workers.id", ondelete="SET NULL"), nullable=True
     )
     name: Mapped[str | None] = mapped_column(String(255), nullable=True, default=None)
     status: Mapped[DesignSessionStatus] = mapped_column(
@@ -306,12 +262,3 @@ class Setting(Base):
     )
 
 
-class RegistrationToken(Base):
-    __tablename__ = "registration_tokens"
-
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    token: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    revoked: Mapped[bool] = mapped_column(default=False)

@@ -67,12 +67,6 @@ class TaskSource(str, enum.Enum):
     manual = "manual"
 
 
-class WorkerStatus(str, enum.Enum):
-    idle = "idle"
-    busy = "busy"
-    offline = "offline"
-
-
 # ── Phase Schemas ─────────────────────────────────────────────────────
 
 
@@ -172,8 +166,6 @@ class TaskResponse(BaseModel):
     qa_prompt: Optional[dict] = None
     branch_name: Optional[str] = None
     commit_hash: Optional[str] = None
-    worker_id: Optional[uuid.UUID] = None
-    reviewer_id: Optional[uuid.UUID] = None
     qa_result: Optional[dict] = None
     output_path: Optional[str] = None
     error_message: Optional[str] = None
@@ -186,69 +178,6 @@ class TaskResponse(BaseModel):
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     depends_on: list[uuid.UUID] = Field(default_factory=list)
-
-
-# ── Worker Schemas ────────────────────────────────────────────────────
-
-
-class WorkerRegister(BaseModel):
-    name: Optional[str] = None
-    platform: str
-    capabilities: Optional[dict] = None
-    executor_type: str = "claude-code"
-    registration_token: str
-    worker_id: Optional[str] = None
-    worker_token: Optional[str] = None
-
-
-class WorkerResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: uuid.UUID
-    name: str
-    platform: str
-    capabilities: Optional[dict] = None
-    status: WorkerStatus
-    current_task_id: Optional[uuid.UUID] = None
-    executor_type: str
-    project_id: Optional[uuid.UUID] = None
-    registered_at: datetime
-    last_heartbeat: Optional[datetime] = None
-
-
-class WorkerHeartbeatResponse(BaseModel):
-    status: WorkerStatus
-    pending_tasks: int
-
-
-class WorkerPollRequest(BaseModel):
-    poll_types: list[str] = Field(default=["task", "qa"])
-
-
-class WorkerPollItem(BaseModel):
-    type: str
-    message_id: str
-    stream: str
-    data: dict
-
-
-class WorkerPollResponse(BaseModel):
-    items: list[WorkerPollItem] = Field(default_factory=list)
-
-
-class WorkerResultRequest(BaseModel):
-    message_id: str
-    stream: str
-    result_type: str
-    task_id: str
-    success: bool = False
-    passed: bool = False
-    output_path: str = ""
-    error_message: str = ""
-    error_category: str = ""
-    commit_hash: str = ""
-    branch_name: str = ""
-    feedback: str = ""
 
 
 # ── Board Schemas ─────────────────────────────────────────────────────
@@ -268,7 +197,6 @@ class BoardResponse(BaseModel):
     project_id: uuid.UUID
     columns: dict[str, BoardColumn]
     stats: dict[str, int]
-    workers: dict[str, int] = Field(default_factory=dict)
     phases: dict[str, PhaseInfoResponse] = Field(default_factory=dict)
     redesign_tasks: list[TaskResponse] = Field(default_factory=list)
 
@@ -312,7 +240,6 @@ class LLMConfigInput(BaseModel):
 
 class CreateSessionRequest(BaseModel):
     name: Optional[str] = None
-    worker_id: Optional[uuid.UUID] = None
 
 
 class MessageRequest(BaseModel):
@@ -334,7 +261,6 @@ class DesignSessionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID
     project_id: Optional[uuid.UUID] = None
-    worker_id: Optional[uuid.UUID] = None
     name: Optional[str] = None
     status: DesignSessionStatus
     created_at: datetime
@@ -390,9 +316,6 @@ class DashboardStatsResponse(BaseModel):
     in_progress_tasks: int
     done_tasks: int
     completion_rate: float
-    total_workers: int
-    online_workers: int
-    busy_workers: int
 
 
 class ProjectDashboardSummary(BaseModel):
@@ -403,7 +326,6 @@ class ProjectDashboardSummary(BaseModel):
     status: ProjectStatus
     task_counts: dict[str, int]  # status → count
     bug_count: int = 0
-    active_worker_count: int = 0
     current_phase: Optional[str] = None
     has_architect_session: bool = False
     last_activity: Optional[datetime] = None
@@ -437,24 +359,6 @@ class BatchDeleteResponse(BaseModel):
 
 class DeleteResponse(BaseModel):
     detail: str
-
-
-# ── Registration Token Schemas ──────────────────────────────────────
-
-
-class RegistrationTokenCreate(BaseModel):
-    name: Optional[str] = None
-
-
-class RegistrationTokenResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: uuid.UUID
-    token: str
-    name: str
-    created_at: datetime
-    expires_at: Optional[datetime] = None
-    revoked: bool
 
 
 # ── Security Schemas ───────────────────────────────────────────────

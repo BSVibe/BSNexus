@@ -1,9 +1,12 @@
 import asyncio
+import logging
 from pathlib import Path
 
+logger = logging.getLogger(__name__)
 
-class WorkerGitOps:
-    """Git automation running on worker nodes.
+
+class GitOps:
+    """Git automation for local task execution.
 
     Handles repo initialization, branch management, task commits, and reverts.
     All operations are idempotent and safe to call multiple times.
@@ -15,7 +18,6 @@ class WorkerGitOps:
     async def ensure_repo(self) -> None:
         """Initialize git repo if it doesn't exist."""
         if await self._is_git_repo():
-            # Guard: repo dir exists but main may lack commits (partial init / race)
             try:
                 await self._run("rev-parse", "--verify", "main")
             except RuntimeError:
@@ -24,8 +26,8 @@ class WorkerGitOps:
             return
         Path(self.repo_path).mkdir(parents=True, exist_ok=True)
         await self._run("init", self.repo_path)
-        await self._run("config", "user.email", "bsnexus-worker@localhost")
-        await self._run("config", "user.name", "BSNexus Worker")
+        await self._run("config", "user.email", "bsnexus@localhost")
+        await self._run("config", "user.name", "BSNexus")
         await self._run("checkout", "-b", "main")
         await self._run("commit", "--allow-empty", "-m", "chore: initialize repository")
 
@@ -45,12 +47,11 @@ class WorkerGitOps:
         """Stage all changes and commit. Returns commit hash, or empty string if no changes."""
         await self.ensure_branch(branch_name)
         await self._run("add", ".")
-        # git diff --cached --quiet exits 0 when no staged changes, 1 when there are
         try:
             await self._run("diff", "--cached", "--quiet")
             return ""  # nothing to commit
         except RuntimeError:
-            pass  # staged changes exist — proceed
+            pass  # staged changes exist
         message = f"feat(task-{task_id}): {title}"
         await self._run("commit", "-m", message)
         return (await self._run("rev-parse", "HEAD")).strip()

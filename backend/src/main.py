@@ -13,11 +13,9 @@ from backend.src.api import (
     dashboard,
     pm,
     projects,
-    registration_tokens,
     security,
     settings,
     tasks,
-    workers,
 )
 from backend.src.config import settings as app_settings
 from backend.src.core.rate_limiter import RateLimitMiddleware
@@ -154,11 +152,9 @@ async def health_deps():
 # API routers
 app.include_router(tasks.router)
 app.include_router(projects.router)
-app.include_router(workers.router)
 app.include_router(pm.router)
 app.include_router(architect.router)
 app.include_router(board.router)
 app.include_router(dashboard.router)
 app.include_router(settings.router)
-app.include_router(registration_tokens.router)
 app.include_router(security.router)

@@ -27,8 +27,6 @@ export interface Task {
   qa_prompt: Record<string, unknown> | null
   branch_name: string | null
   commit_hash: string | null
-  worker_id: string | null
-  reviewer_id: string | null
   qa_result: Record<string, unknown> | null
   output_path: string | null
   error_message: string | null
@@ -89,7 +87,6 @@ export interface BoardResponse {
   project_id: string
   columns: Record<string, BoardColumn>
   stats: Record<string, number>
-  workers: Record<string, number>
   phases: Record<string, PhaseInfo>
   redesign_tasks: Task[]
 }

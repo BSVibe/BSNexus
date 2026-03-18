@@ -6,9 +6,8 @@ interface Props {
 }
 
 export default function BoardStats({ projectName }: Props) {
-  const { stats, workers, getBoardStats } = useBoardStore()
+  const { stats, getBoardStats } = useBoardStore()
   const { total, done, completionRate } = getBoardStats()
-  const activeWorkers = Object.values(workers).reduce((sum, count) => sum + count, 0)
 
   return (
     <div className="bg-bg-card rounded-lg border border-border p-4 mb-4">
@@ -42,9 +41,6 @@ export default function BoardStats({ projectName }: Props) {
             ))}
           </div>
 
-          <div className="text-sm text-text-secondary">
-            <span className="font-medium">{activeWorkers}</span> workers
-          </div>
         </div>
       </div>
     </div>

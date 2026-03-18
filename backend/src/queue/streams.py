@@ -7,16 +7,10 @@ class RedisStreamManager:
     """Redis Streams abstraction layer."""
 
     # Stream name constants
-    TASKS_QUEUE = "tasks:queue"
-    TASKS_RESULTS = "tasks:results"
-    TASKS_QA = "tasks:qa"
     TASKS_ESCALATION = "tasks:escalation"
     EVENTS_BOARD = "events:board"
 
     # Consumer group name constants
-    GROUP_WORKERS = "workers"
-    GROUP_PM = "pm"
-    GROUP_REVIEWERS = "reviewers"
     GROUP_ARCHITECT = "architect"
 
     def __init__(self, redis_client: redis.Redis) -> None:
@@ -25,9 +19,6 @@ class RedisStreamManager:
     async def initialize_streams(self) -> None:
         """Initialize streams and consumer groups at server startup."""
         streams_groups = [
-            (self.TASKS_QUEUE, self.GROUP_WORKERS),
-            (self.TASKS_RESULTS, self.GROUP_PM),
-            (self.TASKS_QA, self.GROUP_REVIEWERS),
             (self.TASKS_ESCALATION, self.GROUP_ARCHITECT),
         ]
 
@@ -89,6 +80,6 @@ class RedisStreamManager:
 
     async def trim_streams(self, maxlen: int = 1000) -> None:
         """Trim old messages from streams."""
-        for stream in [self.TASKS_QUEUE, self.TASKS_RESULTS, self.TASKS_QA, self.TASKS_ESCALATION]:
+        for stream in [self.TASKS_ESCALATION]:
             await self.redis.xtrim(stream, maxlen=maxlen, approximate=True)
         await self.redis.xtrim(self.EVENTS_BOARD, maxlen=5000, approximate=True)

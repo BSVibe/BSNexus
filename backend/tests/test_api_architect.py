@@ -15,8 +15,6 @@ from backend.src.models import (
     Project,
     ProjectStatus,
     Setting,
-    Worker,
-    WorkerStatus,
 )
 from fastapi import HTTPException
 from httpx import AsyncClient
@@ -195,32 +193,12 @@ async def test_create_session_success(client: AsyncClient, db_session):
     assert len(data["messages"]) == 0
 
 
-async def test_create_session_stores_worker_id(client: AsyncClient, db_session):
-    """POST /api/architect/sessions stores worker_id when provided."""
-    await insert_global_llm_settings(db_session)
-    worker_id = uuid.uuid4()
-
-    # Insert worker in DB so FK constraint is satisfied
-    db_session.add(Worker(
-        id=worker_id, name="w1", platform="linux",
-        executor_type="claude-code", status=WorkerStatus.idle,
-        registered_at=datetime.now(timezone.utc),
-    ))
-    await db_session.commit()
-
-    response = await client.post(
-        "/api/v1/architect/sessions",
-        json={"worker_id": str(worker_id)},
-    )
-    assert response.status_code == 201
-    data = response.json()
-    assert data["worker_id"] == str(worker_id)
-
-
-async def test_create_session_without_worker_id(client: AsyncClient, db_session):
-    """POST /api/architect/sessions without worker_id stores None."""
+async def test_create_session_basic(client: AsyncClient, db_session):
+    """POST /api/architect/sessions creates session successfully."""
     data = await create_session_via_api(client, db_session)
-    assert data.get("worker_id") is None
+    assert data is not None
+    assert "id" in data
+    assert data["status"] == "active"
 
 
 async def test_create_session_uses_global_settings(client: AsyncClient, db_session):
@@ -511,27 +489,14 @@ async def test_finalize_design_success(client: AsyncClient, db_session):
     assert session["project_id"] == data["id"]
 
 
-async def test_finalize_assigns_worker_to_project(client: AsyncClient, db_session):
-    """POST /api/architect/sessions/{id}/finalize assigns worker to project."""
+async def test_finalize_creates_project(client: AsyncClient, db_session):
+    """POST /api/architect/sessions/{id}/finalize creates project successfully."""
     from sqlalchemy import select
 
-    # Create a worker in DB
-    worker_id = uuid.uuid4()
-    now = datetime.now(timezone.utc)
-    db_session.add(Worker(
-        id=worker_id, name="test-worker", platform="linux", capabilities=[],
-        executor_type="claude-code", status=WorkerStatus.idle,
-        registered_at=now, last_heartbeat=now,
-    ))
-    await db_session.commit()
-
-    # Create session with worker_id
+    # Create session
     await insert_global_llm_settings(db_session)
-    response = await client.post(
-        "/api/v1/architect/sessions",
-        json={"worker_id": str(worker_id)},
-    )
-    session_id = response.json()["id"]
+    session_data = await create_session_via_api(client, db_session)
+    session_id = session_data["id"]
 
     with patch("backend.src.api.architect.LLMClient") as MockClient:
         instance = MockClient.return_value
@@ -544,13 +509,7 @@ async def test_finalize_assigns_worker_to_project(client: AsyncClient, db_sessio
 
     assert response.status_code == 200
     project_id = response.json()["id"]
-
-    # Verify worker now has project_id assigned
-    result = await db_session.execute(
-        select(Worker).where(Worker.id == worker_id)
-    )
-    worker = result.scalar_one()
-    assert str(worker.project_id) == project_id
+    assert project_id is not None
 
 
 async def test_finalize_design_with_pm_config(client: AsyncClient, db_session):

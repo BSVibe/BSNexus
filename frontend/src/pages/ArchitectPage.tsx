@@ -117,10 +117,8 @@ export default function ArchitectPage() {
     }
   }
 
-  const handleCreateSession = async (config: { worker_id: string }) => {
-    const session = await architectApi.createSession({
-      worker_id: config.worker_id,
-    })
+  const handleCreateSession = async () => {
+    const session = await architectApi.createSession({})
     setSessionId(session.id)
     setNewSessionModalOpen(false)
     clearMessages()

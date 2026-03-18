@@ -22,14 +22,12 @@ class ReviewResult:
 
 
 class BaseExecutor(ABC):
-    """Agent Coder executor interface"""
+    """Task executor interface."""
 
     @abstractmethod
     async def execute(self, prompt: str, context: dict) -> ExecutionResult:
-        """Execute a coding task"""
-        pass
+        """Execute a coding task."""
 
     @abstractmethod
     async def review(self, prompt: str, context: dict) -> ReviewResult:
-        """Execute a code review"""
-        pass
+        """Execute a code review."""

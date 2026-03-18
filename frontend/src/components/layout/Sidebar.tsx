@@ -1,13 +1,12 @@
 import { useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Bot, Users, Settings, Sun, Moon, Monitor } from 'lucide-react'
+import { LayoutDashboard, Bot, Settings, Sun, Moon, Monitor } from 'lucide-react'
 import { SettingsModal } from './SettingsModal'
 import { useThemeStore } from '../../stores/themeStore'
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/architect', label: 'New Project', icon: Bot },
-  { to: '/workers', label: 'Workers', icon: Users },
 ]
 
 export default function Sidebar() {

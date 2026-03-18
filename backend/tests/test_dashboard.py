@@ -14,8 +14,6 @@ from backend.src.models import (
     Task,
     TaskPriority,
     TaskStatus,
-    Worker,
-    WorkerStatus,
 )
 
 
@@ -33,9 +31,6 @@ async def test_dashboard_stats_empty(client: AsyncClient) -> None:
     assert data["in_progress_tasks"] == 0
     assert data["done_tasks"] == 0
     assert data["completion_rate"] == 0.0
-    assert data["total_workers"] == 0
-    assert data["online_workers"] == 0
-    assert data["busy_workers"] == 0
 
 
 @pytest.mark.asyncio
@@ -101,19 +96,6 @@ async def test_dashboard_stats_with_data(client: AsyncClient, db_session) -> Non
             )
         )
 
-    # Create workers: 1 idle, 1 busy, 1 offline
-    for ws in (WorkerStatus.idle, WorkerStatus.busy, WorkerStatus.offline):
-        db_session.add(
-            Worker(
-                id=uuid.uuid4(),
-                name=f"Worker {ws.value}",
-                platform="linux",
-                status=ws,
-                executor_type="claude-code",
-                registered_at=now,
-            )
-        )
-
     await db_session.commit()
 
     resp = await client.get("/api/v1/dashboard/stats")
@@ -133,11 +115,6 @@ async def test_dashboard_stats_with_data(client: AsyncClient, db_session) -> Non
     assert data["done_tasks"] == 1
     # completion_rate = 1/5 * 100 = 20.0
     assert data["completion_rate"] == 20.0
-
-    # Worker counts
-    assert data["total_workers"] == 3
-    assert data["online_workers"] == 2  # idle + busy
-    assert data["busy_workers"] == 1
 
 
 @pytest.mark.asyncio

@@ -33,6 +33,12 @@ class Settings(BaseSettings):
     default_llm_model: Optional[str] = None
     default_llm_base_url: Optional[str] = None
 
+    # Executor
+    executor_type: str = "claude-code"
+    execution_timeout_seconds: int = 3600
+    rate_limit_retry_count: int = 5
+    rate_limit_wait_seconds: int = 300
+
     # Auto-redesign
     max_auto_redesigns: int = 2
 

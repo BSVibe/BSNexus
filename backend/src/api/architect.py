@@ -371,7 +371,7 @@ async def create_session(
 
     repo = DesignSessionRepository(db)
     session = await repo.add(
-        models.DesignSession(name=body.name, llm_config=llm_config_dict, worker_id=body.worker_id)
+        models.DesignSession(name=body.name, llm_config=llm_config_dict)
     )
     await repo.commit()
 
@@ -663,8 +663,6 @@ async def finalize_design(
     # Extract everything we need from the session before releasing the DB
     design_context = _extract_design_context(session)
     llm_config_dict = session.llm_config
-    session_worker_id = session.worker_id
-
     finalize_template = get_prompt("architect", "finalize")
     if design_context:
         finalize_prompt = finalize_template.format(design_context=design_context)
@@ -827,15 +825,6 @@ async def finalize_design(
                 task.status = models.TaskStatus.ready
             # All other tasks remain in default waiting status
 
-        # Assign worker to project if session had a worker selected
-        if session_worker_id:
-            worker_result = await write_db.execute(
-                select(models.Worker).where(models.Worker.id == session_worker_id)
-            )
-            worker = worker_result.scalar_one_or_none()
-            if worker:
-                worker.project_id = project.id
-
         # Update session status and link to project
         session.status = models.DesignSessionStatus.project_bound
         session.project_id = project.id
@@ -993,8 +982,6 @@ async def redesign_phase(
         task.qa_feedback_history = None
         task.error_message = None
         task.commit_hash = None
-        task.worker_id = None
-        task.reviewer_id = None
         task.started_at = None
         await state_machine.transition(
             task=task,

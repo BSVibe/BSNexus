@@ -17,7 +17,6 @@ logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from backend.src.core.prompt_security import PromptSigner
-    from backend.src.utils.worker_registry import WorkerRegistry
 
 
 class TaskStateMachine:
@@ -36,10 +35,8 @@ class TaskStateMachine:
     def __init__(
         self,
         prompt_signer: PromptSigner | None = None,
-        worker_registry: WorkerRegistry | None = None,
     ) -> None:
         self.prompt_signer = prompt_signer
-        self.worker_registry = worker_registry
 
     def can_transition(self, from_status: TaskStatus, to_status: TaskStatus) -> bool:
         """Check if a transition is allowed."""
@@ -114,9 +111,7 @@ class TaskStateMachine:
         """Dispatch side effects based on the new status."""
         side_effect_map = {
             TaskStatus.ready: self._on_ready,
-            TaskStatus.queued: self._on_queued,
             TaskStatus.in_progress: self._on_in_progress,
-            TaskStatus.review: self._on_review,
             TaskStatus.done: self._on_done,
             TaskStatus.redesign: self._on_redesign,
         }
@@ -133,48 +128,11 @@ class TaskStateMachine:
         stream_manager: Optional[RedisStreamManager] = None,
         **kwargs: Any,
     ) -> None:
-        """Reset execution fields when retrying from execution failure."""
-        if old_status == TaskStatus.in_progress:
-            task.worker_id = None
-            task.reviewer_id = None
+        """Reset execution fields when retrying."""
+        if old_status in (TaskStatus.in_progress, TaskStatus.review):
             task.error_message = None
             task.qa_result = None
             task.started_at = None
-
-    async def _on_queued(
-        self,
-        task: Task,
-        *,
-        old_status: Optional[TaskStatus] = None,
-        db_session: Optional[AsyncSession] = None,
-        stream_manager: Optional[RedisStreamManager] = None,
-        **kwargs: Any,
-    ) -> None:
-        """Publish task to the work queue via Redis Streams."""
-        if stream_manager is not None:
-            message: dict[str, Any] = {
-                "task_id": str(task.id),
-                "project_id": str(task.project_id),
-                "priority": task.priority.value,
-                "title": task.title,
-            }
-            # Include git metadata for workers
-            if task.branch_name:
-                message["branch_name"] = task.branch_name
-            if db_session is not None:
-                repo_path = await self._get_repo_path(task, db_session)
-                if repo_path:
-                    message["repo_path"] = repo_path
-            # Include worker prompt
-            if task.worker_prompt:
-                prompt_text = (
-                    task.worker_prompt if isinstance(task.worker_prompt, str) else json.dumps(task.worker_prompt)
-                )
-                if self.prompt_signer:
-                    message["signed_worker_prompt"] = self.prompt_signer.sign(prompt_text)
-                else:
-                    message["worker_prompt"] = prompt_text
-            await stream_manager.publish("tasks:queue", message)
 
     async def _on_in_progress(
         self,
@@ -185,65 +143,8 @@ class TaskStateMachine:
         stream_manager: Optional[RedisStreamManager] = None,
         **kwargs: Any,
     ) -> None:
-        """Set worker_id and started_at timestamp."""
-        if old_status == TaskStatus.review:
-            # QA failure auto-retry: keep worker_id, refresh started_at, clear reviewer_id
-            task.started_at = datetime.now(timezone.utc)
-            task.reviewer_id = None
-        else:
-            # Normal first execution from queued
-            worker_id = kwargs.get("worker_id")
-            if worker_id is not None:
-                task.worker_id = worker_id if isinstance(worker_id, uuid.UUID) else uuid.UUID(worker_id)
-            task.started_at = datetime.now(timezone.utc)
-
-            if self.worker_registry and worker_id is not None:
-                try:
-                    await self.worker_registry.set_busy(str(worker_id), str(task.id))
-                except Exception:
-                    pass  # Redis failure should not block state transition
-
-    async def _on_review(
-        self,
-        task: Task,
-        *,
-        old_status: Optional[TaskStatus] = None,
-        db_session: Optional[AsyncSession] = None,
-        stream_manager: Optional[RedisStreamManager] = None,
-        **kwargs: Any,
-    ) -> None:
-        """Set reviewer_id and publish to QA queue."""
-        reviewer_id = kwargs.get("reviewer_id")
-        if reviewer_id is not None:
-            task.reviewer_id = reviewer_id if isinstance(reviewer_id, uuid.UUID) else uuid.UUID(reviewer_id)
-        if stream_manager is not None:
-            message: dict[str, Any] = {
-                "task_id": str(task.id),
-                "project_id": str(task.project_id),
-                "title": task.title,
-            }
-            if task.reviewer_id:
-                message["reviewer_id"] = str(task.reviewer_id)
-            # Include git metadata for QA reviewers
-            if task.branch_name:
-                message["branch_name"] = task.branch_name
-            if db_session is not None:
-                repo_path = await self._get_repo_path(task, db_session)
-                if repo_path:
-                    message["repo_path"] = repo_path
-            if self.prompt_signer and task.qa_prompt:
-                prompt_text = task.qa_prompt if isinstance(task.qa_prompt, str) else json.dumps(task.qa_prompt)
-                message["signed_qa_prompt"] = self.prompt_signer.sign(prompt_text)
-            elif task.qa_prompt:
-                prompt_text = task.qa_prompt if isinstance(task.qa_prompt, str) else json.dumps(task.qa_prompt)
-                message["qa_prompt"] = prompt_text
-            await stream_manager.publish("tasks:qa", message)
-
-        if self.worker_registry and task.worker_id:
-            try:
-                await self.worker_registry.set_idle(str(task.worker_id))
-            except Exception:
-                pass  # Redis failure should not block state transition
+        """Set started_at timestamp."""
+        task.started_at = datetime.now(timezone.utc)
 
     async def _on_done(
         self,
@@ -260,12 +161,6 @@ class TaskStateMachine:
             repo = TaskRepository(db_session)
             await self._promote_dependents(task, repo, db_session)
 
-        if self.worker_registry and task.reviewer_id:
-            try:
-                await self.worker_registry.set_idle(str(task.reviewer_id))
-            except Exception:
-                pass  # Redis failure should not block state transition
-
     async def _on_redesign(
         self,
         task: Task,
@@ -275,7 +170,7 @@ class TaskStateMachine:
         stream_manager: Optional[RedisStreamManager] = None,
         **kwargs: Any,
     ) -> None:
-        """Handle escalation to Architect: publish escalation event and release workers."""
+        """Handle escalation to Architect: publish escalation event."""
         reason = kwargs.get("reason")
         if reason is not None:
             task.error_message = reason
@@ -289,19 +184,6 @@ class TaskStateMachine:
                 "qa_feedback_history": json.dumps(task.qa_feedback_history or []),
                 "error_message": task.error_message or "",
             })
-
-        # Release worker and reviewer
-        if self.worker_registry:
-            if task.worker_id:
-                try:
-                    await self.worker_registry.set_idle(str(task.worker_id))
-                except Exception:
-                    pass
-            if task.reviewer_id:
-                try:
-                    await self.worker_registry.set_idle(str(task.reviewer_id))
-                except Exception:
-                    pass
 
     async def _get_repo_path(self, task: Task, db_session: AsyncSession) -> str:
         """Look up repo_path from the task's project."""
@@ -319,10 +201,7 @@ class TaskStateMachine:
         return await repo.check_dependencies_met(task.id)
 
     async def _promote_dependents(self, task: Task, repo: TaskRepository, db_session: AsyncSession) -> list[Task]:
-        """Promote WAITING tasks that depend on the completed task to READY.
-
-        Only promotes tasks whose phase is currently active.
-        """
+        """Promote WAITING tasks that depend on the completed task to READY."""
         waiting_tasks = await repo.find_waiting_dependents(task.id)
 
         promoted: list[Task] = []

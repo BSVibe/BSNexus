@@ -9,7 +9,6 @@ import redis.asyncio as aioredis
 from backend.src import models, schemas
 from backend.src.repositories.task_repository import TaskRepository
 from backend.src.storage.database import get_db
-from backend.src.utils.worker_registry import WorkerRegistry
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,8 +34,6 @@ def _build_task_response(task: models.Task) -> schemas.TaskResponse:
         qa_prompt=task.qa_prompt,
         branch_name=task.branch_name,
         commit_hash=task.commit_hash,
-        worker_id=task.worker_id,
-        reviewer_id=task.reviewer_id,
         qa_result=task.qa_result,
         output_path=task.output_path,
         error_message=task.error_message,
@@ -55,7 +52,6 @@ def _build_task_response(task: models.Task) -> schemas.TaskResponse:
 async def _get_board_data(
     project_id: str,
     db: AsyncSession,
-    redis_client: aioredis.Redis,
 ) -> dict:
     """Build board data dict for a project."""
     import uuid as _uuid
@@ -82,23 +78,6 @@ async def _get_board_data(
     for status in models.TaskStatus:
         stats[status.value] = status_counts.get(status.value, 0)
 
-    # Worker stats — only workers assigned to this project
-    registry = WorkerRegistry(redis_client)
-    assigned_ids: list[str] = []
-    workers: list[dict] = []
-    try:
-        result = await db.execute(
-            select(models.Worker.id).where(models.Worker.project_id == pid)
-        )
-        assigned_ids = [str(row[0]) for row in result.all()]
-        if assigned_ids:
-            workers = await registry.get_workers_by_ids(assigned_ids)
-    except Exception:
-        logger.warning("Failed to fetch assigned workers for project %s", pid, exc_info=True)
-    idle = sum(1 for w in workers if w.get("status") == "idle")
-    busy = sum(1 for w in workers if w.get("status") == "busy")
-    offline = len(assigned_ids) - len(workers)
-
     # Phase lookup: id -> {name, order, status}
     phase_result = await db.execute(
         select(models.Phase.id, models.Phase.name, models.Phase.order, models.Phase.status)
@@ -113,7 +92,6 @@ async def _get_board_data(
         "project_id": project_id,
         "columns": {status: {"tasks": task_list} for status, task_list in columns.items()},
         "stats": stats,
-        "workers": {"total": len(assigned_ids), "idle": idle, "busy": busy, "offline": offline},
         "phases": phases,
         "redesign_tasks": redesign_tasks,
     }
@@ -122,12 +100,10 @@ async def _get_board_data(
 @router.get("/{project_id}")
 async def get_board(
     project_id: str,
-    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Get full board state for a project."""
-    redis_client: aioredis.Redis = request.app.state.redis
-    return await _get_board_data(project_id, db, redis_client)
+    return await _get_board_data(project_id, db)
 
 
 async def _board_event_generator(
