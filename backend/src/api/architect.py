@@ -964,13 +964,14 @@ async def redesign_phase(
         task.error_message = None
         task.commit_hash = None
         task.started_at = None
-        await state_machine.transition(
-            task=task,
-            new_status=models.TaskStatus.waiting,
-            reason=f"Manual phase redesign: {reasoning}",
-            actor="architect",
-            db_session=db,
-        )
+        if task.status != models.TaskStatus.waiting:
+            await state_machine.transition(
+                task=task,
+                new_status=models.TaskStatus.waiting,
+                reason=f"Manual phase redesign: {reasoning}",
+                actor="architect",
+                db_session=db,
+            )
         tasks_kept += 1
 
     # Create new tasks

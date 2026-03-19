@@ -83,12 +83,13 @@ async def test_publish_encodes_dict_values(manager: RedisStreamManager, mock_red
     assert flat_data["number"] == "42"
 
 
-async def test_publish_returns_message_id(manager: RedisStreamManager, mock_redis: AsyncMock) -> None:
-    """Return value from xadd is forwarded as-is."""
+async def test_publish_calls_xadd_with_flattened_data(manager: RedisStreamManager, mock_redis: AsyncMock) -> None:
+    """publish flattens data and passes correct stream/data to xadd."""
     mock_redis.xadd.return_value = b"1234-0"
 
-    result = await manager.publish("s", {"k": "v"})
+    result = await manager.publish("my:stream", {"key": "val", "nested": {"a": 1}})
 
+    mock_redis.xadd.assert_awaited_once_with("my:stream", {"key": "val", "nested": json.dumps({"a": 1})})
     assert result == b"1234-0"
 
 
@@ -176,13 +177,14 @@ async def test_publish_board_event_formats_correctly(manager: RedisStreamManager
 # ── trim_streams ──────────────────────────────────────────────────────
 
 
-async def test_trim_streams_calls_xtrim(manager: RedisStreamManager, mock_redis: AsyncMock) -> None:
-    """xtrim is called for TASKS_ESCALATION and EVENTS_BOARD."""
+async def test_trim_streams_calls_xtrim_with_correct_maxlen(
+    manager: RedisStreamManager, mock_redis: AsyncMock
+) -> None:
+    """xtrim uses caller maxlen for escalation, hardcoded 5000 for board."""
     await manager.trim_streams(maxlen=500)
 
     assert mock_redis.xtrim.call_count == 2
 
-    calls = mock_redis.xtrim.call_args_list
-    streams_called = {c[0][0] for c in calls}
-    assert RedisStreamManager.TASKS_ESCALATION in streams_called
-    assert RedisStreamManager.EVENTS_BOARD in streams_called
+    calls = {c.args[0]: c.kwargs for c in mock_redis.xtrim.call_args_list}
+    assert calls[RedisStreamManager.TASKS_ESCALATION]["maxlen"] == 500
+    assert calls[RedisStreamManager.EVENTS_BOARD]["maxlen"] == 5000

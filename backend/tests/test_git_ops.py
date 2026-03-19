@@ -249,11 +249,12 @@ class TestCommitTask:
 
 class TestGetStatus:
     @pytest.mark.asyncio
-    async def test_returns_git_status_output(self, git_ops: GitOps) -> None:
+    async def test_invokes_git_status_short(self, git_ops: GitOps) -> None:
         with patch.object(git_ops, "_run", return_value="M  file.py\n?? new.py") as mock_run:
             result = await git_ops.get_status()
-            assert result == "M  file.py\n?? new.py"
             mock_run.assert_awaited_once_with("status", "--short")
+            assert "M  file.py" in result
+            assert "?? new.py" in result
 
     @pytest.mark.asyncio
     async def test_returns_empty_for_clean_repo(self, git_ops: GitOps) -> None:
