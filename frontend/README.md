@@ -38,11 +38,13 @@ pnpm lint     # ESLint check
 
 ## Environment
 
-Copy `.env.example` and configure:
+Environment variables are managed in the root `.env` file (shared with backend). Copy from root:
 
 ```bash
-cp .env.example .env.local
+cp ../.env.example ../.env
 ```
+
+Vite loads `VITE_`-prefixed variables from the root `.env` via `envDir: '..'` in `vite.config.ts`.
 
 | Variable | Description | Default |
 |----------|-----------|---------|
