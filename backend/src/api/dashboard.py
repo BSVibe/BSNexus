@@ -31,7 +31,8 @@ async def get_dashboard_stats(db: AsyncSession = Depends(get_db)) -> schemas.Das
     active_tasks = sum(
         1
         for t in tasks
-        if t.status in (models.TaskStatus.ready, models.TaskStatus.queued, models.TaskStatus.in_progress, models.TaskStatus.review)
+        if t.status
+        in (models.TaskStatus.ready, models.TaskStatus.queued, models.TaskStatus.in_progress, models.TaskStatus.review)
     )
     in_progress_tasks = sum(1 for t in tasks if t.status == models.TaskStatus.in_progress)
     done_tasks = sum(1 for t in tasks if t.status == models.TaskStatus.done)
@@ -55,9 +56,7 @@ async def get_projects_summary(
 ) -> list[schemas.ProjectDashboardSummary]:
     """Return per-project dashboard summaries with task breakdown."""
     # Load projects with phases
-    project_result = await db.execute(
-        select(models.Project).options(selectinload(models.Project.phases))
-    )
+    project_result = await db.execute(select(models.Project).options(selectinload(models.Project.phases)))
     projects = project_result.scalars().all()
 
     if not projects:
@@ -97,8 +96,7 @@ async def get_projects_summary(
 
     # Check for architect sessions
     session_result = await db.execute(
-        select(models.DesignSession.project_id)
-        .where(
+        select(models.DesignSession.project_id).where(
             models.DesignSession.project_id.in_(project_ids),
             models.DesignSession.status == models.DesignSessionStatus.project_bound,
         )
@@ -121,9 +119,7 @@ async def get_projects_summary(
     # Build summaries
     summaries = []
     for project in projects:
-        active_phase = next(
-            (p for p in project.phases if p.status == models.PhaseStatus.active), None
-        )
+        active_phase = next((p for p in project.phases if p.status == models.PhaseStatus.active), None)
         summaries.append(
             schemas.ProjectDashboardSummary(
                 id=project.id,

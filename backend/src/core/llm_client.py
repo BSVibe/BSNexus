@@ -83,15 +83,18 @@ class LLMClient:
         last_exc: Exception | None = None
         for attempt in range(MAX_RETRIES + 1):
             try:
-                response = cast(ModelResponse, await litellm.acompletion(
-                    model=self.config.model,
-                    messages=messages,
-                    api_key=self.config.api_key,
-                    api_base=self.config.base_url,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                    timeout=REQUEST_TIMEOUT,
-                ))
+                response = cast(
+                    ModelResponse,
+                    await litellm.acompletion(
+                        model=self.config.model,
+                        messages=messages,
+                        api_key=self.config.api_key,
+                        api_base=self.config.base_url,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        timeout=REQUEST_TIMEOUT,
+                    ),
+                )
                 choice = cast(Choices, response.choices[0])
                 content = choice.message.content
                 if content is None:
@@ -100,8 +103,10 @@ class LLMClient:
             except Exception as e:
                 last_exc = e
                 if attempt < MAX_RETRIES and _is_retryable(e):
-                    delay = min(RETRY_BASE_DELAY * (2 ** attempt), RETRY_MAX_DELAY)
-                    logger.warning("LLM chat attempt %d failed (retryable): %s. Retrying in %.1fs", attempt + 1, e, delay)
+                    delay = min(RETRY_BASE_DELAY * (2**attempt), RETRY_MAX_DELAY)
+                    logger.warning(
+                        "LLM chat attempt %d failed (retryable): %s. Retrying in %.1fs", attempt + 1, e, delay
+                    )
                     await asyncio.sleep(delay)
                     continue
                 raise LLMError(
@@ -128,16 +133,19 @@ class LLMClient:
         for attempt in range(MAX_RETRIES + 1):
             started_streaming = False
             try:
-                stream = cast(CustomStreamWrapper, await litellm.acompletion(
-                    model=self.config.model,
-                    messages=messages,
-                    api_key=self.config.api_key,
-                    api_base=self.config.base_url,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                    stream=True,
-                    timeout=REQUEST_TIMEOUT,
-                ))
+                stream = cast(
+                    CustomStreamWrapper,
+                    await litellm.acompletion(
+                        model=self.config.model,
+                        messages=messages,
+                        api_key=self.config.api_key,
+                        api_base=self.config.base_url,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        stream=True,
+                        timeout=REQUEST_TIMEOUT,
+                    ),
+                )
                 async for chunk in stream:
                     content = chunk.choices[0].delta.content
                     if content:
@@ -156,10 +164,12 @@ class LLMClient:
                         retryable=_is_retryable(e),
                     ) from e
                 if attempt < MAX_RETRIES and _is_retryable(e):
-                    delay = min(RETRY_BASE_DELAY * (2 ** attempt), RETRY_MAX_DELAY)
+                    delay = min(RETRY_BASE_DELAY * (2**attempt), RETRY_MAX_DELAY)
                     logger.warning(
                         "LLM stream_chat attempt %d failed (retryable): %s. Retrying in %.1fs",
-                        attempt + 1, e, delay,
+                        attempt + 1,
+                        e,
+                        delay,
                     )
                     await asyncio.sleep(delay)
                     continue
@@ -189,18 +199,26 @@ class LLMClient:
         for attempt in range(MAX_RETRIES + 1):
             started_streaming = False
             try:
-                logger.info("structured_output: model=%s, messages=%d, attempt=%d", self.config.model, len(messages), attempt + 1)
-                stream = cast(CustomStreamWrapper, await litellm.acompletion(
-                    model=self.config.model,
-                    messages=messages,
-                    api_key=self.config.api_key,
-                    api_base=self.config.base_url,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                    response_format=response_format,
-                    stream=True,
-                    timeout=REQUEST_TIMEOUT,
-                ))
+                logger.info(
+                    "structured_output: model=%s, messages=%d, attempt=%d",
+                    self.config.model,
+                    len(messages),
+                    attempt + 1,
+                )
+                stream = cast(
+                    CustomStreamWrapper,
+                    await litellm.acompletion(
+                        model=self.config.model,
+                        messages=messages,
+                        api_key=self.config.api_key,
+                        api_base=self.config.base_url,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        response_format=response_format,
+                        stream=True,
+                        timeout=REQUEST_TIMEOUT,
+                    ),
+                )
                 raw = ""
                 async for chunk in stream:
                     content = chunk.choices[0].delta.content
@@ -221,10 +239,12 @@ class LLMClient:
                         retryable=_is_retryable(e),
                     ) from e
                 if attempt < MAX_RETRIES and _is_retryable(e):
-                    delay = min(RETRY_BASE_DELAY * (2 ** attempt), RETRY_MAX_DELAY)
+                    delay = min(RETRY_BASE_DELAY * (2**attempt), RETRY_MAX_DELAY)
                     logger.warning(
                         "structured_output attempt %d failed (retryable): %s. Retrying in %.1fs",
-                        attempt + 1, e, delay,
+                        attempt + 1,
+                        e,
+                        delay,
                     )
                     await asyncio.sleep(delay)
                     continue

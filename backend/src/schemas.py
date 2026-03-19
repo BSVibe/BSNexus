@@ -275,11 +275,13 @@ class FinalizeRequest(BaseModel):
 
 class PhaseRedesignRequest(BaseModel):
     """Request to trigger manual phase-level redesign."""
+
     llm_config: Optional[LLMConfigInput] = None
 
 
 class PhaseRedesignResponse(BaseModel):
     """Response from phase-level redesign."""
+
     phase_id: uuid.UUID
     project_id: uuid.UUID
     reasoning: str

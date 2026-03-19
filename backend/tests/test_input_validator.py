@@ -137,3 +137,13 @@ class TestValidateDictValues:
     def test_validates_list_items(self):
         with pytest.raises(HTTPException):
             InputValidator.validate_dict_values({"items": ["<script>xss</script>"]})
+
+    def test_validates_dict_items_in_list(self):
+        """Dict values inside a list are recursively validated."""
+        with pytest.raises(HTTPException):
+            InputValidator.validate_dict_values({"items": [{"name": "<script>xss</script>"}]})
+
+    def test_allows_clean_dict_items_in_list(self):
+        """Dict values inside a list pass when clean."""
+        # Should not raise
+        InputValidator.validate_dict_values({"items": [{"name": "clean value"}]})

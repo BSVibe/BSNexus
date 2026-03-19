@@ -26,9 +26,7 @@ router = APIRouter(prefix="/api/v1/architect", tags=["architect"])
 
 def _slugify(value: str) -> str:
     """Convert a string to a URL-friendly slug."""
-    value = (
-        unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
-    )
+    value = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
     value = re.sub(r"[^\w\s-]", "", value.lower())
     return re.sub(r"[-\s]+", "-", value).strip("-")
 
@@ -84,8 +82,7 @@ def _extract_design_context(session: models.DesignSession) -> str | None:
     chat_messages = [
         m
         for m in session.messages
-        if m.message_type == models.MessageType.chat
-        and m.role == models.MessageRole.assistant
+        if m.message_type == models.MessageType.chat and m.role == models.MessageRole.assistant
     ]
     if not chat_messages:
         return None
@@ -110,9 +107,7 @@ async def _load_project_with_tasks(project_id: uuid.UUID, db: AsyncSession) -> m
     result = await db.execute(
         select(models.Project)
         .where(models.Project.id == project_id)
-        .options(
-            selectinload(models.Project.phases).selectinload(models.Phase.tasks)
-        )
+        .options(selectinload(models.Project.phases).selectinload(models.Phase.tasks))
     )
     return result.scalar_one_or_none()
 
@@ -153,15 +148,11 @@ def _build_message_history(
     history: list[dict[str, str]] = [
         {"role": "system", "content": system_content},
     ]
-    chat_messages = [
-        m for m in session.messages if m.message_type == models.MessageType.chat
-    ]
+    chat_messages = [m for m in session.messages if m.message_type == models.MessageType.chat]
     sorted_messages = sorted(chat_messages, key=lambda m: m.created_at)
     history.extend(
         {
-            "role": (
-                m.role.value if isinstance(m.role, models.MessageRole) else str(m.role)
-            ),
+            "role": (m.role.value if isinstance(m.role, models.MessageRole) else str(m.role)),
             "content": m.content,
         }
         for m in sorted_messages
@@ -183,9 +174,7 @@ def _strip_action_markers(text: str) -> str:
     return text.strip()
 
 
-async def _execute_action_markers(
-    text: str, session: models.DesignSession, db: AsyncSession
-) -> list[dict[str, Any]]:
+async def _execute_action_markers(text: str, session: models.DesignSession, db: AsyncSession) -> list[dict[str, Any]]:
     """Parse and execute action markers from LLM response.
 
     Returns list of executed actions for board event publishing.
@@ -301,9 +290,7 @@ async def list_sessions(
             raise HTTPException(status_code=400, detail=f"Invalid status: {status}")
     sessions = await repo.list_sessions(status=status_filter)
     for s in sessions:
-        s.messages = [
-            m for m in s.messages if m.message_type == models.MessageType.chat
-        ]
+        s.messages = [m for m in s.messages if m.message_type == models.MessageType.chat]
     return [schemas.DesignSessionResponse.model_validate(s) for s in sessions]
 
 
@@ -338,9 +325,7 @@ async def batch_delete_sessions(
     """Delete multiple design sessions by IDs."""
     from sqlalchemy import delete as sa_delete
 
-    cursor = await db.execute(
-        sa_delete(models.DesignSession).where(models.DesignSession.id.in_(body.ids))
-    )
+    cursor = await db.execute(sa_delete(models.DesignSession).where(models.DesignSession.id.in_(body.ids)))
     await db.commit()
     deleted: int = cursor.rowcount if cursor.rowcount and cursor.rowcount > 0 else 0  # type: ignore[attr-defined]
     return schemas.BatchDeleteResponse(deleted=deleted)
@@ -370,9 +355,7 @@ async def create_session(
         llm_config_dict["base_url"] = settings["llm_base_url"]
 
     repo = DesignSessionRepository(db)
-    session = await repo.add(
-        models.DesignSession(name=body.name, llm_config=llm_config_dict)
-    )
+    session = await repo.add(models.DesignSession(name=body.name, llm_config=llm_config_dict))
     await repo.commit()
 
     # Reload with messages
@@ -395,9 +378,7 @@ async def get_session_by_project(
     session = await repo.get_by_project_id(project_id)
     if session is None:
         raise HTTPException(status_code=404, detail="No session found for this project")
-    session.messages = [
-        m for m in session.messages if m.message_type == models.MessageType.chat
-    ]
+    session.messages = [m for m in session.messages if m.message_type == models.MessageType.chat]
     return schemas.DesignSessionResponse.model_validate(session)
 
 
@@ -411,18 +392,14 @@ async def get_session(
     session = await repo.get_by_id(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
-    session.messages = [
-        m for m in session.messages if m.message_type == models.MessageType.chat
-    ]
+    session.messages = [m for m in session.messages if m.message_type == models.MessageType.chat]
     return schemas.DesignSessionResponse.model_validate(session)
 
 
 # ── 3. REST Message (non-streaming) ─────────────────────────────────
 
 
-@router.post(
-    "/sessions/{session_id}/message", response_model=schemas.DesignMessageResponse
-)
+@router.post("/sessions/{session_id}/message", response_model=schemas.DesignMessageResponse)
 async def send_message(
     session_id: uuid.UUID,
     body: schemas.MessageRequest,
@@ -602,9 +579,7 @@ async def send_message_stream(
         if is_project_bound and session_project_id:
             async with async_session() as action_db:
                 # Re-load session for action execution
-                action_session = models.DesignSession(
-                    id=session_id_val, project_id=session_project_id
-                )
+                action_session = models.DesignSession(id=session_id_val, project_id=session_project_id)
                 actions = await _execute_action_markers(full_response, action_session, action_db)
                 await action_db.commit()
                 if actions:
@@ -612,9 +587,7 @@ async def send_message_stream(
 
         # Save assistant response (with design_context preserved for finalize extraction)
         stored_response = full_response.replace(FINALIZE_MARKER, "").strip()
-        await repo.add_message(
-            session_id_val, models.MessageRole.assistant, stored_response
-        )
+        await repo.add_message(session_id_val, models.MessageRole.assistant, stored_response)
         await repo.commit()
 
         yield {"event": "done", "data": cleaned_response}
@@ -653,9 +626,7 @@ async def finalize_design(
             existing_project = await project_repo.get_by_id(session.project_id)
             if existing_project:
                 return schemas.ProjectResponse.model_validate(existing_project)
-        raise HTTPException(
-            status_code=400, detail="Session is finalized but project not found"
-        )
+        raise HTTPException(status_code=400, detail="Session is finalized but project not found")
 
     if session.status != models.DesignSessionStatus.active:
         raise HTTPException(status_code=400, detail="Session is not active")
@@ -671,9 +642,7 @@ async def finalize_design(
             {"role": "user", "content": finalize_prompt},
         ]
     else:
-        finalize_prompt = finalize_template.format(
-            design_context="(see conversation history above)"
-        )
+        finalize_prompt = finalize_template.format(design_context="(see conversation history above)")
         messages = _build_message_history(session)
         messages.append({"role": "user", "content": finalize_prompt})
 
@@ -703,9 +672,7 @@ async def finalize_design(
                 existing_project = await project_repo.get_by_id(session.project_id)
                 if existing_project:
                     return schemas.ProjectResponse.model_validate(existing_project)
-            raise HTTPException(
-                status_code=400, detail="Session is finalized but project not found"
-            )
+            raise HTTPException(status_code=400, detail="Session is finalized but project not found")
 
         # Store finalize prompt and response as internal messages for auditability
         await write_session_repo.add_message(
@@ -891,16 +858,30 @@ async def redesign_phase(
     def _task_to_dict(t: models.Task) -> dict[str, Any]:
         wp = ""
         if t.worker_prompt:
-            wp = t.worker_prompt.get("prompt", json.dumps(t.worker_prompt)) if isinstance(t.worker_prompt, dict) else str(t.worker_prompt)
+            wp = (
+                t.worker_prompt.get("prompt", json.dumps(t.worker_prompt))
+                if isinstance(t.worker_prompt, dict)
+                else str(t.worker_prompt)
+            )
         qp = ""
         if t.qa_prompt:
-            qp = t.qa_prompt.get("prompt", json.dumps(t.qa_prompt)) if isinstance(t.qa_prompt, dict) else str(t.qa_prompt)
+            qp = (
+                t.qa_prompt.get("prompt", json.dumps(t.qa_prompt))
+                if isinstance(t.qa_prompt, dict)
+                else str(t.qa_prompt)
+            )
         dep_ids = [str(d.id) for d in t.depends_on] if t.depends_on else []
         return {
-            "id": str(t.id), "title": t.title, "description": t.description or "",
-            "priority": t.priority.value, "status": t.status.value,
-            "worker_prompt": wp, "qa_prompt": qp, "depends_on": dep_ids,
-            "retry_count": t.retry_count, "error_message": t.error_message or "",
+            "id": str(t.id),
+            "title": t.title,
+            "description": t.description or "",
+            "priority": t.priority.value,
+            "status": t.status.value,
+            "worker_prompt": wp,
+            "qa_prompt": qp,
+            "depends_on": dep_ids,
+            "retry_count": t.retry_count,
+            "error_message": t.error_message or "",
         }
 
     # Use the first redesign task as the "trigger" for context
@@ -1051,6 +1032,7 @@ async def redesign_phase(
         intervention_key = f"task:{t.id}:needs_intervention"
         try:
             from backend.src.storage.redis_client import get_redis
+
             redis = await get_redis()
             await redis.delete(intervention_key)
         except Exception:
@@ -1071,9 +1053,7 @@ async def redesign_phase(
 # ── 7. Add Task to Existing Project ─────────────────────────────────
 
 
-@router.post(
-    "/add-task/{project_id}", response_model=schemas.AddTaskResponse, status_code=201
-)
+@router.post("/add-task/{project_id}", response_model=schemas.AddTaskResponse, status_code=201)
 async def add_task(
     project_id: uuid.UUID,
     body: schemas.AddTaskRequest,
@@ -1094,9 +1074,7 @@ async def add_task(
         raise HTTPException(status_code=404, detail="Phase not found")
 
     if phase.project_id != project.id:
-        raise HTTPException(
-            status_code=400, detail="Phase does not belong to this project"
-        )
+        raise HTTPException(status_code=400, detail="Phase does not belong to this project")
 
     # Get project context (existing phases + tasks)
     phases = await phase_repo.list_by_project(project_id)
@@ -1108,9 +1086,7 @@ async def add_task(
         context += f"- {p.name}: {p.description or 'No description'}\n"
     context += "\nExisting tasks:\n"
     for t in existing_tasks:
-        context += (
-            f"- [{t.priority.value}] {t.title}: {t.description or 'No description'}\n"
-        )
+        context += f"- [{t.priority.value}] {t.title}: {t.description or 'No description'}\n"
 
     prompt = get_prompt("architect", "add_task").format(
         context=context,

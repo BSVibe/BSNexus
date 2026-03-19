@@ -12,8 +12,11 @@ from backend.src.models import Task
 logger = logging.getLogger(__name__)
 
 _ENVIRONMENT_EXCEPTIONS = (
-    FileNotFoundError, PermissionError, OSError,
-    UnicodeEncodeError, UnicodeDecodeError,
+    FileNotFoundError,
+    PermissionError,
+    OSError,
+    UnicodeEncodeError,
+    UnicodeDecodeError,
 )
 
 
@@ -71,7 +74,12 @@ class LocalTaskRunner:
         prompt = self._extract_prompt(task.worker_prompt)
 
         # Inject retry feedback from previous failed attempt
-        retry_feedback = task.qa_feedback_history[-1] if task.qa_feedback_history else ""
+        last_feedback_entry = task.qa_feedback_history[-1] if task.qa_feedback_history else None
+        retry_feedback = ""
+        if isinstance(last_feedback_entry, dict):
+            retry_feedback = last_feedback_entry.get("feedback") or last_feedback_entry.get("error") or ""
+        elif last_feedback_entry:
+            retry_feedback = str(last_feedback_entry)
         if retry_feedback and task.retry_count > 0:
             prompt = (
                 f"PREVIOUS ATTEMPT FAILED (attempt {task.retry_count}).\n"
@@ -108,8 +116,12 @@ class LocalTaskRunner:
                 logger.info("<<< TASK DONE task_id=%s success=true elapsed=%.1fs", task_id, elapsed)
                 return TaskExecutionResult(success=True)
             else:
-                logger.warning("<<< TASK DONE task_id=%s success=false elapsed=%.1fs error=%s",
-                               task_id, elapsed, result.error_message or "(unknown)")
+                logger.warning(
+                    "<<< TASK DONE task_id=%s success=false elapsed=%.1fs error=%s",
+                    task_id,
+                    elapsed,
+                    result.error_message or "(unknown)",
+                )
                 return TaskExecutionResult(
                     success=False,
                     error_message=result.error_message or "",
@@ -164,8 +176,9 @@ class LocalTaskRunner:
                 logger.info("<<< QA DONE task_id=%s passed=true elapsed=%.1fs", task_id, elapsed)
             else:
                 feedback_preview = (result.feedback[:120].replace("\n", " ")) if result.feedback else ""
-                logger.warning("<<< QA DONE task_id=%s passed=false elapsed=%.1fs feedback=%s",
-                               task_id, elapsed, feedback_preview)
+                logger.warning(
+                    "<<< QA DONE task_id=%s passed=false elapsed=%.1fs feedback=%s", task_id, elapsed, feedback_preview
+                )
 
             return TaskReviewResult(
                 passed=result.passed,

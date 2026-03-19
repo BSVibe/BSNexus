@@ -71,7 +71,11 @@ class GitOps:
         """Check if repo_path is an existing git repository."""
         try:
             process = await asyncio.create_subprocess_exec(
-                "git", "-C", self.repo_path, "rev-parse", "--git-dir",
+                "git",
+                "-C",
+                self.repo_path,
+                "rev-parse",
+                "--git-dir",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -83,7 +87,10 @@ class GitOps:
     async def _run(self, *args: str) -> str:
         """Execute a git command asynchronously."""
         process = await asyncio.create_subprocess_exec(
-            "git", "-C", self.repo_path, *args,
+            "git",
+            "-C",
+            self.repo_path,
+            *args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )

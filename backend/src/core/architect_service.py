@@ -2,6 +2,7 @@
 
 Both the CLI and API use this service layer.
 """
+
 from __future__ import annotations
 
 import json
@@ -68,7 +69,8 @@ def build_llm_config(llm_config_dict: dict[str, Any] | None) -> LLMConfig:
 def extract_design_context(session: models.DesignSession) -> str | None:
     """Extract design_context from the last assistant chat message."""
     chat_messages = [
-        m for m in session.messages
+        m
+        for m in session.messages
         if m.message_type == models.MessageType.chat and m.role == models.MessageRole.assistant
     ]
     if not chat_messages:
@@ -78,9 +80,7 @@ def extract_design_context(session: models.DesignSession) -> str | None:
     return match.group(1).strip() if match else None
 
 
-def build_message_history(
-    session: models.DesignSession, project: models.Project | None = None
-) -> list[dict[str, str]]:
+def build_message_history(session: models.DesignSession, project: models.Project | None = None) -> list[dict[str, str]]:
     """Build LLM message history from a session's messages."""
     if session.status == models.DesignSessionStatus.project_bound and project:
         project_context = build_project_context(project)
@@ -125,14 +125,10 @@ class ArchitectService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
-    async def create_session(
-        self, llm_config_dict: dict[str, Any], name: str | None = None
-    ) -> models.DesignSession:
+    async def create_session(self, llm_config_dict: dict[str, Any], name: str | None = None) -> models.DesignSession:
         """Create a new design session."""
         repo = DesignSessionRepository(self.db)
-        session = await repo.add(
-            models.DesignSession(name=name, llm_config=llm_config_dict)
-        )
+        session = await repo.add(models.DesignSession(name=name, llm_config=llm_config_dict))
         await repo.commit()
         loaded = await repo.get_by_id(session.id)
         if loaded is None:
@@ -222,9 +218,7 @@ class ArchitectService:
 
         config = build_llm_config(llm_config_dict)
         client = LLMClient(config)
-        result = await client.structured_output(
-            messages=messages, response_format={"type": "json_object"}
-        )
+        result = await client.structured_output(messages=messages, response_format={"type": "json_object"})
 
         # Write results with a fresh DB session
         async with async_session() as write_db:
@@ -242,11 +236,14 @@ class ArchitectService:
                 raise ValueError("Session is finalized but project not found")
 
             await write_session_repo.add_message(
-                session.id, models.MessageRole.user, finalize_prompt,
+                session.id,
+                models.MessageRole.user,
+                finalize_prompt,
                 message_type=models.MessageType.internal,
             )
             await write_session_repo.add_message(
-                session.id, models.MessageRole.assistant,
+                session.id,
+                models.MessageRole.assistant,
                 json.dumps(result, ensure_ascii=False),
                 message_type=models.MessageType.internal,
             )
@@ -348,9 +345,7 @@ class ArchitectService:
             loaded_project = await project_repo.get_by_id(project.id)
             return loaded_project
 
-    async def list_sessions(
-        self, status: models.DesignSessionStatus | None = None
-    ) -> list[models.DesignSession]:
+    async def list_sessions(self, status: models.DesignSessionStatus | None = None) -> list[models.DesignSession]:
         """List design sessions."""
         repo = DesignSessionRepository(self.db)
         sessions = await repo.list_sessions(status=status)
@@ -377,9 +372,7 @@ class ArchitectService:
         )
         return result.scalar_one_or_none()
 
-    async def _execute_action_markers(
-        self, text: str, session: models.DesignSession
-    ) -> list[dict[str, Any]]:
+    async def _execute_action_markers(self, text: str, session: models.DesignSession) -> list[dict[str, Any]]:
         """Parse and execute action markers from LLM response."""
         actions: list[dict[str, Any]] = []
         if not session.project_id:

@@ -1,4 +1,5 @@
 """BSNexus CLI — AI가 직접 사용 가능한 CLI 인터페이스."""
+
 import asyncio
 import sys
 from functools import wraps
@@ -9,9 +10,11 @@ import click
 
 def async_command(f: Any) -> Any:
     """Decorator to run async click commands."""
+
     @wraps(f)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
         return asyncio.run(f(*args, **kwargs))
+
     return wrapper
 
 
@@ -41,6 +44,7 @@ async def architect_list() -> None:
 
     async with get_db_session() as db:
         from backend.src.core.architect_service import ArchitectService
+
         service = ArchitectService(db)
         sessions = await service.list_sessions()
 
@@ -70,6 +74,7 @@ async def architect_create(name: str | None, api_key: str, model: str, base_url:
 
     async with get_db_session() as db:
         from backend.src.core.architect_service import ArchitectService
+
         service = ArchitectService(db)
         session = await service.create_session(llm_config, name=name)
 
@@ -94,6 +99,7 @@ async def architect_chat(session_id: str, message: str) -> None:
 
     async with get_db_session() as db:
         from backend.src.core.architect_service import ArchitectService
+
         service = ArchitectService(db)
         try:
             _, cleaned_text, has_finalize, _ = await service.send_message(sid, message)
@@ -127,6 +133,7 @@ async def architect_finalize(session_id: str, repo_path: str) -> None:
 
     async with get_db_session() as db:
         from backend.src.core.architect_service import ArchitectService
+
         service = ArchitectService(db)
         try:
             project = await service.finalize(sid, repo_path=repo_path)
@@ -159,6 +166,7 @@ async def architect_get(session_id: str) -> None:
 
     async with get_db_session() as db:
         from backend.src.core.architect_service import ArchitectService
+
         service = ArchitectService(db)
         session = await service.get_session(sid)
 
@@ -221,6 +229,7 @@ async def pm_status(project_id: str) -> None:
     async with get_db_session() as db:
         from backend.src.repositories.task_repository import TaskRepository
         from backend.src.repositories.phase_repository import PhaseRepository
+
         repo = TaskRepository(db)
         phase_repo = PhaseRepository(db)
 

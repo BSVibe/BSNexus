@@ -109,14 +109,15 @@ class Project(Base):
     status: Mapped[ProjectStatus] = mapped_column(Enum(ProjectStatus), nullable=False, default=ProjectStatus.design)
     llm_config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
     # Relationships
     phases: Mapped[list["Phase"]] = relationship("Phase", back_populates="project", cascade="all, delete-orphan")
     design_sessions: Mapped[list["DesignSession"]] = relationship(
         "DesignSession", back_populates="project", cascade="all, delete-orphan"
     )
-
 
 
 class Phase(Base):
@@ -130,7 +131,9 @@ class Phase(Base):
     order: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[PhaseStatus] = mapped_column(Enum(PhaseStatus), nullable=False, default=PhaseStatus.pending)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
     # Relationships
     project: Mapped["Project"] = relationship("Project", back_populates="phases")
@@ -168,14 +171,18 @@ class Task(Base):
     qa_feedback_history: Mapped[list | None] = mapped_column(JSON, nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Relationships
     project: Mapped["Project"] = relationship("Project")
     phase: Mapped["Phase"] = relationship("Phase", back_populates="tasks")
-    history: Mapped[list["TaskHistory"]] = relationship("TaskHistory", back_populates="task", cascade="all, delete-orphan")
+    history: Mapped[list["TaskHistory"]] = relationship(
+        "TaskHistory", back_populates="task", cascade="all, delete-orphan"
+    )
 
     # Self-referential: parent task (for bug tasks linked to originals)
     parent_task: Mapped["Task | None"] = relationship(
@@ -222,7 +229,9 @@ class DesignSession(Base):
     )
     llm_config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
     # Relationships
     project: Mapped["Project | None"] = relationship("Project", back_populates="design_sessions")
@@ -260,5 +269,3 @@ class Setting(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
-
-

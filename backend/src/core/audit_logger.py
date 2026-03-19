@@ -74,9 +74,7 @@ class AuditLog(Base):
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     action: Mapped[AuditAction] = mapped_column(Enum(AuditAction), nullable=False)
-    severity: Mapped[AuditSeverity] = mapped_column(
-        Enum(AuditSeverity), nullable=False, default=AuditSeverity.info
-    )
+    severity: Mapped[AuditSeverity] = mapped_column(Enum(AuditSeverity), nullable=False, default=AuditSeverity.info)
     actor_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     actor_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     resource_type: Mapped[str | None] = mapped_column(String(100), nullable=True)

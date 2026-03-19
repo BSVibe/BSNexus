@@ -32,8 +32,7 @@ class RedisStreamManager:
     async def publish(self, stream: str, data: dict) -> str:
         """Publish a message to a stream."""
         flat_data: dict[str, str] = {
-            str(k): json.dumps(v) if isinstance(v, (dict, list)) else str(v)
-            for k, v in data.items()
+            str(k): json.dumps(v) if isinstance(v, (dict, list)) else str(v) for k, v in data.items()
         }
         message_id = await self.redis.xadd(stream, flat_data)  # type: ignore[arg-type]
         return message_id

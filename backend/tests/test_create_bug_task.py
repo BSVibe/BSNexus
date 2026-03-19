@@ -104,9 +104,10 @@ async def test_create_bug_task_publishes_board_event() -> None:
 
     mock_stream.publish_board_event.assert_awaited_once()
     call_args = mock_stream.publish_board_event.call_args
+    assert call_args[0][0] == "bug_task_created"
     event_data = call_args[0][1]
-    assert event_data["type"] == "bug_task_created"
     assert event_data["parent_task_id"] == str(failed_task.id)
+    assert "project_id" in event_data
 
 
 @pytest.mark.asyncio

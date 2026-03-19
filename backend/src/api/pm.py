@@ -59,9 +59,7 @@ async def start_orchestration(
     pid = str(project_id)
 
     if pid in orchestrators and orchestrators[pid].get("running"):
-        raise HTTPException(
-            status_code=409, detail="Orchestrator already running for this project"
-        )
+        raise HTTPException(status_code=409, detail="Orchestrator already running for this project")
 
     orchestrator = _build_orchestrator(request)
 
@@ -97,9 +95,7 @@ async def pause_orchestration(
 
     entry = orchestrators.get(pid)
     if not entry or not entry.get("running"):
-        raise HTTPException(
-            status_code=404, detail="No running orchestrator for this project"
-        )
+        raise HTTPException(status_code=404, detail="No running orchestrator for this project")
 
     orchestrator: PMOrchestrator = entry["orchestrator"]
     await orchestrator.stop()
@@ -135,6 +131,7 @@ async def get_orchestration_status(
 @router.post("/{project_id}/promote-waiting")
 async def promote_waiting_tasks(
     project_id: uuid.UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Promote WAITING tasks in the active phase with all dependencies met to READY."""
@@ -157,6 +154,7 @@ async def promote_waiting_tasks(
                 reason="All dependencies met",
                 actor="system",
                 db_session=db,
+                stream_manager=request.app.state.stream_manager if hasattr(request.app.state, "stream_manager") else None,
             )
             promoted.append({"task_id": str(task.id), "title": task.title})
 

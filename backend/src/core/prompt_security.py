@@ -16,11 +16,14 @@ class PromptSigner:
         nonce = str(uuid.uuid4())
         timestamp = int(time.time())
 
-        payload = json.dumps({
-            "prompt": prompt,
-            "nonce": nonce,
-            "timestamp": timestamp,
-        }, sort_keys=True)
+        payload = json.dumps(
+            {
+                "prompt": prompt,
+                "nonce": nonce,
+                "timestamp": timestamp,
+            },
+            sort_keys=True,
+        )
 
         signature = hmac.new(
             self.secret_key,
@@ -48,11 +51,14 @@ class PromptSigner:
             return False
 
         # 3. Recompute HMAC and compare
-        payload = json.dumps({
-            "prompt": signed_prompt["prompt"],
-            "nonce": signed_prompt["nonce"],
-            "timestamp": signed_prompt["timestamp"],
-        }, sort_keys=True)
+        payload = json.dumps(
+            {
+                "prompt": signed_prompt["prompt"],
+                "nonce": signed_prompt["nonce"],
+                "timestamp": signed_prompt["timestamp"],
+            },
+            sort_keys=True,
+        )
 
         expected = hmac.new(
             self.secret_key,

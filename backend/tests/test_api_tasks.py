@@ -424,6 +424,132 @@ async def test_update_with_mismatched_version_409(client: AsyncClient, db_sessio
     assert "Version conflict" in response.json()["detail"]
 
 
+async def test_list_tasks_invalid_status_returns_400(client: AsyncClient, db_session):
+    """GET /api/tasks/by-project/{id}?status=invalid returns 400."""
+    project, _ = await create_project_and_phase(db_session)
+
+    response = await client.get(f"/api/v1/tasks/by-project/{project.id}?status=not_a_status")
+
+    assert response.status_code == 400
+
+
+async def test_list_tasks_invalid_priority_returns_400(client: AsyncClient, db_session):
+    """GET /api/tasks/by-project/{id}?priority=invalid returns 400."""
+    project, _ = await create_project_and_phase(db_session)
+
+    response = await client.get(f"/api/v1/tasks/by-project/{project.id}?priority=super_urgent")
+
+    assert response.status_code == 400
+
+
+async def test_list_tasks_with_status_filter(client: AsyncClient, db_session):
+    """GET /api/tasks/by-project/{id}?status=ready returns only ready tasks."""
+    project, phase = await create_project_and_phase(db_session)
+    # Create a ready task via API
+    await client.post(
+        "/api/v1/tasks/",
+        json={
+            "project_id": str(project.id),
+            "phase_id": str(phase.id),
+            "title": "Ready Task",
+            "description": "test",
+            "priority": "medium",
+            "depends_on": [],
+            "worker_prompt": "work",
+            "qa_prompt": "check",
+        },
+    )
+    # Create a task that starts as DONE directly in DB
+    now = datetime.now(timezone.utc)
+    done_task = Task(
+        id=uuid.uuid4(),
+        project_id=project.id,
+        phase_id=phase.id,
+        title="Done Task",
+        status=TaskStatus.done,
+        priority=TaskPriority.medium,
+        version=1,
+        created_at=now,
+        updated_at=now,
+    )
+    db_session.add(done_task)
+    await db_session.commit()
+
+    response = await client.get(f"/api/v1/tasks/by-project/{project.id}?status=ready")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert all(t["status"] == "ready" for t in data)
+    assert len(data) == 1
+
+
+async def test_update_task_increments_version(client: AsyncClient, db_session):
+    """PATCH /api/tasks/{id} increments the task version."""
+    project, phase = await create_project_and_phase(db_session)
+
+    # Create task with dependency so it starts in WAITING status
+    dep_response = await client.post(
+        "/api/v1/tasks/",
+        json={
+            "project_id": str(project.id),
+            "phase_id": str(phase.id),
+            "title": "Dep Task",
+            "description": "dep",
+            "priority": "medium",
+            "depends_on": [],
+            "worker_prompt": "work",
+            "qa_prompt": "check",
+        },
+    )
+    dep_id = dep_response.json()["id"]
+
+    create_response = await client.post(
+        "/api/v1/tasks/",
+        json={
+            "project_id": str(project.id),
+            "phase_id": str(phase.id),
+            "title": "Version Task",
+            "description": "test",
+            "priority": "medium",
+            "depends_on": [dep_id],
+            "worker_prompt": "work",
+            "qa_prompt": "check",
+        },
+    )
+    task_id = create_response.json()["id"]
+    original_version = create_response.json()["version"]
+
+    response = await client.patch(f"/api/v1/tasks/{task_id}", json={"title": "Updated"})
+
+    assert response.status_code == 200
+    assert response.json()["version"] == original_version + 1
+
+
+async def test_get_task_with_include_history(client: AsyncClient, db_session):
+    """GET /api/tasks/{id}?include_history=true loads history relationship."""
+    project, phase = await create_project_and_phase(db_session)
+
+    create_response = await client.post(
+        "/api/v1/tasks/",
+        json={
+            "project_id": str(project.id),
+            "phase_id": str(phase.id),
+            "title": "History Task",
+            "description": "test",
+            "priority": "medium",
+            "depends_on": [],
+            "worker_prompt": "work",
+            "qa_prompt": "check",
+        },
+    )
+    task_id = create_response.json()["id"]
+
+    response = await client.get(f"/api/v1/tasks/{task_id}?include_history=true")
+
+    assert response.status_code == 200
+    assert response.json()["id"] == task_id
+
+
 async def test_409_response_contains_current_version(client: AsyncClient, db_session):
     """409 response detail includes the current version number."""
     project, phase = await create_project_and_phase(db_session)

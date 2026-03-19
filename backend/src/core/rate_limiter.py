@@ -107,10 +107,7 @@ class RateLimiter:
             return
         self._last_cleanup = now
 
-        stale_keys = [
-            key for key, bucket in self._buckets.items()
-            if now - bucket.last_refill > self._cleanup_interval
-        ]
+        stale_keys = [key for key, bucket in self._buckets.items() if now - bucket.last_refill > self._cleanup_interval]
         for key in stale_keys:
             del self._buckets[key]
 

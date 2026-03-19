@@ -1,4 +1,5 @@
 """Shared CLI helpers."""
+
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
@@ -11,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 async def get_db_session() -> AsyncIterator[AsyncSession]:
     """Get an async DB session for CLI use."""
     from backend.src.storage.database import async_session
+
     async with async_session() as session:
         yield session
 

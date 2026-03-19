@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -20,8 +20,13 @@ def state_machine() -> TaskStateMachine:
 
 
 @pytest.fixture
-def mock_db() -> AsyncMock:
-    return AsyncMock()
+def mock_db() -> MagicMock:
+    db = MagicMock()
+    db.add = MagicMock()
+    db.execute = AsyncMock()
+    db.flush = AsyncMock()
+    db.commit = AsyncMock()
+    return db
 
 
 @pytest.fixture
@@ -79,6 +84,7 @@ def test_can_transition_all_valid_paths(state_machine: TaskStateMachine) -> None
     valid_pairs = [
         (TaskStatus.waiting, TaskStatus.ready),
         (TaskStatus.ready, TaskStatus.queued),
+        (TaskStatus.ready, TaskStatus.in_progress),
         (TaskStatus.queued, TaskStatus.in_progress),
         (TaskStatus.in_progress, TaskStatus.review),
         (TaskStatus.in_progress, TaskStatus.ready),
@@ -100,7 +106,6 @@ def test_can_transition_invalid_paths(state_machine: TaskStateMachine) -> None:
         (TaskStatus.waiting, TaskStatus.review),
         (TaskStatus.waiting, TaskStatus.redesign),
         (TaskStatus.ready, TaskStatus.done),
-        (TaskStatus.ready, TaskStatus.in_progress),
         (TaskStatus.ready, TaskStatus.waiting),
         (TaskStatus.queued, TaskStatus.ready),
         (TaskStatus.queued, TaskStatus.done),
@@ -773,3 +778,70 @@ def test_task_fixture_defaults_max_retries_to_three() -> None:
 def test_task_fixture_defaults_qa_feedback_history_to_none() -> None:
     task = make_task()
     assert task.qa_feedback_history is None
+
+
+# -- _is_phase_active (direct) ------------------------------------------------
+
+
+async def test_is_phase_active_returns_false_when_not_active(
+    state_machine: TaskStateMachine, mock_db: MagicMock
+) -> None:
+    """_is_phase_active returns False when phase status is not active (e.g., pending)."""
+    from backend.src.models import PhaseStatus
+
+    phase_id = uuid.uuid4()
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = PhaseStatus.pending
+    mock_db.execute.return_value = mock_result
+
+    result = await state_machine._is_phase_active(phase_id, mock_db)
+    assert result is False
+
+
+async def test_is_phase_active_returns_true_when_active(
+    state_machine: TaskStateMachine, mock_db: MagicMock
+) -> None:
+    """_is_phase_active returns True when DB returns PhaseStatus.active."""
+    from backend.src.models import PhaseStatus
+    from unittest.mock import MagicMock as MM
+
+    phase_id = uuid.uuid4()
+    mock_result = MM()
+    mock_result.scalar_one_or_none.return_value = PhaseStatus.active
+    mock_db.execute.return_value = mock_result
+
+    result = await state_machine._is_phase_active(phase_id, mock_db)
+    assert result is True
+
+
+# -- promote_dependents (public method) ---------------------------------------
+
+
+async def test_get_repo_path_returns_empty_when_project_not_found(
+    state_machine: TaskStateMachine, mock_db: MagicMock
+) -> None:
+    """_get_repo_path returns empty string when project does not exist."""
+    task = make_task()
+    with patch(
+        "backend.src.repositories.project_repository.ProjectRepository.get_by_id",
+        new=AsyncMock(return_value=None),
+    ):
+        result = await state_machine._get_repo_path(task, mock_db)
+
+    assert result == ""
+
+
+async def test_promote_dependents_public_method(
+    state_machine: TaskStateMachine, mock_db: MagicMock
+) -> None:
+    """promote_dependents public method delegates to _promote_dependents."""
+    task = make_task(status=TaskStatus.done)
+
+    with patch("backend.src.core.state_machine.TaskRepository") as MockRepo:
+        mock_repo_instance = AsyncMock()
+        mock_repo_instance.find_waiting_dependents = AsyncMock(return_value=[])
+        MockRepo.return_value = mock_repo_instance
+
+        promoted = await state_machine.promote_dependents(task, mock_db)
+
+    assert promoted == []

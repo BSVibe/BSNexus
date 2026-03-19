@@ -109,3 +109,59 @@ class TestRateLimitMiddleware:
             for _ in range(10):
                 resp = await client.get("/health")
                 assert resp.status_code == 200
+
+
+# -- Cleanup and client identification ----------------------------------------
+
+
+class TestCleanup:
+    def test_cleanup_stale_buckets_removes_old_entries(self):
+        """_cleanup_stale_buckets removes buckets older than cleanup_interval."""
+        limiter = RateLimiter()
+        # Add a bucket
+        limiter._buckets["old_client:/api"] = RateLimitBucket(
+            tokens=5.0, max_tokens=10.0, refill_rate=1.0
+        )
+        # Make the bucket appear stale
+        limiter._buckets["old_client:/api"].last_refill = time.monotonic() - 400
+        # Force cleanup to run by backdating _last_cleanup
+        limiter._last_cleanup = time.monotonic() - 400
+
+        limiter._cleanup_stale_buckets()
+
+        assert "old_client:/api" not in limiter._buckets
+
+    def test_cleanup_keeps_fresh_buckets(self):
+        """_cleanup_stale_buckets preserves recently-used buckets."""
+        limiter = RateLimiter()
+        limiter._buckets["fresh:/api"] = RateLimitBucket(
+            tokens=5.0, max_tokens=10.0, refill_rate=1.0
+        )
+        limiter._last_cleanup = time.monotonic() - 400  # force cleanup
+
+        limiter._cleanup_stale_buckets()
+
+        assert "fresh:/api" in limiter._buckets
+
+
+class TestGetClientId:
+    def test_x_forwarded_for_header(self):
+        """_get_client_id uses first IP from X-Forwarded-For."""
+        from backend.src.core.rate_limiter import _get_client_id
+        from unittest.mock import MagicMock
+
+        request = MagicMock()
+        request.headers = {"X-Forwarded-For": "1.2.3.4, 5.6.7.8"}
+        result = _get_client_id(request)
+        assert result == "1.2.3.4"
+
+    def test_unknown_when_no_client_or_header(self):
+        """_get_client_id returns 'unknown' when no client info available."""
+        from backend.src.core.rate_limiter import _get_client_id
+        from unittest.mock import MagicMock
+
+        request = MagicMock()
+        request.headers = {}
+        request.client = None
+        result = _get_client_id(request)
+        assert result == "unknown"

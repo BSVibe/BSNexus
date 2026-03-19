@@ -89,21 +89,25 @@ class PMOrchestrator:
                     if recovery_count >= 3:
                         logger.warning(
                             "Redesign task %s recovered %d times without resolution, flagging for intervention",
-                            task.id, recovery_count,
+                            task.id,
+                            recovery_count,
                         )
                         await self.stream_manager.redis.set(intervention_key, "1", ex=_INTERVENTION_KEY_TTL)
                         continue
                     await self.stream_manager.redis.set(recovery_key, str(recovery_count + 1), ex=_RECOVERY_KEY_TTL)
 
                     logger.info("Recovering orphaned redesign task %s: %s", task.id, task.title)
-                    await self.stream_manager.publish(RedisStreamManager.TASKS_ESCALATION, {
-                        "task_id": str(task.id),
-                        "project_id": str(task.project_id),
-                        "title": task.title,
-                        "retry_count": str(task.retry_count),
-                        "qa_feedback_history": json.dumps(task.qa_feedback_history or []),
-                        "error_message": task.error_message or "",
-                    })
+                    await self.stream_manager.publish(
+                        RedisStreamManager.TASKS_ESCALATION,
+                        {
+                            "task_id": str(task.id),
+                            "project_id": str(task.project_id),
+                            "title": task.title,
+                            "retry_count": str(task.retry_count),
+                            "qa_feedback_history": json.dumps(task.qa_feedback_history or []),
+                            "error_message": task.error_message or "",
+                        },
+                    )
         except Exception:
             logger.exception("Recover orphaned redesign tasks error")
 
@@ -224,7 +228,10 @@ class PMOrchestrator:
 
             if not exec_result.success:
                 await self._handle_execution_failure(
-                    task, db, exec_result.error_message, exec_result.error_category,
+                    task,
+                    db,
+                    exec_result.error_message,
+                    exec_result.error_category,
                 )
                 await db.commit()
                 return
@@ -263,7 +270,8 @@ class PMOrchestrator:
                 )
             else:
                 await self._handle_qa_failure(
-                    task, db,
+                    task,
+                    db,
                     feedback=review_result.feedback,
                     error_message=review_result.error_message,
                     error_category=review_result.error_category,
@@ -287,29 +295,33 @@ class PMOrchestrator:
 
         # Phase completed
         active_phase.status = PhaseStatus.completed
-        events.append((
-            "phase_completed",
-            {
-                "phase_id": str(active_phase.id),
-                "project_id": str(project_id),
-                "phase_name": active_phase.name,
-                "phase_order": str(active_phase.order),
-            },
-        ))
+        events.append(
+            (
+                "phase_completed",
+                {
+                    "phase_id": str(active_phase.id),
+                    "project_id": str(project_id),
+                    "phase_name": active_phase.name,
+                    "phase_order": str(active_phase.order),
+                },
+            )
+        )
 
         # Activate next phase
         next_phase = await phase_repo.get_next_pending_phase(project_id, active_phase.order)
         if next_phase is not None:
             next_phase.status = PhaseStatus.active
-            events.append((
-                "phase_activated",
-                {
-                    "phase_id": str(next_phase.id),
-                    "project_id": str(project_id),
-                    "phase_name": next_phase.name,
-                    "phase_order": str(next_phase.order),
-                },
-            ))
+            events.append(
+                (
+                    "phase_activated",
+                    {
+                        "phase_id": str(next_phase.id),
+                        "project_id": str(project_id),
+                        "phase_name": next_phase.name,
+                        "phase_order": str(next_phase.order),
+                    },
+                )
+            )
 
         return events
 
@@ -323,13 +335,15 @@ class PMOrchestrator:
 
         if task.qa_feedback_history is None:
             task.qa_feedback_history = []
-        task.qa_feedback_history.append({
-            "type": "execution_failure",
-            "attempt": task.retry_count,
-            "error": error_msg,
-            "error_category": error_category,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        })
+        task.qa_feedback_history.append(
+            {
+                "type": "execution_failure",
+                "attempt": task.retry_count,
+                "error": error_msg,
+                "error_category": error_category,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+        )
 
         if task.retry_count >= task.max_retries:
             await self.state_machine.transition(
@@ -365,13 +379,15 @@ class PMOrchestrator:
 
         if task.qa_feedback_history is None:
             task.qa_feedback_history = []
-        task.qa_feedback_history.append({
-            "type": "qa_failure",
-            "attempt": task.retry_count,
-            "feedback": effective_feedback,
-            "error_category": error_category,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        })
+        task.qa_feedback_history.append(
+            {
+                "type": "qa_failure",
+                "attempt": task.retry_count,
+                "feedback": effective_feedback,
+                "error_category": error_category,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+        )
 
         if task.retry_count >= task.max_retries:
             await self.state_machine.transition(
@@ -417,15 +433,19 @@ class PMOrchestrator:
                 source=TaskSource.auto_bug,
                 parent_task_id=failed_task.id,
                 status=TaskStatus.ready,
-                worker_prompt={"prompt": (
-                    f"Fix the bug in task '{failed_task.title}'.\n\n"
-                    f"Original error: {error_msg}\n\n"
-                    f"Review the failure history and fix the root cause:\n{failure_history}"
-                )},
-                qa_prompt={"prompt": (
-                    f"Verify that the bug from '{failed_task.title}' is fixed.\n"
-                    "Run regression tests to ensure the fix doesn't break other functionality."
-                )},
+                worker_prompt={
+                    "prompt": (
+                        f"Fix the bug in task '{failed_task.title}'.\n\n"
+                        f"Original error: {error_msg}\n\n"
+                        f"Review the failure history and fix the root cause:\n{failure_history}"
+                    )
+                },
+                qa_prompt={
+                    "prompt": (
+                        f"Verify that the bug from '{failed_task.title}' is fixed.\n"
+                        "Run regression tests to ensure the fix doesn't break other functionality."
+                    )
+                },
                 branch_name=failed_task.branch_name,
             )
             db.add(bug_task)
@@ -433,9 +453,9 @@ class PMOrchestrator:
 
             if self.stream_manager:
                 await self.stream_manager.publish_board_event(
-                    str(failed_task.project_id),
+                    "bug_task_created",
                     {
-                        "type": "bug_task_created",
+                        "project_id": str(failed_task.project_id),
                         "task_id": str(bug_task.id),
                         "parent_task_id": str(failed_task.id),
                         "title": bug_task.title,
@@ -468,8 +488,9 @@ class PMOrchestrator:
                     try:
                         msg_project_id = msg.get("project_id", "")
                         if str(project_id) != str(msg_project_id):
-                            logger.debug("Escalation: skipping msg %s (project %s != %s)",
-                                         msg_id, msg_project_id, project_id)
+                            logger.debug(
+                                "Escalation: skipping msg %s (project %s != %s)", msg_id, msg_project_id, project_id
+                            )
                             await self.stream_manager.acknowledge(
                                 RedisStreamManager.TASKS_ESCALATION,
                                 RedisStreamManager.GROUP_ARCHITECT,
@@ -508,11 +529,14 @@ class PMOrchestrator:
         intervention_key = f"task:{task.id}:needs_intervention"
         await self.stream_manager.redis.set(intervention_key, "1", ex=_INTERVENTION_KEY_TTL)
 
-        await self.stream_manager.publish_board_event("auto_redesign_failed", {
-            "task_id": str(task.id),
-            "project_id": str(task.project_id),
-            "reason": reason,
-        })
+        await self.stream_manager.publish_board_event(
+            "auto_redesign_failed",
+            {
+                "task_id": str(task.id),
+                "project_id": str(task.project_id),
+                "reason": reason,
+            },
+        )
 
     async def _process_escalation(self, msg: dict[str, Any], db: AsyncSession) -> None:
         """Process a single escalation message: phase-level redesign via Architect LLM."""
@@ -534,7 +558,9 @@ class PMOrchestrator:
         if last_category == "environment":
             logger.info("Escalation: task %s has environment error, needs intervention", task_id)
             await self._mark_redesign_needs_intervention(
-                task, f"Environment error (not fixable by redesign): {task.error_message}", db,
+                task,
+                f"Environment error (not fixable by redesign): {task.error_message}",
+                db,
             )
             return
 
@@ -544,10 +570,15 @@ class PMOrchestrator:
         auto_redesign_count = int(count_raw) if count_raw else 0
 
         if auto_redesign_count >= settings.max_auto_redesigns:
-            logger.info("Escalation: phase %s reached max auto-redesigns (%d), needs intervention",
-                        task.phase_id, auto_redesign_count)
+            logger.info(
+                "Escalation: phase %s reached max auto-redesigns (%d), needs intervention",
+                task.phase_id,
+                auto_redesign_count,
+            )
             await self._mark_redesign_needs_intervention(
-                task, f"Auto-redesign limit ({settings.max_auto_redesigns}) reached", db,
+                task,
+                f"Auto-redesign limit ({settings.max_auto_redesigns}) reached",
+                db,
             )
             return
 
@@ -579,10 +610,18 @@ class PMOrchestrator:
         def _task_to_dict(t: Task) -> dict[str, Any]:
             wp = ""
             if t.worker_prompt:
-                wp = t.worker_prompt.get("prompt", json.dumps(t.worker_prompt)) if isinstance(t.worker_prompt, dict) else str(t.worker_prompt)
+                wp = (
+                    t.worker_prompt.get("prompt", json.dumps(t.worker_prompt))
+                    if isinstance(t.worker_prompt, dict)
+                    else str(t.worker_prompt)
+                )
             qp = ""
             if t.qa_prompt:
-                qp = t.qa_prompt.get("prompt", json.dumps(t.qa_prompt)) if isinstance(t.qa_prompt, dict) else str(t.qa_prompt)
+                qp = (
+                    t.qa_prompt.get("prompt", json.dumps(t.qa_prompt))
+                    if isinstance(t.qa_prompt, dict)
+                    else str(t.qa_prompt)
+                )
             dep_ids = [str(d.id) for d in t.depends_on] if t.depends_on else []
             return {
                 "id": str(t.id),
@@ -652,15 +691,22 @@ class PMOrchestrator:
         await self.stream_manager.redis.incr(redis_key)
         await self.stream_manager.redis.expire(redis_key, _INTERVENTION_KEY_TTL)
 
-        await self.stream_manager.publish_board_event("auto_redesign_applied", {
-            "task_id": str(task.id),
-            "project_id": str(task.project_id),
-            "phase_id": str(task.phase_id),
-            "reasoning": reasoning,
-        })
+        await self.stream_manager.publish_board_event(
+            "auto_redesign_applied",
+            {
+                "task_id": str(task.id),
+                "project_id": str(task.project_id),
+                "phase_id": str(task.phase_id),
+                "reasoning": reasoning,
+            },
+        )
 
-        logger.info("Phase-level auto-redesign applied for phase %s (triggered by task %s): %s",
-                     task.phase_id, task_id, reasoning)
+        logger.info(
+            "Phase-level auto-redesign applied for phase %s (triggered by task %s): %s",
+            task.phase_id,
+            task_id,
+            reasoning,
+        )
 
     async def _apply_phase_redesign(
         self,

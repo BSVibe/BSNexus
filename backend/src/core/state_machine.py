@@ -24,7 +24,7 @@ class TaskStateMachine:
 
     TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
         TaskStatus.waiting: {TaskStatus.ready},
-        TaskStatus.ready: {TaskStatus.queued},
+        TaskStatus.ready: {TaskStatus.queued, TaskStatus.in_progress},
         TaskStatus.queued: {TaskStatus.in_progress},
         TaskStatus.in_progress: {TaskStatus.review, TaskStatus.ready, TaskStatus.redesign},
         TaskStatus.review: {TaskStatus.done, TaskStatus.in_progress, TaskStatus.redesign},
@@ -61,7 +61,9 @@ class TaskStateMachine:
             logger.error("Invalid transition: %s -> %s for task %s", old_status.value, new_status.value, task.id)
             raise ValueError(f"Invalid transition: {old_status.value} -> {new_status.value}")
 
-        logger.info("Task %s: %s -> %s (actor=%s, reason=%s)", task.id, old_status.value, new_status.value, actor, reason)
+        logger.info(
+            "Task %s: %s -> %s (actor=%s, reason=%s)", task.id, old_status.value, new_status.value, actor, reason
+        )
 
         # 2. Record history (requires db_session)
         if db_session is not None:
@@ -232,14 +234,17 @@ class TaskStateMachine:
             task.error_message = reason
 
         if stream_manager is not None:
-            await stream_manager.publish(RedisStreamManager.TASKS_ESCALATION, {
-                "task_id": str(task.id),
-                "project_id": str(task.project_id),
-                "title": task.title,
-                "retry_count": str(task.retry_count),
-                "qa_feedback_history": json.dumps(task.qa_feedback_history or []),
-                "error_message": task.error_message or "",
-            })
+            await stream_manager.publish(
+                RedisStreamManager.TASKS_ESCALATION,
+                {
+                    "task_id": str(task.id),
+                    "project_id": str(task.project_id),
+                    "title": task.title,
+                    "retry_count": str(task.retry_count),
+                    "qa_feedback_history": json.dumps(task.qa_feedback_history or []),
+                    "error_message": task.error_message or "",
+                },
+            )
 
     async def _get_repo_path(self, task: Task, db_session: AsyncSession) -> str:
         """Look up repo_path from the task's project."""
@@ -283,9 +288,7 @@ class TaskStateMachine:
 
     async def _is_phase_active(self, phase_id: uuid.UUID, db_session: AsyncSession) -> bool:
         """Check if the given phase is in active status."""
-        result = await db_session.execute(
-            select(Phase.status).where(Phase.id == phase_id)
-        )
+        result = await db_session.execute(select(Phase.status).where(Phase.id == phase_id))
         status = result.scalar_one_or_none()
         return status == PhaseStatus.active
 

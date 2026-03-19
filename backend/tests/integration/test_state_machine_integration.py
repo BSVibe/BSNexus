@@ -91,21 +91,13 @@ async def test_invalid_transition_rejected(client: AsyncClient, db_session: Asyn
     assert response.status_code == 400
     assert "Invalid transition" in response.json()["detail"]
 
-    # Create a ready task and try ready -> done (invalid, must go through queued first)
+    # Create a ready task and try ready -> done (invalid, must go through in_progress first)
     ready_task = await _create_task(client, project_id, phase_id, "Ready Task")
     assert ready_task["status"] == "ready"
 
     response = await client.post(
         f"/api/v1/tasks/{ready_task['id']}/transition",
         json={"new_status": "done", "actor": "test"},
-    )
-    assert response.status_code == 400
-    assert "Invalid transition" in response.json()["detail"]
-
-    # Try ready -> in_progress (invalid, must go to queued first)
-    response = await client.post(
-        f"/api/v1/tasks/{ready_task['id']}/transition",
-        json={"new_status": "in_progress", "actor": "test"},
     )
     assert response.status_code == 400
     assert "Invalid transition" in response.json()["detail"]

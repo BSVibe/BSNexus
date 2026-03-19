@@ -41,7 +41,10 @@ class ClaudeCodeExecutor(BaseExecutor):
         return await self._execute_with_rate_limit_retry(prompt, task_id, workspace)
 
     async def _execute_with_rate_limit_retry(
-        self, prompt: str, task_id: str, workspace: str,
+        self,
+        prompt: str,
+        task_id: str,
+        workspace: str,
     ) -> ExecutionResult:
         """Run CLI, retrying on rate limit until reset."""
         result: ExecutionResult | None = None
@@ -54,11 +57,19 @@ class ClaudeCodeExecutor(BaseExecutor):
             if wait_seconds is None:
                 return result
             if attempt >= self._rate_limit_max_retries:
-                logger.error("claude-cli: rate limit retry exhausted after %d attempts task_id=%s",
-                             self._rate_limit_max_retries, task_id)
+                logger.error(
+                    "claude-cli: rate limit retry exhausted after %d attempts task_id=%s",
+                    self._rate_limit_max_retries,
+                    task_id,
+                )
                 return result
-            logger.warning("claude-cli: rate limited, waiting %ds (attempt %d/%d) task_id=%s",
-                           wait_seconds, attempt + 1, self._rate_limit_max_retries, task_id)
+            logger.warning(
+                "claude-cli: rate limited, waiting %ds (attempt %d/%d) task_id=%s",
+                wait_seconds,
+                attempt + 1,
+                self._rate_limit_max_retries,
+                task_id,
+            )
             await asyncio.sleep(wait_seconds)
         assert result is not None
         return result
@@ -93,8 +104,7 @@ class ClaudeCodeExecutor(BaseExecutor):
             rc = process.returncode
             out = stdout.decode("utf-8", errors="replace")
             err = stderr.decode("utf-8", errors="replace")
-            logger.info("claude-cli: finished rc=%d stdout=%d bytes stderr=%d bytes",
-                        rc, len(stdout), len(stderr))
+            logger.info("claude-cli: finished rc=%d stdout=%d bytes stderr=%d bytes", rc, len(stdout), len(stderr))
 
             return ExecutionResult(
                 success=rc == 0,
@@ -105,8 +115,7 @@ class ClaudeCodeExecutor(BaseExecutor):
             )
 
         except asyncio.TimeoutError:
-            logger.error("claude-cli: TIMEOUT after %ds task_id=%s",
-                         self._execution_timeout_seconds, task_id)
+            logger.error("claude-cli: TIMEOUT after %ds task_id=%s", self._execution_timeout_seconds, task_id)
             return ExecutionResult(
                 success=False,
                 error_message=f"Execution timed out after {self._execution_timeout_seconds}s",

@@ -68,9 +68,7 @@ async def create_task(
     if task_data.depends_on:
         missing = await repo.validate_dependencies_exist(task_data.depends_on)
         if missing:
-            raise HTTPException(
-                status_code=400, detail=f"Dependency tasks not found: {missing}"
-            )
+            raise HTTPException(status_code=400, detail=f"Dependency tasks not found: {missing}")
 
         # Detect circular dependencies (use a temporary UUID since the task doesn't exist yet)
         temp_id = uuid.uuid4()
@@ -127,9 +125,7 @@ async def get_task(
 ) -> schemas.TaskResponse:
     """Get a task by ID."""
     repo = TaskRepository(db)
-    task = await repo.get_by_id(
-        task_id, load_depends=True, load_history=include_history
-    )
+    task = await repo.get_by_id(task_id, load_depends=True, load_history=include_history)
 
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -170,6 +166,7 @@ async def update_task(
             setattr(task, field, models.TaskPriority(value))
         else:
             setattr(task, field, value)
+    task.version += 1
 
     await repo.commit()
 
@@ -206,7 +203,7 @@ async def transition_task(
     model_status = models.TaskStatus(transition.new_status.value)
 
     # Get stream_manager from app state
-    stream_manager = request.app.state.stream_manager
+    stream_manager = getattr(request.app.state, "stream_manager", None)
 
     # Store previous status for response
     previous_status = task.status
@@ -251,8 +248,11 @@ async def list_project_tasks(
     """List tasks for a project with optional filters."""
     repo = TaskRepository(db)
 
-    status_filter = models.TaskStatus(status) if status is not None else None
-    priority_filter = models.TaskPriority(priority) if priority is not None else None
+    try:
+        status_filter = models.TaskStatus(status) if status is not None else None
+        priority_filter = models.TaskPriority(priority) if priority is not None else None
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
     tasks = await repo.list_by_project(
         project_id,

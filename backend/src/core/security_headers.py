@@ -28,7 +28,9 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         self.hsts_include_subdomains = hsts_include_subdomains
         self.hsts_preload = hsts_preload
         self.enable_hsts = enable_hsts
-        self.content_security_policy = content_security_policy or "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'"
+        self.content_security_policy = (
+            content_security_policy or "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'"
+        )
         self.permissions_policy = permissions_policy or "camera=(), microphone=(), geolocation=(), payment=()"
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
