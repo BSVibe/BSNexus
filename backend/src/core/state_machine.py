@@ -27,7 +27,7 @@ class TaskStateMachine:
         TaskStatus.ready: {TaskStatus.queued, TaskStatus.in_progress},
         TaskStatus.queued: {TaskStatus.in_progress},
         TaskStatus.in_progress: {TaskStatus.review, TaskStatus.ready, TaskStatus.redesign},
-        TaskStatus.review: {TaskStatus.done, TaskStatus.in_progress, TaskStatus.redesign},
+        TaskStatus.review: {TaskStatus.done, TaskStatus.ready, TaskStatus.in_progress, TaskStatus.redesign},
         TaskStatus.done: set(),
         TaskStatus.redesign: {TaskStatus.waiting},
     }

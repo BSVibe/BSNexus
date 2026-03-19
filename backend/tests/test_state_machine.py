@@ -90,6 +90,7 @@ def test_can_transition_all_valid_paths(state_machine: TaskStateMachine) -> None
         (TaskStatus.in_progress, TaskStatus.ready),
         (TaskStatus.in_progress, TaskStatus.redesign),
         (TaskStatus.review, TaskStatus.done),
+        (TaskStatus.review, TaskStatus.ready),
         (TaskStatus.review, TaskStatus.in_progress),
         (TaskStatus.review, TaskStatus.redesign),
         (TaskStatus.redesign, TaskStatus.waiting),
@@ -245,6 +246,25 @@ async def test_valid_transition_review_to_done(
     assert result.status == TaskStatus.done
     assert result.completed_at is not None
 
+
+
+async def test_valid_transition_review_to_ready(
+    state_machine: TaskStateMachine, mock_db: AsyncMock, mock_stream: AsyncMock
+) -> None:
+    """QA failure retry: review -> ready resets execution fields."""
+    task = make_task(
+        status=TaskStatus.review,
+        error_message="Tests failing",
+        qa_result={"passed": False},
+        started_at=datetime.now(timezone.utc),
+    )
+    result = await state_machine.transition(
+        task, TaskStatus.ready, db_session=mock_db, stream_manager=mock_stream, reason="QA failed, retrying"
+    )
+    assert result.status == TaskStatus.ready
+    assert result.error_message is None
+    assert result.qa_result is None
+    assert result.started_at is None
 
 
 async def test_valid_transition_review_to_redesign(
