@@ -154,7 +154,9 @@ async def promote_waiting_tasks(
                 reason="All dependencies met",
                 actor="system",
                 db_session=db,
-                stream_manager=request.app.state.stream_manager if hasattr(request.app.state, "stream_manager") else None,
+                stream_manager=request.app.state.stream_manager
+                if hasattr(request.app.state, "stream_manager")
+                else None,
             )
             promoted.append({"task_id": str(task.id), "title": task.title})
 
