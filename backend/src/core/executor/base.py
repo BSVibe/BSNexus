@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 
 @dataclass
@@ -25,9 +25,9 @@ class BaseExecutor(ABC):
     """Task executor interface."""
 
     @abstractmethod
-    async def execute(self, prompt: str, context: dict) -> ExecutionResult:
+    async def execute(self, prompt: str, context: dict[str, Any]) -> ExecutionResult:
         """Execute a coding task."""
 
     @abstractmethod
-    async def review(self, prompt: str, context: dict) -> ReviewResult:
+    async def review(self, prompt: str, context: dict[str, Any]) -> ReviewResult:
         """Execute a code review."""

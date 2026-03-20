@@ -1,10 +1,12 @@
 import { Page, expect } from '@playwright/test';
+import { getApiBaseUrl } from './api-client';
 
 export async function waitForBackend(maxRetries = 30) {
+  const BASE_URL = getApiBaseUrl();
   let retries = 0;
   while (retries < maxRetries) {
     try {
-      const response = await fetch('http://localhost:8000/api/v1/projects', {
+      const response = await fetch(`${BASE_URL}/projects`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
       });
@@ -24,7 +26,7 @@ export async function waitForFrontend(page: Page, maxRetries = 30) {
   let retries = 0;
   while (retries < maxRetries) {
     try {
-      await page.goto('http://localhost:3000', { waitUntil: 'domcontentloaded', timeout: 5000 });
+      await page.goto(process.env.FRONTEND_BASE_URL || 'http://localhost:3000', { waitUntil: 'domcontentloaded', timeout: 5000 });
       return true;
     } catch (e) {
       // Continue retrying
@@ -40,7 +42,7 @@ export async function createProjectViaAPI(
   description: string = 'Test project',
   repoPath: string = '/test/repo'
 ) {
-  const response = await fetch('http://localhost:8000/api/v1/projects', {
+  const response = await fetch(`${getApiBaseUrl()}/projects`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -58,7 +60,7 @@ export async function createProjectViaAPI(
 }
 
 export async function createPhaseViaAPI(projectId: string, phaseName: string, order: number = 1) {
-  const response = await fetch(`http://localhost:8000/api/v1/projects/${projectId}/phases`, {
+  const response = await fetch(`${getApiBaseUrl()}/projects/${projectId}/phases`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -81,7 +83,7 @@ export async function createTaskViaAPI(
   taskTitle: string,
   dependsOn: string[] = []
 ) {
-  const response = await fetch('http://localhost:8000/api/v1/tasks/', {
+  const response = await fetch(`${getApiBaseUrl()}/tasks/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -104,7 +106,7 @@ export async function createTaskViaAPI(
 }
 
 export async function transitionTaskViaAPI(taskId: string, newStatus: string, actor: string = 'test') {
-  const response = await fetch(`http://localhost:8000/api/v1/tasks/${taskId}/transition`, {
+  const response = await fetch(`${getApiBaseUrl()}/tasks/${taskId}/transition`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -121,7 +123,7 @@ export async function transitionTaskViaAPI(taskId: string, newStatus: string, ac
 }
 
 export async function deleteProjectViaAPI(projectId: string) {
-  const response = await fetch(`http://localhost:8000/api/v1/projects/${projectId}`, {
+  const response = await fetch(`${getApiBaseUrl()}/projects/${projectId}`, {
     method: 'DELETE',
   });
 

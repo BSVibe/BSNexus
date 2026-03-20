@@ -108,7 +108,7 @@ export class APIClient {
   }
 
   static async activatePhase(_projectId: string, phaseId: string) {
-    const response = await fetch(`http://localhost:8000/api/v1/projects/phases/${phaseId}`, {
+    const response = await fetch(`${BASE_URL}/projects/phases/${phaseId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: 'active' }),

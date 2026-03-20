@@ -3,6 +3,7 @@ import logging
 import re
 import shutil
 import sys
+from typing import Any
 
 from backend.src.config import settings
 from backend.src.prompts.loader import get_prompt
@@ -34,7 +35,7 @@ class ClaudeCodeExecutor(BaseExecutor):
                 return resolved
         return "claude"
 
-    async def execute(self, prompt: str, context: dict) -> ExecutionResult:
+    async def execute(self, prompt: str, context: dict[str, Any]) -> ExecutionResult:
         """Execute coding task via Claude Code CLI, with rate limit retry."""
         task_id = context.get("task_id", "unknown")
         workspace = context.get("workspace_dir", self.workspace_dir)
@@ -129,7 +130,7 @@ class ClaudeCodeExecutor(BaseExecutor):
                 error_category="environment",
             )
 
-    async def review(self, prompt: str, context: dict) -> ReviewResult:
+    async def review(self, prompt: str, context: dict[str, Any]) -> ReviewResult:
         """Execute code review via Claude Code CLI."""
         task_id = context.get("task_id", "unknown")
         logger.info("claude-cli: review starting task_id=%s", task_id)
