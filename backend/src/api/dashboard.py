@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from collections import defaultdict
+from datetime import datetime
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
@@ -29,17 +30,13 @@ async def get_dashboard_stats(db: AsyncSession = Depends(get_db)) -> schemas.Das
     completed_projects = project_by_status.get("completed", 0)
 
     # Task stats via SQL aggregate
-    task_counts = await db.execute(
-        select(models.Task.status, func.count(models.Task.id)).group_by(models.Task.status)
-    )
+    task_counts = await db.execute(select(models.Task.status, func.count(models.Task.id)).group_by(models.Task.status))
     task_by_status: dict[str, int] = {}
     for status, count in task_counts:
         task_by_status[status.value] = count
     total_tasks = sum(task_by_status.values())
     active_tasks = (
-        task_by_status.get("ready", 0)
-        + task_by_status.get("in_progress", 0)
-        + task_by_status.get("review", 0)
+        task_by_status.get("ready", 0) + task_by_status.get("in_progress", 0) + task_by_status.get("review", 0)
     )
     in_progress_tasks = task_by_status.get("in_progress", 0)
     done_tasks = task_by_status.get("done", 0)
@@ -119,7 +116,7 @@ async def get_projects_summary(
         .where(models.Task.project_id.in_(project_ids))
         .group_by(models.Task.project_id)
     )
-    last_activities: dict[uuid.UUID, object] = {}
+    last_activities: dict[uuid.UUID, datetime | None] = {}
     for project_id, last_updated in activity_result:
         last_activities[project_id] = last_updated
 

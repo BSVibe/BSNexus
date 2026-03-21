@@ -66,6 +66,11 @@ async def mock_stream_manager():
     manager = AsyncMock()
     manager.publish = AsyncMock(return_value="mock-message-id")
     manager.publish_board_event = AsyncMock()
+    manager.redis = AsyncMock()
+    manager.redis.get = AsyncMock(return_value=None)
+    manager.redis.set = AsyncMock()
+    manager.redis.incr = AsyncMock(return_value=1)
+    manager.redis.expire = AsyncMock()
     return manager
 
 

@@ -367,6 +367,7 @@ class ArchitectService:
         repo = DesignSessionRepository(self.db)
         sessions = await repo.list_sessions(status=status)
         for s in sessions:
+            self.db.expunge(s)
             s.messages = [m for m in s.messages if m.message_type == models.MessageType.chat]
         return sessions
 
@@ -375,6 +376,7 @@ class ArchitectService:
         repo = DesignSessionRepository(self.db)
         session = await repo.get_by_id(session_id)
         if session:
+            self.db.expunge(session)
             session.messages = [m for m in session.messages if m.message_type == models.MessageType.chat]
         return session
 

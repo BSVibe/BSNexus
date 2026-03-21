@@ -53,6 +53,14 @@ def _find_potential_marker_start(text: str) -> int | None:
 _ACTION_MARKERS = ["[CREATE_TASK]", "[/CREATE_TASK]", "[MODIFY_TASK]", "[/MODIFY_TASK]"]
 
 
+def _to_session_response(session: models.DesignSession) -> schemas.DesignSessionResponse:
+    """Convert ORM session to response, keeping only chat messages."""
+    chat_msgs = [m for m in session.messages if m.message_type == models.MessageType.chat]
+    resp = schemas.DesignSessionResponse.model_validate(session)
+    resp.messages = [schemas.DesignMessageResponse.model_validate(m) for m in chat_msgs]
+    return resp
+
+
 # ── 0. List Sessions ─────────────────────────────────────────────────
 
 
@@ -70,9 +78,7 @@ async def list_sessions(
         except ValueError:
             raise HTTPException(status_code=400, detail=f"Invalid status: {status}")
     sessions = await repo.list_sessions(status=status_filter)
-    for s in sessions:
-        s.messages = [m for m in s.messages if m.message_type == models.MessageType.chat]
-    return [schemas.DesignSessionResponse.model_validate(s) for s in sessions]
+    return [_to_session_response(s) for s in sessions]
 
 
 # ── 0b. Delete Session ──────────────────────────────────────────────
@@ -159,8 +165,7 @@ async def get_session_by_project(
     session = await repo.get_by_project_id(project_id)
     if session is None:
         raise HTTPException(status_code=404, detail="No session found for this project")
-    session.messages = [m for m in session.messages if m.message_type == models.MessageType.chat]
-    return schemas.DesignSessionResponse.model_validate(session)
+    return _to_session_response(session)
 
 
 @router.get("/sessions/{session_id}", response_model=schemas.DesignSessionResponse)
@@ -173,8 +178,7 @@ async def get_session(
     session = await repo.get_by_id(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
-    session.messages = [m for m in session.messages if m.message_type == models.MessageType.chat]
-    return schemas.DesignSessionResponse.model_validate(session)
+    return _to_session_response(session)
 
 
 # ── 3. REST Message (non-streaming) ─────────────────────────────────

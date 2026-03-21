@@ -587,10 +587,10 @@ async def test_on_redesign_without_reason_no_error_message(
 
 
 
-async def test_on_redesign_without_worker_registry(
+async def test_on_redesign_escalates_to_architect(
     mock_db: AsyncMock, mock_stream: AsyncMock,
 ) -> None:
-    """_on_redesign should not fail when worker_registry is None."""
+    """_on_redesign should escalate the task to architect status."""
     sm = TaskStateMachine()
     task = make_task(status=TaskStatus.in_progress)
 

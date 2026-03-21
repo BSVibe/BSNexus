@@ -815,7 +815,7 @@ async def test_queue_next_returns_task_when_ready() -> None:
 
     assert result is task
     # queue_next no longer transitions — the execution loop handles that
-    orch.state_machine.transition.assert_not_called()
+    orch.state_machine.transition.assert_not_awaited()
 
 
 # ── Test: queue_next returns None when active task exists ──────────

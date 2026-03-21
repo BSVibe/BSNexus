@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-import logging
+import structlog
 import uuid
 
 from backend.src import models
@@ -16,7 +16,7 @@ from backend.src.storage.database import async_session, get_db
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/api/v1/pm", tags=["pm"])
 
@@ -75,9 +75,9 @@ async def start_orchestration(
     def _on_orchestrator_done(fut: asyncio.Task[None]) -> None:
         entry["running"] = False
         if fut.cancelled():
-            logger.warning("Orchestrator task cancelled for project %s", pid)
+            logger.warning("orchestrator_cancelled", project_id=str(pid))
         elif fut.exception() is not None:
-            logger.error("Orchestrator task crashed for project %s: %s", pid, fut.exception(), exc_info=fut.exception())
+            logger.error("orchestrator_crashed", project_id=str(pid), error=str(fut.exception()))
 
     task.add_done_callback(_on_orchestrator_done)
 

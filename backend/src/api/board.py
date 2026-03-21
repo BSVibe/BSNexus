@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
+import structlog
 from typing import AsyncGenerator
 
 import redis.asyncio as aioredis
@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/api/v1/board", tags=["board"])
 
