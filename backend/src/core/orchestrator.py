@@ -189,6 +189,8 @@ class PMOrchestrator:
                                 repo_path = project.repo_path or ""
 
                         await db.commit()
+                        if task_to_execute is not None:
+                            db.expunge(task_to_execute)
 
                         # Publish phase events after successful commit
                         for event_type, event_data in phase_events:
@@ -250,6 +252,7 @@ class PMOrchestrator:
                 stream_manager=self.stream_manager,
             )
             await db.commit()
+            db.expunge(task)
 
         # Step 3: Run QA review (outside DB transaction)
         review_result = await self.task_runner.review_task(task, repo_path)

@@ -5,10 +5,13 @@ import uuid
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
+import pytest
+
 from backend.src.models import Phase, PhaseStatus, Project, ProjectStatus, Task, TaskPriority, TaskStatus
 from backend.src.repositories.phase_repository import PhaseRepository
 from backend.src.repositories.task_repository import TaskRepository
 
+pytestmark = pytest.mark.asyncio
 
 # -- Helpers ------------------------------------------------------------------
 

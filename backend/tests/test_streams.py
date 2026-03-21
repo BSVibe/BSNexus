@@ -8,6 +8,8 @@ from unittest.mock import AsyncMock
 
 from backend.src.queue.streams import RedisStreamManager
 
+pytestmark = pytest.mark.asyncio
+
 
 @pytest.fixture
 def mock_redis() -> AsyncMock:

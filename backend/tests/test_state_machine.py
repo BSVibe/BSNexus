@@ -10,6 +10,7 @@ import pytest
 from backend.src.core.state_machine import TaskStateMachine
 from backend.src.models import Task, TaskHistory, TaskPriority, TaskStatus
 
+pytestmark = pytest.mark.asyncio
 
 # -- Fixtures -----------------------------------------------------------------
 

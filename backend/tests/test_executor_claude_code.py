@@ -148,7 +148,7 @@ class TestRunCli:
     async def test_file_not_found_error(self) -> None:
         executor = _make_executor()
 
-        with patch("asyncio.create_subprocess_exec", side_effect=FileNotFoundError("claude not found")):
+        with patch("asyncio.create_subprocess_exec", new=MagicMock(side_effect=FileNotFoundError("claude not found"))):
             result = await executor._run_cli("prompt", "task-3", "/workspace")
 
         assert result.success is False
@@ -159,7 +159,7 @@ class TestRunCli:
     async def test_permission_error(self) -> None:
         executor = _make_executor()
 
-        with patch("asyncio.create_subprocess_exec", side_effect=PermissionError("not executable")):
+        with patch("asyncio.create_subprocess_exec", new=MagicMock(side_effect=PermissionError("not executable"))):
             result = await executor._run_cli("prompt", "task-4", "/workspace")
 
         assert result.success is False
@@ -170,7 +170,7 @@ class TestRunCli:
     async def test_os_error(self) -> None:
         executor = _make_executor()
 
-        with patch("asyncio.create_subprocess_exec", side_effect=OSError("bad fd")):
+        with patch("asyncio.create_subprocess_exec", new=MagicMock(side_effect=OSError("bad fd"))):
             result = await executor._run_cli("prompt", "task-5", "/workspace")
 
         assert result.success is False
@@ -280,12 +280,18 @@ class TestExecuteWithRateLimitRetry:
 
         executor._run_cli = fake_run_cli  # type: ignore[assignment]
 
-        with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+        sleep_called = 0
+
+        async def fake_sleep(seconds: float) -> None:
+            nonlocal sleep_called
+            sleep_called += 1
+
+        with patch("asyncio.sleep", new=fake_sleep):
             result = await executor._execute_with_rate_limit_retry("prompt", "task-1", "/workspace")
 
         assert result.success is True
         assert call_count == 2
-        mock_sleep.assert_awaited_once()
+        assert sleep_called == 1
 
     @pytest.mark.asyncio
     async def test_max_retries_exceeded(self) -> None:
@@ -300,7 +306,10 @@ class TestExecuteWithRateLimitRetry:
 
         executor._run_cli = fake_run_cli  # type: ignore[assignment]
 
-        with patch("asyncio.sleep", new_callable=AsyncMock):
+        async def fake_sleep(seconds: float) -> None:
+            pass
+
+        with patch("asyncio.sleep", new=fake_sleep):
             result = await executor._execute_with_rate_limit_retry("prompt", "task-1", "/workspace")
 
         assert result.success is False
@@ -347,10 +356,15 @@ class TestExecuteWithRateLimitRetry:
 
         executor._run_cli = fake_run_cli  # type: ignore[assignment]
 
-        with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+        sleep_args: list[float] = []
+
+        async def fake_sleep(seconds: float) -> None:
+            sleep_args.append(seconds)
+
+        with patch("asyncio.sleep", new=fake_sleep):
             await executor._execute_with_rate_limit_retry("prompt", "task-1", "/workspace")
 
-        mock_sleep.assert_awaited_once_with(42)
+        assert sleep_args == [42]
 
 
 # ===========================================================================

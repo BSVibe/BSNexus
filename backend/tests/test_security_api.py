@@ -1,6 +1,17 @@
 """Tests for security API endpoints."""
 
+import uuid
+
+import pytest
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from backend.src.api.security import create_api_key, list_api_keys, list_audit_logs, revoke_api_key, run_security_scan
+from backend.src.core.access_control import APIKey, Role
+from backend.src.core.audit_logger import AuditAction, AuditLog, AuditLogger
+from backend.src.schemas import APIKeyCreateRequest
+
+pytestmark = pytest.mark.asyncio
 
 
 async def test_security_scan_endpoint(client: AsyncClient):
@@ -31,6 +42,17 @@ async def test_audit_logs_with_filters(client: AsyncClient):
         "offset": 0,
     })
     assert resp.status_code == 200
+
+
+async def test_audit_logs_with_actor_id_filter(client: AsyncClient):
+    """Exercise the actor_id filter branch (lines 78-79)."""
+    resp = await client.get("/api/v1/security/audit/logs", params={
+        "actor_id": "user-123",
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "total" in data
+    assert isinstance(data["items"], list)
 
 
 async def test_compliance_report_endpoint(client: AsyncClient):
@@ -143,3 +165,62 @@ async def test_encryption_test_endpoint(client: AsyncClient):
     data = resp.json()
     assert data["status"] == "ok"
     assert data["encrypted_length"] > 0
+
+
+# ── Direct unit tests for uncovered lines ────────────────────────────
+
+
+async def test_run_security_scan_direct(db_session: AsyncSession) -> None:
+    """Directly call run_security_scan to cover lines 49-51."""
+    result = await run_security_scan(_auth=None, db=db_session)
+    assert result.passed is not None
+    assert result.scan_timestamp is not None
+
+
+async def test_list_audit_logs_with_data(db_session: AsyncSession) -> None:
+    """Directly call list_audit_logs with existing log entries to cover lines 82-86."""
+    audit_logger = AuditLogger(db_session)
+    await audit_logger.log(AuditAction.security_audit_requested, details={"test": True})
+    await db_session.commit()
+
+    result = await list_audit_logs(
+        action=None, severity=None, actor_id=None,
+        limit=50, offset=0, _auth=None, db=db_session,
+    )
+    assert result.total >= 1
+    assert len(result.items) >= 1
+
+
+async def test_create_api_key_direct(db_session: AsyncSession) -> None:
+    """Directly call create_api_key to cover lines 155-167."""
+    request = APIKeyCreateRequest(name="Direct Test", role="viewer")
+    result = await create_api_key(request=request, _auth=None, db=db_session)
+    assert result.name == "Direct Test"
+    assert result.role == "viewer"
+    assert result.key.startswith("bsn-")
+
+
+async def test_list_api_keys_direct(db_session: AsyncSession) -> None:
+    """Directly call list_api_keys to cover line 184."""
+    # Create a key first
+    request = APIKeyCreateRequest(name="List Test", role="admin")
+    await create_api_key(request=request, _auth=None, db=db_session)
+
+    result = await list_api_keys(_auth=None, db=db_session)
+    assert len(result) >= 1
+    assert result[0].name == "List Test"
+
+
+async def test_revoke_api_key_direct(db_session: AsyncSession) -> None:
+    """Directly call revoke_api_key to cover lines 196-211."""
+    # Create a key first
+    request = APIKeyCreateRequest(name="Revoke Test", role="operator")
+    created = await create_api_key(request=request, _auth=None, db=db_session)
+
+    # Revoke it
+    await revoke_api_key(key_id=created.id, _auth=None, db=db_session)
+
+    # Verify inactive
+    result = await list_api_keys(_auth=None, db=db_session)
+    revoked = next(k for k in result if k.id == created.id)
+    assert revoked.is_active is False

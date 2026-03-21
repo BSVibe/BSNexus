@@ -248,6 +248,27 @@ async def test_get_board_stats(client, db_session, mock_redis):
 
 
 @pytest.mark.asyncio
+async def test_get_board_data_direct(db_session):
+    """Directly call _get_board_data to cover lines 69-85."""
+    project, phase, task = await create_project_phase_task(db_session, status=TaskStatus.ready)
+    data = await _get_board_data(str(project.id), db_session)
+    assert data["project_id"] == str(project.id)
+    assert data["stats"]["total"] == 1
+    assert data["stats"]["ready"] == 1
+    assert len(data["columns"]["ready"]["tasks"]) == 1
+    assert "redesign" not in data["columns"]
+    assert str(phase.id) in data["phases"]
+
+
+@pytest.mark.asyncio
+async def test_get_board_data_redesign_task(db_session):
+    """Cover the redesign branch in _get_board_data (line 72-73)."""
+    project, phase, _task = await create_project_phase_task(db_session, status=TaskStatus.redesign)
+    data = await _get_board_data(str(project.id), db_session)
+    assert len(data["redesign_tasks"]) == 1
+    assert data["stats"]["redesign"] == 1
+
+
 # -- SSE Board Events ----------------------------------------------------------
 
 
@@ -381,3 +402,38 @@ async def test_build_task_response_includes_all_fields(db_session):
     assert resp.branch_name == "feat/x"
     assert resp.commit_hash == "abc123"
     assert resp.depends_on == []
+
+
+@pytest.mark.asyncio
+async def test_board_event_generator_handles_exception():
+    """Cover the exception handler in _board_event_generator (lines 136-138)."""
+    from unittest.mock import patch
+
+    project_id = str(uuid.uuid4())
+    mock_redis = AsyncMock()
+
+    call_count = 0
+
+    async def mock_xread(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise ConnectionError("redis down")
+        # After retry, cancel to stop the loop
+        raise asyncio.CancelledError()
+
+    mock_redis.xread = mock_xread
+
+    async def fast_sleep(seconds: float) -> None:
+        pass
+
+    events: list[dict] = []
+    with patch("asyncio.sleep", new=fast_sleep):
+        try:
+            async for event in _board_event_generator(project_id, mock_redis):
+                events.append(event)
+        except asyncio.CancelledError:
+            pass
+
+    assert len(events) == 0
+    assert call_count == 2  # First call raised, second cancelled after sleep

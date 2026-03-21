@@ -3,10 +3,13 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from httpx import AsyncClient
 
 from backend.src.queue.background import start_background_consumer
 from backend.src.storage.database import init_db
+
+pytestmark = pytest.mark.asyncio
 
 
 async def test_health_endpoint(client: AsyncClient) -> None:
@@ -126,3 +129,67 @@ async def test_security_headers_present(client: AsyncClient) -> None:
     assert response.status_code == 200
     assert response.headers.get("x-content-type-options") == "nosniff"
     assert response.headers.get("x-frame-options") == "DENY"
+
+
+# -- Lifespan tests -----------------------------------------------------------
+
+
+async def test_lifespan_startup_and_shutdown() -> None:
+    """Exercise the lifespan context manager (lines 78-89)."""
+    from backend.src.main import lifespan
+
+    mock_app = MagicMock()
+    mock_app.state = MagicMock()
+    mock_redis = AsyncMock()
+    mock_stream_manager = AsyncMock()
+
+    with (
+        patch("backend.src.main.init_db", new_callable=AsyncMock) as mock_init_db,
+        patch("backend.src.main.get_redis", new_callable=AsyncMock, return_value=mock_redis),
+        patch("backend.src.main.RedisStreamManager", return_value=mock_stream_manager),
+        patch("backend.src.main.start_background_consumer", new_callable=AsyncMock),
+        patch("backend.src.main.close_redis", new_callable=AsyncMock) as mock_close_redis,
+    ):
+        async with lifespan(mock_app):
+            mock_init_db.assert_awaited_once()
+            assert mock_app.state.redis == mock_redis
+            assert mock_app.state.stream_manager == mock_stream_manager
+            mock_stream_manager.initialize_streams.assert_awaited_once()
+
+        mock_close_redis.assert_awaited_once()
+
+
+# -- _setup_logging with file handlers ----------------------------------------
+
+
+def test_setup_logging_with_file_handlers(tmp_path: object) -> None:
+    """Exercise _setup_logging file handler code (lines 48-68) when TESTING is unset."""
+    import logging
+    import os
+
+    from backend.src.main import _setup_logging
+
+    # Clear existing handlers to test fresh
+    root = logging.getLogger()
+    original_handlers = root.handlers.copy()
+    root.handlers.clear()
+
+    env_backup = os.environ.pop("TESTING", None)
+    try:
+        with patch("backend.src.main.app_settings") as mock_settings:
+            mock_settings.log_level = "INFO"
+            mock_settings.log_dir = str(tmp_path)
+            _setup_logging()
+
+        # Should have console + file handler on root
+        assert len(root.handlers) >= 2
+        # Orchestrator logger should have its own handler
+        orch_logger = logging.getLogger("backend.src.core.orchestrator")
+        assert len(orch_logger.handlers) >= 1
+    finally:
+        root.handlers.clear()
+        root.handlers.extend(original_handlers)
+        logging.getLogger("backend.src.core.orchestrator").handlers.clear()
+        logging.getLogger("backend.src.core.state_machine").handlers.clear()
+        if env_backup is not None:
+            os.environ["TESTING"] = env_backup

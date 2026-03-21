@@ -20,6 +20,8 @@ from fastapi import HTTPException
 
 from backend.src.models import Phase, PhaseStatus, Project, ProjectStatus, Task, TaskPriority, TaskStatus
 
+pytestmark = pytest.mark.asyncio
+
 
 async def create_project_and_phase(db_session) -> tuple[Project, Phase]:
     """Helper to create a project and phase for task tests."""

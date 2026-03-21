@@ -19,6 +19,8 @@ from backend.src.models import (
 from fastapi import HTTPException
 from httpx import AsyncClient
 
+pytestmark = pytest.mark.asyncio
+
 # ── Helpers ──────────────────────────────────────────────────────────
 
 
