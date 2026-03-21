@@ -11,8 +11,10 @@ import unicodedata
 import uuid
 from typing import Any
 
+from collections.abc import Callable
+
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
 
 from backend.src import models
@@ -22,6 +24,9 @@ from backend.src.repositories.design_session_repository import DesignSessionRepo
 from backend.src.repositories.phase_repository import PhaseRepository
 from backend.src.repositories.project_repository import ProjectRepository
 from backend.src.repositories.task_repository import TaskRepository
+
+# Type alias for session factory (async_sessionmaker or compatible callable)
+SessionFactory = async_sessionmaker[AsyncSession] | Callable[[], AsyncSession]
 
 FINALIZE_MARKER = "[FINALIZE]"
 _CONTEXT_RE = re.compile(r"<design_context>(.*?)</design_context>", re.DOTALL)
@@ -122,8 +127,9 @@ def build_project_context(project: models.Project) -> str:
 class ArchitectService:
     """Architect core business logic — used by both CLI and API."""
 
-    def __init__(self, db: AsyncSession) -> None:
+    def __init__(self, db: AsyncSession, session_factory: SessionFactory | None = None) -> None:
         self.db = db
+        self._session_factory = session_factory
 
     async def create_session(self, llm_config_dict: dict[str, Any], name: str | None = None) -> models.DesignSession:
         """Create a new design session."""
@@ -184,8 +190,14 @@ class ArchitectService:
         repo_path: str,
         pm_llm_config: dict[str, Any] | None = None,
     ) -> models.Project:
-        """Finalize a design session into a project with phases and tasks."""
-        from backend.src.storage.database import async_session
+        """Finalize a design session into a project with phases and tasks.
+
+        Uses a separate DB session for the write phase to avoid holding a
+        connection idle during the long-running LLM call.  The session factory
+        is provided via DI (constructor) rather than imported directly.
+        """
+        if self._session_factory is None:
+            raise RuntimeError("session_factory is required for finalize()")
 
         session_repo = DesignSessionRepository(self.db)
         session = await session_repo.get_by_id(session_id)
@@ -220,8 +232,8 @@ class ArchitectService:
         client = LLMClient(config)
         result = await client.structured_output(messages=messages, response_format={"type": "json_object"})
 
-        # Write results with a fresh DB session
-        async with async_session() as write_db:
+        # Write results with a fresh DB session (via injected factory)
+        async with self._session_factory() as write_db:
             write_session_repo = DesignSessionRepository(write_db)
 
             session = await write_session_repo.get_by_id(session_id, load_messages=False)

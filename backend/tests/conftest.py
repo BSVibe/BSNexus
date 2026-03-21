@@ -92,3 +92,8 @@ async def client(db_session, mock_stream_manager):
         yield test_client
 
     app.dependency_overrides.clear()
+    # Clean up app.state set by this fixture to prevent leakage
+    if hasattr(app.state, "stream_manager"):
+        del app.state.stream_manager
+    if hasattr(app.state, "rate_limit_disabled"):
+        del app.state.rate_limit_disabled

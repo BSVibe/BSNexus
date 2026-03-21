@@ -585,10 +585,14 @@ async def send_message_stream(
                 if actions:
                     yield {"event": "actions_executed", "data": json.dumps(actions)}
 
-        # Save assistant response (with design_context preserved for finalize extraction)
+        # Save assistant response with a fresh DB session (the DI-injected
+        # session is disposed after the endpoint function returns, before
+        # this generator runs).
         stored_response = full_response.replace(FINALIZE_MARKER, "").strip()
-        await repo.add_message(session_id_val, models.MessageRole.assistant, stored_response)
-        await repo.commit()
+        async with async_session() as save_db:
+            save_repo = DesignSessionRepository(save_db)
+            await save_repo.add_message(session_id_val, models.MessageRole.assistant, stored_response)
+            await save_repo.commit()
 
         yield {"event": "done", "data": cleaned_response}
 

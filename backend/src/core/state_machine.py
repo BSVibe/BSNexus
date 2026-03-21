@@ -159,7 +159,12 @@ class TaskStateMachine:
         stream_manager: Optional[RedisStreamManager] = None,
         **kwargs: Any,
     ) -> None:
-        """Reset execution fields when retrying."""
+        """Reset execution fields when retrying.
+
+        Note: qa_feedback_history is intentionally preserved — the orchestrator
+        appends failure context before this transition so the next attempt can
+        reference prior feedback.
+        """
         if old_status in (TaskStatus.in_progress, TaskStatus.review):
             task.error_message = None
             task.qa_result = None

@@ -22,6 +22,7 @@ class ClaudeCodeExecutor(BaseExecutor):
         self._rate_limit_max_retries = settings.rate_limit_retry_count
         self._rate_limit_wait_seconds = settings.rate_limit_wait_seconds
         self._execution_timeout_seconds = settings.execution_timeout_seconds
+        self._skip_permissions = settings.executor_skip_permissions
 
     @staticmethod
     def _resolve_claude_cmd() -> str:
@@ -87,10 +88,11 @@ class ClaudeCodeExecutor(BaseExecutor):
         try:
             logger.info("claude-cli: starting task_id=%s cwd=%s", task_id, workspace)
             prompt_bytes = prompt.encode("utf-8")
+            cmd_args = [self._claude_cmd, "--print"]
+            if self._skip_permissions:
+                cmd_args.append("--dangerously-skip-permissions")
             process = await asyncio.create_subprocess_exec(
-                self._claude_cmd,
-                "--print",
-                "--dangerously-skip-permissions",
+                *cmd_args,
                 cwd=workspace,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,

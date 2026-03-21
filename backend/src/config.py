@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     execution_timeout_seconds: int = 3600
     rate_limit_retry_count: int = 5
     rate_limit_wait_seconds: int = 300
+    executor_skip_permissions: bool = True
 
     # Auto-redesign
     max_auto_redesigns: int = 2

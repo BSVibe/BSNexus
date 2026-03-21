@@ -133,8 +133,9 @@ async def architect_finalize(session_id: str, repo_path: str) -> None:
 
     async with get_db_session() as db:
         from backend.src.core.architect_service import ArchitectService
+        from backend.src.storage.database import async_session
 
-        service = ArchitectService(db)
+        service = ArchitectService(db, session_factory=async_session)
         try:
             project = await service.finalize(sid, repo_path=repo_path)
         except ValueError as e:
