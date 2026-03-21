@@ -249,15 +249,15 @@ async def test_handle_execution_failure_retries_under_limit() -> None:
 
 @pytest.mark.asyncio
 async def test_handle_execution_failure_escalates_at_limit() -> None:
-    """When retry_count >= max_retries, task transitions to redesign and bug task is created."""
-    task = make_task(status=TaskStatus.in_progress, retry_count=2, max_retries=3)
+    """When retry_count > max_retries after increment, task transitions to redesign and bug task is created."""
+    task = make_task(status=TaskStatus.in_progress, retry_count=3, max_retries=3)
     orch = _build_orchestrator()
     db = _mock_db()
 
     with patch.object(orch, "_create_bug_task", new_callable=AsyncMock) as mock_create_bug:
         await orch._handle_execution_failure(task, db, "Fatal error", "runtime")
 
-    assert task.retry_count == 3
+    assert task.retry_count == 4
     call_kwargs = orch.state_machine.transition.call_args.kwargs
     assert call_kwargs["new_status"] == TaskStatus.redesign
     mock_create_bug.assert_awaited_once()
@@ -287,15 +287,15 @@ async def test_handle_qa_failure_retries() -> None:
 
 @pytest.mark.asyncio
 async def test_handle_qa_failure_escalates() -> None:
-    """QA fails at max retries, escalates to redesign."""
-    task = make_task(status=TaskStatus.review, retry_count=2, max_retries=3)
+    """QA fails past max retries, escalates to redesign."""
+    task = make_task(status=TaskStatus.review, retry_count=3, max_retries=3)
     orch = _build_orchestrator()
     db = _mock_db()
 
     with patch.object(orch, "_create_bug_task", new_callable=AsyncMock) as mock_create_bug:
         await orch._handle_qa_failure(task, db, feedback="Still broken")
 
-    assert task.retry_count == 3
+    assert task.retry_count == 4
     call_kwargs = orch.state_machine.transition.call_args.kwargs
     assert call_kwargs["new_status"] == TaskStatus.redesign
     mock_create_bug.assert_awaited_once()
@@ -799,7 +799,7 @@ async def test_recover_flags_after_max_recovery_count() -> None:
 
 @pytest.mark.asyncio
 async def test_queue_next_returns_task_when_ready() -> None:
-    """queue_next picks the first ready task and transitions to in_progress."""
+    """queue_next returns the first ready task without transitioning it."""
     project_id = uuid.uuid4()
     task = make_task(status=TaskStatus.ready, project_id=project_id)
 
@@ -814,8 +814,8 @@ async def test_queue_next_returns_task_when_ready() -> None:
         result = await orch.queue_next(project_id, db)
 
     assert result is task
-    call_kwargs = orch.state_machine.transition.call_args.kwargs
-    assert call_kwargs["new_status"] == TaskStatus.in_progress
+    # queue_next no longer transitions — the execution loop handles that
+    orch.state_machine.transition.assert_not_called()
 
 
 # ── Test: queue_next returns None when active task exists ──────────

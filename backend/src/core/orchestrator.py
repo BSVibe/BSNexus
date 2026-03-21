@@ -345,7 +345,7 @@ class PMOrchestrator:
             }
         )
 
-        if task.retry_count >= task.max_retries:
+        if task.retry_count > task.max_retries:
             await self.state_machine.transition(
                 task=task,
                 new_status=TaskStatus.redesign,
@@ -389,7 +389,7 @@ class PMOrchestrator:
             }
         )
 
-        if task.retry_count >= task.max_retries:
+        if task.retry_count > task.max_retries:
             await self.state_machine.transition(
                 task=task,
                 new_status=TaskStatus.redesign,
@@ -824,23 +824,27 @@ class PMOrchestrator:
                     await task_repo.add_dependencies(task.id, dep_ids)
 
     async def queue_next(self, project_id: uuid.UUID, db: AsyncSession) -> Task | None:
-        """Manually trigger execution of the next ready task."""
+        """Manually promote the next waiting task to ready so the execution loop picks it up.
+
+        Returns the promoted task, or the first ready task if one already exists,
+        or None if nothing is available.
+        """
         repo = TaskRepository(db)
 
+        # If a task is already running, nothing to do
         active_count = await repo.count_active_tasks(project_id)
         if active_count > 0:
             return None
 
+        # If there's already a ready task, just return it (execution loop will pick it up)
         ready_tasks = await repo.list_ready_by_priority(project_id)
         if ready_tasks:
-            task = ready_tasks[0]
-            await self.state_machine.transition(
-                task=task,
-                new_status=TaskStatus.in_progress,
-                reason="Manually triggered",
-                actor="user",
-                db_session=db,
-                stream_manager=self.stream_manager,
-            )
-            return task
+            return ready_tasks[0]
+
+        # Promote waiting tasks whose dependencies are met
+        await self._promote_waiting_tasks_inner(project_id, db)
+        ready_tasks = await repo.list_ready_by_priority(project_id)
+        if ready_tasks:
+            return ready_tasks[0]
+
         return None

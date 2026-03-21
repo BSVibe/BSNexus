@@ -482,8 +482,10 @@ async def send_message_stream(
     if is_project_bound and session.project_id:
         project = await _load_project_with_tasks(session.project_id, db)
 
-    # Save user message
+    # Save user message (commit now — the DI db session is disposed after this
+    # function returns, before the SSE generator runs)
     await repo.add_message(session.id, models.MessageRole.user, body.content)
+    await repo.commit()
 
     # Build message history
     messages = _build_message_history(session, project=project)

@@ -147,6 +147,11 @@ class ClaudeCodeExecutor(BaseExecutor):
 
         except asyncio.TimeoutError:
             logger.error("claude-cli: TIMEOUT after %ds task_id=%s", self._execution_timeout_seconds, task_id)
+            try:
+                process.kill()
+                await process.wait()
+            except ProcessLookupError:
+                pass
             return ExecutionResult(
                 success=False,
                 error_message=f"Execution timed out after {self._execution_timeout_seconds}s",

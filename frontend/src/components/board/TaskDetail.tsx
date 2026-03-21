@@ -3,9 +3,7 @@ import { tasksApi } from '../../api/tasks'
 import { useBoardStore } from '../../stores/boardStore'
 import { Modal, Badge, Button } from '../common'
 
-const allowedTransitions: Partial<Record<TaskStatus, { label: string; to: TaskStatus }[]>> = {
-  ready: [{ label: 'Queue', to: 'queued' }],
-}
+const allowedTransitions: Partial<Record<TaskStatus, { label: string; to: TaskStatus }[]>> = {}
 
 interface Props {
   task: Task

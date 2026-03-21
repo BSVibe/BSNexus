@@ -17,10 +17,11 @@ async def get_db_session() -> AsyncIterator[AsyncSession]:
         yield session
 
 
-async def build_orchestrator() -> tuple[Any, Any]:
+async def build_orchestrator() -> tuple[Any, Any, Any]:
     """Build a PMOrchestrator for CLI use.
 
-    Returns (orchestrator, db_session_factory).
+    Returns (orchestrator, db_session_factory, redis_connection).
+    The caller is responsible for closing the redis connection on shutdown.
     """
     from backend.src.config import settings
     from backend.src.core.executor import create_executor
@@ -44,4 +45,4 @@ async def build_orchestrator() -> tuple[Any, Any]:
         state_machine=state_machine,
     )
 
-    return orchestrator, async_session
+    return orchestrator, async_session, redis

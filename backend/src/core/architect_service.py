@@ -355,6 +355,8 @@ class ArchitectService:
 
             project_repo = ProjectRepository(write_db)
             loaded_project = await project_repo.get_by_id(project.id)
+            if loaded_project is None:
+                raise RuntimeError("Failed to load project after creation")
             return loaded_project
 
     async def list_sessions(self, status: models.DesignSessionStatus | None = None) -> list[models.DesignSession]:

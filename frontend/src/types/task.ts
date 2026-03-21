@@ -1,4 +1,4 @@
-export type TaskStatus = 'waiting' | 'ready' | 'queued' | 'in_progress' | 'review' | 'done' | 'redesign'
+export type TaskStatus = 'waiting' | 'ready' | 'in_progress' | 'review' | 'done' | 'redesign'
 export type TaskPriority = 'low' | 'medium' | 'high' | 'critical'
 export type TaskType = 'feature' | 'bug' | 'improvement' | 'test' | 'chore' | 'refactor'
 export type TaskSource = 'architect' | 'auto_bug' | 'manual'

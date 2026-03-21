@@ -170,7 +170,6 @@ async def test_get_board_with_tasks(client, db_session, mock_redis):
     assert len(data["columns"]["in_progress"]["tasks"]) == 1
     assert len(data["columns"]["done"]["tasks"]) == 1
     assert len(data["columns"]["waiting"]["tasks"]) == 0
-    assert len(data["columns"]["queued"]["tasks"]) == 0
     assert len(data["columns"]["review"]["tasks"]) == 0
     assert "redesign" not in data["columns"]
 

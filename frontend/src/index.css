@@ -27,7 +27,6 @@
     /* Status colors (theme-independent) */
     --status-waiting: #F59E0B;
     --status-ready: #3B82F6;
-    --status-queued: #8B5CF6;
     --status-in-progress: #10B981;
     --status-review: #EC4899;
     --status-done: #22C55E;

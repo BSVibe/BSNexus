@@ -4,7 +4,6 @@ import TaskCard from './TaskCard'
 const columnStatusColors: Record<string, string> = {
   waiting: 'var(--status-waiting)',
   ready: 'var(--status-ready)',
-  queued: 'var(--status-queued)',
   in_progress: 'var(--status-in-progress)',
   review: 'var(--status-review)',
   done: 'var(--status-done)',

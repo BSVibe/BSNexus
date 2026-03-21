@@ -205,12 +205,14 @@ async def pm_start(project_id: str) -> None:
         sys.exit(1)
 
     click.echo(f"Starting orchestration for project {pid}...")
-    orchestrator, db_factory = await build_orchestrator()
+    orchestrator, db_factory, redis_conn = await build_orchestrator()
     try:
         await orchestrator.start(pid, db_factory)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, asyncio.CancelledError):
         await orchestrator.stop()
         click.echo("Orchestration stopped.")
+    finally:
+        await redis_conn.aclose()
 
 
 @pm.command("status")

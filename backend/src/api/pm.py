@@ -170,7 +170,7 @@ async def queue_next_task(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Manually move the highest-priority READY task to in_progress."""
+    """Promote waiting tasks and return the next ready task for the execution loop."""
     orchestrator = _build_orchestrator(request)
 
     task = await orchestrator.queue_next(project_id, db)
@@ -180,7 +180,7 @@ async def queue_next_task(
     await db.commit()
 
     return {
-        "detail": "Task started",
+        "detail": "Task queued",
         "task_id": str(task.id),
         "title": task.title,
         "priority": task.priority.value,

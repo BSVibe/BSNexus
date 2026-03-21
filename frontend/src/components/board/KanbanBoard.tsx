@@ -1,11 +1,10 @@
 import type { Task } from '../../types/task'
 import KanbanColumn from './KanbanColumn'
 
-const columnOrder = ['waiting', 'ready', 'queued', 'in_progress', 'review', 'done']
+const columnOrder = ['waiting', 'ready', 'in_progress', 'review', 'done']
 const columnLabels: Record<string, string> = {
   waiting: 'Waiting',
   ready: 'Ready',
-  queued: 'Queued',
   in_progress: 'In Progress',
   review: 'Review',
   done: 'Done',

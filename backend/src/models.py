@@ -40,7 +40,6 @@ class PhaseStatus(str, enum.Enum):
 class TaskStatus(str, enum.Enum):
     waiting = "waiting"
     ready = "ready"
-    queued = "queued"
     in_progress = "in_progress"
     review = "review"
     done = "done"
