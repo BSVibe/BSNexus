@@ -44,10 +44,6 @@ export class BoardPage extends BasePage {
     return this.getColumnTasks('ready');
   }
 
-  async getQueuedTasksCount(): Promise<number> {
-    return this.getColumnTasks('queued');
-  }
-
   async getInProgressTasksCount(): Promise<number> {
     return this.getColumnTasks('in_progress');
   }

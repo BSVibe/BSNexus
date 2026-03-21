@@ -159,23 +159,14 @@ test.describe('API Integration Tests - End-to-End Workflows', () => {
     expect(currentTask.status).toBe('ready');
     expect(currentTask.version).toBe(1);
 
-    // Transition to queued
+    // Transition to in_progress
     let transitioned = await APIClient.transitionTask(task.id, {
-      new_status: 'queued',
+      new_status: 'in_progress',
       actor: 'test',
       expected_version: currentTask.version,
     });
-    expect(transitioned.status).toBe('queued');
-    expect(transitioned.version).toBe(2);
-
-    // Transition to in_progress
-    transitioned = await APIClient.transitionTask(task.id, {
-      new_status: 'in_progress',
-      actor: 'test',
-      expected_version: transitioned.version,
-    });
     expect(transitioned.status).toBe('in_progress');
-    expect(transitioned.version).toBe(3);
+    expect(transitioned.version).toBe(2);
 
     // Transition to review
     transitioned = await APIClient.transitionTask(task.id, {
@@ -184,7 +175,7 @@ test.describe('API Integration Tests - End-to-End Workflows', () => {
       expected_version: transitioned.version,
     });
     expect(transitioned.status).toBe('review');
-    expect(transitioned.version).toBe(4);
+    expect(transitioned.version).toBe(3);
 
     // Transition to done
     transitioned = await APIClient.transitionTask(task.id, {
@@ -193,7 +184,7 @@ test.describe('API Integration Tests - End-to-End Workflows', () => {
       expected_version: transitioned.version,
     });
     expect(transitioned.status).toBe('done');
-    expect(transitioned.version).toBe(5);
+    expect(transitioned.version).toBe(4);
   });
 
   test('should handle task dependencies', async () => {
@@ -242,7 +233,6 @@ test.describe('API Integration Tests - End-to-End Workflows', () => {
     expect(b.status).toBe('waiting');
 
     // Complete task A
-    await APIClient.transitionTask(taskA.id, { new_status: 'queued', actor: 'test' });
     await APIClient.transitionTask(taskA.id, { new_status: 'in_progress', actor: 'test' });
     await APIClient.transitionTask(taskA.id, { new_status: 'review', actor: 'test' });
     await APIClient.transitionTask(taskA.id, { new_status: 'done', actor: 'test' });
@@ -287,8 +277,8 @@ test.describe('API Integration Tests - End-to-End Workflows', () => {
       qa_prompt: 'QA',
     });
 
-    // Move task2 to queued
-    await APIClient.transitionTask(task2.id, { new_status: 'queued', actor: 'test' });
+    // Move task2 to in_progress
+    await APIClient.transitionTask(task2.id, { new_status: 'in_progress', actor: 'test' });
 
     // Get board
     const board = await APIClient.getBoard(project.id);
@@ -299,10 +289,10 @@ test.describe('API Integration Tests - End-to-End Workflows', () => {
 
     // Verify task distribution
     const readyTasks = board.columns.ready?.tasks || [];
-    const queuedTasks = board.columns.queued?.tasks || [];
+    const inProgressTasks = board.columns.in_progress?.tasks || [];
 
     expect(readyTasks.length).toBeGreaterThan(0);
-    expect(queuedTasks.length).toBeGreaterThan(0);
+    expect(inProgressTasks.length).toBeGreaterThan(0);
     expect(board.stats.total).toBeGreaterThanOrEqual(2);
   });
 
@@ -371,7 +361,7 @@ test.describe('API Integration Tests - End-to-End Workflows', () => {
     // Try transition with wrong version
     try {
       await APIClient.transitionTask(task.id, {
-        new_status: 'queued',
+        new_status: 'in_progress',
         actor: 'test',
         expected_version: 999,
       });
@@ -417,7 +407,6 @@ test.describe('API Integration Tests - End-to-End Workflows', () => {
     });
 
     // Move task2 to done
-    await APIClient.transitionTask(task2.id, { new_status: 'queued', actor: 'test' });
     await APIClient.transitionTask(task2.id, { new_status: 'in_progress', actor: 'test' });
     await APIClient.transitionTask(task2.id, { new_status: 'review', actor: 'test' });
     await APIClient.transitionTask(task2.id, { new_status: 'done', actor: 'test' });
@@ -493,13 +482,6 @@ test.describe('API Integration Tests - End-to-End Workflows', () => {
     // Complete phase 1 tasks
     for (const taskId of [task1a.id, task1b.id]) {
       let task = await APIClient.getTask(taskId);
-      await APIClient.transitionTask(taskId, {
-        new_status: 'queued',
-        actor: 'test',
-        expected_version: task.version,
-      });
-
-      task = await APIClient.getTask(taskId);
       await APIClient.transitionTask(taskId, {
         new_status: 'in_progress',
         actor: 'test',

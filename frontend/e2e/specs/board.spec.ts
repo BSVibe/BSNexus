@@ -43,13 +43,11 @@ test.describe('Board', () => {
     await boardPage.gotoProject(project.id);
 
     const readyCount = await boardPage.getReadyTasksCount();
-    const queuedCount = await boardPage.getQueuedTasksCount();
     const inProgressCount = await boardPage.getInProgressTasksCount();
     const reviewCount = await boardPage.getReviewTasksCount();
     const doneCount = await boardPage.getDoneTasksCount();
 
     expect(readyCount).toBe(0);
-    expect(queuedCount).toBe(0);
     expect(inProgressCount).toBe(0);
     expect(reviewCount).toBe(0);
     expect(doneCount).toBe(0);
@@ -85,24 +83,24 @@ test.describe('Board', () => {
     const task3 = await createTaskViaAPI(project.id, phase.id, `Task 3 ${Date.now()}`);
 
     // Transition tasks to different states
-    await transitionTaskViaAPI(task1.id, 'queued');
-    await transitionTaskViaAPI(task2.id, 'queued');
+    await transitionTaskViaAPI(task1.id, 'in_progress');
     await transitionTaskViaAPI(task2.id, 'in_progress');
-    await transitionTaskViaAPI(task3.id, 'queued');
+    await transitionTaskViaAPI(task2.id, 'review');
     await transitionTaskViaAPI(task3.id, 'in_progress');
     await transitionTaskViaAPI(task3.id, 'review');
+    await transitionTaskViaAPI(task3.id, 'done');
 
     await boardPage.gotoProject(project.id);
 
     const readyCount = await boardPage.getReadyTasksCount();
-    const queuedCount = await boardPage.getQueuedTasksCount();
     const inProgressCount = await boardPage.getInProgressTasksCount();
     const reviewCount = await boardPage.getReviewTasksCount();
+    const doneCount = await boardPage.getDoneTasksCount();
 
     expect(readyCount).toBe(0);
-    expect(queuedCount).toBe(1);
-    expect(inProgressCount).toBe(2);
+    expect(inProgressCount).toBe(1);
     expect(reviewCount).toBe(1);
+    expect(doneCount).toBe(1);
   });
 
   test('should display task stats correctly', async () => {
@@ -131,7 +129,6 @@ test.describe('Board', () => {
     const task = await createTaskViaAPI(project.id, phase.id, `Task ${Date.now()}`);
 
     // Transition task to done
-    await transitionTaskViaAPI(task.id, 'queued');
     await transitionTaskViaAPI(task.id, 'in_progress');
     await transitionTaskViaAPI(task.id, 'review');
     await transitionTaskViaAPI(task.id, 'done');
@@ -171,7 +168,6 @@ test.describe('Board', () => {
     const task2 = await createTaskViaAPI(project.id, phase.id, `Task 2 ${Date.now()}`, [task1.id]);
 
     // Complete task 1
-    await transitionTaskViaAPI(task1.id, 'queued');
     await transitionTaskViaAPI(task1.id, 'in_progress');
     await transitionTaskViaAPI(task1.id, 'review');
     await transitionTaskViaAPI(task1.id, 'done');

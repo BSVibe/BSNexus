@@ -7,21 +7,19 @@ Comprehensive E2E testing infrastructure has been implemented for BSNexus using 
 ## Test Results
 
 ### API Integration Tests (12 total)
-- **✅ Passing: 7 tests**
+- **✅ Passing: 12 tests**
   - Create and retrieve project
   - List projects
   - Delete project
   - Create phase in project
   - Create task in phase
+  - Transition task through states
+  - Handle task dependencies
+  - Get board state with task counts
   - Reject invalid transitions
   - Enforce optimistic locking with version conflicts
-
-- **❌ Failing: 5 tests** (Backend integration issues with stream manager publishing)
-  - Should transition task through states
-  - Should handle task dependencies
-  - Should get board state with task counts
-  - Should get projects summary for dashboard
-  - Should complete full project workflow
+  - Get projects summary for dashboard
+  - Complete full project workflow
 
 ## Infrastructure
 
@@ -50,7 +48,7 @@ Comprehensive E2E testing infrastructure has been implemented for BSNexus using 
 - `dashboard.spec.ts` - Dashboard CRUD operations and interactions
 - `board.spec.ts` - Kanban board task management tests
 - `full-workflow.spec.ts` - End-to-end user journey tests
-- `api-integration.spec.ts` - API-based integration tests (7 passing)
+- `api-integration.spec.ts` - API-based integration tests (12 passing)
 
 ## Test Coverage
 
@@ -125,13 +123,9 @@ The devcontainer environment doesn't have GUI dependencies for running headless 
 2. Use CI/CD pipeline with Docker
 3. Run on a system with X11/Wayland support
 
-### Backend Stream Manager
-Some tests fail because they require the Redis stream manager for publishing task transitions. The infrastructure is in place but requires proper initialization in the test environment.
-
 ## Future Improvements
 
-1. **Mock Stream Manager**: Create AsyncMock for Redis stream operations in tests
-2. **Visual Tests**: Add screenshot/visual regression testing
+1. **Visual Tests**: Add screenshot/visual regression testing
 3. **Performance Tests**: Add performance benchmarks for API endpoints
 4. **Load Testing**: Test application under concurrent user load
 5. **Error Scenarios**: Add tests for error handling and edge cases

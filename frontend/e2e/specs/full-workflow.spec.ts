@@ -75,13 +75,6 @@ test.describe('Full Workflow', () => {
     let readyCount = await boardPage.getReadyTasksCount();
     expect(readyCount).toBe(1);
 
-    // Transition task to queued
-    await transitionTaskViaAPI(task.id, 'queued');
-    await page.reload();
-
-    let queuedCount = await boardPage.getQueuedTasksCount();
-    expect(queuedCount).toBe(1);
-
     // Transition task to in_progress
     await transitionTaskViaAPI(task.id, 'in_progress');
     await page.reload();
@@ -127,7 +120,6 @@ test.describe('Full Workflow', () => {
     expect(readyCount).toBe(1);
 
     // Complete task A
-    await transitionTaskViaAPI(taskA.id, 'queued');
     await transitionTaskViaAPI(taskA.id, 'in_progress');
     await transitionTaskViaAPI(taskA.id, 'review');
     await transitionTaskViaAPI(taskA.id, 'done');
@@ -142,7 +134,6 @@ test.describe('Full Workflow', () => {
     expect(statusB?.toLowerCase()).toContain('ready');
 
     // Complete task B
-    await transitionTaskViaAPI(taskB.id, 'queued');
     await transitionTaskViaAPI(taskB.id, 'in_progress');
     await transitionTaskViaAPI(taskB.id, 'review');
     await transitionTaskViaAPI(taskB.id, 'done');
@@ -178,18 +169,15 @@ test.describe('Full Workflow', () => {
     await expect(projectCard).toBeVisible();
 
     // Complete phase 1 tasks
-    await transitionTaskViaAPI(task1a.id, 'queued');
     await transitionTaskViaAPI(task1a.id, 'in_progress');
     await transitionTaskViaAPI(task1a.id, 'review');
     await transitionTaskViaAPI(task1a.id, 'done');
 
-    await transitionTaskViaAPI(task1b.id, 'queued');
     await transitionTaskViaAPI(task1b.id, 'in_progress');
     await transitionTaskViaAPI(task1b.id, 'review');
     await transitionTaskViaAPI(task1b.id, 'done');
 
     // Complete phase 2 task
-    await transitionTaskViaAPI(task2a.id, 'queued');
     await transitionTaskViaAPI(task2a.id, 'in_progress');
     await transitionTaskViaAPI(task2a.id, 'review');
     await transitionTaskViaAPI(task2a.id, 'done');
@@ -246,12 +234,10 @@ test.describe('Full Workflow', () => {
     expect(readyCount).toBe(3);
 
     // Complete 2 tasks
-    await transitionTaskViaAPI(task1.id, 'queued');
     await transitionTaskViaAPI(task1.id, 'in_progress');
     await transitionTaskViaAPI(task1.id, 'review');
     await transitionTaskViaAPI(task1.id, 'done');
 
-    await transitionTaskViaAPI(task2.id, 'queued');
     await transitionTaskViaAPI(task2.id, 'in_progress');
     await transitionTaskViaAPI(task2.id, 'review');
     await transitionTaskViaAPI(task2.id, 'done');
