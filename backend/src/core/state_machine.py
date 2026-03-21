@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-import logging
+import structlog
 import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Optional
@@ -13,7 +13,7 @@ from backend.src.models import Phase, PhaseStatus, Task, TaskHistory, TaskStatus
 from backend.src.queue.streams import RedisStreamManager
 from backend.src.repositories.task_repository import TaskRepository
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:
     from backend.src.core.prompt_security import PromptSigner

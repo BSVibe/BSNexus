@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-import logging
+import structlog
 import time
 from dataclasses import dataclass
 
@@ -9,7 +9,7 @@ from backend.src.core.executor.base import BaseExecutor
 from backend.src.core.git_ops import GitOps
 from backend.src.models import Task
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 _ENVIRONMENT_EXCEPTIONS = (
     FileNotFoundError,

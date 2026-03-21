@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
+import structlog
 import re
 from typing import Any, AsyncIterator, Optional, cast
 
@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 from backend.src.config import settings
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 _JSON_BLOCK_RE = re.compile(r"```(?:json)?\s*\n(.*?)\n```", re.DOTALL)
 

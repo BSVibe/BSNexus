@@ -160,7 +160,7 @@ class ArchitectService:
 
         project: models.Project | None = None
         if session.status == models.DesignSessionStatus.project_bound and session.project_id:
-            project = await self._load_project_with_tasks(session.project_id)
+            project = await self.load_project_with_tasks(session.project_id)
 
         await repo.add_message(session.id, models.MessageRole.user, content)
 
@@ -174,7 +174,7 @@ class ArchitectService:
         cleaned_text, has_finalize, design_context = clean_response(response_text)
 
         if session.status == models.DesignSessionStatus.project_bound:
-            await self._execute_action_markers(response_text, session)
+            await self.execute_action_markers(response_text, session)
             cleaned_text = strip_action_markers(cleaned_text)
 
         assistant_msg = await repo.add_message(
@@ -380,7 +380,7 @@ class ArchitectService:
 
     # -- Private helpers --
 
-    async def _load_project_with_tasks(self, project_id: uuid.UUID) -> models.Project | None:
+    async def load_project_with_tasks(self, project_id: uuid.UUID) -> models.Project | None:
         """Load a project with phases and tasks eagerly loaded."""
         result = await self.db.execute(
             select(models.Project)
@@ -389,7 +389,7 @@ class ArchitectService:
         )
         return result.scalar_one_or_none()
 
-    async def _execute_action_markers(self, text: str, session: models.DesignSession) -> list[dict[str, Any]]:
+    async def execute_action_markers(self, text: str, session: models.DesignSession) -> list[dict[str, Any]]:
         """Parse and execute action markers from LLM response."""
         actions: list[dict[str, Any]] = []
         if not session.project_id:

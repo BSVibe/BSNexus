@@ -2,7 +2,7 @@
 
 import enum
 import json
-import logging
+import structlog
 import uuid
 from datetime import datetime
 from typing import Any
@@ -15,7 +15,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from backend.src.storage.database import Base
 
 
-logger = logging.getLogger("bsnexus.audit")
+logger = structlog.get_logger("bsnexus.audit")
 
 
 class AuditAction(str, enum.Enum):

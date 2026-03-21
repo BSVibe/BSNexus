@@ -1,5 +1,5 @@
 import asyncio
-import logging
+import structlog
 import re
 import shutil
 import sys
@@ -10,7 +10,7 @@ from backend.src.prompts.loader import get_prompt
 
 from .base import BaseExecutor, ExecutionResult, ReviewResult
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class ClaudeCodeExecutor(BaseExecutor):

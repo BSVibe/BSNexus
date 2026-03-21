@@ -8,8 +8,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from backend.src.api.architect import _execute_action_markers
-from backend.src.core.architect_service import strip_action_markers
+from backend.src.core.architect_service import ArchitectService, strip_action_markers
 from backend.src.models import (
     DesignSession,
     DesignSessionStatus,
@@ -109,7 +108,7 @@ async def test_execute_create_task(db_session) -> None:
     })
     text = f"Here is a task: [CREATE_TASK]{task_json}[/CREATE_TASK]"
 
-    actions = await _execute_action_markers(text, session, db_session)
+    actions = await ArchitectService(db_session).execute_action_markers(text, session)
     await db_session.commit()
 
     assert len(actions) == 1
@@ -146,7 +145,7 @@ async def test_execute_create_task_no_project_id(db_session) -> None:
     await db_session.flush()
 
     text = '[CREATE_TASK]{"title":"x"}[/CREATE_TASK]'
-    actions = await _execute_action_markers(text, session, db_session)
+    actions = await ArchitectService(db_session).execute_action_markers(text, session)
     assert actions == []
 
 
@@ -174,7 +173,7 @@ async def test_execute_create_task_invalid_json(db_session) -> None:
     await db_session.flush()
 
     text = "[CREATE_TASK]not valid json[/CREATE_TASK]"
-    actions = await _execute_action_markers(text, session, db_session)
+    actions = await ArchitectService(db_session).execute_action_markers(text, session)
     assert actions == []
 
 
@@ -216,7 +215,7 @@ async def test_execute_modify_task(db_session) -> None:
     })
     text = f"[MODIFY_TASK]{modify_json}[/MODIFY_TASK]"
 
-    actions = await _execute_action_markers(text, session, db_session)
+    actions = await ArchitectService(db_session).execute_action_markers(text, session)
     assert len(actions) == 1
     assert actions[0]["type"] == "task_modified"
     assert actions[0]["title"] == "Updated Title"
@@ -263,7 +262,7 @@ async def test_execute_modify_task_rejects_in_progress(db_session) -> None:
     modify_json = json.dumps({"task_id": str(task.id), "title": "Should Not Change"})
     text = f"[MODIFY_TASK]{modify_json}[/MODIFY_TASK]"
 
-    actions = await _execute_action_markers(text, session, db_session)
+    actions = await ArchitectService(db_session).execute_action_markers(text, session)
     assert actions == []
 
     await db_session.refresh(task)

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 import uuid
 from typing import Any
 
@@ -9,6 +8,8 @@ from backend.src import models, schemas
 from backend.src.api.settings import get_raw_llm_config
 from backend.src.core.architect_service import (
     FINALIZE_MARKER,
+    ArchitectService,
+    _CONTEXT_RE,
     build_llm_config,
     build_message_history,
     clean_response,
@@ -24,15 +25,10 @@ from backend.src.repositories.project_repository import ProjectRepository
 from backend.src.repositories.task_repository import TaskRepository
 from backend.src.storage.database import async_session, get_db
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 from sse_starlette.sse import EventSourceResponse
 
 router = APIRouter(prefix="/api/v1/architect", tags=["architect"])
-
-_CONTEXT_RE = re.compile(r"<design_context>(.*?)</design_context>", re.DOTALL)
-
 
 _STREAM_MARKERS = ["<design_context>", "[FINALIZE]", "[CREATE_TASK]", "[MODIFY_TASK]"]
 _MAX_MARKER_LEN = max(len(m) for m in _STREAM_MARKERS)
@@ -54,119 +50,7 @@ def _find_potential_marker_start(text: str) -> int | None:
     return None
 
 
-async def _load_project_with_tasks(project_id: uuid.UUID, db: AsyncSession) -> models.Project | None:
-    """Load a project with phases and tasks eagerly loaded for context building."""
-    result = await db.execute(
-        select(models.Project)
-        .where(models.Project.id == project_id)
-        .options(selectinload(models.Project.phases).selectinload(models.Phase.tasks))
-    )
-    return result.scalar_one_or_none()
-
-
-# ── Action Markers ──────────────────────────────────────────────────
-
-_CREATE_TASK_RE = re.compile(r"\[CREATE_TASK\](.*?)\[/CREATE_TASK\]", re.DOTALL)
-_MODIFY_TASK_RE = re.compile(r"\[MODIFY_TASK\](.*?)\[/MODIFY_TASK\]", re.DOTALL)
 _ACTION_MARKERS = ["[CREATE_TASK]", "[/CREATE_TASK]", "[MODIFY_TASK]", "[/MODIFY_TASK]"]
-
-
-async def _execute_action_markers(text: str, session: models.DesignSession, db: AsyncSession) -> list[dict[str, Any]]:
-    """Parse and execute action markers from LLM response.
-
-    Returns list of executed actions for board event publishing.
-    """
-    actions: list[dict[str, Any]] = []
-
-    if not session.project_id:
-        return actions
-
-    task_repo = TaskRepository(db)
-
-    # Handle CREATE_TASK markers
-    for match in _CREATE_TASK_RE.finditer(text):
-        try:
-            task_data = json.loads(match.group(1).strip())
-        except json.JSONDecodeError:
-            continue
-
-        # Find target phase (active phase by default)
-        phase_repo = PhaseRepository(db)
-        phases = await phase_repo.list_by_project(session.project_id)
-        active_phase = next((p for p in phases if p.status == models.PhaseStatus.active), None)
-        if not active_phase:
-            continue
-
-        priority_str = task_data.get("priority", "medium")
-        try:
-            priority = models.TaskPriority(priority_str)
-        except ValueError:
-            priority = models.TaskPriority.medium
-
-        task_type_str = task_data.get("task_type", "feature")
-        try:
-            task_type = models.TaskType(task_type_str)
-        except ValueError:
-            task_type = models.TaskType.feature
-
-        new_task = models.Task(
-            project_id=session.project_id,
-            phase_id=active_phase.id,
-            title=task_data.get("title", "Untitled Task"),
-            description=task_data.get("description"),
-            priority=priority,
-            task_type=task_type,
-            source=models.TaskSource.architect,
-            status=models.TaskStatus.ready,
-            worker_prompt={"prompt": task_data.get("worker_prompt", "")},
-            qa_prompt={"prompt": task_data.get("qa_prompt", "")},
-            branch_name=active_phase.branch_name,
-        )
-        db.add(new_task)
-        await db.flush()
-        actions.append({"type": "task_created", "task_id": str(new_task.id), "title": new_task.title})
-
-    # Handle MODIFY_TASK markers
-    for match in _MODIFY_TASK_RE.finditer(text):
-        try:
-            task_data = json.loads(match.group(1).strip())
-        except json.JSONDecodeError:
-            continue
-
-        task_id_str = task_data.get("task_id")
-        if not task_id_str:
-            continue
-
-        try:
-            task_id = uuid.UUID(task_id_str)
-        except ValueError:
-            continue
-
-        task = await task_repo.get_by_id(task_id)
-        if not task or task.project_id != session.project_id:
-            continue
-
-        # Only allow modification of tasks not yet in progress
-        if task.status not in (models.TaskStatus.waiting, models.TaskStatus.ready):
-            continue
-
-        if "title" in task_data:
-            task.title = task_data["title"]
-        if "description" in task_data:
-            task.description = task_data["description"]
-        if "priority" in task_data:
-            try:
-                task.priority = models.TaskPriority(task_data["priority"])
-            except ValueError:
-                pass
-        if "worker_prompt" in task_data:
-            task.worker_prompt = {"prompt": task_data["worker_prompt"]}
-        if "qa_prompt" in task_data:
-            task.qa_prompt = {"prompt": task_data["qa_prompt"]}
-
-        actions.append({"type": "task_modified", "task_id": str(task.id), "title": task.title})
-
-    return actions
 
 
 # ── 0. List Sessions ─────────────────────────────────────────────────
@@ -312,9 +196,10 @@ async def send_message(
         raise HTTPException(status_code=400, detail="Session is cancelled")
 
     # Load project for project_bound sessions
+    service = ArchitectService(db)
     project: models.Project | None = None
     if session.status == models.DesignSessionStatus.project_bound and session.project_id:
-        project = await _load_project_with_tasks(session.project_id, db)
+        project = await service.load_project_with_tasks(session.project_id)
 
     # Save user message
     await repo.add_message(session.id, models.MessageRole.user, body.content)
@@ -336,7 +221,7 @@ async def send_message(
 
     # Execute action markers for project-bound sessions
     if session.status == models.DesignSessionStatus.project_bound:
-        await _execute_action_markers(response_text, session, db)
+        await service.execute_action_markers(response_text, session)
         cleaned_text = strip_action_markers(cleaned_text)
 
     # Save assistant response (original with design_context for later extraction)
@@ -377,7 +262,7 @@ async def send_message_stream(
     project: models.Project | None = None
     is_project_bound = session.status == models.DesignSessionStatus.project_bound
     if is_project_bound and session.project_id:
-        project = await _load_project_with_tasks(session.project_id, db)
+        project = await ArchitectService(db).load_project_with_tasks(session.project_id)
 
     # Save user message (commit now — the DI db session is disposed after this
     # function returns, before the SSE generator runs)
@@ -477,9 +362,9 @@ async def send_message_stream(
         # Execute action markers for project-bound sessions
         if is_project_bound and session_project_id:
             async with async_session() as action_db:
-                # Re-load session for action execution
+                action_svc = ArchitectService(action_db)
                 action_session = models.DesignSession(id=session_id_val, project_id=session_project_id)
-                actions = await _execute_action_markers(full_response, action_session, action_db)
+                actions = await action_svc.execute_action_markers(full_response, action_session)
                 await action_db.commit()
                 if actions:
                     yield {"event": "actions_executed", "data": json.dumps(actions)}
