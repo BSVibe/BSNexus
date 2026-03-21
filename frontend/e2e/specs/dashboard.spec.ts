@@ -21,14 +21,14 @@ test.describe('Dashboard', () => {
     for (const projectId of createdProjectIds) {
       try {
         await deleteProjectViaAPI(projectId);
-      } catch (e) {
+      } catch {
         // Ignore cleanup errors
       }
     }
     createdProjectIds.length = 0;
   });
 
-  test('should display dashboard with empty state when no projects', async ({ page }) => {
+  test('should display dashboard with empty state when no projects', async () => {
     const isEmpty = await dashboardPage.isEmptyState();
     if (isEmpty) {
       expect(await dashboardPage.isEmptyState()).toBe(true);
@@ -90,7 +90,7 @@ test.describe('Dashboard', () => {
 
   test('should delete project with confirmation', async () => {
     const projectName = `Test Project ${Date.now()}`;
-    const newProject = await createProjectViaAPI(projectName, 'Test Description', '/test/repo');
+    await createProjectViaAPI(projectName, 'Test Description', '/test/repo');
 
     await dashboardPage.goto();
     await dashboardPage.waitForProjectsLoaded();

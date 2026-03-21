@@ -13,7 +13,7 @@ export async function waitForBackend(maxRetries = 30) {
       if (response.ok || response.status === 401) {
         return true;
       }
-    } catch (e) {
+    } catch {
       // Continue retrying
     }
     await new Promise((r) => setTimeout(r, 1000));
@@ -28,7 +28,7 @@ export async function waitForFrontend(page: Page, maxRetries = 30) {
     try {
       await page.goto(process.env.FRONTEND_BASE_URL || 'http://localhost:3000', { waitUntil: 'domcontentloaded', timeout: 5000 });
       return true;
-    } catch (e) {
+    } catch {
       // Continue retrying
     }
     await new Promise((r) => setTimeout(r, 1000));

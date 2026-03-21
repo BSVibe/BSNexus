@@ -12,7 +12,7 @@ test.describe('API Integration Tests - End-to-End Workflows', () => {
     for (const projectId of createdProjectIds) {
       try {
         await APIClient.deleteProject(projectId);
-      } catch (e) {
+      } catch {
         // Ignore cleanup errors
       }
     }
@@ -53,7 +53,7 @@ test.describe('API Integration Tests - End-to-End Workflows', () => {
     expect(Array.isArray(projects)).toBe(true);
     expect(projects.length).toBeGreaterThanOrEqual(2);
 
-    const projectIds = projects.map((p: any) => p.id);
+    const projectIds = projects.map((p: Record<string, unknown>) => p.id);
     expect(projectIds).toContain(project1.id);
     expect(projectIds).toContain(project2.id);
   });
@@ -75,7 +75,7 @@ test.describe('API Integration Tests - End-to-End Workflows', () => {
 
     expect(countAfter).toBeLessThan(countBefore);
 
-    const exists = projectsAfter.some((p: any) => p.id === project.id);
+    const exists = projectsAfter.some((p: Record<string, unknown>) => p.id === project.id);
     expect(exists).toBe(false);
   });
 
@@ -155,7 +155,7 @@ test.describe('API Integration Tests - End-to-End Workflows', () => {
     });
 
     // Task should start in ready state
-    let currentTask = await APIClient.getTask(task.id);
+    const currentTask = await APIClient.getTask(task.id);
     expect(currentTask.status).toBe('ready');
     expect(currentTask.version).toBe(1);
 
@@ -225,7 +225,7 @@ test.describe('API Integration Tests - End-to-End Workflows', () => {
     });
 
     // Task A should be ready
-    let a = await APIClient.getTask(taskA.id);
+    const a = await APIClient.getTask(taskA.id);
     expect(a.status).toBe('ready');
 
     // Task B should be waiting
@@ -257,7 +257,7 @@ test.describe('API Integration Tests - End-to-End Workflows', () => {
     });
 
     // Create tasks
-    const task1 = await APIClient.createTask({
+    await APIClient.createTask({
       project_id: project.id,
       phase_id: phase.id,
       title: `Task 1 ${Date.now()}`,
@@ -386,7 +386,7 @@ test.describe('API Integration Tests - End-to-End Workflows', () => {
     });
 
     // Create tasks in different states
-    const task1 = await APIClient.createTask({
+    await APIClient.createTask({
       project_id: project.id,
       phase_id: phase.id,
       title: `Task 1 ${Date.now()}`,
@@ -415,7 +415,7 @@ test.describe('API Integration Tests - End-to-End Workflows', () => {
 
     expect(Array.isArray(summary)).toBe(true);
 
-    const projectSummary = summary.find((s: any) => s.id === project.id);
+    const projectSummary = summary.find((s: Record<string, unknown>) => s.id === project.id);
     expect(projectSummary).toBeTruthy();
     expect(projectSummary.task_counts).toBeTruthy();
     expect(projectSummary.task_counts['done']).toBe(1);
@@ -504,7 +504,7 @@ test.describe('API Integration Tests - End-to-End Workflows', () => {
     }
 
     // Verify phase 2 task is now ready (dependencies satisfied)
-    let task2aFinal = await APIClient.getTask(task2a.id);
+    const task2aFinal = await APIClient.getTask(task2a.id);
     expect(task2aFinal.status).toBe('ready');
 
     // Get final board state

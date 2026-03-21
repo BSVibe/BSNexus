@@ -178,7 +178,7 @@ export class APIClient {
         if (response.ok || response.status === 401) {
           return true;
         }
-      } catch (e) {
+      } catch {
         // Continue retrying
       }
       await new Promise((r) => setTimeout(r, 1000));

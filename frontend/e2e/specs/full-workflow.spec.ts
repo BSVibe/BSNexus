@@ -33,7 +33,7 @@ test.describe('Full Workflow', () => {
     for (const projectId of createdProjectIds) {
       try {
         await deleteProjectViaAPI(projectId);
-      } catch (e) {
+      } catch {
         // Ignore cleanup errors
       }
     }
@@ -44,7 +44,7 @@ test.describe('Full Workflow', () => {
     const project = await createProjectViaAPI(`Project ${Date.now()}`, 'Test Project', '/test/repo');
     createdProjectIds.push(project.id);
 
-    const phase = await createPhaseViaAPI(project.id, 'Phase 1');
+    await createPhaseViaAPI(project.id, 'Phase 1');
 
     // Start at dashboard
     await dashboardPage.goto();
@@ -72,28 +72,28 @@ test.describe('Full Workflow', () => {
     await boardPage.gotoProject(project.id);
 
     // Verify task is in ready state
-    let readyCount = await boardPage.getReadyTasksCount();
+    const readyCount = await boardPage.getReadyTasksCount();
     expect(readyCount).toBe(1);
 
     // Transition task to in_progress
     await transitionTaskViaAPI(task.id, 'in_progress');
     await page.reload();
 
-    let inProgressCount = await boardPage.getInProgressTasksCount();
+    const inProgressCount = await boardPage.getInProgressTasksCount();
     expect(inProgressCount).toBe(1);
 
     // Transition task to review
     await transitionTaskViaAPI(task.id, 'review');
     await page.reload();
 
-    let reviewCount = await boardPage.getReviewTasksCount();
+    const reviewCount = await boardPage.getReviewTasksCount();
     expect(reviewCount).toBe(1);
 
     // Transition task to done
     await transitionTaskViaAPI(task.id, 'done');
     await page.reload();
 
-    let doneCount = await boardPage.getDoneTasksCount();
+    const doneCount = await boardPage.getDoneTasksCount();
     expect(doneCount).toBe(1);
   });
 
@@ -145,7 +145,7 @@ test.describe('Full Workflow', () => {
     expect(statusC?.toLowerCase()).toContain('ready');
   });
 
-  test('should complete full project lifecycle', async ({ page }) => {
+  test('should complete full project lifecycle', async () => {
     const projectName = `Full Lifecycle ${Date.now()}`;
     const project = await createProjectViaAPI(projectName, 'Complete Project', '/test/repo');
     createdProjectIds.push(project.id);
@@ -224,13 +224,13 @@ test.describe('Full Workflow', () => {
     // Create 3 tasks
     const task1 = await createTaskViaAPI(project.id, phase.id, `Task 1 ${Date.now()}`);
     const task2 = await createTaskViaAPI(project.id, phase.id, `Task 2 ${Date.now()}`);
-    const task3 = await createTaskViaAPI(project.id, phase.id, `Task 3 ${Date.now()}`);
+    await createTaskViaAPI(project.id, phase.id, `Task 3 ${Date.now()}`);
 
     // Navigate to board
     await boardPage.gotoProject(project.id);
 
     // Verify initial state: 3 ready tasks
-    let readyCount = await boardPage.getReadyTasksCount();
+    const readyCount = await boardPage.getReadyTasksCount();
     expect(readyCount).toBe(3);
 
     // Complete 2 tasks

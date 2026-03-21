@@ -27,7 +27,7 @@ test.describe('Board', () => {
     for (const projectId of createdProjectIds) {
       try {
         await deleteProjectViaAPI(projectId);
-      } catch (e) {
+      } catch {
         // Ignore cleanup errors
       }
     }
@@ -38,7 +38,7 @@ test.describe('Board', () => {
     const project = await createProjectViaAPI(`Project ${Date.now()}`, 'Test', '/test/repo');
     createdProjectIds.push(project.id);
 
-    const phase = await createPhaseViaAPI(project.id, 'Phase 1');
+    await createPhaseViaAPI(project.id, 'Phase 1');
 
     await boardPage.gotoProject(project.id);
 
