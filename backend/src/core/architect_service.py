@@ -65,10 +65,12 @@ def build_llm_config(llm_config_dict: dict[str, Any] | None) -> LLMConfig:
     if not llm_config_dict or "api_key" not in llm_config_dict:
         raise ValueError("LLM configuration with api_key is required")
     kwargs: dict[str, Any] = {"api_key": llm_config_dict["api_key"]}
-    if llm_config_dict.get("model"):
-        kwargs["model"] = llm_config_dict["model"]
-    if llm_config_dict.get("base_url"):
-        kwargs["base_url"] = llm_config_dict["base_url"]
+    model = llm_config_dict.get("model")
+    if model is not None and model != "":
+        kwargs["model"] = model
+    base_url = llm_config_dict.get("base_url")
+    if base_url is not None and base_url != "":
+        kwargs["base_url"] = base_url
     return LLMConfig(**kwargs)
 
 

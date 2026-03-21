@@ -231,7 +231,7 @@ async def test_queue_next_success(api_client: AsyncClient, mock_redis: AsyncMock
 
     assert response.status_code == 200
     data = response.json()
-    assert data["detail"] == "Task queued"
+    assert data["detail"] == "Task promoted to ready"
     assert data["title"] == "Test Task"
     assert data["priority"] == "high"
 

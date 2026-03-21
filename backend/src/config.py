@@ -1,10 +1,11 @@
 from typing import Optional
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="forbid")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     # Infrastructure
     redis_url: str = "redis://redis:6379"
@@ -32,6 +33,11 @@ class Settings(BaseSettings):
     # LLM Defaults (fallback only - used when not specified at runtime)
     default_llm_model: str = "anthropic/claude-sonnet-4-20250514"
     default_llm_base_url: Optional[str] = None
+
+    @field_validator("default_llm_model", mode="after")
+    @classmethod
+    def _coerce_empty_llm_model(cls, v: str) -> str:
+        return v or "anthropic/claude-sonnet-4-20250514"
 
     # Executor
     executor_type: str = "claude-code"
