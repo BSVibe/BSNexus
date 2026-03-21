@@ -34,7 +34,6 @@ pnpm lint     # ESLint check
 | `/` | Dashboard | Project list and overview |
 | `/architect/:sessionId?` | Architect | LLM design chat with WebSocket streaming |
 | `/board/:projectId` | Board | Real-time Kanban board |
-| `/workers` | Workers | Worker status and management |
 
 ## Environment
 
