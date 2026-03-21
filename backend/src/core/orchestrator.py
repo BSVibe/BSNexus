@@ -335,39 +335,46 @@ class PMOrchestrator:
         self, task: Task, db: AsyncSession, error_msg: str, error_category: str = ""
     ) -> None:
         """Handle execution failure with auto-retry or escalation to redesign."""
-        task.retry_count += 1
+        original_count = task.retry_count
+        original_history = list(task.qa_feedback_history) if task.qa_feedback_history else None
+        try:
+            task.retry_count += 1
 
-        if task.qa_feedback_history is None:
-            task.qa_feedback_history = []
-        task.qa_feedback_history.append(
-            {
-                "type": "execution_failure",
-                "attempt": task.retry_count,
-                "error": error_msg,
-                "error_category": error_category,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            }
-        )
+            if task.qa_feedback_history is None:
+                task.qa_feedback_history = []
+            task.qa_feedback_history.append(
+                {
+                    "type": "execution_failure",
+                    "attempt": task.retry_count,
+                    "error": error_msg,
+                    "error_category": error_category,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            )
 
-        if task.retry_count > task.max_retries:
-            await self.state_machine.transition(
-                task=task,
-                new_status=TaskStatus.redesign,
-                reason=f"Max retries ({task.max_retries}) exceeded. Last error: {error_msg}",
-                actor="pm",
-                db_session=db,
-                stream_manager=self.stream_manager,
-            )
-            await self._create_bug_task(task, db, error_msg, error_category)
-        else:
-            await self.state_machine.transition(
-                task=task,
-                new_status=TaskStatus.ready,
-                reason=f"Execution failed (attempt {task.retry_count}/{task.max_retries}): {error_msg}",
-                actor="pm",
-                db_session=db,
-                stream_manager=self.stream_manager,
-            )
+            if task.retry_count > task.max_retries:
+                await self.state_machine.transition(
+                    task=task,
+                    new_status=TaskStatus.redesign,
+                    reason=f"Max retries ({task.max_retries}) exceeded. Last error: {error_msg}",
+                    actor="pm",
+                    db_session=db,
+                    stream_manager=self.stream_manager,
+                )
+                await self._create_bug_task(task, db, error_msg, error_category)
+            else:
+                await self.state_machine.transition(
+                    task=task,
+                    new_status=TaskStatus.ready,
+                    reason=f"Execution failed (attempt {task.retry_count}/{task.max_retries}): {error_msg}",
+                    actor="pm",
+                    db_session=db,
+                    stream_manager=self.stream_manager,
+                )
+        except Exception:
+            task.retry_count = original_count
+            task.qa_feedback_history = original_history
+            raise
 
     async def _handle_qa_failure(
         self,
@@ -378,41 +385,48 @@ class PMOrchestrator:
         error_category: str = "",
     ) -> None:
         """Handle QA failure with auto-retry or escalation to redesign."""
-        task.retry_count += 1
-        effective_feedback = feedback or error_message
+        original_count = task.retry_count
+        original_history = list(task.qa_feedback_history) if task.qa_feedback_history else None
+        try:
+            task.retry_count += 1
+            effective_feedback = feedback or error_message
 
-        if task.qa_feedback_history is None:
-            task.qa_feedback_history = []
-        task.qa_feedback_history.append(
-            {
-                "type": "qa_failure",
-                "attempt": task.retry_count,
-                "feedback": effective_feedback,
-                "error_category": error_category,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            }
-        )
+            if task.qa_feedback_history is None:
+                task.qa_feedback_history = []
+            task.qa_feedback_history.append(
+                {
+                    "type": "qa_failure",
+                    "attempt": task.retry_count,
+                    "feedback": effective_feedback,
+                    "error_category": error_category,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            )
 
-        if task.retry_count > task.max_retries:
-            await self.state_machine.transition(
-                task=task,
-                new_status=TaskStatus.redesign,
-                reason=f"Max retries ({task.max_retries}) exceeded. Last QA feedback: {effective_feedback}",
-                actor="pm",
-                db_session=db,
-                stream_manager=self.stream_manager,
-            )
-            await self._create_bug_task(task, db, effective_feedback, error_category)
-        else:
-            # Retry: back to ready (will be re-executed with feedback in qa_feedback_history)
-            await self.state_machine.transition(
-                task=task,
-                new_status=TaskStatus.ready,
-                reason=f"QA failed (attempt {task.retry_count}/{task.max_retries}), auto-retrying",
-                actor="pm",
-                db_session=db,
-                stream_manager=self.stream_manager,
-            )
+            if task.retry_count > task.max_retries:
+                await self.state_machine.transition(
+                    task=task,
+                    new_status=TaskStatus.redesign,
+                    reason=f"Max retries ({task.max_retries}) exceeded. Last QA feedback: {effective_feedback}",
+                    actor="pm",
+                    db_session=db,
+                    stream_manager=self.stream_manager,
+                )
+                await self._create_bug_task(task, db, effective_feedback, error_category)
+            else:
+                # Retry: back to ready (will be re-executed with feedback in qa_feedback_history)
+                await self.state_machine.transition(
+                    task=task,
+                    new_status=TaskStatus.ready,
+                    reason=f"QA failed (attempt {task.retry_count}/{task.max_retries}), auto-retrying",
+                    actor="pm",
+                    db_session=db,
+                    stream_manager=self.stream_manager,
+                )
+        except Exception:
+            task.retry_count = original_count
+            task.qa_feedback_history = original_history
+            raise
 
     async def _create_bug_task(
         self, failed_task: Task, db: AsyncSession, error_msg: str, error_category: str = ""

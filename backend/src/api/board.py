@@ -133,6 +133,9 @@ async def _board_event_generator(
                             }
         except asyncio.CancelledError:
             break
+        except Exception:
+            logger.warning("board_sse_error", project_id=project_id, exc_info=True)
+            await asyncio.sleep(1)
 
 
 @router.get("/{project_id}/events")

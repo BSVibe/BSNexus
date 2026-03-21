@@ -60,6 +60,11 @@ def strip_action_markers(text: str) -> str:
     return text.strip()
 
 
+def strip_design_context(text: str) -> str:
+    """Remove <design_context>...</design_context> tags from text."""
+    return _CONTEXT_RE.sub("", text).strip()
+
+
 def build_llm_config(llm_config_dict: dict[str, Any] | None) -> LLMConfig:
     """Build an LLMConfig from a dict stored in session.llm_config."""
     if not llm_config_dict or "api_key" not in llm_config_dict:
@@ -83,7 +88,7 @@ def extract_design_context(session: models.DesignSession) -> str | None:
     ]
     if not chat_messages:
         return None
-    last = sorted(chat_messages, key=lambda m: m.created_at)[-1]
+    last = max(chat_messages, key=lambda m: m.created_at)
     match = _CONTEXT_RE.search(last.content)
     return match.group(1).strip() if match else None
 

@@ -16,8 +16,8 @@ logger = structlog.get_logger(__name__)
 class ClaudeCodeExecutor(BaseExecutor):
     """Claude Code CLI executor."""
 
-    def __init__(self, workspace_dir: str = "/workspace") -> None:
-        self.workspace_dir = workspace_dir
+    def __init__(self, workspace_dir: str | None = None) -> None:
+        self.workspace_dir = workspace_dir or settings.workspace_dir
         self._claude_cmd = self._resolve_claude_cmd()
         self._rate_limit_max_retries = settings.rate_limit_retry_count
         self._rate_limit_wait_seconds = settings.rate_limit_wait_seconds

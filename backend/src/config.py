@@ -40,6 +40,7 @@ class Settings(BaseSettings):
         return v or "anthropic/claude-sonnet-4-20250514"
 
     # Executor
+    workspace_dir: str = "/workspace"
     executor_type: str = "claude-code"
     execution_timeout_seconds: int = 3600
     total_execution_timeout_seconds: int = 7200

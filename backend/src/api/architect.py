@@ -9,13 +9,13 @@ from backend.src.api.settings import get_raw_llm_config
 from backend.src.core.architect_service import (
     FINALIZE_MARKER,
     ArchitectService,
-    _CONTEXT_RE,
     build_llm_config,
     build_message_history,
     clean_response,
     extract_design_context,
     slugify,
     strip_action_markers,
+    strip_design_context,
 )
 from backend.src.core.llm_client import LLMClient, LLMError
 from backend.src.prompts.loader import get_prompt
@@ -352,7 +352,7 @@ async def send_message_stream(
         # Flush remaining buffer that turned out not to be a marker
         if emit_buffer and not suppressed:
             cleaned_buf = emit_buffer.replace(FINALIZE_MARKER, "")
-            cleaned_buf = _CONTEXT_RE.sub("", cleaned_buf).strip()
+            cleaned_buf = strip_design_context(cleaned_buf)
             if is_project_bound:
                 cleaned_buf = strip_action_markers(cleaned_buf)
             if cleaned_buf:

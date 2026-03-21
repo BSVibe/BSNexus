@@ -39,6 +39,7 @@ def _mock_process(stdout: bytes = b"", stderr: bytes = b"", returncode: int = 0)
     proc = AsyncMock()
     proc.communicate = AsyncMock(return_value=(stdout, stderr))
     proc.returncode = returncode
+    proc.kill = MagicMock()  # kill() is synchronous
     return proc
 
 
@@ -133,6 +134,7 @@ class TestRunCli:
         mock_proc = AsyncMock()
         mock_proc.communicate = AsyncMock(side_effect=asyncio.TimeoutError())
         mock_proc.returncode = None
+        mock_proc.kill = MagicMock()  # kill() is synchronous
 
         with patch("asyncio.create_subprocess_exec", return_value=mock_proc), \
              patch("asyncio.wait_for", side_effect=asyncio.TimeoutError()):

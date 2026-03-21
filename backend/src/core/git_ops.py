@@ -54,7 +54,8 @@ class GitOps:
             return ""  # nothing to commit
         except RuntimeError:
             pass  # staged changes exist
-        message = f"feat(task-{task_id}): {title}"
+        safe_title = title.replace("\n", " ").replace("\r", " ").strip()[:100]
+        message = f"feat(task-{task_id}): {safe_title}"
         await self._run("commit", "-m", message)
         return (await self._run("rev-parse", "HEAD")).strip()
 
