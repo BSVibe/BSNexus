@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env", extra="forbid")
 
     # Infrastructure
     redis_url: str = "redis://redis:6379"
@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     total_execution_timeout_seconds: int = 7200
     rate_limit_retry_count: int = 5
     rate_limit_wait_seconds: int = 300
-    executor_skip_permissions: bool = True
+    executor_skip_permissions: bool = False
 
     # Auto-redesign
     max_auto_redesigns: int = 2

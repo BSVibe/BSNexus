@@ -110,6 +110,8 @@ class TaskStateMachine:
         **kwargs: Any,
     ) -> None:
         """Dispatch side effects based on the new status."""
+        # NOTE: TaskStatus.review intentionally has no side effect handler.
+        # The orchestrator manages the review workflow directly in _execute_and_review().
         side_effect_map = {
             TaskStatus.ready: self._on_ready,
             TaskStatus.in_progress: self._on_in_progress,

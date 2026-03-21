@@ -15,6 +15,8 @@ _ENVIRONMENT_EXCEPTIONS = (
     FileNotFoundError,
     PermissionError,
     OSError,
+    ConnectionError,
+    TimeoutError,
     UnicodeEncodeError,
     UnicodeDecodeError,
 )

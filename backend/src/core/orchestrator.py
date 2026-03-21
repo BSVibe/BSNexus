@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import uuid
+from collections.abc import AsyncGenerator, Callable
 from datetime import datetime, timezone
 from typing import Any
 
@@ -21,6 +22,9 @@ from backend.src.repositories.project_repository import ProjectRepository
 from backend.src.repositories.task_repository import TaskRepository
 
 logger = logging.getLogger(__name__)
+
+# Type alias: a callable that returns an async context manager yielding AsyncSession
+SessionFactory = Callable[[], AsyncGenerator[AsyncSession, None]]
 
 # Redis key TTLs
 _INTERVENTION_KEY_TTL = 86400  # 24 hours
@@ -41,7 +45,7 @@ class PMOrchestrator:
         self.state_machine = state_machine
         self._running = False
 
-    async def start(self, project_id: uuid.UUID, db_session_factory: Any) -> None:
+    async def start(self, project_id: uuid.UUID, db_session_factory: SessionFactory) -> None:
         """Start orchestration for a project."""
         logger.info("Orchestrator starting for project %s", project_id)
         self._running = True
@@ -59,7 +63,7 @@ class PMOrchestrator:
         finally:
             logger.info("Orchestrator stopped for project %s", project_id)
 
-    async def _promote_waiting_tasks(self, project_id: uuid.UUID, db_session_factory: Any) -> None:
+    async def _promote_waiting_tasks(self, project_id: uuid.UUID, db_session_factory: SessionFactory) -> None:
         """Promote WAITING tasks in the active phase whose dependencies are all met to READY."""
         try:
             async with db_session_factory() as db:
@@ -68,7 +72,7 @@ class PMOrchestrator:
         except Exception:
             logger.exception("Promote waiting tasks error")
 
-    async def _recover_orphaned_redesign_tasks(self, project_id: uuid.UUID, db_session_factory: Any) -> None:
+    async def _recover_orphaned_redesign_tasks(self, project_id: uuid.UUID, db_session_factory: SessionFactory) -> None:
         """Re-publish escalation messages for tasks stuck in redesign status."""
         try:
             async with db_session_factory() as db:
@@ -142,7 +146,7 @@ class PMOrchestrator:
 
     # ── Execution Loop ─────────────────────────────────────────────────
 
-    async def _execution_loop(self, project_id: uuid.UUID, db_session_factory: Any) -> None:
+    async def _execution_loop(self, project_id: uuid.UUID, db_session_factory: SessionFactory) -> None:
         """Execute tasks sequentially: pick ready task, execute, process result, repeat."""
         logger.info("Execution loop started for project %s", project_id)
         redesign_check_counter = 0
@@ -211,7 +215,7 @@ class PMOrchestrator:
         task: Task,
         repo_path: str,
         project_id: uuid.UUID,
-        db_session_factory: Any,
+        db_session_factory: SessionFactory,
     ) -> None:
         """Execute a task and run QA review inline."""
         task_id = task.id
@@ -470,7 +474,7 @@ class PMOrchestrator:
 
     # ── Escalation Loop (Auto-Redesign) ────────────────────────────────
 
-    async def _escalation_loop(self, project_id: uuid.UUID, db_session_factory: Any) -> None:
+    async def _escalation_loop(self, project_id: uuid.UUID, db_session_factory: SessionFactory) -> None:
         """Consume escalation messages and auto-redesign tasks via Architect LLM."""
         logger.info("Escalation loop started for project %s", project_id)
         while self._running:

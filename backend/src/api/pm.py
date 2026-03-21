@@ -148,15 +148,14 @@ async def promote_waiting_tasks(
     promoted: list[dict] = []
     for task in waiting_tasks:
         if await task_repo.check_dependencies_met(task.id):
+            stream_mgr = getattr(request.app.state, "stream_manager", None)
             await state_machine.transition(
                 task=task,
                 new_status=models.TaskStatus.ready,
                 reason="All dependencies met",
                 actor="system",
                 db_session=db,
-                stream_manager=request.app.state.stream_manager
-                if hasattr(request.app.state, "stream_manager")
-                else None,
+                stream_manager=stream_mgr,
             )
             promoted.append({"task_id": str(task.id), "title": task.title})
 
