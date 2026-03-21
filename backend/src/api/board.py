@@ -2,20 +2,20 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
+import uuid
+import structlog
 from typing import AsyncGenerator
 
 import redis.asyncio as aioredis
 from backend.src import models, schemas
 from backend.src.repositories.task_repository import TaskRepository
 from backend.src.storage.database import get_db
-from backend.src.utils.worker_registry import WorkerRegistry
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/api/v1/board", tags=["board"])
 
@@ -31,12 +31,13 @@ def _build_task_response(task: models.Task) -> schemas.TaskResponse:
         description=task.description,
         status=schemas.TaskStatus(task.status.value),
         priority=schemas.TaskPriority(task.priority.value),
+        task_type=schemas.TaskType(task.task_type.value),
+        source=schemas.TaskSource(task.source.value),
+        parent_task_id=task.parent_task_id,
         worker_prompt=task.worker_prompt,
         qa_prompt=task.qa_prompt,
         branch_name=task.branch_name,
         commit_hash=task.commit_hash,
-        worker_id=task.worker_id,
-        reviewer_id=task.reviewer_id,
         qa_result=task.qa_result,
         output_path=task.output_path,
         error_message=task.error_message,
@@ -53,16 +54,12 @@ def _build_task_response(task: models.Task) -> schemas.TaskResponse:
 
 
 async def _get_board_data(
-    project_id: str,
+    project_id: uuid.UUID,
     db: AsyncSession,
-    redis_client: aioredis.Redis,
 ) -> dict:
     """Build board data dict for a project."""
-    import uuid as _uuid
-
-    pid = _uuid.UUID(project_id)
     repo = TaskRepository(db)
-    tasks = await repo.list_by_project(pid, limit=500)
+    tasks = await repo.list_by_project(project_id, limit=500)
 
     # Group tasks by status — redesign tasks go into a separate list
     kanban_statuses = [s for s in models.TaskStatus if s != models.TaskStatus.redesign]
@@ -76,44 +73,26 @@ async def _get_board_data(
             columns[task.status.value].append(task_resp.model_dump(mode="json"))
 
     # Stats
-    status_counts = await repo.count_by_status(pid)
+    status_counts = await repo.count_by_status(project_id)
     total = sum(status_counts.values())
     stats: dict[str, int] = {"total": total}
     for status in models.TaskStatus:
         stats[status.value] = status_counts.get(status.value, 0)
 
-    # Worker stats — only workers assigned to this project
-    registry = WorkerRegistry(redis_client)
-    assigned_ids: list[str] = []
-    workers: list[dict] = []
-    try:
-        result = await db.execute(
-            select(models.Worker.id).where(models.Worker.project_id == pid)
-        )
-        assigned_ids = [str(row[0]) for row in result.all()]
-        if assigned_ids:
-            workers = await registry.get_workers_by_ids(assigned_ids)
-    except Exception:
-        logger.warning("Failed to fetch assigned workers for project %s", pid, exc_info=True)
-    idle = sum(1 for w in workers if w.get("status") == "idle")
-    busy = sum(1 for w in workers if w.get("status") == "busy")
-    offline = len(assigned_ids) - len(workers)
-
     # Phase lookup: id -> {name, order, status}
     phase_result = await db.execute(
-        select(models.Phase.id, models.Phase.name, models.Phase.order, models.Phase.status)
-        .where(models.Phase.project_id == pid)
+        select(models.Phase.id, models.Phase.name, models.Phase.order, models.Phase.status).where(
+            models.Phase.project_id == project_id
+        )
     )
     phases = {
-        str(row.id): {"name": row.name, "order": row.order, "status": row.status.value}
-        for row in phase_result.all()
+        str(row.id): {"name": row.name, "order": row.order, "status": row.status.value} for row in phase_result.all()
     }
 
     return {
-        "project_id": project_id,
+        "project_id": str(project_id),
         "columns": {status: {"tasks": task_list} for status, task_list in columns.items()},
         "stats": stats,
-        "workers": {"total": len(assigned_ids), "idle": idle, "busy": busy, "offline": offline},
         "phases": phases,
         "redesign_tasks": redesign_tasks,
     }
@@ -121,13 +100,11 @@ async def _get_board_data(
 
 @router.get("/{project_id}")
 async def get_board(
-    project_id: str,
-    request: Request,
+    project_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Get full board state for a project."""
-    redis_client: aioredis.Redis = request.app.state.redis
-    return await _get_board_data(project_id, db, redis_client)
+    return await _get_board_data(project_id, db)
 
 
 async def _board_event_generator(
@@ -154,13 +131,16 @@ async def _board_event_generator(
                             }
         except asyncio.CancelledError:
             break
+        except Exception:
+            logger.warning("board_sse_error", project_id=project_id, exc_info=True)
+            await asyncio.sleep(1)
 
 
 @router.get("/{project_id}/events")
 async def board_events(
-    project_id: str,
+    project_id: uuid.UUID,
     request: Request,
 ) -> EventSourceResponse:
     """SSE stream for board events."""
     redis_client: aioredis.Redis = request.app.state.redis
-    return EventSourceResponse(_board_event_generator(project_id, redis_client))
+    return EventSourceResponse(_board_event_generator(str(project_id), redis_client))

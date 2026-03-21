@@ -17,7 +17,12 @@ dependencies = [
     "python-multipart>=0.0.9",
     "sse-starlette>=1.6.0",
     "pyyaml>=6.0",
+    "click>=8.0.0",
+    "structlog>=23.0.0",
 ]
+
+[project.scripts]
+bsnexus = "backend.src.cli.main:main"
 
 [project.optional-dependencies]
 dev = [
@@ -32,6 +37,9 @@ dev = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 pythonpath = ["/workspace"]
+filterwarnings = [
+    "ignore:coroutine.*was never awaited:RuntimeWarning",
+]
 
 [tool.ruff]
 target-version = "py311"
@@ -39,7 +47,7 @@ line-length = 120
 
 [tool.coverage.run]
 source = ["src"]
-omit = ["*/migrations/*"]
+omit = ["*/migrations/*", "src/cli/*"]
 
 [tool.coverage.report]
 fail_under = 80

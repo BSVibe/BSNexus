@@ -129,3 +129,11 @@ class TestDefaultKeyWarning:
         with caplog.at_level(logging.WARNING):
             EncryptionManager("dev-encryption-key-change-in-production")
         assert any("default encryption key" in r.message for r in caplog.records)
+
+
+class TestDecryptErrors:
+    def test_decrypt_invalid_base64_raises(self):
+        """decrypt_value with invalid base64 raises ValueError."""
+        enc = EncryptionManager("test-key-for-encryption-testing-32chars")
+        with pytest.raises(ValueError, match="Invalid encrypted data format"):
+            enc.decrypt_value("not!!valid!!base64!!!")

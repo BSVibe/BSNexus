@@ -1,16 +1,21 @@
 import react from '@vitejs/plugin-react'
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 
-export default defineConfig({
-  plugins: [react()],
-  server: {
-    allowedHosts: process.env.VITE_ALLOWED_HOSTS
-      ? process.env.VITE_ALLOWED_HOSTS.split(',').map((h) => h.trim())
-      : [],
-    host: '0.0.0.0',
-    port: 3000,
-    proxy: {
-      '/api': 'http://localhost:8000',
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, '..', 'VITE_')
+
+  return {
+    envDir: '..',
+    plugins: [react()],
+    server: {
+      allowedHosts: env.VITE_ALLOWED_HOSTS
+        ? env.VITE_ALLOWED_HOSTS.split(',').map((h) => h.trim())
+        : [],
+      host: '0.0.0.0',
+      port: 3000,
+      proxy: {
+        '/api': env.VITE_API_URL || 'http://localhost:8000',
+      },
     },
-  },
+  }
 })

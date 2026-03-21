@@ -18,9 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 def slugify(value: str) -> str:
     """Convert a string to a URL-friendly slug."""
-    value = (
-        unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
-    )
+    value = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
     value = re.sub(r"[^\w\s-]", "", value.lower())
     return re.sub(r"[-\s]+", "-", value).strip("-")
 
@@ -144,9 +142,7 @@ async def batch_delete_projects(
     """Delete multiple projects by IDs."""
     from sqlalchemy import delete as sa_delete
 
-    result = await db.execute(
-        sa_delete(models.Project).where(models.Project.id.in_(body.ids))
-    )
+    result = await db.execute(sa_delete(models.Project).where(models.Project.id.in_(body.ids)))
     await db.commit()
     deleted: int = result.rowcount if result.rowcount and result.rowcount > 0 else 0  # type: ignore[attr-defined]
     return schemas.BatchDeleteResponse(deleted=deleted)
@@ -155,9 +151,7 @@ async def batch_delete_projects(
 # -- Phase Endpoints -----------------------------------------------------------
 
 
-@router.post(
-    "/{project_id}/phases", response_model=schemas.PhaseResponse, status_code=201
-)
+@router.post("/{project_id}/phases", response_model=schemas.PhaseResponse, status_code=201)
 async def create_phase(
     project_id: UUID,
     phase_data: schemas.PhaseCreate,

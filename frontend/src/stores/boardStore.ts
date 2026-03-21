@@ -10,7 +10,6 @@ interface BoardStats {
 interface BoardState {
   columns: Record<string, Task[]>
   stats: Record<string, number>
-  workers: Record<string, number>
   phases: Record<string, PhaseInfo>
   redesignTasks: Task[]
   manualRedesignTaskIds: Set<string>
@@ -22,7 +21,6 @@ interface BoardState {
   setConnected: (connected: boolean) => void
   moveTask: (taskId: string, from: string, to: string) => void
   updateTask: (task: Task) => void
-  assignWorker: (taskId: string, workerId: string) => void
   addManualRedesignTaskId: (taskId: string) => void
   clearManualRedesignTaskIds: () => void
   getBoardStats: () => BoardStats
@@ -31,7 +29,6 @@ interface BoardState {
 export const useBoardStore = create<BoardState>((set, get) => ({
   columns: {},
   stats: {},
-  workers: {},
   phases: {},
   redesignTasks: [],
   manualRedesignTaskIds: new Set<string>(),
@@ -54,7 +51,6 @@ export const useBoardStore = create<BoardState>((set, get) => ({
           Object.entries(data.columns).map(([key, col]) => [key, col.tasks])
         ),
         stats: data.stats,
-        workers: data.workers,
         phases: data.phases || {},
         redesignTasks,
         manualRedesignTaskIds: pruned,
@@ -104,17 +100,6 @@ export const useBoardStore = create<BoardState>((set, get) => ({
       }
       const redesignTasks = state.redesignTasks.map((t) => (t.id === updated.id ? updated : t))
       return { columns, redesignTasks, selectedTask: state.selectedTask?.id === updated.id ? updated : state.selectedTask }
-    }),
-
-  assignWorker: (taskId, workerId) =>
-    set((state) => {
-      const columns = { ...state.columns }
-      for (const key of Object.keys(columns)) {
-        columns[key] = columns[key].map((t) =>
-          t.id === taskId ? { ...t, worker_id: workerId } : t
-        )
-      }
-      return { columns }
     }),
 
   addManualRedesignTaskId: (taskId) =>

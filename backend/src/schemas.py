@@ -1,9 +1,63 @@
 import enum
+import ipaddress
+import re
+import socket
 import uuid
 from datetime import datetime
 from typing import Optional
+from urllib.parse import urlparse
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+
+# ── Validation helpers ───────────────────────────────────────────────
+
+_PATH_TRAVERSAL_RE = re.compile(r"\.\.[/\\]|%2e%2e[/\\]|%252e%252e[/\\]", re.IGNORECASE)
+
+_SSRF_BLOCKED_HOSTNAMES = frozenset({"localhost"})
+
+
+def _check_path_traversal(v: str) -> str:
+    """Reject paths containing directory traversal sequences."""
+    if _PATH_TRAVERSAL_RE.search(v):
+        raise ValueError("Path traversal sequences are not allowed")
+    return v
+
+
+def _is_private_ip(host: str) -> bool:
+    """Check if a hostname resolves to a private/loopback/link-local IP.
+
+    Handles all IP notations: dotted decimal, shorthand (127.1),
+    hex (0x7f000001), octal (0177.0.0.1), IPv6 mapped (::ffff:127.0.0.1).
+    """
+    try:
+        # socket.getaddrinfo handles all notation variants
+        results = socket.getaddrinfo(host, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        for _, _, _, _, sockaddr in results:
+            addr = ipaddress.ip_address(sockaddr[0])
+            if addr.is_loopback or addr.is_private or addr.is_link_local or addr.is_reserved:
+                return True
+    except (socket.gaierror, ValueError, OSError):
+        pass
+    return False
+
+
+def _check_ssrf_url(v: str | None) -> str | None:
+    """Reject URLs targeting private/internal networks."""
+    if v is None:
+        return v
+    try:
+        parsed = urlparse(v)
+    except ValueError as e:
+        raise ValueError(f"Invalid URL: {e}") from e
+    host = (parsed.hostname or "").lower()
+    if not host:
+        raise ValueError("URL must contain a hostname")
+    if host in _SSRF_BLOCKED_HOSTNAMES:
+        raise ValueError("URLs targeting localhost are not allowed")
+    if _is_private_ip(host):
+        raise ValueError("URLs targeting private or internal network addresses are not allowed")
+    return v
 
 
 # ── Health Schemas ────────────────────────────────────────────────────
@@ -25,7 +79,6 @@ class DepsHealthResponse(BaseModel):
 class TaskStatus(str, enum.Enum):
     waiting = "waiting"
     ready = "ready"
-    queued = "queued"
     in_progress = "in_progress"
     review = "review"
     done = "done"
@@ -67,12 +120,6 @@ class TaskSource(str, enum.Enum):
     manual = "manual"
 
 
-class WorkerStatus(str, enum.Enum):
-    idle = "idle"
-    busy = "busy"
-    offline = "offline"
-
-
 # ── Phase Schemas ─────────────────────────────────────────────────────
 
 
@@ -104,6 +151,11 @@ class ProjectCreate(BaseModel):
     description: str
     repo_path: str
 
+    @field_validator("repo_path")
+    @classmethod
+    def _validate_repo_path(cls, v: str) -> str:
+        return _check_path_traversal(v)
+
 
 class ProjectUpdate(BaseModel):
     name: Optional[str] = None
@@ -124,6 +176,26 @@ class ProjectResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     phases: list[PhaseResponse] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _mask_llm_config_keys(self) -> "ProjectResponse":
+        """Mask API keys in llm_config to prevent credential leakage in responses."""
+        if not self.llm_config:
+            return self
+        masked = {}
+        for role, cfg in self.llm_config.items():
+            if isinstance(cfg, dict) and "api_key" in cfg:
+                cfg = {**cfg, "api_key": _mask_api_key(cfg["api_key"])}
+            masked[role] = cfg
+        self.llm_config = masked
+        return self
+
+
+def _mask_api_key(key: str | None) -> str | None:
+    """Mask API key for display: sk-ant-abc...xyz -> sk-****...xyz"""
+    if not key or len(key) < 8:
+        return key
+    return key[:3] + "****..." + key[-4:]
 
 
 # ── Task Schemas ──────────────────────────────────────────────────────
@@ -172,8 +244,6 @@ class TaskResponse(BaseModel):
     qa_prompt: Optional[dict] = None
     branch_name: Optional[str] = None
     commit_hash: Optional[str] = None
-    worker_id: Optional[uuid.UUID] = None
-    reviewer_id: Optional[uuid.UUID] = None
     qa_result: Optional[dict] = None
     output_path: Optional[str] = None
     error_message: Optional[str] = None
@@ -186,69 +256,6 @@ class TaskResponse(BaseModel):
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     depends_on: list[uuid.UUID] = Field(default_factory=list)
-
-
-# ── Worker Schemas ────────────────────────────────────────────────────
-
-
-class WorkerRegister(BaseModel):
-    name: Optional[str] = None
-    platform: str
-    capabilities: Optional[dict] = None
-    executor_type: str = "claude-code"
-    registration_token: str
-    worker_id: Optional[str] = None
-    worker_token: Optional[str] = None
-
-
-class WorkerResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: uuid.UUID
-    name: str
-    platform: str
-    capabilities: Optional[dict] = None
-    status: WorkerStatus
-    current_task_id: Optional[uuid.UUID] = None
-    executor_type: str
-    project_id: Optional[uuid.UUID] = None
-    registered_at: datetime
-    last_heartbeat: Optional[datetime] = None
-
-
-class WorkerHeartbeatResponse(BaseModel):
-    status: WorkerStatus
-    pending_tasks: int
-
-
-class WorkerPollRequest(BaseModel):
-    poll_types: list[str] = Field(default=["task", "qa"])
-
-
-class WorkerPollItem(BaseModel):
-    type: str
-    message_id: str
-    stream: str
-    data: dict
-
-
-class WorkerPollResponse(BaseModel):
-    items: list[WorkerPollItem] = Field(default_factory=list)
-
-
-class WorkerResultRequest(BaseModel):
-    message_id: str
-    stream: str
-    result_type: str
-    task_id: str
-    success: bool = False
-    passed: bool = False
-    output_path: str = ""
-    error_message: str = ""
-    error_category: str = ""
-    commit_hash: str = ""
-    branch_name: str = ""
-    feedback: str = ""
 
 
 # ── Board Schemas ─────────────────────────────────────────────────────
@@ -268,7 +275,6 @@ class BoardResponse(BaseModel):
     project_id: uuid.UUID
     columns: dict[str, BoardColumn]
     stats: dict[str, int]
-    workers: dict[str, int] = Field(default_factory=dict)
     phases: dict[str, PhaseInfoResponse] = Field(default_factory=dict)
     redesign_tasks: list[TaskResponse] = Field(default_factory=list)
 
@@ -309,10 +315,14 @@ class LLMConfigInput(BaseModel):
     model: Optional[str] = None
     base_url: Optional[str] = None
 
+    @field_validator("base_url")
+    @classmethod
+    def _validate_base_url(cls, v: str | None) -> str | None:
+        return _check_ssrf_url(v)
+
 
 class CreateSessionRequest(BaseModel):
     name: Optional[str] = None
-    worker_id: Optional[uuid.UUID] = None
 
 
 class MessageRequest(BaseModel):
@@ -334,7 +344,6 @@ class DesignSessionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID
     project_id: Optional[uuid.UUID] = None
-    worker_id: Optional[uuid.UUID] = None
     name: Optional[str] = None
     status: DesignSessionStatus
     created_at: datetime
@@ -346,14 +355,21 @@ class FinalizeRequest(BaseModel):
     repo_path: str
     pm_llm_config: Optional[LLMConfigInput] = None
 
+    @field_validator("repo_path")
+    @classmethod
+    def _validate_repo_path(cls, v: str) -> str:
+        return _check_path_traversal(v)
+
 
 class PhaseRedesignRequest(BaseModel):
     """Request to trigger manual phase-level redesign."""
+
     llm_config: Optional[LLMConfigInput] = None
 
 
 class PhaseRedesignResponse(BaseModel):
     """Response from phase-level redesign."""
+
     phase_id: uuid.UUID
     project_id: uuid.UUID
     reasoning: str
@@ -390,9 +406,6 @@ class DashboardStatsResponse(BaseModel):
     in_progress_tasks: int
     done_tasks: int
     completion_rate: float
-    total_workers: int
-    online_workers: int
-    busy_workers: int
 
 
 class ProjectDashboardSummary(BaseModel):
@@ -403,7 +416,6 @@ class ProjectDashboardSummary(BaseModel):
     status: ProjectStatus
     task_counts: dict[str, int]  # status → count
     bug_count: int = 0
-    active_worker_count: int = 0
     current_phase: Optional[str] = None
     has_architect_session: bool = False
     last_activity: Optional[datetime] = None
@@ -423,6 +435,11 @@ class GlobalSettingsUpdate(BaseModel):
     llm_model: Optional[str] = None
     llm_base_url: Optional[str] = None
 
+    @field_validator("llm_base_url")
+    @classmethod
+    def _validate_base_url(cls, v: str | None) -> str | None:
+        return _check_ssrf_url(v)
+
 
 # ── Batch Delete Schemas ────────────────────────────────────────────
 
@@ -437,24 +454,6 @@ class BatchDeleteResponse(BaseModel):
 
 class DeleteResponse(BaseModel):
     detail: str
-
-
-# ── Registration Token Schemas ──────────────────────────────────────
-
-
-class RegistrationTokenCreate(BaseModel):
-    name: Optional[str] = None
-
-
-class RegistrationTokenResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: uuid.UUID
-    token: str
-    name: str
-    created_at: datetime
-    expires_at: Optional[datetime] = None
-    revoked: bool
 
 
 # ── Security Schemas ───────────────────────────────────────────────

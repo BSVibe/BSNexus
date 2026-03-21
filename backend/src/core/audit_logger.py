@@ -2,7 +2,7 @@
 
 import enum
 import json
-import logging
+import structlog
 import uuid
 from datetime import datetime
 from typing import Any
@@ -15,7 +15,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from backend.src.storage.database import Base
 
 
-logger = logging.getLogger("bsnexus.audit")
+logger = structlog.get_logger("bsnexus.audit")
 
 
 class AuditAction(str, enum.Enum):
@@ -25,11 +25,6 @@ class AuditAction(str, enum.Enum):
     auth_failed = "auth.failed"
     auth_token_created = "auth.token_created"
     auth_token_revoked = "auth.token_revoked"
-
-    # Worker events
-    worker_registered = "worker.registered"
-    worker_deregistered = "worker.deregistered"
-    worker_heartbeat_failed = "worker.heartbeat_failed"
 
     # Data access events
     data_read = "data.read"
@@ -74,9 +69,7 @@ class AuditLog(Base):
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     action: Mapped[AuditAction] = mapped_column(Enum(AuditAction), nullable=False)
-    severity: Mapped[AuditSeverity] = mapped_column(
-        Enum(AuditSeverity), nullable=False, default=AuditSeverity.info
-    )
+    severity: Mapped[AuditSeverity] = mapped_column(Enum(AuditSeverity), nullable=False, default=AuditSeverity.info)
     actor_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     actor_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     resource_type: Mapped[str | None] = mapped_column(String(100), nullable=True)

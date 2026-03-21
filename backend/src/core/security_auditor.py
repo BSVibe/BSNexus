@@ -115,84 +115,98 @@ class SecurityAuditor:
         """Check prompt signing key configuration."""
         key = self._settings.prompt_signing_key
         if key == "dev-signing-key-change-in-production":
-            report.add_finding(SecurityFinding(
-                category=FindingCategory.encryption,
-                severity=SeverityLevel.critical,
-                title="Default prompt signing key in use",
-                description="The prompt signing key is set to the default development value.",
-                recommendation="Generate a secure key with: python -c \"import secrets; print(secrets.token_hex(32))\"",
-                affected_component="config.prompt_signing_key",
-            ))
+            report.add_finding(
+                SecurityFinding(
+                    category=FindingCategory.encryption,
+                    severity=SeverityLevel.critical,
+                    title="Default prompt signing key in use",
+                    description="The prompt signing key is set to the default development value.",
+                    recommendation='Generate a secure key with: python -c "import secrets; print(secrets.token_hex(32))"',
+                    affected_component="config.prompt_signing_key",
+                )
+            )
         elif len(key) < 32:
-            report.add_finding(SecurityFinding(
-                category=FindingCategory.encryption,
-                severity=SeverityLevel.high,
-                title="Weak prompt signing key",
-                description=f"Signing key is only {len(key)} characters. Minimum 32 recommended.",
-                recommendation="Use a key of at least 32 characters generated with secrets.token_hex(32).",
-                affected_component="config.prompt_signing_key",
-            ))
+            report.add_finding(
+                SecurityFinding(
+                    category=FindingCategory.encryption,
+                    severity=SeverityLevel.high,
+                    title="Weak prompt signing key",
+                    description=f"Signing key is only {len(key)} characters. Minimum 32 recommended.",
+                    recommendation="Use a key of at least 32 characters generated with secrets.token_hex(32).",
+                    affected_component="config.prompt_signing_key",
+                )
+            )
 
     def _check_encryption_key(self, report: SecurityReport) -> None:
         """Check encryption key configuration."""
         key = getattr(self._settings, "encryption_key", None)
         if not key or key == "dev-encryption-key-change-in-production":
-            report.add_finding(SecurityFinding(
-                category=FindingCategory.encryption,
-                severity=SeverityLevel.critical,
-                title="Default or missing encryption key",
-                description="The data encryption key is not configured or uses the default value.",
-                recommendation="Set ENCRYPTION_KEY environment variable with a secure random key.",
-                affected_component="config.encryption_key",
-            ))
+            report.add_finding(
+                SecurityFinding(
+                    category=FindingCategory.encryption,
+                    severity=SeverityLevel.critical,
+                    title="Default or missing encryption key",
+                    description="The data encryption key is not configured or uses the default value.",
+                    recommendation="Set ENCRYPTION_KEY environment variable with a secure random key.",
+                    affected_component="config.encryption_key",
+                )
+            )
 
     def _check_debug_mode(self, report: SecurityReport) -> None:
         """Check if debug mode is enabled."""
         if self._settings.debug:
-            report.add_finding(SecurityFinding(
-                category=FindingCategory.configuration,
-                severity=SeverityLevel.high,
-                title="Debug mode enabled",
-                description="Application is running in debug mode, which may expose sensitive information.",
-                recommendation="Set DEBUG=false in production.",
-                affected_component="config.debug",
-            ))
+            report.add_finding(
+                SecurityFinding(
+                    category=FindingCategory.configuration,
+                    severity=SeverityLevel.high,
+                    title="Debug mode enabled",
+                    description="Application is running in debug mode, which may expose sensitive information.",
+                    recommendation="Set DEBUG=false in production.",
+                    affected_component="config.debug",
+                )
+            )
 
     def _check_database_url(self, report: SecurityReport) -> None:
         """Check database URL for security issues."""
         db_url = self._settings.database_url
         if "bsnexus_dev" in db_url or "password" in db_url.lower():
-            report.add_finding(SecurityFinding(
-                category=FindingCategory.configuration,
-                severity=SeverityLevel.high,
-                title="Default database credentials detected",
-                description="Database URL appears to use default or weak credentials.",
-                recommendation="Use strong, unique database credentials in production.",
-                affected_component="config.database_url",
-            ))
+            report.add_finding(
+                SecurityFinding(
+                    category=FindingCategory.configuration,
+                    severity=SeverityLevel.high,
+                    title="Default database credentials detected",
+                    description="Database URL appears to use default or weak credentials.",
+                    recommendation="Use strong, unique database credentials in production.",
+                    affected_component="config.database_url",
+                )
+            )
 
     def _check_cors_config(self, report: SecurityReport) -> None:
         """Check CORS configuration."""
         allowed_origins = getattr(self._settings, "cors_allowed_origins", ["*"])
         if "*" in allowed_origins:
-            report.add_finding(SecurityFinding(
-                category=FindingCategory.cors,
-                severity=SeverityLevel.high,
-                title="CORS allows all origins",
-                description="CORS is configured to accept requests from any origin.",
-                recommendation="Restrict CORS to specific trusted origins in production.",
-                affected_component="config.cors_allowed_origins",
-            ))
+            report.add_finding(
+                SecurityFinding(
+                    category=FindingCategory.cors,
+                    severity=SeverityLevel.high,
+                    title="CORS allows all origins",
+                    description="CORS is configured to accept requests from any origin.",
+                    recommendation="Restrict CORS to specific trusted origins in production.",
+                    affected_component="config.cors_allowed_origins",
+                )
+            )
 
     def _check_rate_limiting(self, report: SecurityReport) -> None:
         """Check rate limiting configuration."""
         enabled = getattr(self._settings, "rate_limit_enabled", True)
         if not enabled:
-            report.add_finding(SecurityFinding(
-                category=FindingCategory.rate_limiting,
-                severity=SeverityLevel.medium,
-                title="Rate limiting disabled",
-                description="API rate limiting is not enabled.",
-                recommendation="Enable rate limiting to protect against abuse and DDoS attacks.",
-                affected_component="config.rate_limit_enabled",
-            ))
+            report.add_finding(
+                SecurityFinding(
+                    category=FindingCategory.rate_limiting,
+                    severity=SeverityLevel.medium,
+                    title="Rate limiting disabled",
+                    description="API rate limiting is not enabled.",
+                    recommendation="Enable rate limiting to protect against abuse and DDoS attacks.",
+                    affected_component="config.rate_limit_enabled",
+                )
+            )

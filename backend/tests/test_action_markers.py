@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from backend.src.api.architect import _execute_action_markers, _strip_action_markers
+from backend.src.core.architect_service import ArchitectService, strip_action_markers
 from backend.src.models import (
     DesignSession,
     DesignSessionStatus,
@@ -30,18 +30,18 @@ from backend.src.models import (
 class TestStripActionMarkers:
     def test_strips_create_task_block(self) -> None:
         text = 'Hello [CREATE_TASK]{"title":"t"}[/CREATE_TASK] world'
-        assert _strip_action_markers(text) == "Hello  world"
+        assert strip_action_markers(text) == "Hello  world"
 
     def test_strips_modify_task_block(self) -> None:
         text = 'Before [MODIFY_TASK]{"task_id":"x"}[/MODIFY_TASK] after'
-        assert _strip_action_markers(text) == "Before  after"
+        assert strip_action_markers(text) == "Before  after"
 
     def test_strips_multiple_blocks(self) -> None:
         text = (
             'A [CREATE_TASK]{"title":"t1"}[/CREATE_TASK] '
             'B [MODIFY_TASK]{"task_id":"x"}[/MODIFY_TASK] C'
         )
-        result = _strip_action_markers(text)
+        result = strip_action_markers(text)
         assert "[CREATE_TASK]" not in result
         assert "[MODIFY_TASK]" not in result
         assert "A" in result
@@ -50,10 +50,10 @@ class TestStripActionMarkers:
 
     def test_no_markers_returns_unchanged(self) -> None:
         text = "No markers here"
-        assert _strip_action_markers(text) == text
+        assert strip_action_markers(text) == text
 
     def test_empty_string(self) -> None:
-        assert _strip_action_markers("") == ""
+        assert strip_action_markers("") == ""
 
 
 # ── _execute_action_markers ──────────────────────────────────────────
@@ -108,7 +108,7 @@ async def test_execute_create_task(db_session) -> None:
     })
     text = f"Here is a task: [CREATE_TASK]{task_json}[/CREATE_TASK]"
 
-    actions = await _execute_action_markers(text, session, db_session)
+    actions = await ArchitectService(db_session).execute_action_markers(text, session)
     await db_session.commit()
 
     assert len(actions) == 1
@@ -145,7 +145,7 @@ async def test_execute_create_task_no_project_id(db_session) -> None:
     await db_session.flush()
 
     text = '[CREATE_TASK]{"title":"x"}[/CREATE_TASK]'
-    actions = await _execute_action_markers(text, session, db_session)
+    actions = await ArchitectService(db_session).execute_action_markers(text, session)
     assert actions == []
 
 
@@ -173,7 +173,7 @@ async def test_execute_create_task_invalid_json(db_session) -> None:
     await db_session.flush()
 
     text = "[CREATE_TASK]not valid json[/CREATE_TASK]"
-    actions = await _execute_action_markers(text, session, db_session)
+    actions = await ArchitectService(db_session).execute_action_markers(text, session)
     assert actions == []
 
 
@@ -215,7 +215,7 @@ async def test_execute_modify_task(db_session) -> None:
     })
     text = f"[MODIFY_TASK]{modify_json}[/MODIFY_TASK]"
 
-    actions = await _execute_action_markers(text, session, db_session)
+    actions = await ArchitectService(db_session).execute_action_markers(text, session)
     assert len(actions) == 1
     assert actions[0]["type"] == "task_modified"
     assert actions[0]["title"] == "Updated Title"
@@ -262,8 +262,116 @@ async def test_execute_modify_task_rejects_in_progress(db_session) -> None:
     modify_json = json.dumps({"task_id": str(task.id), "title": "Should Not Change"})
     text = f"[MODIFY_TASK]{modify_json}[/MODIFY_TASK]"
 
-    actions = await _execute_action_markers(text, session, db_session)
+    actions = await ArchitectService(db_session).execute_action_markers(text, session)
     assert actions == []
 
     await db_session.refresh(task)
     assert task.title == "In Progress Task"
+
+
+@pytest.mark.asyncio
+async def test_execute_create_task_no_active_phase(db_session) -> None:
+    """CREATE_TASK does nothing when project has no active phase."""
+    now = datetime.now(timezone.utc)
+    project = Project(
+        id=uuid.uuid4(), name="P", description="d", repo_path="/t",
+        status=ProjectStatus.active, created_at=now, updated_at=now,
+    )
+    db_session.add(project)
+    phase = Phase(
+        id=uuid.uuid4(), project_id=project.id, name="Ph", order=1,
+        status=PhaseStatus.pending, branch_name="b", created_at=now, updated_at=now,
+    )
+    db_session.add(phase)
+    session = DesignSession(
+        id=uuid.uuid4(), status=DesignSessionStatus.project_bound,
+        project_id=project.id, llm_config={}, created_at=now, updated_at=now,
+    )
+    db_session.add(session)
+    await db_session.flush()
+
+    task_json = json.dumps({"title": "Should not create"})
+    text = f"[CREATE_TASK]{task_json}[/CREATE_TASK]"
+    actions = await ArchitectService(db_session).execute_action_markers(text, session)
+    assert actions == []
+
+
+@pytest.mark.asyncio
+async def test_execute_create_task_invalid_priority_defaults(db_session) -> None:
+    """CREATE_TASK with invalid priority/task_type falls back to defaults."""
+    now = datetime.now(timezone.utc)
+    project = Project(
+        id=uuid.uuid4(), name="P", description="d", repo_path="/t",
+        status=ProjectStatus.active, created_at=now, updated_at=now,
+    )
+    db_session.add(project)
+    phase = Phase(
+        id=uuid.uuid4(), project_id=project.id, name="Ph", order=1,
+        status=PhaseStatus.active, branch_name="b", created_at=now, updated_at=now,
+    )
+    db_session.add(phase)
+    session = DesignSession(
+        id=uuid.uuid4(), status=DesignSessionStatus.project_bound,
+        project_id=project.id, llm_config={}, created_at=now, updated_at=now,
+    )
+    db_session.add(session)
+    await db_session.flush()
+
+    task_json = json.dumps({
+        "title": "Fallback Test",
+        "priority": "nonexistent",
+        "task_type": "bogus",
+    })
+    text = f"[CREATE_TASK]{task_json}[/CREATE_TASK]"
+    actions = await ArchitectService(db_session).execute_action_markers(text, session)
+    assert len(actions) == 1
+
+    from sqlalchemy import select
+    result = await db_session.execute(select(Task).where(Task.project_id == project.id))
+    task = result.scalar_one()
+    assert task.priority == TaskPriority.medium
+    assert task.task_type == TaskType.feature
+
+
+@pytest.mark.asyncio
+async def test_execute_modify_task_invalid_task_id(db_session) -> None:
+    """MODIFY_TASK with invalid UUID task_id is silently skipped."""
+    now = datetime.now(timezone.utc)
+    project = Project(
+        id=uuid.uuid4(), name="P", description="d", repo_path="/t",
+        status=ProjectStatus.active, created_at=now, updated_at=now,
+    )
+    db_session.add(project)
+    session = DesignSession(
+        id=uuid.uuid4(), status=DesignSessionStatus.project_bound,
+        project_id=project.id, llm_config={}, created_at=now, updated_at=now,
+    )
+    db_session.add(session)
+    await db_session.flush()
+
+    modify_json = json.dumps({"task_id": "not-a-uuid", "title": "Should Not Work"})
+    text = f"[MODIFY_TASK]{modify_json}[/MODIFY_TASK]"
+    actions = await ArchitectService(db_session).execute_action_markers(text, session)
+    assert actions == []
+
+
+@pytest.mark.asyncio
+async def test_execute_modify_task_nonexistent_task(db_session) -> None:
+    """MODIFY_TASK with valid UUID but nonexistent task is skipped."""
+    now = datetime.now(timezone.utc)
+    project = Project(
+        id=uuid.uuid4(), name="P", description="d", repo_path="/t",
+        status=ProjectStatus.active, created_at=now, updated_at=now,
+    )
+    db_session.add(project)
+    session = DesignSession(
+        id=uuid.uuid4(), status=DesignSessionStatus.project_bound,
+        project_id=project.id, llm_config={}, created_at=now, updated_at=now,
+    )
+    db_session.add(session)
+    await db_session.flush()
+
+    modify_json = json.dumps({"task_id": str(uuid.uuid4()), "title": "Ghost"})
+    text = f"[MODIFY_TASK]{modify_json}[/MODIFY_TASK]"
+    actions = await ArchitectService(db_session).execute_action_markers(text, session)
+    assert actions == []

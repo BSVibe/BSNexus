@@ -154,3 +154,17 @@ class TestSecurityReport:
         assert "findings" in d
         assert "summary" in d
         assert d["summary"]["medium"] == 1
+
+    def test_detects_default_encryption_key(self):
+        """SecurityAuditor detects the default encryption key as a critical finding."""
+        s = Settings(
+            database_url="postgresql+asyncpg://user:pass@localhost/db",
+            encryption_key="dev-encryption-key-change-in-production",
+            prompt_signing_key="a-very-long-signing-key-that-is-secure-enough",
+        )
+        auditor = SecurityAuditor(s)
+        report = auditor.run_full_scan()
+
+        enc_findings = [f for f in report.findings if "encryption key" in f.title.lower()]
+        assert len(enc_findings) >= 1
+        assert enc_findings[0].severity == SeverityLevel.critical

@@ -129,14 +129,10 @@ async def test_project_lifecycle(client: AsyncClient, db_session: AsyncSession):
     assert task["status"] == "ready"
     assert task["version"] == 1
 
-    # 7. Transition through full lifecycle: ready -> queued -> in_progress -> review -> done
-    transition = await _transition_task(client, task["id"], "queued")
-    assert transition["status"] == "queued"
-    assert transition["previous_status"] == "ready"
-
+    # 7. Transition through full lifecycle: ready -> in_progress -> review -> done
     transition = await _transition_task(client, task["id"], "in_progress")
     assert transition["status"] == "in_progress"
-    assert transition["previous_status"] == "queued"
+    assert transition["previous_status"] == "ready"
 
     transition = await _transition_task(client, task["id"], "review")
     assert transition["status"] == "review"
@@ -151,7 +147,7 @@ async def test_project_lifecycle(client: AsyncClient, db_session: AsyncSession):
     assert final_resp.status_code == 200
     final_task = final_resp.json()
     assert final_task["status"] == "done"
-    assert final_task["version"] == 5  # initial 1 + 4 transitions
+    assert final_task["version"] == 4  # initial 1 + 3 transitions
 
 
 async def test_dependency_chain(client: AsyncClient, db_session: AsyncSession):
@@ -172,8 +168,7 @@ async def test_dependency_chain(client: AsyncClient, db_session: AsyncSession):
     task_c = await _create_task(client, project["id"], phase["id"], "Task C", depends_on=[task_b["id"]])
     assert task_c["status"] == "waiting"
 
-    # Complete Task A: ready -> queued -> in_progress -> review -> done
-    await _transition_task(client, task_a["id"], "queued")
+    # Complete Task A: ready -> in_progress -> review -> done
     await _transition_task(client, task_a["id"], "in_progress")
     await _transition_task(client, task_a["id"], "review")
     await _transition_task(client, task_a["id"], "done")
@@ -189,7 +184,6 @@ async def test_dependency_chain(client: AsyncClient, db_session: AsyncSession):
     assert task_c_resp.json()["status"] == "waiting"
 
     # Complete Task B
-    await _transition_task(client, task_b["id"], "queued")
     await _transition_task(client, task_b["id"], "in_progress")
     await _transition_task(client, task_b["id"], "review")
     await _transition_task(client, task_b["id"], "done")
@@ -216,9 +210,9 @@ async def test_board_snapshot(client: AsyncClient, db_session: AsyncSession, moc
     task_ready = await _create_task(client, project["id"], phase["id"], "Ready Task")
     assert task_ready["status"] == "ready"
 
-    # Create a task and move to queued
-    task_queued = await _create_task(client, project["id"], phase["id"], "Queued Task")
-    await _transition_task(client, task_queued["id"], "queued")
+    # Create a task and move to in_progress
+    task_active = await _create_task(client, project["id"], phase["id"], "Active Task")
+    await _transition_task(client, task_active["id"], "in_progress")
 
     # Create a task with dependency (waiting)
     task_waiting = await _create_task(
@@ -235,15 +229,14 @@ async def test_board_snapshot(client: AsyncClient, db_session: AsyncSession, moc
     assert board["project_id"] == project["id"]
     assert "columns" in board
     assert "stats" in board
-    assert "workers" in board
 
     # Verify columns contain tasks in correct states (BoardColumn format)
     columns = board["columns"]
     assert len(columns["ready"]["tasks"]) == 1
     assert columns["ready"]["tasks"][0]["title"] == "Ready Task"
 
-    assert len(columns["queued"]["tasks"]) == 1
-    assert columns["queued"]["tasks"][0]["title"] == "Queued Task"
+    assert len(columns["in_progress"]["tasks"]) == 1
+    assert columns["in_progress"]["tasks"][0]["title"] == "Active Task"
 
     assert len(columns["waiting"]["tasks"]) == 1
     assert columns["waiting"]["tasks"][0]["title"] == "Waiting Task"
@@ -252,5 +245,5 @@ async def test_board_snapshot(client: AsyncClient, db_session: AsyncSession, moc
     stats = board["stats"]
     assert stats["total"] == 3
     assert stats["ready"] == 1
-    assert stats["queued"] == 1
+    assert stats["in_progress"] == 1
     assert stats["waiting"] == 1

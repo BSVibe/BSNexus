@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from collections import defaultdict
+from datetime import datetime
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
@@ -16,35 +17,30 @@ router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])
 
 @router.get("/stats", response_model=schemas.DashboardStatsResponse)
 async def get_dashboard_stats(db: AsyncSession = Depends(get_db)) -> schemas.DashboardStatsResponse:
-    """Return aggregated dashboard statistics for projects, tasks, and workers."""
-    # Project stats
-    project_result = await db.execute(select(models.Project))
-    projects = project_result.scalars().all()
-    total_projects = len(projects)
-    active_projects = sum(1 for p in projects if p.status == models.ProjectStatus.active)
-    completed_projects = sum(1 for p in projects if p.status == models.ProjectStatus.completed)
-
-    # Task stats
-    task_result = await db.execute(select(models.Task))
-    tasks = task_result.scalars().all()
-    total_tasks = len(tasks)
-    active_tasks = sum(
-        1
-        for t in tasks
-        if t.status in (models.TaskStatus.ready, models.TaskStatus.queued, models.TaskStatus.in_progress, models.TaskStatus.review)
+    """Return aggregated dashboard statistics for projects and tasks."""
+    # Project stats via SQL aggregate
+    project_counts = await db.execute(
+        select(models.Project.status, func.count(models.Project.id)).group_by(models.Project.status)
     )
-    in_progress_tasks = sum(1 for t in tasks if t.status == models.TaskStatus.in_progress)
-    done_tasks = sum(1 for t in tasks if t.status == models.TaskStatus.done)
+    project_by_status: dict[str, int] = {}
+    for status, count in project_counts:
+        project_by_status[status.value] = count
+    total_projects = sum(project_by_status.values())
+    active_projects = project_by_status.get("active", 0)
+    completed_projects = project_by_status.get("completed", 0)
+
+    # Task stats via SQL aggregate
+    task_counts = await db.execute(select(models.Task.status, func.count(models.Task.id)).group_by(models.Task.status))
+    task_by_status: dict[str, int] = {}
+    for status, count in task_counts:
+        task_by_status[status.value] = count
+    total_tasks = sum(task_by_status.values())
+    active_tasks = (
+        task_by_status.get("ready", 0) + task_by_status.get("in_progress", 0) + task_by_status.get("review", 0)
+    )
+    in_progress_tasks = task_by_status.get("in_progress", 0)
+    done_tasks = task_by_status.get("done", 0)
     completion_rate = round((done_tasks / total_tasks * 100), 1) if total_tasks > 0 else 0.0
-
-    # Worker stats
-    worker_result = await db.execute(select(models.Worker))
-    workers = worker_result.scalars().all()
-    total_workers = len(workers)
-    online_workers = sum(
-        1 for w in workers if w.status in (models.WorkerStatus.idle, models.WorkerStatus.busy)
-    )
-    busy_workers = sum(1 for w in workers if w.status == models.WorkerStatus.busy)
 
     return schemas.DashboardStatsResponse(
         total_projects=total_projects,
@@ -55,9 +51,6 @@ async def get_dashboard_stats(db: AsyncSession = Depends(get_db)) -> schemas.Das
         in_progress_tasks=in_progress_tasks,
         done_tasks=done_tasks,
         completion_rate=completion_rate,
-        total_workers=total_workers,
-        online_workers=online_workers,
-        busy_workers=busy_workers,
     )
 
 
@@ -67,9 +60,7 @@ async def get_projects_summary(
 ) -> list[schemas.ProjectDashboardSummary]:
     """Return per-project dashboard summaries with task breakdown."""
     # Load projects with phases
-    project_result = await db.execute(
-        select(models.Project).options(selectinload(models.Project.phases))
-    )
+    project_result = await db.execute(select(models.Project).options(selectinload(models.Project.phases)))
     projects = project_result.scalars().all()
 
     if not projects:
@@ -107,26 +98,9 @@ async def get_projects_summary(
     for project_id, count in bug_counts_result:
         bug_counts[project_id] = count
 
-    # Batch query: active worker counts by project
-    worker_counts_result = await db.execute(
-        select(
-            models.Worker.project_id,
-            func.count(models.Worker.id),
-        )
-        .where(
-            models.Worker.project_id.in_(project_ids),
-            models.Worker.status.in_([models.WorkerStatus.idle, models.WorkerStatus.busy]),
-        )
-        .group_by(models.Worker.project_id)
-    )
-    worker_counts: dict[uuid.UUID, int] = {}
-    for project_id, count in worker_counts_result:
-        worker_counts[project_id] = count
-
     # Check for architect sessions
     session_result = await db.execute(
-        select(models.DesignSession.project_id)
-        .where(
+        select(models.DesignSession.project_id).where(
             models.DesignSession.project_id.in_(project_ids),
             models.DesignSession.status == models.DesignSessionStatus.project_bound,
         )
@@ -142,16 +116,14 @@ async def get_projects_summary(
         .where(models.Task.project_id.in_(project_ids))
         .group_by(models.Task.project_id)
     )
-    last_activities: dict[uuid.UUID, object] = {}
+    last_activities: dict[uuid.UUID, datetime | None] = {}
     for project_id, last_updated in activity_result:
         last_activities[project_id] = last_updated
 
     # Build summaries
     summaries = []
     for project in projects:
-        active_phase = next(
-            (p for p in project.phases if p.status == models.PhaseStatus.active), None
-        )
+        active_phase = next((p for p in project.phases if p.status == models.PhaseStatus.active), None)
         summaries.append(
             schemas.ProjectDashboardSummary(
                 id=project.id,
@@ -159,7 +131,6 @@ async def get_projects_summary(
                 status=schemas.ProjectStatus(project.status.value),
                 task_counts=dict(task_counts.get(project.id, {})),
                 bug_count=bug_counts.get(project.id, 0),
-                active_worker_count=worker_counts.get(project.id, 0),
                 current_phase=active_phase.name if active_phase else None,
                 has_architect_session=project.id in projects_with_sessions,
                 last_activity=last_activities.get(project.id),

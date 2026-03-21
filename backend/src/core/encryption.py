@@ -23,9 +23,9 @@ class EncryptionManager:
     def __init__(self, key: str) -> None:
         if not key or key == "dev-encryption-key-change-in-production":
             import logging
+
             logging.getLogger(__name__).warning(
-                "SECURITY: Using default encryption key. "
-                "Set ENCRYPTION_KEY environment variable for production."
+                "SECURITY: Using default encryption key. Set ENCRYPTION_KEY environment variable for production."
             )
         # Derive a 32-byte key from the provided key string
         self._key = hashlib.sha256(key.encode()).digest()

@@ -44,7 +44,9 @@ class DataProcessingRecord(Base):
     third_country_transfers: Mapped[str | None] = mapped_column(Text, nullable=True)
     security_measures: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class ConsentRecord(Base):
@@ -188,9 +190,7 @@ class ComplianceManager:
     # ── GDPR Checks ───────────────────────────────────────────────────
 
     async def _check_processing_records(self) -> ComplianceCheck:
-        result = await self._db.execute(
-            select(DataProcessingRecord).limit(1)
-        )
+        result = await self._db.execute(select(DataProcessingRecord).limit(1))
         record = result.scalar_one_or_none()
         if record:
             return ComplianceCheck(
@@ -231,9 +231,7 @@ class ComplianceManager:
 
     async def _check_security_of_processing(self) -> ComplianceCheck:
         # Check for audit log entries indicating active monitoring
-        result = await self._db.execute(
-            select(AuditLog).limit(1)
-        )
+        result = await self._db.execute(select(AuditLog).limit(1))
         has_logs = result.scalar_one_or_none() is not None
         return ComplianceCheck(
             control_id="GDPR-32",
@@ -287,9 +285,7 @@ class ComplianceManager:
         )
 
     async def _check_monitoring(self) -> ComplianceCheck:
-        result = await self._db.execute(
-            select(AuditLog).limit(1)
-        )
+        result = await self._db.execute(select(AuditLog).limit(1))
         has_logs = result.scalar_one_or_none() is not None
         return ComplianceCheck(
             control_id="SOC2-CC7.2",

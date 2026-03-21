@@ -41,4 +41,3 @@ class ProjectRepository(BaseRepository):
         """Check if a project exists."""
         result = await self.db.execute(select(Project.id).where(Project.id == project_id))
         return result.scalar_one_or_none() is not None
-

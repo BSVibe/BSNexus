@@ -105,13 +105,13 @@ export default function FinalizePanel({ designSummary, onConfirm, onCancel, onGo
                 Repository Path
               </label>
               <p className="text-xs text-text-tertiary mb-2">
-                Enter the path on the worker machine where the project will be initialized.
+                Enter the path on the server where the project will be initialized.
               </p>
               <input
                 type="text"
                 value={repoPath}
                 onChange={(e) => setRepoPath(e.target.value)}
-                placeholder="/home/worker/projects/my-project"
+                placeholder="/home/user/projects/my-project"
                 className="w-full rounded-md border border-border bg-bg-input px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent"
               />
             </div>

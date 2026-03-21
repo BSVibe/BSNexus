@@ -14,9 +14,7 @@ _LLM_SETTING_KEYS = ("llm_api_key", "llm_model", "llm_base_url")
 
 async def get_raw_llm_config(db: AsyncSession) -> dict[str, str]:
     """Read global LLM settings from DB as a plain dict (unmasked)."""
-    result = await db.execute(
-        select(models.Setting).where(models.Setting.key.in_(_LLM_SETTING_KEYS))
-    )
+    result = await db.execute(select(models.Setting).where(models.Setting.key.in_(_LLM_SETTING_KEYS)))
     return {s.key: s.value for s in result.scalars().all()}
 
 
@@ -48,9 +46,7 @@ async def update_settings(
     """Upsert global LLM settings. Returns the updated settings with masked API key."""
     for field_name, value in body.model_dump(exclude_unset=True).items():
         if value is not None:
-            existing = await db.execute(
-                select(models.Setting).where(models.Setting.key == field_name)
-            )
+            existing = await db.execute(select(models.Setting).where(models.Setting.key == field_name))
             setting = existing.scalar_one_or_none()
             if setting:
                 setting.value = value

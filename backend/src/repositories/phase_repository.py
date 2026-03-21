@@ -61,4 +61,3 @@ class PhaseRepository(BaseRepository):
             select(func.count(Task.id)).where(Task.phase_id == phase_id, Task.status != TaskStatus.done)
         )
         return result.scalar_one()
-

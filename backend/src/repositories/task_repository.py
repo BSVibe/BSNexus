@@ -135,9 +135,7 @@ class TaskRepository(BaseRepository):
     async def count_by_status(self, project_id: uuid.UUID) -> dict[str, int]:
         """Count tasks grouped by status for a project."""
         result = await self.db.execute(
-            select(Task.status, func.count(Task.id))
-            .where(Task.project_id == project_id)
-            .group_by(Task.status)
+            select(Task.status, func.count(Task.id)).where(Task.project_id == project_id).group_by(Task.status)
         )
         counts: dict[str, int] = {}
         for status, count in result.all():
@@ -156,8 +154,8 @@ class TaskRepository(BaseRepository):
         return tasks
 
     async def count_active_tasks(self, project_id: uuid.UUID) -> int:
-        """Count tasks in queued, in_progress, or review status for a project."""
-        active_statuses = [TaskStatus.queued, TaskStatus.in_progress, TaskStatus.review]
+        """Count tasks in in_progress or review status for a project."""
+        active_statuses = [TaskStatus.in_progress, TaskStatus.review]
         result = await self.db.execute(
             select(func.count(Task.id)).where(Task.project_id == project_id, Task.status.in_(active_statuses))
         )
@@ -165,9 +163,7 @@ class TaskRepository(BaseRepository):
 
     async def list_waiting_in_phase(self, phase_id: uuid.UUID) -> list[Task]:
         """Get waiting tasks within a specific phase."""
-        result = await self.db.execute(
-            select(Task).where(Task.phase_id == phase_id, Task.status == TaskStatus.waiting)
-        )
+        result = await self.db.execute(select(Task).where(Task.phase_id == phase_id, Task.status == TaskStatus.waiting))
         return list(result.scalars().all())
 
     async def list_incomplete_in_phase(self, phase_id: uuid.UUID) -> list[Task]:
@@ -181,9 +177,7 @@ class TaskRepository(BaseRepository):
 
     async def list_done_in_phase(self, phase_id: uuid.UUID) -> list[Task]:
         """Get all done tasks within a phase."""
-        result = await self.db.execute(
-            select(Task).where(Task.phase_id == phase_id, Task.status == TaskStatus.done)
-        )
+        result = await self.db.execute(select(Task).where(Task.phase_id == phase_id, Task.status == TaskStatus.done))
         return list(result.scalars().all())
 
     async def hard_delete(self, task_id: uuid.UUID) -> None:
@@ -199,10 +193,5 @@ class TaskRepository(BaseRepository):
 
     async def clear_dependencies(self, task_id: uuid.UUID) -> None:
         """Remove all dependency relationships for a task (both directions)."""
-        await self.db.execute(
-            task_dependencies.delete().where(task_dependencies.c.task_id == task_id)
-        )
-        await self.db.execute(
-            task_dependencies.delete().where(task_dependencies.c.dependency_id == task_id)
-        )
-
+        await self.db.execute(task_dependencies.delete().where(task_dependencies.c.task_id == task_id))
+        await self.db.execute(task_dependencies.delete().where(task_dependencies.c.dependency_id == task_id))

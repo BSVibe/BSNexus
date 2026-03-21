@@ -15,11 +15,11 @@ from backend.src.models import (
     Project,
     ProjectStatus,
     Setting,
-    Worker,
-    WorkerStatus,
 )
 from fastapi import HTTPException
 from httpx import AsyncClient
+
+pytestmark = pytest.mark.asyncio
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -195,32 +195,12 @@ async def test_create_session_success(client: AsyncClient, db_session):
     assert len(data["messages"]) == 0
 
 
-async def test_create_session_stores_worker_id(client: AsyncClient, db_session):
-    """POST /api/architect/sessions stores worker_id when provided."""
-    await insert_global_llm_settings(db_session)
-    worker_id = uuid.uuid4()
-
-    # Insert worker in DB so FK constraint is satisfied
-    db_session.add(Worker(
-        id=worker_id, name="w1", platform="linux",
-        executor_type="claude-code", status=WorkerStatus.idle,
-        registered_at=datetime.now(timezone.utc),
-    ))
-    await db_session.commit()
-
-    response = await client.post(
-        "/api/v1/architect/sessions",
-        json={"worker_id": str(worker_id)},
-    )
-    assert response.status_code == 201
-    data = response.json()
-    assert data["worker_id"] == str(worker_id)
-
-
-async def test_create_session_without_worker_id(client: AsyncClient, db_session):
-    """POST /api/architect/sessions without worker_id stores None."""
+async def test_create_session_basic(client: AsyncClient, db_session):
+    """POST /api/architect/sessions creates session successfully."""
     data = await create_session_via_api(client, db_session)
-    assert data.get("worker_id") is None
+    assert data is not None
+    assert "id" in data
+    assert data["status"] == "active"
 
 
 async def test_create_session_uses_global_settings(client: AsyncClient, db_session):
@@ -511,27 +491,14 @@ async def test_finalize_design_success(client: AsyncClient, db_session):
     assert session["project_id"] == data["id"]
 
 
-async def test_finalize_assigns_worker_to_project(client: AsyncClient, db_session):
-    """POST /api/architect/sessions/{id}/finalize assigns worker to project."""
+async def test_finalize_creates_project(client: AsyncClient, db_session):
+    """POST /api/architect/sessions/{id}/finalize creates project successfully."""
     from sqlalchemy import select
 
-    # Create a worker in DB
-    worker_id = uuid.uuid4()
-    now = datetime.now(timezone.utc)
-    db_session.add(Worker(
-        id=worker_id, name="test-worker", platform="linux", capabilities=[],
-        executor_type="claude-code", status=WorkerStatus.idle,
-        registered_at=now, last_heartbeat=now,
-    ))
-    await db_session.commit()
-
-    # Create session with worker_id
+    # Create session
     await insert_global_llm_settings(db_session)
-    response = await client.post(
-        "/api/v1/architect/sessions",
-        json={"worker_id": str(worker_id)},
-    )
-    session_id = response.json()["id"]
+    session_data = await create_session_via_api(client, db_session)
+    session_id = session_data["id"]
 
     with patch("backend.src.api.architect.LLMClient") as MockClient:
         instance = MockClient.return_value
@@ -544,13 +511,7 @@ async def test_finalize_assigns_worker_to_project(client: AsyncClient, db_sessio
 
     assert response.status_code == 200
     project_id = response.json()["id"]
-
-    # Verify worker now has project_id assigned
-    result = await db_session.execute(
-        select(Worker).where(Worker.id == worker_id)
-    )
-    worker = result.scalar_one()
-    assert str(worker.project_id) == project_id
+    assert project_id is not None
 
 
 async def test_finalize_design_with_pm_config(client: AsyncClient, db_session):
@@ -573,8 +534,8 @@ async def test_finalize_design_with_pm_config(client: AsyncClient, db_session):
     assert response.status_code == 200
     data = response.json()
     # Architect config comes from global settings
-    assert data["llm_config"]["architect"]["api_key"] == "sk-test-key-1234"
-    assert data["llm_config"]["pm"]["api_key"] == "sk-pm-key"
+    assert data["llm_config"]["architect"]["api_key"] == "sk-****...1234"
+    assert data["llm_config"]["pm"]["api_key"] == "sk-****...-key"
     assert data["llm_config"]["pm"]["model"] == "gpt-4o"
 
 
@@ -859,54 +820,54 @@ class TestSlugifyDirect:
     """Direct tests for the _slugify helper."""
 
     def test_simple_string(self):
-        from backend.src.api.architect import _slugify
+        from backend.src.core.architect_service import slugify
 
-        assert _slugify("Hello World") == "hello-world"
+        assert slugify("Hello World") == "hello-world"
 
     def test_special_characters(self):
-        from backend.src.api.architect import _slugify
+        from backend.src.core.architect_service import slugify
 
-        assert _slugify("Phase 1: Setup & Config!") == "phase-1-setup-config"
+        assert slugify("Phase 1: Setup & Config!") == "phase-1-setup-config"
 
     def test_unicode_characters(self):
-        from backend.src.api.architect import _slugify
+        from backend.src.core.architect_service import slugify
 
-        assert _slugify("Deja vu") == "deja-vu"
+        assert slugify("Deja vu") == "deja-vu"
 
     def test_multiple_spaces_and_dashes(self):
-        from backend.src.api.architect import _slugify
+        from backend.src.core.architect_service import slugify
 
-        assert _slugify("hello   ---   world") == "hello-world"
+        assert slugify("hello   ---   world") == "hello-world"
 
     def test_leading_trailing_dashes(self):
-        from backend.src.api.architect import _slugify
+        from backend.src.core.architect_service import slugify
 
-        assert _slugify("---hello---") == "hello"
+        assert slugify("---hello---") == "hello"
 
     def test_empty_string(self):
-        from backend.src.api.architect import _slugify
+        from backend.src.core.architect_service import slugify
 
-        assert _slugify("") == ""
+        assert slugify("") == ""
 
     def test_only_special_characters(self):
-        from backend.src.api.architect import _slugify
+        from backend.src.core.architect_service import slugify
 
-        assert _slugify("!@#$%") == ""
+        assert slugify("!@#$%") == ""
 
     def test_already_slug(self):
-        from backend.src.api.architect import _slugify
+        from backend.src.core.architect_service import slugify
 
-        assert _slugify("already-a-slug") == "already-a-slug"
+        assert slugify("already-a-slug") == "already-a-slug"
 
     def test_uppercase(self):
-        from backend.src.api.architect import _slugify
+        from backend.src.core.architect_service import slugify
 
-        assert _slugify("UPPERCASE STRING") == "uppercase-string"
+        assert slugify("UPPERCASE STRING") == "uppercase-string"
 
     def test_accented_characters(self):
-        from backend.src.api.architect import _slugify
+        from backend.src.core.architect_service import slugify
 
-        result = _slugify("caf\u00e9 na\u00efve r\u00e9sum\u00e9")
+        result = slugify("caf\u00e9 na\u00efve r\u00e9sum\u00e9")
         assert result == "cafe-naive-resume"
 
 
@@ -917,9 +878,9 @@ class TestBuildLLMConfigDirect:
     """Direct tests for the _build_llm_config helper."""
 
     def test_full_config(self):
-        from backend.src.api.architect import _build_llm_config
+        from backend.src.core.architect_service import build_llm_config
 
-        config = _build_llm_config(
+        config = build_llm_config(
             {
                 "api_key": "sk-test",
                 "model": "gpt-4o",
@@ -931,29 +892,29 @@ class TestBuildLLMConfigDirect:
         assert config.base_url == "https://custom.api"
 
     def test_minimal_config(self):
-        from backend.src.api.architect import _build_llm_config
+        from backend.src.core.architect_service import build_llm_config
 
-        config = _build_llm_config({"api_key": "sk-test"})
+        config = build_llm_config({"api_key": "sk-test"})
         assert config.api_key == "sk-test"
         assert config.model == "anthropic/claude-sonnet-4-20250514"
         assert config.base_url is None
 
     def test_empty_model_falls_back_to_default(self):
-        from backend.src.api.architect import _build_llm_config
+        from backend.src.core.architect_service import build_llm_config
 
-        config = _build_llm_config({"api_key": "sk-test", "model": ""})
+        config = build_llm_config({"api_key": "sk-test", "model": ""})
         assert config.model == "anthropic/claude-sonnet-4-20250514"
 
     def test_none_model_falls_back_to_default(self):
-        from backend.src.api.architect import _build_llm_config
+        from backend.src.core.architect_service import build_llm_config
 
-        config = _build_llm_config({"api_key": "sk-test", "model": None})
+        config = build_llm_config({"api_key": "sk-test", "model": None})
         assert config.model == "anthropic/claude-sonnet-4-20250514"
 
     def test_base_url_none(self):
-        from backend.src.api.architect import _build_llm_config
+        from backend.src.core.architect_service import build_llm_config
 
-        config = _build_llm_config({"api_key": "sk-test", "base_url": None})
+        config = build_llm_config({"api_key": "sk-test", "base_url": None})
         assert config.base_url is None
 
 
@@ -964,7 +925,7 @@ class TestBuildMessageHistoryDirect:
     """Direct tests for the _build_message_history helper."""
 
     def test_with_messages(self):
-        from backend.src.api.architect import _build_message_history
+        from backend.src.core.architect_service import build_message_history
 
         now = datetime.now(timezone.utc)
         session = MagicMock()
@@ -983,9 +944,9 @@ class TestBuildMessageHistoryDirect:
         session.messages = [msg2, msg1]  # intentionally reversed to test sorting
 
         with patch(
-            "backend.src.api.architect.get_prompt", return_value="System prompt"
+            "backend.src.core.architect_service.get_prompt", return_value="System prompt"
         ):
-            result = _build_message_history(session)
+            result = build_message_history(session)
         assert len(result) == 3
         # First should be system prompt, then sorted messages
         assert result[0] == {"role": "system", "content": "System prompt"}
@@ -993,19 +954,19 @@ class TestBuildMessageHistoryDirect:
         assert result[2] == {"role": "user", "content": "Help me"}
 
     def test_with_empty_messages(self):
-        from backend.src.api.architect import _build_message_history
+        from backend.src.core.architect_service import build_message_history
 
         session = MagicMock()
         session.messages = []
         with patch(
-            "backend.src.api.architect.get_prompt", return_value="System prompt"
+            "backend.src.core.architect_service.get_prompt", return_value="System prompt"
         ):
-            result = _build_message_history(session)
+            result = build_message_history(session)
         assert len(result) == 1
         assert result[0] == {"role": "system", "content": "System prompt"}
 
     def test_with_string_role(self):
-        from backend.src.api.architect import _build_message_history
+        from backend.src.core.architect_service import build_message_history
 
         session = MagicMock()
         msg = MagicMock()
@@ -1015,15 +976,15 @@ class TestBuildMessageHistoryDirect:
         msg.message_type = MessageType.chat
         session.messages = [msg]
         with patch(
-            "backend.src.api.architect.get_prompt", return_value="System prompt"
+            "backend.src.core.architect_service.get_prompt", return_value="System prompt"
         ):
-            result = _build_message_history(session)
+            result = build_message_history(session)
         assert result[0]["role"] == "system"
         assert result[1]["role"] == "user"
 
     def test_excludes_internal_messages(self):
         """Internal messages should be excluded from LLM message history."""
-        from backend.src.api.architect import _build_message_history
+        from backend.src.core.architect_service import build_message_history
 
         now = datetime.now(timezone.utc)
         session = MagicMock()
@@ -1043,9 +1004,9 @@ class TestBuildMessageHistoryDirect:
         session.messages = [chat_msg, internal_msg]
 
         with patch(
-            "backend.src.api.architect.get_prompt", return_value="System prompt"
+            "backend.src.core.architect_service.get_prompt", return_value="System prompt"
         ):
-            result = _build_message_history(session)
+            result = build_message_history(session)
         # Only system + chat_msg, internal excluded
         assert len(result) == 2
         assert result[0] == {"role": "system", "content": "System prompt"}
@@ -1480,7 +1441,7 @@ class TestFinalizeDesignDirect:
             )
 
         assert result.llm_config is not None
-        assert result.llm_config["pm"]["api_key"] == "sk-pm"
+        assert result.llm_config["pm"]["api_key"] == "sk-pm"  # too short to mask (<8 chars)
         assert result.llm_config["pm"]["model"] == "gpt-4o"
         assert result.llm_config["pm"]["base_url"] == "https://pm.api"
 
@@ -1588,7 +1549,7 @@ class TestFinalizeDesignDirect:
             )
 
         assert result.llm_config is not None
-        assert result.llm_config["pm"]["api_key"] == "sk-pm-only"
+        assert result.llm_config["pm"]["api_key"] == "sk-****...only"
         assert "model" not in result.llm_config["pm"]
         assert "base_url" not in result.llm_config["pm"]
 
@@ -2128,6 +2089,13 @@ class TestFindPotentialMarkerStart:
 class TestRedesignPhaseDirect:
     """Direct tests for redesign_phase endpoint function."""
 
+    @staticmethod
+    def _mock_request():
+        """Create a mock FastAPI Request with stream_manager on app.state."""
+        req = MagicMock()
+        req.app.state.stream_manager = AsyncMock()
+        return req
+
     async def _make_phase_with_tasks(self, db_session, *, redesign_count=1, done_count=0):
         """Helper: create project + phase + tasks in redesign/done status."""
         from backend.src.models import Task, TaskStatus, TaskPriority
@@ -2218,7 +2186,7 @@ class TestRedesignPhaseDirect:
             mock_redis = AsyncMock()
             mock_get_redis.return_value = mock_redis
 
-            result = await redesign_phase(phase_id=phase.id, body=body, db=db_session)
+            result = await redesign_phase(phase_id=phase.id, body=body, request=self._mock_request(), db=db_session)
 
         assert result.phase_id == phase.id
         assert result.project_id == project.id
@@ -2234,7 +2202,7 @@ class TestRedesignPhaseDirect:
 
         body = schemas.PhaseRedesignRequest()
         with pytest.raises(HTTPException) as exc_info:
-            await redesign_phase(phase_id=uuid.uuid4(), body=body, db=db_session)
+            await redesign_phase(phase_id=uuid.uuid4(), body=body, request=self._mock_request(), db=db_session)
         assert exc_info.value.status_code == 404
         assert "Phase not found" in exc_info.value.detail
 
@@ -2259,7 +2227,7 @@ class TestRedesignPhaseDirect:
 
         body = schemas.PhaseRedesignRequest()
         with pytest.raises(HTTPException) as exc_info:
-            await redesign_phase(phase_id=phase.id, body=body, db=db_session)
+            await redesign_phase(phase_id=phase.id, body=body, request=self._mock_request(), db=db_session)
         assert exc_info.value.status_code == 400
         assert "No tasks in redesign status" in exc_info.value.detail
 
@@ -2278,7 +2246,7 @@ class TestRedesignPhaseDirect:
             mock_create.return_value = mock_client
 
             with pytest.raises(HTTPException) as exc_info:
-                await redesign_phase(phase_id=phase.id, body=body, db=db_session)
+                await redesign_phase(phase_id=phase.id, body=body, request=self._mock_request(), db=db_session)
             assert exc_info.value.status_code == 502
             assert "LLM error" in exc_info.value.detail
 
@@ -2297,7 +2265,7 @@ class TestRedesignPhaseDirect:
             mock_create.return_value = mock_client
 
             with pytest.raises(HTTPException) as exc_info:
-                await redesign_phase(phase_id=phase.id, body=body, db=db_session)
+                await redesign_phase(phase_id=phase.id, body=body, request=self._mock_request(), db=db_session)
             assert exc_info.value.status_code == 502
             assert "invalid tasks format" in exc_info.value.detail
 
@@ -2325,7 +2293,7 @@ class TestRedesignPhaseDirect:
             instance.structured_output = AsyncMock(return_value=llm_response)
             mock_get_redis.return_value = AsyncMock()
 
-            result = await redesign_phase(phase_id=phase.id, body=body, db=db_session)
+            result = await redesign_phase(phase_id=phase.id, body=body, request=self._mock_request(), db=db_session)
 
         assert result.tasks_deleted == 1  # the one redesign task was deleted
         assert result.tasks_created == 0
@@ -2348,7 +2316,7 @@ class TestRedesignPhaseDirect:
             mock_repo.get_by_id = AsyncMock(return_value=None)
             # Also need to keep PhaseRepository working
             with pytest.raises(HTTPException) as exc_info:
-                await redesign_phase(phase_id=phase.id, body=body, db=db_session)
+                await redesign_phase(phase_id=phase.id, body=body, request=self._mock_request(), db=db_session)
             assert exc_info.value.status_code == 404
             assert "Project not found" in exc_info.value.detail
 
@@ -2360,35 +2328,35 @@ class TestCleanResponse:
     """Direct unit tests for _clean_response helper."""
 
     def test_no_markers(self):
-        from backend.src.api.architect import _clean_response
+        from backend.src.core.architect_service import clean_response
 
-        cleaned, has_finalize, design_ctx = _clean_response("Hello, how can I help?")
+        cleaned, has_finalize, design_ctx = clean_response("Hello, how can I help?")
         assert cleaned == "Hello, how can I help?"
         assert has_finalize is False
         assert design_ctx is None
 
     def test_finalize_only(self):
-        from backend.src.api.architect import _clean_response
+        from backend.src.core.architect_service import clean_response
 
-        cleaned, has_finalize, design_ctx = _clean_response("Done!\n[FINALIZE]")
+        cleaned, has_finalize, design_ctx = clean_response("Done!\n[FINALIZE]")
         assert cleaned == "Done!"
         assert has_finalize is True
         assert design_ctx is None
 
     def test_design_context_and_finalize(self):
-        from backend.src.api.architect import _clean_response
+        from backend.src.core.architect_service import clean_response
 
         text = "Here is the design.\n<design_context>\nProject: Test\nStack: Python\n</design_context>\n[FINALIZE]"
-        cleaned, has_finalize, design_ctx = _clean_response(text)
+        cleaned, has_finalize, design_ctx = clean_response(text)
         assert cleaned == "Here is the design."
         assert has_finalize is True
         assert design_ctx == "Project: Test\nStack: Python"
 
     def test_design_context_without_finalize(self):
-        from backend.src.api.architect import _clean_response
+        from backend.src.core.architect_service import clean_response
 
         text = "Summary\n<design_context>\nSpec here\n</design_context>"
-        cleaned, has_finalize, design_ctx = _clean_response(text)
+        cleaned, has_finalize, design_ctx = clean_response(text)
         assert cleaned == "Summary"
         assert has_finalize is False
         assert design_ctx == "Spec here"

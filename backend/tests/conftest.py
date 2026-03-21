@@ -66,6 +66,14 @@ async def mock_stream_manager():
     manager = AsyncMock()
     manager.publish = AsyncMock(return_value="mock-message-id")
     manager.publish_board_event = AsyncMock()
+    manager.consume = AsyncMock(return_value=[])
+    manager.acknowledge = AsyncMock()
+    manager.initialize_streams = AsyncMock()
+    manager.redis = AsyncMock()
+    manager.redis.get = AsyncMock(return_value=None)
+    manager.redis.set = AsyncMock()
+    manager.redis.incr = AsyncMock(return_value=1)
+    manager.redis.expire = AsyncMock()
     return manager
 
 
@@ -78,6 +86,7 @@ async def client(db_session, mock_stream_manager):
 
     app.dependency_overrides[get_db] = override_get_db
     app.state.stream_manager = mock_stream_manager
+    app.state.orchestrators = {}
 
     # Disable rate limiting in tests to prevent cross-test interference
     app.state.rate_limit_disabled = True
@@ -92,3 +101,10 @@ async def client(db_session, mock_stream_manager):
         yield test_client
 
     app.dependency_overrides.clear()
+    # Clean up app.state set by this fixture to prevent leakage
+    if hasattr(app.state, "stream_manager"):
+        del app.state.stream_manager
+    if hasattr(app.state, "rate_limit_disabled"):
+        del app.state.rate_limit_disabled
+    if hasattr(app.state, "orchestrators"):
+        del app.state.orchestrators
