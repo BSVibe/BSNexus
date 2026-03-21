@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import structlog
 import uuid
@@ -339,7 +340,7 @@ class PMOrchestrator:
     ) -> None:
         """Handle execution failure with auto-retry or escalation to redesign."""
         original_count = task.retry_count
-        original_history = list(task.qa_feedback_history) if task.qa_feedback_history else None
+        original_history = copy.deepcopy(task.qa_feedback_history) if task.qa_feedback_history else None
         try:
             task.retry_count += 1
 
@@ -389,7 +390,7 @@ class PMOrchestrator:
     ) -> None:
         """Handle QA failure with auto-retry or escalation to redesign."""
         original_count = task.retry_count
-        original_history = list(task.qa_feedback_history) if task.qa_feedback_history else None
+        original_history = copy.deepcopy(task.qa_feedback_history) if task.qa_feedback_history else None
         try:
             task.retry_count += 1
             effective_feedback = feedback or error_message

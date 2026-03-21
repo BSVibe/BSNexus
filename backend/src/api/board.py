@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import uuid
 import structlog
 from typing import AsyncGenerator
 
@@ -53,15 +54,12 @@ def _build_task_response(task: models.Task) -> schemas.TaskResponse:
 
 
 async def _get_board_data(
-    project_id: str,
+    project_id: uuid.UUID,
     db: AsyncSession,
 ) -> dict:
     """Build board data dict for a project."""
-    import uuid as _uuid
-
-    pid = _uuid.UUID(project_id)
     repo = TaskRepository(db)
-    tasks = await repo.list_by_project(pid, limit=500)
+    tasks = await repo.list_by_project(project_id, limit=500)
 
     # Group tasks by status — redesign tasks go into a separate list
     kanban_statuses = [s for s in models.TaskStatus if s != models.TaskStatus.redesign]
@@ -75,7 +73,7 @@ async def _get_board_data(
             columns[task.status.value].append(task_resp.model_dump(mode="json"))
 
     # Stats
-    status_counts = await repo.count_by_status(pid)
+    status_counts = await repo.count_by_status(project_id)
     total = sum(status_counts.values())
     stats: dict[str, int] = {"total": total}
     for status in models.TaskStatus:
@@ -84,7 +82,7 @@ async def _get_board_data(
     # Phase lookup: id -> {name, order, status}
     phase_result = await db.execute(
         select(models.Phase.id, models.Phase.name, models.Phase.order, models.Phase.status).where(
-            models.Phase.project_id == pid
+            models.Phase.project_id == project_id
         )
     )
     phases = {
@@ -92,7 +90,7 @@ async def _get_board_data(
     }
 
     return {
-        "project_id": project_id,
+        "project_id": str(project_id),
         "columns": {status: {"tasks": task_list} for status, task_list in columns.items()},
         "stats": stats,
         "phases": phases,
@@ -102,7 +100,7 @@ async def _get_board_data(
 
 @router.get("/{project_id}")
 async def get_board(
-    project_id: str,
+    project_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Get full board state for a project."""
@@ -140,9 +138,9 @@ async def _board_event_generator(
 
 @router.get("/{project_id}/events")
 async def board_events(
-    project_id: str,
+    project_id: uuid.UUID,
     request: Request,
 ) -> EventSourceResponse:
     """SSE stream for board events."""
     redis_client: aioredis.Redis = request.app.state.redis
-    return EventSourceResponse(_board_event_generator(project_id, redis_client))
+    return EventSourceResponse(_board_event_generator(str(project_id), redis_client))

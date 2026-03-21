@@ -113,6 +113,7 @@ class ClaudeCodeExecutor(BaseExecutor):
 
     async def _run_cli(self, prompt: str, task_id: str, workspace: str) -> ExecutionResult:
         """Single CLI invocation."""
+        process: asyncio.subprocess.Process | None = None
         try:
             logger.info("claude-cli: starting task_id=%s cwd=%s", task_id, workspace)
             prompt_bytes = prompt.encode("utf-8")
@@ -147,11 +148,6 @@ class ClaudeCodeExecutor(BaseExecutor):
 
         except asyncio.TimeoutError:
             logger.error("claude-cli: TIMEOUT after %ds task_id=%s", self._execution_timeout_seconds, task_id)
-            try:
-                process.kill()
-                await process.wait()
-            except ProcessLookupError:
-                pass
             return ExecutionResult(
                 success=False,
                 error_message=f"Execution timed out after {self._execution_timeout_seconds}s",
@@ -164,6 +160,13 @@ class ClaudeCodeExecutor(BaseExecutor):
                 error_message=str(e),
                 error_category="environment",
             )
+        finally:
+            if process is not None and process.returncode is None:
+                try:
+                    process.kill()
+                    await process.wait()
+                except ProcessLookupError:
+                    pass
 
     async def review(self, prompt: str, context: dict[str, Any]) -> ReviewResult:
         """Execute code review via Claude Code CLI."""

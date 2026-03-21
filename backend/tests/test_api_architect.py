@@ -534,8 +534,8 @@ async def test_finalize_design_with_pm_config(client: AsyncClient, db_session):
     assert response.status_code == 200
     data = response.json()
     # Architect config comes from global settings
-    assert data["llm_config"]["architect"]["api_key"] == "sk-test-key-1234"
-    assert data["llm_config"]["pm"]["api_key"] == "sk-pm-key"
+    assert data["llm_config"]["architect"]["api_key"] == "sk-****...1234"
+    assert data["llm_config"]["pm"]["api_key"] == "sk-****...-key"
     assert data["llm_config"]["pm"]["model"] == "gpt-4o"
 
 
@@ -1441,7 +1441,7 @@ class TestFinalizeDesignDirect:
             )
 
         assert result.llm_config is not None
-        assert result.llm_config["pm"]["api_key"] == "sk-pm"
+        assert result.llm_config["pm"]["api_key"] == "sk-pm"  # too short to mask (<8 chars)
         assert result.llm_config["pm"]["model"] == "gpt-4o"
         assert result.llm_config["pm"]["base_url"] == "https://pm.api"
 
@@ -1549,7 +1549,7 @@ class TestFinalizeDesignDirect:
             )
 
         assert result.llm_config is not None
-        assert result.llm_config["pm"]["api_key"] == "sk-pm-only"
+        assert result.llm_config["pm"]["api_key"] == "sk-****...only"
         assert "model" not in result.llm_config["pm"]
         assert "base_url" not in result.llm_config["pm"]
 
@@ -2089,6 +2089,13 @@ class TestFindPotentialMarkerStart:
 class TestRedesignPhaseDirect:
     """Direct tests for redesign_phase endpoint function."""
 
+    @staticmethod
+    def _mock_request():
+        """Create a mock FastAPI Request with stream_manager on app.state."""
+        req = MagicMock()
+        req.app.state.stream_manager = AsyncMock()
+        return req
+
     async def _make_phase_with_tasks(self, db_session, *, redesign_count=1, done_count=0):
         """Helper: create project + phase + tasks in redesign/done status."""
         from backend.src.models import Task, TaskStatus, TaskPriority
@@ -2179,7 +2186,7 @@ class TestRedesignPhaseDirect:
             mock_redis = AsyncMock()
             mock_get_redis.return_value = mock_redis
 
-            result = await redesign_phase(phase_id=phase.id, body=body, db=db_session)
+            result = await redesign_phase(phase_id=phase.id, body=body, request=self._mock_request(), db=db_session)
 
         assert result.phase_id == phase.id
         assert result.project_id == project.id
@@ -2195,7 +2202,7 @@ class TestRedesignPhaseDirect:
 
         body = schemas.PhaseRedesignRequest()
         with pytest.raises(HTTPException) as exc_info:
-            await redesign_phase(phase_id=uuid.uuid4(), body=body, db=db_session)
+            await redesign_phase(phase_id=uuid.uuid4(), body=body, request=self._mock_request(), db=db_session)
         assert exc_info.value.status_code == 404
         assert "Phase not found" in exc_info.value.detail
 
@@ -2220,7 +2227,7 @@ class TestRedesignPhaseDirect:
 
         body = schemas.PhaseRedesignRequest()
         with pytest.raises(HTTPException) as exc_info:
-            await redesign_phase(phase_id=phase.id, body=body, db=db_session)
+            await redesign_phase(phase_id=phase.id, body=body, request=self._mock_request(), db=db_session)
         assert exc_info.value.status_code == 400
         assert "No tasks in redesign status" in exc_info.value.detail
 
@@ -2239,7 +2246,7 @@ class TestRedesignPhaseDirect:
             mock_create.return_value = mock_client
 
             with pytest.raises(HTTPException) as exc_info:
-                await redesign_phase(phase_id=phase.id, body=body, db=db_session)
+                await redesign_phase(phase_id=phase.id, body=body, request=self._mock_request(), db=db_session)
             assert exc_info.value.status_code == 502
             assert "LLM error" in exc_info.value.detail
 
@@ -2258,7 +2265,7 @@ class TestRedesignPhaseDirect:
             mock_create.return_value = mock_client
 
             with pytest.raises(HTTPException) as exc_info:
-                await redesign_phase(phase_id=phase.id, body=body, db=db_session)
+                await redesign_phase(phase_id=phase.id, body=body, request=self._mock_request(), db=db_session)
             assert exc_info.value.status_code == 502
             assert "invalid tasks format" in exc_info.value.detail
 
@@ -2286,7 +2293,7 @@ class TestRedesignPhaseDirect:
             instance.structured_output = AsyncMock(return_value=llm_response)
             mock_get_redis.return_value = AsyncMock()
 
-            result = await redesign_phase(phase_id=phase.id, body=body, db=db_session)
+            result = await redesign_phase(phase_id=phase.id, body=body, request=self._mock_request(), db=db_session)
 
         assert result.tasks_deleted == 1  # the one redesign task was deleted
         assert result.tasks_created == 0
@@ -2309,7 +2316,7 @@ class TestRedesignPhaseDirect:
             mock_repo.get_by_id = AsyncMock(return_value=None)
             # Also need to keep PhaseRepository working
             with pytest.raises(HTTPException) as exc_info:
-                await redesign_phase(phase_id=phase.id, body=body, db=db_session)
+                await redesign_phase(phase_id=phase.id, body=body, request=self._mock_request(), db=db_session)
             assert exc_info.value.status_code == 404
             assert "Project not found" in exc_info.value.detail
 

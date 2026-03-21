@@ -100,9 +100,10 @@ async def test_publish_calls_xadd_with_flattened_data(manager: RedisStreamManage
 
 async def test_consume_parses_json_values(manager: RedisStreamManager, mock_redis: AsyncMock) -> None:
     """JSON strings in messages are decoded to Python objects."""
+    # Mock returns string keys/values matching decode_responses=True in production
     mock_redis.xreadgroup.return_value = [
-        (b"tasks:escalation", [
-            (b"1-0", {b"task_id": b'"abc"', b"count": b"5", b"meta": b'{"x": 1}'}),
+        ("tasks:escalation", [
+            ("1-0", {"task_id": '"abc"', "count": "5", "meta": '{"x": 1}'}),
         ]),
     ]
 
@@ -110,32 +111,32 @@ async def test_consume_parses_json_values(manager: RedisStreamManager, mock_redi
 
     assert len(results) == 1
     msg = results[0]
-    assert msg[b"task_id"] == "abc"
-    assert msg[b"meta"] == {"x": 1}
+    assert msg["task_id"] == "abc"
+    assert msg["meta"] == {"x": 1}
 
 
 async def test_consume_handles_decode_error(manager: RedisStreamManager, mock_redis: AsyncMock) -> None:
-    """Invalid JSON is kept as-is (raw bytes)."""
+    """Invalid JSON is kept as-is (raw string)."""
     mock_redis.xreadgroup.return_value = [
-        (b"tasks:escalation", [
-            (b"1-0", {b"bad": b"not{json"}),
+        ("tasks:escalation", [
+            ("1-0", {"bad": "not{json"}),
         ]),
     ]
 
     results = await manager.consume("tasks:escalation", "architect", "worker-1")
 
-    assert results[0][b"bad"] == b"not{json"
+    assert results[0]["bad"] == "not{json"
 
 
 async def test_consume_adds_message_id(manager: RedisStreamManager, mock_redis: AsyncMock) -> None:
     """_message_id field is injected into each parsed message."""
     mock_redis.xreadgroup.return_value = [
-        (b"stream", [(b"99-0", {b"k": b'"v"'})]),
+        ("stream", [("99-0", {"k": '"v"'})]),
     ]
 
     results = await manager.consume("stream", "g", "c")
 
-    assert results[0]["_message_id"] == b"99-0"
+    assert results[0]["_message_id"] == "99-0"
 
 
 async def test_consume_empty_returns_empty_list(manager: RedisStreamManager, mock_redis: AsyncMock) -> None:

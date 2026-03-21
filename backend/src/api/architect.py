@@ -24,7 +24,7 @@ from backend.src.repositories.phase_repository import PhaseRepository
 from backend.src.repositories.project_repository import ProjectRepository
 from backend.src.repositories.task_repository import TaskRepository
 from backend.src.storage.database import async_session, get_db
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
@@ -602,6 +602,7 @@ async def finalize_design(
 async def redesign_phase(
     phase_id: uuid.UUID,
     body: schemas.PhaseRedesignRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> schemas.PhaseRedesignResponse:
     """Trigger manual phase-level redesign via Architect LLM.
@@ -757,12 +758,14 @@ async def redesign_phase(
         task.commit_hash = None
         task.started_at = None
         if task.status != models.TaskStatus.waiting:
+            stream_manager = getattr(request.app.state, "stream_manager", None)
             await state_machine.transition(
                 task=task,
                 new_status=models.TaskStatus.waiting,
                 reason=f"Manual phase redesign: {reasoning}",
                 actor="architect",
                 db_session=db,
+                stream_manager=stream_manager,
             )
         tasks_kept += 1
 
@@ -932,7 +935,7 @@ async def add_task(
         title=result.get("title", "Untitled Task"),
         description=result.get("description"),
         priority=priority,
-        status=models.TaskStatus.ready,
+        status=models.TaskStatus.ready if phase.status == models.PhaseStatus.active else models.TaskStatus.waiting,
         worker_prompt={"prompt": result.get("worker_prompt", "")},
         qa_prompt={"prompt": result.get("qa_prompt", "")},
     )

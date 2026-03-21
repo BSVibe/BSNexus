@@ -147,3 +147,85 @@ class TestValidateDictValues:
         """Dict values inside a list pass when clean."""
         # Should not raise
         InputValidator.validate_dict_values({"items": [{"name": "clean value"}]})
+
+
+class TestSchemaPathTraversalValidation:
+    """Test path traversal prevention in Pydantic schemas."""
+
+    def test_project_create_rejects_traversal(self):
+        from pydantic import ValidationError
+        from backend.src.schemas import ProjectCreate
+
+        with pytest.raises(ValidationError, match="Path traversal"):
+            ProjectCreate(name="test", description="test", repo_path="../../etc/passwd")
+
+    def test_project_create_allows_normal_path(self):
+        from backend.src.schemas import ProjectCreate
+
+        p = ProjectCreate(name="test", description="test", repo_path="/workspace/projects/myapp")
+        assert p.repo_path == "/workspace/projects/myapp"
+
+    def test_finalize_request_rejects_traversal(self):
+        from pydantic import ValidationError
+        from backend.src.schemas import FinalizeRequest
+
+        with pytest.raises(ValidationError, match="Path traversal"):
+            FinalizeRequest(repo_path="../../../etc/shadow")
+
+    def test_finalize_request_allows_normal_path(self):
+        from backend.src.schemas import FinalizeRequest
+
+        f = FinalizeRequest(repo_path="/workspace/repos/project")
+        assert f.repo_path == "/workspace/repos/project"
+
+
+class TestSchemaSSRFValidation:
+    """Test SSRF prevention in Pydantic schemas."""
+
+    def test_llm_config_rejects_localhost(self):
+        from pydantic import ValidationError
+        from backend.src.schemas import LLMConfigInput
+
+        with pytest.raises(ValidationError, match="localhost"):
+            LLMConfigInput(api_key="sk-test", base_url="http://localhost:5432/")
+
+    def test_llm_config_rejects_loopback(self):
+        from pydantic import ValidationError
+        from backend.src.schemas import LLMConfigInput
+
+        with pytest.raises(ValidationError, match="private or internal"):
+            LLMConfigInput(api_key="sk-test", base_url="http://127.0.0.1:6379/")
+
+    def test_llm_config_rejects_loopback_shorthand(self):
+        """127.1 is shorthand for 127.0.0.1 — must be blocked."""
+        from pydantic import ValidationError
+        from backend.src.schemas import LLMConfigInput
+
+        with pytest.raises(ValidationError, match="private or internal"):
+            LLMConfigInput(api_key="sk-test", base_url="http://127.1/v1")
+
+    def test_llm_config_rejects_private_network(self):
+        from pydantic import ValidationError
+        from backend.src.schemas import LLMConfigInput
+
+        with pytest.raises(ValidationError, match="private or internal"):
+            LLMConfigInput(api_key="sk-test", base_url="http://192.168.1.1:8080/")
+
+    def test_llm_config_allows_public_url(self):
+        from backend.src.schemas import LLMConfigInput
+
+        c = LLMConfigInput(api_key="sk-test", base_url="https://api.openai.com/v1")
+        assert c.base_url == "https://api.openai.com/v1"
+
+    def test_llm_config_allows_none_base_url(self):
+        from backend.src.schemas import LLMConfigInput
+
+        c = LLMConfigInput(api_key="sk-test")
+        assert c.base_url is None
+
+    def test_global_settings_rejects_localhost(self):
+        from pydantic import ValidationError
+        from backend.src.schemas import GlobalSettingsUpdate
+
+        with pytest.raises(ValidationError, match="localhost"):
+            GlobalSettingsUpdate(llm_base_url="http://localhost:5432/")

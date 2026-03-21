@@ -1,9 +1,63 @@
 import enum
+import ipaddress
+import re
+import socket
 import uuid
 from datetime import datetime
 from typing import Optional
+from urllib.parse import urlparse
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+
+# ── Validation helpers ───────────────────────────────────────────────
+
+_PATH_TRAVERSAL_RE = re.compile(r"\.\.[/\\]|%2e%2e[/\\]|%252e%252e[/\\]", re.IGNORECASE)
+
+_SSRF_BLOCKED_HOSTNAMES = frozenset({"localhost"})
+
+
+def _check_path_traversal(v: str) -> str:
+    """Reject paths containing directory traversal sequences."""
+    if _PATH_TRAVERSAL_RE.search(v):
+        raise ValueError("Path traversal sequences are not allowed")
+    return v
+
+
+def _is_private_ip(host: str) -> bool:
+    """Check if a hostname resolves to a private/loopback/link-local IP.
+
+    Handles all IP notations: dotted decimal, shorthand (127.1),
+    hex (0x7f000001), octal (0177.0.0.1), IPv6 mapped (::ffff:127.0.0.1).
+    """
+    try:
+        # socket.getaddrinfo handles all notation variants
+        results = socket.getaddrinfo(host, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        for _, _, _, _, sockaddr in results:
+            addr = ipaddress.ip_address(sockaddr[0])
+            if addr.is_loopback or addr.is_private or addr.is_link_local or addr.is_reserved:
+                return True
+    except (socket.gaierror, ValueError, OSError):
+        pass
+    return False
+
+
+def _check_ssrf_url(v: str | None) -> str | None:
+    """Reject URLs targeting private/internal networks."""
+    if v is None:
+        return v
+    try:
+        parsed = urlparse(v)
+    except ValueError as e:
+        raise ValueError(f"Invalid URL: {e}") from e
+    host = (parsed.hostname or "").lower()
+    if not host:
+        raise ValueError("URL must contain a hostname")
+    if host in _SSRF_BLOCKED_HOSTNAMES:
+        raise ValueError("URLs targeting localhost are not allowed")
+    if _is_private_ip(host):
+        raise ValueError("URLs targeting private or internal network addresses are not allowed")
+    return v
 
 
 # ── Health Schemas ────────────────────────────────────────────────────
@@ -97,6 +151,11 @@ class ProjectCreate(BaseModel):
     description: str
     repo_path: str
 
+    @field_validator("repo_path")
+    @classmethod
+    def _validate_repo_path(cls, v: str) -> str:
+        return _check_path_traversal(v)
+
 
 class ProjectUpdate(BaseModel):
     name: Optional[str] = None
@@ -117,6 +176,26 @@ class ProjectResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     phases: list[PhaseResponse] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _mask_llm_config_keys(self) -> "ProjectResponse":
+        """Mask API keys in llm_config to prevent credential leakage in responses."""
+        if not self.llm_config:
+            return self
+        masked = {}
+        for role, cfg in self.llm_config.items():
+            if isinstance(cfg, dict) and "api_key" in cfg:
+                cfg = {**cfg, "api_key": _mask_api_key(cfg["api_key"])}
+            masked[role] = cfg
+        self.llm_config = masked
+        return self
+
+
+def _mask_api_key(key: str | None) -> str | None:
+    """Mask API key for display: sk-ant-abc...xyz -> sk-****...xyz"""
+    if not key or len(key) < 8:
+        return key
+    return key[:3] + "****..." + key[-4:]
 
 
 # ── Task Schemas ──────────────────────────────────────────────────────
@@ -236,6 +315,11 @@ class LLMConfigInput(BaseModel):
     model: Optional[str] = None
     base_url: Optional[str] = None
 
+    @field_validator("base_url")
+    @classmethod
+    def _validate_base_url(cls, v: str | None) -> str | None:
+        return _check_ssrf_url(v)
+
 
 class CreateSessionRequest(BaseModel):
     name: Optional[str] = None
@@ -270,6 +354,11 @@ class DesignSessionResponse(BaseModel):
 class FinalizeRequest(BaseModel):
     repo_path: str
     pm_llm_config: Optional[LLMConfigInput] = None
+
+    @field_validator("repo_path")
+    @classmethod
+    def _validate_repo_path(cls, v: str) -> str:
+        return _check_path_traversal(v)
 
 
 class PhaseRedesignRequest(BaseModel):
@@ -345,6 +434,11 @@ class GlobalSettingsUpdate(BaseModel):
     llm_api_key: Optional[str] = None
     llm_model: Optional[str] = None
     llm_base_url: Optional[str] = None
+
+    @field_validator("llm_base_url")
+    @classmethod
+    def _validate_base_url(cls, v: str | None) -> str | None:
+        return _check_ssrf_url(v)
 
 
 # ── Batch Delete Schemas ────────────────────────────────────────────

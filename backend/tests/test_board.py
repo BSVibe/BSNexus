@@ -251,7 +251,7 @@ async def test_get_board_stats(client, db_session, mock_redis):
 async def test_get_board_data_direct(db_session):
     """Directly call _get_board_data to cover lines 69-85."""
     project, phase, task = await create_project_phase_task(db_session, status=TaskStatus.ready)
-    data = await _get_board_data(str(project.id), db_session)
+    data = await _get_board_data(project.id, db_session)
     assert data["project_id"] == str(project.id)
     assert data["stats"]["total"] == 1
     assert data["stats"]["ready"] == 1
@@ -264,7 +264,7 @@ async def test_get_board_data_direct(db_session):
 async def test_get_board_data_redesign_task(db_session):
     """Cover the redesign branch in _get_board_data (line 72-73)."""
     project, phase, _task = await create_project_phase_task(db_session, status=TaskStatus.redesign)
-    data = await _get_board_data(str(project.id), db_session)
+    data = await _get_board_data(project.id, db_session)
     assert len(data["redesign_tasks"]) == 1
     assert data["stats"]["redesign"] == 1
 

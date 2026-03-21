@@ -117,7 +117,7 @@ async def test_pause_orchestration(api_client: AsyncClient) -> None:
     data = response.json()
     assert data["detail"] == "Orchestration paused"
     assert data["project_id"] == project_id
-    mock_orchestrator.stop.assert_called_once()
+    mock_orchestrator.stop.assert_awaited_once()
 
     # Cleanup
     del app.state.orchestrators[project_id]

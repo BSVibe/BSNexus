@@ -100,6 +100,6 @@ class GitOps:
         stdout, stderr = await process.communicate()
 
         if process.returncode != 0:
-            raise RuntimeError(f"Git error: {stderr.decode()}")
+            raise RuntimeError(f"Git error: {stderr.decode(errors='replace')}")
 
-        return stdout.decode().strip()
+        return stdout.decode(errors="replace").strip()
