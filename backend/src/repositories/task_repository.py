@@ -154,8 +154,8 @@ class TaskRepository(BaseRepository):
         return tasks
 
     async def count_active_tasks(self, project_id: uuid.UUID) -> int:
-        """Count tasks in queued, in_progress, or review status for a project."""
-        active_statuses = [TaskStatus.queued, TaskStatus.in_progress, TaskStatus.review]
+        """Count tasks in in_progress or review status for a project."""
+        active_statuses = [TaskStatus.in_progress, TaskStatus.review]
         result = await self.db.execute(
             select(func.count(Task.id)).where(Task.project_id == project_id, Task.status.in_(active_statuses))
         )

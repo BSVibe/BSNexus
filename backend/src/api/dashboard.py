@@ -31,8 +31,7 @@ async def get_dashboard_stats(db: AsyncSession = Depends(get_db)) -> schemas.Das
     active_tasks = sum(
         1
         for t in tasks
-        if t.status
-        in (models.TaskStatus.ready, models.TaskStatus.queued, models.TaskStatus.in_progress, models.TaskStatus.review)
+        if t.status in (models.TaskStatus.ready, models.TaskStatus.in_progress, models.TaskStatus.review)
     )
     in_progress_tasks = sum(1 for t in tasks if t.status == models.TaskStatus.in_progress)
     done_tasks = sum(1 for t in tasks if t.status == models.TaskStatus.done)

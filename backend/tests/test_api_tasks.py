@@ -223,15 +223,15 @@ async def test_transition_task_valid(client: AsyncClient, db_session):
     task_id = create_response.json()["id"]
     assert create_response.json()["status"] == "ready"
 
-    # Transition READY -> QUEUED
+    # Transition READY -> IN_PROGRESS
     response = await client.post(
         f"/api/v1/tasks/{task_id}/transition",
-        json={"new_status": "queued", "actor": "test"},
+        json={"new_status": "in_progress", "actor": "test"},
     )
 
     assert response.status_code == 200
     data = response.json()
-    assert data["status"] == "queued"
+    assert data["status"] == "in_progress"
     assert data["previous_status"] == "ready"
 
 
@@ -317,11 +317,11 @@ async def test_transition_with_matching_version(client: AsyncClient, db_session)
 
     response = await client.post(
         f"/api/v1/tasks/{task_id}/transition",
-        json={"new_status": "queued", "actor": "test", "expected_version": version},
+        json={"new_status": "in_progress", "actor": "test", "expected_version": version},
     )
 
     assert response.status_code == 200
-    assert response.json()["status"] == "queued"
+    assert response.json()["status"] == "in_progress"
 
 
 async def test_transition_with_mismatched_version_409(client: AsyncClient, db_session):
@@ -345,7 +345,7 @@ async def test_transition_with_mismatched_version_409(client: AsyncClient, db_se
 
     response = await client.post(
         f"/api/v1/tasks/{task_id}/transition",
-        json={"new_status": "queued", "actor": "test", "expected_version": 999},
+        json={"new_status": "in_progress", "actor": "test", "expected_version": 999},
     )
 
     assert response.status_code == 409
@@ -374,7 +374,7 @@ async def test_transition_without_expected_version(client: AsyncClient, db_sessi
 
     response = await client.post(
         f"/api/v1/tasks/{task_id}/transition",
-        json={"new_status": "queued", "actor": "test"},
+        json={"new_status": "in_progress", "actor": "test"},
     )
 
     assert response.status_code == 200
@@ -572,7 +572,7 @@ async def test_409_response_contains_current_version(client: AsyncClient, db_ses
 
     response = await client.post(
         f"/api/v1/tasks/{task_id}/transition",
-        json={"new_status": "queued", "actor": "test", "expected_version": 999},
+        json={"new_status": "in_progress", "actor": "test", "expected_version": 999},
     )
 
     assert response.status_code == 409

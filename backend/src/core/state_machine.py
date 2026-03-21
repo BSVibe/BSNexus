@@ -24,8 +24,7 @@ class TaskStateMachine:
 
     TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
         TaskStatus.waiting: {TaskStatus.ready},
-        TaskStatus.ready: {TaskStatus.queued, TaskStatus.in_progress},
-        TaskStatus.queued: {TaskStatus.in_progress},
+        TaskStatus.ready: {TaskStatus.in_progress},
         TaskStatus.in_progress: {TaskStatus.review, TaskStatus.ready, TaskStatus.redesign},
         TaskStatus.review: {TaskStatus.done, TaskStatus.ready, TaskStatus.in_progress, TaskStatus.redesign},
         TaskStatus.done: set(),
@@ -112,43 +111,14 @@ class TaskStateMachine:
     ) -> None:
         """Dispatch side effects based on the new status."""
         side_effect_map = {
-            TaskStatus.queued: self._on_queued,
             TaskStatus.ready: self._on_ready,
             TaskStatus.in_progress: self._on_in_progress,
-            TaskStatus.review: self._on_review,
             TaskStatus.done: self._on_done,
             TaskStatus.redesign: self._on_redesign,
         }
         handler = side_effect_map.get(new_status)
         if handler is not None:
             await handler(task, old_status=old_status, db_session=db_session, stream_manager=stream_manager, **kwargs)
-
-    async def _on_queued(
-        self,
-        task: Task,
-        *,
-        old_status: Optional[TaskStatus] = None,
-        db_session: Optional[AsyncSession] = None,
-        stream_manager: Optional[RedisStreamManager] = None,
-        **kwargs: Any,
-    ) -> None:
-        """Publish task to execution queue when queued."""
-        if stream_manager is not None:
-            repo_path = ""
-            if db_session is not None:
-                repo_path = await self._get_repo_path(task, db_session)
-
-            message = {
-                "task_id": str(task.id),
-                "project_id": str(task.project_id),
-                "phase_id": str(task.phase_id),
-                "title": task.title,
-                "priority": task.priority.value,
-                "worker_prompt": json.dumps(task.worker_prompt) if task.worker_prompt else "",
-                "branch_name": task.branch_name or "",
-                "repo_path": repo_path,
-            }
-            await stream_manager.publish("tasks:queue", message)
 
     async def _on_ready(
         self,
@@ -181,33 +151,6 @@ class TaskStateMachine:
     ) -> None:
         """Set started_at timestamp."""
         task.started_at = datetime.now(timezone.utc)
-
-    async def _on_review(
-        self,
-        task: Task,
-        *,
-        old_status: Optional[TaskStatus] = None,
-        db_session: Optional[AsyncSession] = None,
-        stream_manager: Optional[RedisStreamManager] = None,
-        **kwargs: Any,
-    ) -> None:
-        """Publish task to QA review stream when transitioning to review."""
-        if stream_manager is not None:
-            repo_path = ""
-            if db_session is not None:
-                repo_path = await self._get_repo_path(task, db_session)
-
-            message = {
-                "task_id": str(task.id),
-                "project_id": str(task.project_id),
-                "phase_id": str(task.phase_id),
-                "title": task.title,
-                "priority": task.priority.value,
-                "qa_prompt": json.dumps(task.qa_prompt) if task.qa_prompt else "",
-                "branch_name": task.branch_name or "",
-                "repo_path": repo_path,
-            }
-            await stream_manager.publish("tasks:qa", message)
 
     async def _on_done(
         self,
@@ -250,14 +193,6 @@ class TaskStateMachine:
                     "error_message": task.error_message or "",
                 },
             )
-
-    async def _get_repo_path(self, task: Task, db_session: AsyncSession) -> str:
-        """Look up repo_path from the task's project."""
-        from backend.src.repositories.project_repository import ProjectRepository
-
-        project_repo = ProjectRepository(db_session)
-        project = await project_repo.get_by_id(task.project_id, load_phases=False)
-        return project.repo_path if project else ""
 
     # -- Dependency Methods ----------------------------------------------------
 

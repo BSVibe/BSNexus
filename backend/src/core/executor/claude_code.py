@@ -22,6 +22,7 @@ class ClaudeCodeExecutor(BaseExecutor):
         self._rate_limit_max_retries = settings.rate_limit_retry_count
         self._rate_limit_wait_seconds = settings.rate_limit_wait_seconds
         self._execution_timeout_seconds = settings.execution_timeout_seconds
+        self._total_execution_timeout_seconds = settings.total_execution_timeout_seconds
         self._skip_permissions = settings.executor_skip_permissions
 
     @staticmethod
@@ -48,7 +49,34 @@ class ClaudeCodeExecutor(BaseExecutor):
         task_id: str,
         workspace: str,
     ) -> ExecutionResult:
-        """Run CLI, retrying on rate limit until reset."""
+        """Run CLI, retrying on rate limit until reset.
+
+        Applies a total timeout across all retries to prevent unbounded execution.
+        """
+        try:
+            return await asyncio.wait_for(
+                self._retry_loop(prompt, task_id, workspace),
+                timeout=self._total_execution_timeout_seconds,
+            )
+        except asyncio.TimeoutError:
+            logger.error(
+                "claude-cli: total timeout after %ds task_id=%s",
+                self._total_execution_timeout_seconds,
+                task_id,
+            )
+            return ExecutionResult(
+                success=False,
+                error_message=f"Total execution timed out after {self._total_execution_timeout_seconds}s",
+                error_category="environment",
+            )
+
+    async def _retry_loop(
+        self,
+        prompt: str,
+        task_id: str,
+        workspace: str,
+    ) -> ExecutionResult:
+        """Inner retry loop for rate limit handling."""
         result: ExecutionResult | None = None
         for attempt in range(self._rate_limit_max_retries + 1):
             result = await self._run_cli(prompt, task_id, workspace)

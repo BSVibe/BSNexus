@@ -28,6 +28,8 @@ def _make_executor(
             mock_settings.rate_limit_retry_count = rate_limit_retry_count
             mock_settings.rate_limit_wait_seconds = rate_limit_wait_seconds
             mock_settings.execution_timeout_seconds = execution_timeout_seconds
+            mock_settings.total_execution_timeout_seconds = 300
+            mock_settings.executor_skip_permissions = True
             executor = ClaudeCodeExecutor(workspace_dir=workspace_dir)
     return executor
 

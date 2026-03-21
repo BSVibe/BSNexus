@@ -268,7 +268,7 @@ class TestTaskRepository:
         assert tasks[1].priority == TaskPriority.low
 
     async def test_count_active_tasks(self, db_session):
-        """count_active_tasks counts queued/in_progress/review tasks."""
+        """count_active_tasks counts in_progress/review tasks."""
         project = await make_project(db_session)
         phase = await make_phase(db_session, project.id)
         await make_task(db_session, project.id, phase.id, status=TaskStatus.in_progress)

@@ -151,6 +151,7 @@ class LocalTaskRunner:
             git_ops = None
             if repo_path:
                 git_ops = GitOps(repo_path)
+                await git_ops.ensure_repo()
                 if branch_name:
                     await git_ops.ensure_branch(branch_name)
 

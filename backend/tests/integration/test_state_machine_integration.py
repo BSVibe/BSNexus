@@ -112,7 +112,7 @@ async def test_optimistic_locking_conflict(client: AsyncClient, db_session: Asyn
     # Try transition with wrong version
     response = await client.post(
         f"/api/v1/tasks/{task['id']}/transition",
-        json={"new_status": "queued", "actor": "test", "expected_version": 999},
+        json={"new_status": "in_progress", "actor": "test", "expected_version": 999},
     )
     assert response.status_code == 409
     detail = response.json()["detail"]
@@ -123,10 +123,10 @@ async def test_optimistic_locking_conflict(client: AsyncClient, db_session: Asyn
     # Verify correct version works
     response = await client.post(
         f"/api/v1/tasks/{task['id']}/transition",
-        json={"new_status": "queued", "actor": "test", "expected_version": task["version"]},
+        json={"new_status": "in_progress", "actor": "test", "expected_version": task["version"]},
     )
     assert response.status_code == 200
-    assert response.json()["status"] == "queued"
+    assert response.json()["status"] == "in_progress"
 
     # Verify update with wrong version also returns 409
     # First create a waiting task (updatable status)
@@ -150,11 +150,7 @@ async def test_execution_failure_auto_retry_via_api(client: AsyncClient, db_sess
     task = await _create_task(client, project_id, phase_id, "Retry Task")
     assert task["status"] == "ready"
 
-    # Move to: ready -> queued -> in_progress
-    await client.post(
-        f"/api/v1/tasks/{task['id']}/transition",
-        json={"new_status": "queued", "actor": "test"},
-    )
+    # Move to: ready -> in_progress
     await client.post(
         f"/api/v1/tasks/{task['id']}/transition",
         json={"new_status": "in_progress", "actor": "test"},
@@ -181,8 +177,7 @@ async def test_done_is_terminal(client: AsyncClient, db_session: AsyncSession):
     project_id, phase_id = await _create_project_and_phase(client, db_session)
     task = await _create_task(client, project_id, phase_id, "Terminal Task")
 
-    # Move through: ready -> queued -> in_progress -> review -> done
-    await client.post(f"/api/v1/tasks/{task['id']}/transition", json={"new_status": "queued", "actor": "test"})
+    # Move through: ready -> in_progress -> review -> done
     await client.post(f"/api/v1/tasks/{task['id']}/transition", json={"new_status": "in_progress", "actor": "test"})
     await client.post(f"/api/v1/tasks/{task['id']}/transition", json={"new_status": "review", "actor": "test"})
     await client.post(f"/api/v1/tasks/{task['id']}/transition", json={"new_status": "done", "actor": "test"})

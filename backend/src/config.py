@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     # Executor
     executor_type: str = "claude-code"
     execution_timeout_seconds: int = 3600
+    total_execution_timeout_seconds: int = 7200
     rate_limit_retry_count: int = 5
     rate_limit_wait_seconds: int = 300
     executor_skip_permissions: bool = True

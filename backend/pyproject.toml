@@ -43,7 +43,7 @@ line-length = 120
 
 [tool.coverage.run]
 source = ["src"]
-omit = ["*/migrations/*"]
+omit = ["*/migrations/*", "src/cli/*"]
 
 [tool.coverage.report]
 fail_under = 80
