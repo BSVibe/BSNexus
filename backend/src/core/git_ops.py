@@ -34,7 +34,9 @@ class GitOps:
     async def ensure_branch(self, branch_name: str) -> None:
         """Check out branch, creating it from main if it doesn't exist."""
         branches = await self._run("branch", "--list", branch_name)
-        if branch_name.strip() in branches:
+        # git branch --list output has "* " prefix for current branch and "  " for others
+        branch_names = [line.lstrip("* ").strip() for line in branches.splitlines()]
+        if branch_name in branch_names:
             await self._run("checkout", branch_name)
         else:
             try:
