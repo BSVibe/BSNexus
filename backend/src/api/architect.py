@@ -95,11 +95,12 @@ def _build_llm_config(llm_config_dict: dict[str, Any] | None) -> LLMConfig:
     """Build an LLMConfig from a dict stored in session.llm_config."""
     if not llm_config_dict or "api_key" not in llm_config_dict:
         raise ValueError("LLM configuration with api_key is required")
-    return LLMConfig(
-        api_key=llm_config_dict["api_key"],
-        model=llm_config_dict.get("model") or "anthropic/claude-sonnet-4-20250514",
-        base_url=llm_config_dict.get("base_url"),
-    )
+    kwargs: dict[str, Any] = {"api_key": llm_config_dict["api_key"]}
+    if llm_config_dict.get("model"):
+        kwargs["model"] = llm_config_dict["model"]
+    if llm_config_dict.get("base_url"):
+        kwargs["base_url"] = llm_config_dict["base_url"]
+    return LLMConfig(**kwargs)
 
 
 async def _load_project_with_tasks(project_id: uuid.UUID, db: AsyncSession) -> models.Project | None:

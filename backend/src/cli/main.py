@@ -61,10 +61,10 @@ async def architect_list() -> None:
 @architect.command("create")
 @click.option("--name", default=None, help="Session name")
 @click.option("--api-key", required=True, envvar="LLM_API_KEY", help="LLM API key")
-@click.option("--model", default="anthropic/claude-sonnet-4-20250514", help="LLM model")
+@click.option("--model", default=None, help="LLM model (default: from LLMConfig)")
 @click.option("--base-url", default=None, help="LLM base URL")
 @async_command
-async def architect_create(name: str | None, api_key: str, model: str, base_url: str | None) -> None:
+async def architect_create(name: str | None, api_key: str, model: str | None, base_url: str | None) -> None:
     """Create a new design session."""
     from backend.src.cli._helpers import get_db_session
 

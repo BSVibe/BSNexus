@@ -11,6 +11,8 @@ from litellm.litellm_core_utils.streaming_handler import CustomStreamWrapper
 from litellm.types.utils import Choices, ModelResponse
 from pydantic import BaseModel
 
+from backend.src.config import settings
+
 logger = logging.getLogger(__name__)
 
 _JSON_BLOCK_RE = re.compile(r"```(?:json)?\s*\n(.*?)\n```", re.DOTALL)
@@ -59,7 +61,7 @@ class LLMConfig(BaseModel):
     """LLM connection config (passed at runtime)."""
 
     api_key: str
-    model: str = "anthropic/claude-sonnet-4-20250514"
+    model: str = settings.default_llm_model
     base_url: Optional[str] = None
 
     def __repr__(self) -> str:
@@ -286,7 +288,7 @@ def create_llm_client_from_project(project: Any, role: str = "architect") -> LLM
 
     config = LLMConfig(
         api_key=role_config["api_key"],
-        model=role_config.get("model", "anthropic/claude-sonnet-4-20250514"),
+        model=role_config.get("model", settings.default_llm_model),
         base_url=role_config.get("base_url"),
     )
     return LLMClient(config)

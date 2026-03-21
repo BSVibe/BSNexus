@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     debug: bool = False
 
     # LLM Defaults (fallback only - used when not specified at runtime)
-    default_llm_model: Optional[str] = None
+    default_llm_model: str = "anthropic/claude-sonnet-4-20250514"
     default_llm_base_url: Optional[str] = None
 
     # Executor

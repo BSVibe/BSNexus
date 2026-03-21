@@ -179,7 +179,7 @@ async def queue_next_task(
     await db.commit()
 
     return {
-        "detail": "Task queued",
+        "detail": "Task promoted to ready",
         "task_id": str(task.id),
         "title": task.title,
         "priority": task.priority.value,
