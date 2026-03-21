@@ -818,54 +818,54 @@ class TestSlugifyDirect:
     """Direct tests for the _slugify helper."""
 
     def test_simple_string(self):
-        from backend.src.api.architect import _slugify
+        from backend.src.core.architect_service import slugify
 
-        assert _slugify("Hello World") == "hello-world"
+        assert slugify("Hello World") == "hello-world"
 
     def test_special_characters(self):
-        from backend.src.api.architect import _slugify
+        from backend.src.core.architect_service import slugify
 
-        assert _slugify("Phase 1: Setup & Config!") == "phase-1-setup-config"
+        assert slugify("Phase 1: Setup & Config!") == "phase-1-setup-config"
 
     def test_unicode_characters(self):
-        from backend.src.api.architect import _slugify
+        from backend.src.core.architect_service import slugify
 
-        assert _slugify("Deja vu") == "deja-vu"
+        assert slugify("Deja vu") == "deja-vu"
 
     def test_multiple_spaces_and_dashes(self):
-        from backend.src.api.architect import _slugify
+        from backend.src.core.architect_service import slugify
 
-        assert _slugify("hello   ---   world") == "hello-world"
+        assert slugify("hello   ---   world") == "hello-world"
 
     def test_leading_trailing_dashes(self):
-        from backend.src.api.architect import _slugify
+        from backend.src.core.architect_service import slugify
 
-        assert _slugify("---hello---") == "hello"
+        assert slugify("---hello---") == "hello"
 
     def test_empty_string(self):
-        from backend.src.api.architect import _slugify
+        from backend.src.core.architect_service import slugify
 
-        assert _slugify("") == ""
+        assert slugify("") == ""
 
     def test_only_special_characters(self):
-        from backend.src.api.architect import _slugify
+        from backend.src.core.architect_service import slugify
 
-        assert _slugify("!@#$%") == ""
+        assert slugify("!@#$%") == ""
 
     def test_already_slug(self):
-        from backend.src.api.architect import _slugify
+        from backend.src.core.architect_service import slugify
 
-        assert _slugify("already-a-slug") == "already-a-slug"
+        assert slugify("already-a-slug") == "already-a-slug"
 
     def test_uppercase(self):
-        from backend.src.api.architect import _slugify
+        from backend.src.core.architect_service import slugify
 
-        assert _slugify("UPPERCASE STRING") == "uppercase-string"
+        assert slugify("UPPERCASE STRING") == "uppercase-string"
 
     def test_accented_characters(self):
-        from backend.src.api.architect import _slugify
+        from backend.src.core.architect_service import slugify
 
-        result = _slugify("caf\u00e9 na\u00efve r\u00e9sum\u00e9")
+        result = slugify("caf\u00e9 na\u00efve r\u00e9sum\u00e9")
         assert result == "cafe-naive-resume"
 
 
@@ -876,9 +876,9 @@ class TestBuildLLMConfigDirect:
     """Direct tests for the _build_llm_config helper."""
 
     def test_full_config(self):
-        from backend.src.api.architect import _build_llm_config
+        from backend.src.core.architect_service import build_llm_config
 
-        config = _build_llm_config(
+        config = build_llm_config(
             {
                 "api_key": "sk-test",
                 "model": "gpt-4o",
@@ -890,29 +890,29 @@ class TestBuildLLMConfigDirect:
         assert config.base_url == "https://custom.api"
 
     def test_minimal_config(self):
-        from backend.src.api.architect import _build_llm_config
+        from backend.src.core.architect_service import build_llm_config
 
-        config = _build_llm_config({"api_key": "sk-test"})
+        config = build_llm_config({"api_key": "sk-test"})
         assert config.api_key == "sk-test"
         assert config.model == "anthropic/claude-sonnet-4-20250514"
         assert config.base_url is None
 
     def test_empty_model_falls_back_to_default(self):
-        from backend.src.api.architect import _build_llm_config
+        from backend.src.core.architect_service import build_llm_config
 
-        config = _build_llm_config({"api_key": "sk-test", "model": ""})
+        config = build_llm_config({"api_key": "sk-test", "model": ""})
         assert config.model == "anthropic/claude-sonnet-4-20250514"
 
     def test_none_model_falls_back_to_default(self):
-        from backend.src.api.architect import _build_llm_config
+        from backend.src.core.architect_service import build_llm_config
 
-        config = _build_llm_config({"api_key": "sk-test", "model": None})
+        config = build_llm_config({"api_key": "sk-test", "model": None})
         assert config.model == "anthropic/claude-sonnet-4-20250514"
 
     def test_base_url_none(self):
-        from backend.src.api.architect import _build_llm_config
+        from backend.src.core.architect_service import build_llm_config
 
-        config = _build_llm_config({"api_key": "sk-test", "base_url": None})
+        config = build_llm_config({"api_key": "sk-test", "base_url": None})
         assert config.base_url is None
 
 
@@ -923,7 +923,7 @@ class TestBuildMessageHistoryDirect:
     """Direct tests for the _build_message_history helper."""
 
     def test_with_messages(self):
-        from backend.src.api.architect import _build_message_history
+        from backend.src.core.architect_service import build_message_history
 
         now = datetime.now(timezone.utc)
         session = MagicMock()
@@ -942,9 +942,9 @@ class TestBuildMessageHistoryDirect:
         session.messages = [msg2, msg1]  # intentionally reversed to test sorting
 
         with patch(
-            "backend.src.api.architect.get_prompt", return_value="System prompt"
+            "backend.src.core.architect_service.get_prompt", return_value="System prompt"
         ):
-            result = _build_message_history(session)
+            result = build_message_history(session)
         assert len(result) == 3
         # First should be system prompt, then sorted messages
         assert result[0] == {"role": "system", "content": "System prompt"}
@@ -952,19 +952,19 @@ class TestBuildMessageHistoryDirect:
         assert result[2] == {"role": "user", "content": "Help me"}
 
     def test_with_empty_messages(self):
-        from backend.src.api.architect import _build_message_history
+        from backend.src.core.architect_service import build_message_history
 
         session = MagicMock()
         session.messages = []
         with patch(
-            "backend.src.api.architect.get_prompt", return_value="System prompt"
+            "backend.src.core.architect_service.get_prompt", return_value="System prompt"
         ):
-            result = _build_message_history(session)
+            result = build_message_history(session)
         assert len(result) == 1
         assert result[0] == {"role": "system", "content": "System prompt"}
 
     def test_with_string_role(self):
-        from backend.src.api.architect import _build_message_history
+        from backend.src.core.architect_service import build_message_history
 
         session = MagicMock()
         msg = MagicMock()
@@ -974,15 +974,15 @@ class TestBuildMessageHistoryDirect:
         msg.message_type = MessageType.chat
         session.messages = [msg]
         with patch(
-            "backend.src.api.architect.get_prompt", return_value="System prompt"
+            "backend.src.core.architect_service.get_prompt", return_value="System prompt"
         ):
-            result = _build_message_history(session)
+            result = build_message_history(session)
         assert result[0]["role"] == "system"
         assert result[1]["role"] == "user"
 
     def test_excludes_internal_messages(self):
         """Internal messages should be excluded from LLM message history."""
-        from backend.src.api.architect import _build_message_history
+        from backend.src.core.architect_service import build_message_history
 
         now = datetime.now(timezone.utc)
         session = MagicMock()
@@ -1002,9 +1002,9 @@ class TestBuildMessageHistoryDirect:
         session.messages = [chat_msg, internal_msg]
 
         with patch(
-            "backend.src.api.architect.get_prompt", return_value="System prompt"
+            "backend.src.core.architect_service.get_prompt", return_value="System prompt"
         ):
-            result = _build_message_history(session)
+            result = build_message_history(session)
         # Only system + chat_msg, internal excluded
         assert len(result) == 2
         assert result[0] == {"role": "system", "content": "System prompt"}
@@ -2319,35 +2319,35 @@ class TestCleanResponse:
     """Direct unit tests for _clean_response helper."""
 
     def test_no_markers(self):
-        from backend.src.api.architect import _clean_response
+        from backend.src.core.architect_service import clean_response
 
-        cleaned, has_finalize, design_ctx = _clean_response("Hello, how can I help?")
+        cleaned, has_finalize, design_ctx = clean_response("Hello, how can I help?")
         assert cleaned == "Hello, how can I help?"
         assert has_finalize is False
         assert design_ctx is None
 
     def test_finalize_only(self):
-        from backend.src.api.architect import _clean_response
+        from backend.src.core.architect_service import clean_response
 
-        cleaned, has_finalize, design_ctx = _clean_response("Done!\n[FINALIZE]")
+        cleaned, has_finalize, design_ctx = clean_response("Done!\n[FINALIZE]")
         assert cleaned == "Done!"
         assert has_finalize is True
         assert design_ctx is None
 
     def test_design_context_and_finalize(self):
-        from backend.src.api.architect import _clean_response
+        from backend.src.core.architect_service import clean_response
 
         text = "Here is the design.\n<design_context>\nProject: Test\nStack: Python\n</design_context>\n[FINALIZE]"
-        cleaned, has_finalize, design_ctx = _clean_response(text)
+        cleaned, has_finalize, design_ctx = clean_response(text)
         assert cleaned == "Here is the design."
         assert has_finalize is True
         assert design_ctx == "Project: Test\nStack: Python"
 
     def test_design_context_without_finalize(self):
-        from backend.src.api.architect import _clean_response
+        from backend.src.core.architect_service import clean_response
 
         text = "Summary\n<design_context>\nSpec here\n</design_context>"
-        cleaned, has_finalize, design_ctx = _clean_response(text)
+        cleaned, has_finalize, design_ctx = clean_response(text)
         assert cleaned == "Summary"
         assert has_finalize is False
         assert design_ctx == "Spec here"

@@ -185,19 +185,39 @@ class ClaudeCodeExecutor(BaseExecutor):
 
     @staticmethod
     def _parse_review_verdict(output: str) -> bool:
-        """Parse PASS/FAIL verdict from review output."""
+        """Parse PASS/FAIL verdict from review output.
+
+        Searches from the end of the output for a verdict line.
+        Strips common markdown formatting (bold, code, headers, quotes)
+        before matching.
+        """
         lines = output.strip().splitlines()
 
         for line in reversed(lines):
-            cleaned = re.sub(r"[*`#]", "", line).strip().upper()
-            if re.match(r"^(VERDICT|RESULT)\s*:\s*PASS", cleaned):
+            # Strip markdown formatting: *, `, #, >, -, ~, =, |, whitespace
+            cleaned = re.sub(r"[*`#>~=|_\-]", "", line).strip().upper()
+            if not cleaned:
+                continue
+            if re.match(r"^(VERDICT|RESULT)\s*:?\s*PASS", cleaned):
                 return True
-            if re.match(r"^(VERDICT|RESULT)\s*:\s*FAIL", cleaned):
+            if re.match(r"^(VERDICT|RESULT)\s*:?\s*FAIL", cleaned):
                 return False
 
         for line in reversed(lines):
-            cleaned = re.sub(r"[*`#]", "", line).strip().upper()
-            if re.match(r"^(PASS|FAIL)\b", cleaned):
-                return cleaned.startswith("PASS")
+            cleaned = re.sub(r"[*`#>~=|_\-]", "", line).strip().upper()
+            if not cleaned:
+                continue
+            if re.match(r"^PASS\b", cleaned):
+                return True
+            if re.match(r"^FAIL\b", cleaned):
+                return False
+
+        # Also search for verdict anywhere in the last 20 lines as a fallback
+        for line in reversed(lines[-20:]):
+            upper = line.upper()
+            if re.search(r"\bVERDICT\s*:?\s*PASS\b", upper):
+                return True
+            if re.search(r"\bVERDICT\s*:?\s*FAIL\b", upper):
+                return False
 
         return False

@@ -20,8 +20,8 @@ def state_machine() -> TaskStateMachine:
 
 
 @pytest.fixture
-def mock_db() -> MagicMock:
-    db = MagicMock()
+def mock_db() -> AsyncMock:
+    db = AsyncMock()
     db.add = MagicMock()
     db.execute = AsyncMock()
     db.flush = AsyncMock()
@@ -683,7 +683,7 @@ def test_task_fixture_defaults_qa_feedback_history_to_none() -> None:
 
 
 async def test_is_phase_active_returns_false_when_not_active(
-    state_machine: TaskStateMachine, mock_db: MagicMock
+    state_machine: TaskStateMachine, mock_db: AsyncMock
 ) -> None:
     """_is_phase_active returns False when phase status is not active (e.g., pending)."""
     from backend.src.models import PhaseStatus
@@ -698,7 +698,7 @@ async def test_is_phase_active_returns_false_when_not_active(
 
 
 async def test_is_phase_active_returns_true_when_active(
-    state_machine: TaskStateMachine, mock_db: MagicMock
+    state_machine: TaskStateMachine, mock_db: AsyncMock
 ) -> None:
     """_is_phase_active returns True when DB returns PhaseStatus.active."""
     from backend.src.models import PhaseStatus
@@ -717,7 +717,7 @@ async def test_is_phase_active_returns_true_when_active(
 
 
 async def test_promote_dependents_public_method(
-    state_machine: TaskStateMachine, mock_db: MagicMock
+    state_machine: TaskStateMachine, mock_db: AsyncMock
 ) -> None:
     """promote_dependents public method delegates to _promote_dependents."""
     task = make_task(status=TaskStatus.done)

@@ -2,13 +2,21 @@ from __future__ import annotations
 
 import json
 import re
-import unicodedata
 import uuid
 from typing import Any
 
 from backend.src import models, schemas
 from backend.src.api.settings import get_raw_llm_config
-from backend.src.core.llm_client import LLMClient, LLMConfig, LLMError
+from backend.src.core.architect_service import (
+    FINALIZE_MARKER,
+    build_llm_config,
+    build_message_history,
+    clean_response,
+    extract_design_context,
+    slugify,
+    strip_action_markers,
+)
+from backend.src.core.llm_client import LLMClient, LLMError
 from backend.src.prompts.loader import get_prompt
 from backend.src.repositories.design_session_repository import DesignSessionRepository
 from backend.src.repositories.phase_repository import PhaseRepository
@@ -23,38 +31,7 @@ from sse_starlette.sse import EventSourceResponse
 
 router = APIRouter(prefix="/api/v1/architect", tags=["architect"])
 
-
-def _slugify(value: str) -> str:
-    """Convert a string to a URL-friendly slug."""
-    value = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
-    value = re.sub(r"[^\w\s-]", "", value.lower())
-    return re.sub(r"[-\s]+", "-", value).strip("-")
-
-
-FINALIZE_MARKER = "[FINALIZE]"
 _CONTEXT_RE = re.compile(r"<design_context>(.*?)</design_context>", re.DOTALL)
-
-
-def _clean_response(text: str) -> tuple[str, bool, str | None]:
-    """Strip [FINALIZE] marker and extract design_context from text.
-
-    Returns (cleaned_text, has_finalize, design_context).
-    The cleaned_text has both the marker and design_context block removed
-    so that only the user-visible portion remains.
-    """
-    has_finalize = FINALIZE_MARKER in text
-
-    # Extract design_context before stripping
-    design_context: str | None = None
-    ctx_match = _CONTEXT_RE.search(text)
-    if ctx_match:
-        design_context = ctx_match.group(1).strip()
-
-    # Strip both marker and context block from the user-visible text
-    cleaned = text.replace(FINALIZE_MARKER, "")
-    cleaned = _CONTEXT_RE.sub("", cleaned).strip()
-
-    return cleaned, has_finalize, design_context
 
 
 _STREAM_MARKERS = ["<design_context>", "[FINALIZE]", "[CREATE_TASK]", "[MODIFY_TASK]"]
@@ -77,34 +54,6 @@ def _find_potential_marker_start(text: str) -> int | None:
     return None
 
 
-def _extract_design_context(session: models.DesignSession) -> str | None:
-    """Extract design_context from the last assistant chat message."""
-    chat_messages = [
-        m
-        for m in session.messages
-        if m.message_type == models.MessageType.chat and m.role == models.MessageRole.assistant
-    ]
-    if not chat_messages:
-        return None
-    last = sorted(chat_messages, key=lambda m: m.created_at)[-1]
-    match = _CONTEXT_RE.search(last.content)
-    return match.group(1).strip() if match else None
-
-
-def _build_llm_config(llm_config_dict: dict[str, Any] | None) -> LLMConfig:
-    """Build an LLMConfig from a dict stored in session.llm_config."""
-    if not llm_config_dict or "api_key" not in llm_config_dict:
-        raise ValueError("LLM configuration with api_key is required")
-    kwargs: dict[str, Any] = {"api_key": llm_config_dict["api_key"]}
-    model = llm_config_dict.get("model")
-    if model is not None and model != "":
-        kwargs["model"] = model
-    base_url = llm_config_dict.get("base_url")
-    if base_url is not None and base_url != "":
-        kwargs["base_url"] = base_url
-    return LLMConfig(**kwargs)
-
-
 async def _load_project_with_tasks(project_id: uuid.UUID, db: AsyncSession) -> models.Project | None:
     """Load a project with phases and tasks eagerly loaded for context building."""
     result = await db.execute(
@@ -115,66 +64,11 @@ async def _load_project_with_tasks(project_id: uuid.UUID, db: AsyncSession) -> m
     return result.scalar_one_or_none()
 
 
-def _build_project_context(project: models.Project) -> str:
-    """Build a text summary of current project state for project-bound sessions."""
-    lines = [
-        f"Project: {project.name}",
-        f"Status: {project.status.value}",
-        f"Description: {project.description}",
-        "",
-        "Phases:",
-    ]
-    for phase in sorted(project.phases, key=lambda p: p.order):
-        lines.append(f"  [{phase.status.value}] {phase.name}")
-        for task in sorted(phase.tasks, key=lambda t: t.created_at):
-            task_type_label = f" ({task.task_type.value})" if task.task_type != models.TaskType.feature else ""
-            lines.append(f"    - [{task.status.value}] {task.title}{task_type_label} (id: {task.id})")
-    return "\n".join(lines)
-
-
-def _build_message_history(
-    session: models.DesignSession, project: models.Project | None = None
-) -> list[dict[str, str]]:
-    """Build LLM message history from a session's messages.
-
-    Prepends the system prompt from the prompt template with role='system',
-    then appends all stored messages (user + assistant) in chronological order.
-    For project_bound sessions, uses the project-aware system prompt.
-    """
-    if session.status == models.DesignSessionStatus.project_bound and project:
-        project_context = _build_project_context(project)
-        system_template = get_prompt("architect", "system_project_bound")
-        system_content = system_template.format(project_context=project_context)
-    else:
-        system_content = get_prompt("architect", "system")
-
-    history: list[dict[str, str]] = [
-        {"role": "system", "content": system_content},
-    ]
-    chat_messages = [m for m in session.messages if m.message_type == models.MessageType.chat]
-    sorted_messages = sorted(chat_messages, key=lambda m: m.created_at)
-    history.extend(
-        {
-            "role": (m.role.value if isinstance(m.role, models.MessageRole) else str(m.role)),
-            "content": m.content,
-        }
-        for m in sorted_messages
-    )
-    return history
-
-
 # ── Action Markers ──────────────────────────────────────────────────
 
 _CREATE_TASK_RE = re.compile(r"\[CREATE_TASK\](.*?)\[/CREATE_TASK\]", re.DOTALL)
 _MODIFY_TASK_RE = re.compile(r"\[MODIFY_TASK\](.*?)\[/MODIFY_TASK\]", re.DOTALL)
 _ACTION_MARKERS = ["[CREATE_TASK]", "[/CREATE_TASK]", "[MODIFY_TASK]", "[/MODIFY_TASK]"]
-
-
-def _strip_action_markers(text: str) -> str:
-    """Remove action marker blocks from user-visible text."""
-    text = _CREATE_TASK_RE.sub("", text)
-    text = _MODIFY_TASK_RE.sub("", text)
-    return text.strip()
 
 
 async def _execute_action_markers(text: str, session: models.DesignSession, db: AsyncSession) -> list[dict[str, Any]]:
@@ -426,10 +320,10 @@ async def send_message(
     await repo.add_message(session.id, models.MessageRole.user, body.content)
 
     # Build message history and call LLM
-    messages = _build_message_history(session, project=project)
+    messages = build_message_history(session, project=project)
     messages.append({"role": "user", "content": body.content})
 
-    config = _build_llm_config(session.llm_config)
+    config = build_llm_config(session.llm_config)
     client = LLMClient(config)
 
     try:
@@ -438,12 +332,12 @@ async def send_message(
         raise HTTPException(status_code=502, detail=f"LLM error: {e}") from e
 
     # Detect and strip finalize marker / design_context
-    cleaned_text, has_finalize, design_context = _clean_response(response_text)
+    cleaned_text, has_finalize, design_context = clean_response(response_text)
 
     # Execute action markers for project-bound sessions
     if session.status == models.DesignSessionStatus.project_bound:
         await _execute_action_markers(response_text, session, db)
-        cleaned_text = _strip_action_markers(cleaned_text)
+        cleaned_text = strip_action_markers(cleaned_text)
 
     # Save assistant response (original with design_context for later extraction)
     assistant_msg = await repo.add_message(
@@ -491,10 +385,10 @@ async def send_message_stream(
     await repo.commit()
 
     # Build message history
-    messages = _build_message_history(session, project=project)
+    messages = build_message_history(session, project=project)
     messages.append({"role": "user", "content": body.content})
 
-    config = _build_llm_config(session.llm_config)
+    config = build_llm_config(session.llm_config)
     client = LLMClient(config)
 
     # Capture session state for use in event generator closure
@@ -571,14 +465,14 @@ async def send_message_stream(
             cleaned_buf = emit_buffer.replace(FINALIZE_MARKER, "")
             cleaned_buf = _CONTEXT_RE.sub("", cleaned_buf).strip()
             if is_project_bound:
-                cleaned_buf = _strip_action_markers(cleaned_buf)
+                cleaned_buf = strip_action_markers(cleaned_buf)
             if cleaned_buf:
                 yield {"event": "chunk", "data": cleaned_buf}
 
         # Detect and strip finalize marker / design_context
-        cleaned_response, has_finalize, design_context = _clean_response(full_response)
+        cleaned_response, has_finalize, design_context = clean_response(full_response)
         if is_project_bound:
-            cleaned_response = _strip_action_markers(cleaned_response)
+            cleaned_response = strip_action_markers(cleaned_response)
 
         # Execute action markers for project-bound sessions
         if is_project_bound and session_project_id:
@@ -641,7 +535,7 @@ async def finalize_design(
         raise HTTPException(status_code=400, detail="Session is not active")
 
     # Extract everything we need from the session before releasing the DB
-    design_context = _extract_design_context(session)
+    design_context = extract_design_context(session)
     llm_config_dict = session.llm_config
     finalize_template = get_prompt("architect", "finalize")
     if design_context:
@@ -652,11 +546,11 @@ async def finalize_design(
         ]
     else:
         finalize_prompt = finalize_template.format(design_context="(see conversation history above)")
-        messages = _build_message_history(session)
+        messages = build_message_history(session)
         messages.append({"role": "user", "content": finalize_prompt})
 
     # ── Phase 2: LLM call (DB not used — reads are done) ────────────────
-    config = _build_llm_config(llm_config_dict)
+    config = build_llm_config(llm_config_dict)
     client = LLMClient(config)
 
     try:
@@ -732,7 +626,7 @@ async def finalize_design(
 
         for phase_order, phase_data in enumerate(phases_data, start=1):
             phase_name = phase_data.get("name", f"Phase {phase_order}")
-            branch_name = f"phase/{_slugify(phase_name)}"
+            branch_name = f"phase/{slugify(phase_name)}"
 
             phase = models.Phase(
                 project_id=project.id,
@@ -854,7 +748,7 @@ async def redesign_phase(
                 llm_config_dict["model"] = body.llm_config.model
             if body.llm_config.base_url:
                 llm_config_dict["base_url"] = body.llm_config.base_url
-            config = _build_llm_config(llm_config_dict)
+            config = build_llm_config(llm_config_dict)
             client = LLMClient(config)
         else:
             client = create_llm_client_from_project(project, role="architect")
@@ -1121,7 +1015,7 @@ async def add_task(
             detail="No LLM configuration available. Provide llm_config in request or configure project.",
         )
 
-    config = _build_llm_config(llm_config_dict)
+    config = build_llm_config(llm_config_dict)
     client = LLMClient(config)
 
     messages = [

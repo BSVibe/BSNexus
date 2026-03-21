@@ -8,7 +8,8 @@ from datetime import datetime, timezone
 
 import pytest
 
-from backend.src.api.architect import _execute_action_markers, _strip_action_markers
+from backend.src.api.architect import _execute_action_markers
+from backend.src.core.architect_service import strip_action_markers
 from backend.src.models import (
     DesignSession,
     DesignSessionStatus,
@@ -30,18 +31,18 @@ from backend.src.models import (
 class TestStripActionMarkers:
     def test_strips_create_task_block(self) -> None:
         text = 'Hello [CREATE_TASK]{"title":"t"}[/CREATE_TASK] world'
-        assert _strip_action_markers(text) == "Hello  world"
+        assert strip_action_markers(text) == "Hello  world"
 
     def test_strips_modify_task_block(self) -> None:
         text = 'Before [MODIFY_TASK]{"task_id":"x"}[/MODIFY_TASK] after'
-        assert _strip_action_markers(text) == "Before  after"
+        assert strip_action_markers(text) == "Before  after"
 
     def test_strips_multiple_blocks(self) -> None:
         text = (
             'A [CREATE_TASK]{"title":"t1"}[/CREATE_TASK] '
             'B [MODIFY_TASK]{"task_id":"x"}[/MODIFY_TASK] C'
         )
-        result = _strip_action_markers(text)
+        result = strip_action_markers(text)
         assert "[CREATE_TASK]" not in result
         assert "[MODIFY_TASK]" not in result
         assert "A" in result
@@ -50,10 +51,10 @@ class TestStripActionMarkers:
 
     def test_no_markers_returns_unchanged(self) -> None:
         text = "No markers here"
-        assert _strip_action_markers(text) == text
+        assert strip_action_markers(text) == text
 
     def test_empty_string(self) -> None:
-        assert _strip_action_markers("") == ""
+        assert strip_action_markers("") == ""
 
 
 # ── _execute_action_markers ──────────────────────────────────────────

@@ -530,6 +530,20 @@ class TestParseReviewVerdict:
     def test_fail_with_extra_text(self) -> None:
         assert ClaudeCodeExecutor._parse_review_verdict("VERDICT: FAIL - issues found") is False
 
+    def test_verdict_without_colon(self) -> None:
+        assert ClaudeCodeExecutor._parse_review_verdict("VERDICT PASS") is True
+
+    def test_verdict_with_underscores_and_dashes(self) -> None:
+        assert ClaudeCodeExecutor._parse_review_verdict("__VERDICT: PASS__") is True
+
+    def test_verdict_in_blockquote(self) -> None:
+        assert ClaudeCodeExecutor._parse_review_verdict("> VERDICT: PASS") is True
+
+    def test_verdict_mid_output_fallback(self) -> None:
+        """Verdict found via fallback search when not at line start after stripping."""
+        output = "Some review\nAll checks passed\nFinal VERDICT: PASS\nEnd."
+        assert ClaudeCodeExecutor._parse_review_verdict(output) is True
+
 
 # -- create_executor factory --------------------------------------------------
 
