@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timezone
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from backend.src.core.architect_service import (
+    ArchitectService,
     build_message_history,
     clean_response,
     extract_design_context,
     slugify,
 )
+from backend.src.core.llm_client import LLMError
 from backend.src.models import (
     DesignMessage,
     DesignSession,
@@ -188,3 +193,36 @@ def test_build_message_history_filters_chat_only(mock_get_prompt: MagicMock) -> 
     # system + 1 chat message (internal excluded)
     assert len(history) == 2
     assert history[1]["content"] == "chat message"
+
+
+# ── send_message error handling ──────────────────────────────────────
+
+
+@pytest.mark.asyncio
+@patch("backend.src.core.architect_service.build_llm_config")
+@patch("backend.src.core.architect_service.LLMClient")
+async def test_send_message_raises_value_error_on_llm_failure(
+    mock_llm_cls: MagicMock,
+    mock_build_config: MagicMock,
+    db_session,
+) -> None:
+    """send_message propagates LLMError from LLMClient."""
+    now = datetime.now(timezone.utc)
+    session = DesignSession(
+        id=uuid.uuid4(),
+        status=DesignSessionStatus.active,
+        llm_config={"api_key": "test-key", "model": "test-model"},
+        created_at=now,
+        updated_at=now,
+    )
+    db_session.add(session)
+    await db_session.flush()
+
+    mock_build_config.return_value = MagicMock()
+    mock_client = AsyncMock()
+    mock_client.chat = AsyncMock(side_effect=LLMError("connection timeout"))
+    mock_llm_cls.return_value = mock_client
+
+    service = ArchitectService(db_session)
+    with pytest.raises(LLMError, match="connection timeout"):
+        await service.send_message(session.id, "Hello")

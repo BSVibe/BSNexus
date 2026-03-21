@@ -592,7 +592,7 @@ async def test_on_redesign_without_worker_registry(
 ) -> None:
     """_on_redesign should not fail when worker_registry is None."""
     sm = TaskStateMachine()
-    task = make_task(status=TaskStatus.in_progress, worker_id=uuid.uuid4())
+    task = make_task(status=TaskStatus.in_progress)
 
     # Should not raise
     await sm.transition(
@@ -642,7 +642,7 @@ async def test_transition_ready_to_in_progress_with_extra_kwargs(
 
     # Extra kwargs should not cause errors
     await sm.transition(
-        task, TaskStatus.in_progress, db_session=mock_db, stream_manager=mock_stream, worker_id=str(uuid.uuid4())
+        task, TaskStatus.in_progress, db_session=mock_db, stream_manager=mock_stream
     )
     assert task.status == TaskStatus.in_progress
 

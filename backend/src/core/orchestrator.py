@@ -545,8 +545,13 @@ class PMOrchestrator:
     async def _process_escalation(self, msg: dict[str, Any], db: AsyncSession) -> None:
         """Process a single escalation message: phase-level redesign via Architect LLM."""
         task_id = msg.get("task_id", "")
+        try:
+            tid = uuid.UUID(task_id) if isinstance(task_id, str) else task_id
+        except ValueError:
+            logger.warning("Escalation: invalid task_id %r, skipping", task_id)
+            return
         task_repo = TaskRepository(db)
-        task = await task_repo.get_by_id(uuid.UUID(task_id) if isinstance(task_id, str) else task_id)
+        task = await task_repo.get_by_id(tid)
         if not task:
             logger.warning("Escalation: task %s not found, skipping", task_id)
             return

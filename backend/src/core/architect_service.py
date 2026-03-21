@@ -397,16 +397,17 @@ class ArchitectService:
 
         task_repo = TaskRepository(self.db)
 
+        phase_repo = PhaseRepository(self.db)
+        phases = await phase_repo.list_by_project(session.project_id)
+        active_phase = next((p for p in phases if p.status == models.PhaseStatus.active), None)
+
         for match in _CREATE_TASK_RE.finditer(text):
+            if not active_phase:
+                break
+
             try:
                 task_data = json.loads(match.group(1).strip())
             except json.JSONDecodeError:
-                continue
-
-            phase_repo = PhaseRepository(self.db)
-            phases = await phase_repo.list_by_project(session.project_id)
-            active_phase = next((p for p in phases if p.status == models.PhaseStatus.active), None)
-            if not active_phase:
                 continue
 
             priority_str = task_data.get("priority", "medium")

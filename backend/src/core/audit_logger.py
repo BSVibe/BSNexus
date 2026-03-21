@@ -26,11 +26,6 @@ class AuditAction(str, enum.Enum):
     auth_token_created = "auth.token_created"
     auth_token_revoked = "auth.token_revoked"
 
-    # Worker events
-    worker_registered = "worker.registered"
-    worker_deregistered = "worker.deregistered"
-    worker_heartbeat_failed = "worker.heartbeat_failed"
-
     # Data access events
     data_read = "data.read"
     data_created = "data.created"

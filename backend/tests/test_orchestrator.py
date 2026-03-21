@@ -837,6 +837,20 @@ async def test_queue_next_returns_none_when_active() -> None:
     assert result is None
 
 
+# ── Test: _process_escalation skips on invalid UUID ─────────────────
+
+
+@pytest.mark.asyncio
+async def test_process_escalation_skips_invalid_uuid() -> None:
+    """If task_id is not a valid UUID, _process_escalation returns early."""
+    orch = _build_orchestrator()
+    db = _mock_db()
+
+    await orch._process_escalation({"task_id": "not-a-valid-uuid"}, db)
+
+    orch.state_machine.transition.assert_not_awaited()
+
+
 # ── Test: _process_escalation skips if task not found ──────────────
 
 

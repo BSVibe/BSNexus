@@ -173,7 +173,7 @@ class LocalTaskRunner:
                     else:
                         logger.warning("    qa: passed but no file changes to commit")
                 except RuntimeError:
-                    logger.warning("    git: commit after QA pass failed")
+                    logger.warning("    git: commit after QA pass failed", exc_info=True)
 
             if result.passed:
                 logger.info("<<< QA DONE task_id=%s passed=true elapsed=%.1fs", task_id, elapsed)

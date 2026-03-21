@@ -267,3 +267,111 @@ async def test_execute_modify_task_rejects_in_progress(db_session) -> None:
 
     await db_session.refresh(task)
     assert task.title == "In Progress Task"
+
+
+@pytest.mark.asyncio
+async def test_execute_create_task_no_active_phase(db_session) -> None:
+    """CREATE_TASK does nothing when project has no active phase."""
+    now = datetime.now(timezone.utc)
+    project = Project(
+        id=uuid.uuid4(), name="P", description="d", repo_path="/t",
+        status=ProjectStatus.active, created_at=now, updated_at=now,
+    )
+    db_session.add(project)
+    phase = Phase(
+        id=uuid.uuid4(), project_id=project.id, name="Ph", order=1,
+        status=PhaseStatus.pending, branch_name="b", created_at=now, updated_at=now,
+    )
+    db_session.add(phase)
+    session = DesignSession(
+        id=uuid.uuid4(), status=DesignSessionStatus.project_bound,
+        project_id=project.id, llm_config={}, created_at=now, updated_at=now,
+    )
+    db_session.add(session)
+    await db_session.flush()
+
+    task_json = json.dumps({"title": "Should not create"})
+    text = f"[CREATE_TASK]{task_json}[/CREATE_TASK]"
+    actions = await ArchitectService(db_session).execute_action_markers(text, session)
+    assert actions == []
+
+
+@pytest.mark.asyncio
+async def test_execute_create_task_invalid_priority_defaults(db_session) -> None:
+    """CREATE_TASK with invalid priority/task_type falls back to defaults."""
+    now = datetime.now(timezone.utc)
+    project = Project(
+        id=uuid.uuid4(), name="P", description="d", repo_path="/t",
+        status=ProjectStatus.active, created_at=now, updated_at=now,
+    )
+    db_session.add(project)
+    phase = Phase(
+        id=uuid.uuid4(), project_id=project.id, name="Ph", order=1,
+        status=PhaseStatus.active, branch_name="b", created_at=now, updated_at=now,
+    )
+    db_session.add(phase)
+    session = DesignSession(
+        id=uuid.uuid4(), status=DesignSessionStatus.project_bound,
+        project_id=project.id, llm_config={}, created_at=now, updated_at=now,
+    )
+    db_session.add(session)
+    await db_session.flush()
+
+    task_json = json.dumps({
+        "title": "Fallback Test",
+        "priority": "nonexistent",
+        "task_type": "bogus",
+    })
+    text = f"[CREATE_TASK]{task_json}[/CREATE_TASK]"
+    actions = await ArchitectService(db_session).execute_action_markers(text, session)
+    assert len(actions) == 1
+
+    from sqlalchemy import select
+    result = await db_session.execute(select(Task).where(Task.project_id == project.id))
+    task = result.scalar_one()
+    assert task.priority == TaskPriority.medium
+    assert task.task_type == TaskType.feature
+
+
+@pytest.mark.asyncio
+async def test_execute_modify_task_invalid_task_id(db_session) -> None:
+    """MODIFY_TASK with invalid UUID task_id is silently skipped."""
+    now = datetime.now(timezone.utc)
+    project = Project(
+        id=uuid.uuid4(), name="P", description="d", repo_path="/t",
+        status=ProjectStatus.active, created_at=now, updated_at=now,
+    )
+    db_session.add(project)
+    session = DesignSession(
+        id=uuid.uuid4(), status=DesignSessionStatus.project_bound,
+        project_id=project.id, llm_config={}, created_at=now, updated_at=now,
+    )
+    db_session.add(session)
+    await db_session.flush()
+
+    modify_json = json.dumps({"task_id": "not-a-uuid", "title": "Should Not Work"})
+    text = f"[MODIFY_TASK]{modify_json}[/MODIFY_TASK]"
+    actions = await ArchitectService(db_session).execute_action_markers(text, session)
+    assert actions == []
+
+
+@pytest.mark.asyncio
+async def test_execute_modify_task_nonexistent_task(db_session) -> None:
+    """MODIFY_TASK with valid UUID but nonexistent task is skipped."""
+    now = datetime.now(timezone.utc)
+    project = Project(
+        id=uuid.uuid4(), name="P", description="d", repo_path="/t",
+        status=ProjectStatus.active, created_at=now, updated_at=now,
+    )
+    db_session.add(project)
+    session = DesignSession(
+        id=uuid.uuid4(), status=DesignSessionStatus.project_bound,
+        project_id=project.id, llm_config={}, created_at=now, updated_at=now,
+    )
+    db_session.add(session)
+    await db_session.flush()
+
+    modify_json = json.dumps({"task_id": str(uuid.uuid4()), "title": "Ghost"})
+    text = f"[MODIFY_TASK]{modify_json}[/MODIFY_TASK]"
+    actions = await ArchitectService(db_session).execute_action_markers(text, session)
+    assert actions == []
