@@ -4,19 +4,24 @@ import uuid
 from collections import defaultdict
 from datetime import datetime
 
+from bsvibe_auth import BSVibeUser
 from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from backend.src import models, schemas
+from backend.src.core.auth import Permission, require_permission
 from backend.src.storage.database import get_db
 
 router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])
 
 
 @router.get("/stats", response_model=schemas.DashboardStatsResponse)
-async def get_dashboard_stats(db: AsyncSession = Depends(get_db)) -> schemas.DashboardStatsResponse:
+async def get_dashboard_stats(
+    _auth: BSVibeUser = Depends(require_permission(Permission.project_read)),
+    db: AsyncSession = Depends(get_db),
+) -> schemas.DashboardStatsResponse:
     """Return aggregated dashboard statistics for projects and tasks."""
     # Project stats via SQL aggregate
     project_counts = await db.execute(
@@ -56,6 +61,7 @@ async def get_dashboard_stats(db: AsyncSession = Depends(get_db)) -> schemas.Das
 
 @router.get("/projects-summary", response_model=list[schemas.ProjectDashboardSummary])
 async def get_projects_summary(
+    _auth: BSVibeUser = Depends(require_permission(Permission.project_read)),
     db: AsyncSession = Depends(get_db),
 ) -> list[schemas.ProjectDashboardSummary]:
     """Return per-project dashboard summaries with task breakdown."""

@@ -9,6 +9,7 @@ from sqlalchemy import text
 
 from backend.src.api import (
     architect,
+    auth,
     board,
     dashboard,
     pm,
@@ -150,6 +151,7 @@ async def health_deps():
 
 
 # API routers
+app.include_router(auth.router)
 app.include_router(tasks.router)
 app.include_router(projects.router)
 app.include_router(pm.router)

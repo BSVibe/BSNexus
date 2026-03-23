@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from bsvibe_auth import BSVibeUser
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src import models, schemas
+from backend.src.core.auth import Permission, require_permission
 from backend.src.storage.database import get_db
 
 router = APIRouter(prefix="/api/v1/settings", tags=["settings"])
@@ -26,7 +28,10 @@ def mask_api_key(key: str | None) -> str | None:
 
 
 @router.get("", response_model=schemas.GlobalSettingsResponse)
-async def get_settings(db: AsyncSession = Depends(get_db)) -> schemas.GlobalSettingsResponse:
+async def get_settings(
+    _auth: BSVibeUser = Depends(require_permission(Permission.admin_settings)),
+    db: AsyncSession = Depends(get_db),
+) -> schemas.GlobalSettingsResponse:
     """Return global LLM settings with masked API key."""
     result = await db.execute(select(models.Setting))
     settings_map: dict[str, str] = {s.key: s.value for s in result.scalars().all()}
@@ -41,6 +46,7 @@ async def get_settings(db: AsyncSession = Depends(get_db)) -> schemas.GlobalSett
 @router.put("", response_model=schemas.GlobalSettingsResponse)
 async def update_settings(
     body: schemas.GlobalSettingsUpdate,
+    _auth: BSVibeUser = Depends(require_permission(Permission.admin_settings)),
     db: AsyncSession = Depends(get_db),
 ) -> schemas.GlobalSettingsResponse:
     """Upsert global LLM settings. Returns the updated settings with masked API key."""
@@ -56,4 +62,4 @@ async def update_settings(
     await db.commit()
 
     # Return updated settings (with masking)
-    return await get_settings(db)
+    return await get_settings(_auth=_auth, db=db)

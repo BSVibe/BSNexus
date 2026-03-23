@@ -4,8 +4,10 @@ import asyncio
 import structlog
 import uuid
 
+from bsvibe_auth import BSVibeUser
 from backend.src import models
 from backend.src.config import settings
+from backend.src.core.auth import Permission, require_permission
 from backend.src.core.executor import create_executor
 from backend.src.core.orchestrator import PMOrchestrator
 from backend.src.core.state_machine import TaskStateMachine
@@ -53,6 +55,7 @@ def _build_orchestrator(request: Request) -> PMOrchestrator:
 async def start_orchestration(
     project_id: uuid.UUID,
     request: Request,
+    _auth: BSVibeUser = Depends(require_permission(Permission.pm_control)),
 ) -> dict:
     """Start orchestration for a project."""
     orchestrators = _ensure_orchestrators(request)
@@ -88,6 +91,7 @@ async def start_orchestration(
 async def pause_orchestration(
     project_id: uuid.UUID,
     request: Request,
+    _auth: BSVibeUser = Depends(require_permission(Permission.pm_control)),
 ) -> dict:
     """Pause orchestration for a project."""
     orchestrators = _ensure_orchestrators(request)
@@ -108,6 +112,7 @@ async def pause_orchestration(
 async def get_orchestration_status(
     project_id: uuid.UUID,
     request: Request,
+    _auth: BSVibeUser = Depends(require_permission(Permission.pm_control)),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Get orchestration status for a project."""
@@ -132,6 +137,7 @@ async def get_orchestration_status(
 async def promote_waiting_tasks(
     project_id: uuid.UUID,
     request: Request,
+    _auth: BSVibeUser = Depends(require_permission(Permission.pm_control)),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Promote WAITING tasks in the active phase with all dependencies met to READY."""
@@ -167,6 +173,7 @@ async def promote_waiting_tasks(
 async def queue_next_task(
     project_id: uuid.UUID,
     request: Request,
+    _auth: BSVibeUser = Depends(require_permission(Permission.pm_control)),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Promote waiting tasks and return the next ready task for the execution loop."""

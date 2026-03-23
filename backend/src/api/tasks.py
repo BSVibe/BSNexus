@@ -3,7 +3,9 @@ from __future__ import annotations
 import uuid
 from typing import Optional
 
+from bsvibe_auth import BSVibeUser
 from backend.src import models, schemas
+from backend.src.core.auth import Permission, require_permission
 from backend.src.core.state_machine import TaskStateMachine
 from backend.src.models import Task
 from backend.src.repositories.task_repository import TaskRepository
@@ -59,6 +61,7 @@ def build_task_response(task: Task) -> schemas.TaskResponse:
 async def create_task(
     task_data: schemas.TaskCreate,
     request: Request,
+    _auth: BSVibeUser = Depends(require_permission(Permission.task_create)),
     db: AsyncSession = Depends(get_db),
 ) -> schemas.TaskResponse:
     """Create a new task."""
@@ -121,6 +124,7 @@ async def create_task(
 async def get_task(
     task_id: uuid.UUID,
     include_history: bool = Query(False),
+    _auth: BSVibeUser = Depends(require_permission(Permission.task_read)),
     db: AsyncSession = Depends(get_db),
 ) -> schemas.TaskResponse:
     """Get a task by ID."""
@@ -137,6 +141,7 @@ async def get_task(
 async def update_task(
     task_id: uuid.UUID,
     task_data: schemas.TaskUpdate,
+    _auth: BSVibeUser = Depends(require_permission(Permission.task_update)),
     db: AsyncSession = Depends(get_db),
 ) -> schemas.TaskResponse:
     """Update a task (only in waiting or ready status)."""
@@ -182,6 +187,7 @@ async def transition_task(
     task_id: uuid.UUID,
     transition: schemas.TaskTransition,
     request: Request,
+    _auth: BSVibeUser = Depends(require_permission(Permission.task_transition)),
     db: AsyncSession = Depends(get_db),
 ) -> schemas.TransitionResponse:
     """Transition a task to a new status."""
@@ -243,6 +249,7 @@ async def list_project_tasks(
     priority: Optional[str] = Query(None),
     limit: int = Query(50, le=200),
     offset: int = Query(0, ge=0),
+    _auth: BSVibeUser = Depends(require_permission(Permission.task_read)),
     db: AsyncSession = Depends(get_db),
 ) -> list[schemas.TaskResponse]:
     """List tasks for a project with optional filters."""
