@@ -1,29 +1,38 @@
 import { useState } from 'react'
-import { NavLink, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Bot, Settings, Sun, Moon, Monitor } from 'lucide-react'
+import { NavLink, useLocation, useNavigate } from 'react-router-dom'
+import { LayoutDashboard, Bot, Settings, Sun, Moon, Monitor, LogOut } from 'lucide-react'
 import { SettingsModal } from './SettingsModal'
 import { useThemeStore } from '../../stores/themeStore'
+import { useAuthStore } from '../../stores/authStore'
 
 const navItems = [
-  { to: '/', label: 'Dashboard', icon: LayoutDashboard },
+  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/architect', label: 'New Project', icon: Bot },
 ]
 
 export default function Sidebar() {
   const location = useLocation()
+  const navigate = useNavigate()
   const [settingsOpen, setSettingsOpen] = useState(false)
   const { theme, setTheme } = useThemeStore()
+  const signOut = useAuthStore((s) => s.signOut)
+  const user = useAuthStore((s) => s.user)
 
   const cycleTheme = () => {
     const next = theme === 'light' ? 'dark' : theme === 'dark' ? 'system' : 'light'
     setTheme(next)
   }
 
+  const handleLogout = async () => {
+    await signOut()
+    navigate('/')
+  }
+
   const ThemeIcon = theme === 'light' ? Sun : theme === 'dark' ? Moon : Monitor
   const themeLabel = theme === 'light' ? 'Light' : theme === 'dark' ? 'Dark' : 'System'
 
   const isActive = (to: string) => {
-    if (to === '/') return location.pathname === '/' || location.pathname.startsWith('/projects/')
+    if (to === '/dashboard') return location.pathname === '/dashboard' || location.pathname.startsWith('/projects/')
     return location.pathname.startsWith(to)
   }
 
@@ -49,7 +58,7 @@ export default function Sidebar() {
             <NavLink
               key={item.to}
               to={item.to}
-              end={item.to === '/'}
+              end={item.to === '/dashboard'}
               className={`flex items-center gap-3 px-3 py-2 text-sm font-medium transition-colors rounded-md ${
                 active
                   ? 'bg-accent text-white'
@@ -63,8 +72,13 @@ export default function Sidebar() {
         })}
       </nav>
 
-      {/* Theme toggle + Settings (pushed to bottom) */}
+      {/* Bottom section */}
       <div className="mt-auto px-3 pb-4 flex flex-col gap-1">
+        {user && (
+          <div className="px-3 py-2 text-xs text-text-tertiary truncate">
+            {user.email}
+          </div>
+        )}
         <button
           type="button"
           onClick={cycleTheme}
@@ -80,6 +94,14 @@ export default function Sidebar() {
         >
           <Settings size={18} />
           Settings
+        </button>
+        <button
+          type="button"
+          onClick={handleLogout}
+          className="flex items-center gap-3 px-3 py-2 text-sm text-red-500 hover:bg-red-50 rounded-md cursor-pointer transition-colors w-full"
+        >
+          <LogOut size={18} />
+          Logout
         </button>
       </div>
 

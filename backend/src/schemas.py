@@ -505,29 +505,3 @@ class ComplianceReportResponse(BaseModel):
     checks: list[dict]
 
 
-class APIKeyCreateRequest(BaseModel):
-    name: str
-    role: str = "viewer"
-    expires_in_days: Optional[int] = None
-
-
-class APIKeyCreateResponse(BaseModel):
-    id: uuid.UUID
-    name: str
-    key: str
-    role: str
-    created_at: datetime
-    expires_at: Optional[datetime] = None
-
-
-class APIKeyResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: uuid.UUID
-    name: str
-    key_prefix: str
-    role: str
-    is_active: bool
-    created_at: datetime
-    expires_at: Optional[datetime] = None
-    last_used_at: Optional[datetime] = None

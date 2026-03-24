@@ -4,7 +4,7 @@ import os
 
 os.environ.setdefault("TESTING", "1")
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -12,14 +12,26 @@ from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from backend.src.main import app
+from backend.src.core.auth import get_current_user
 from backend.src.storage.database import Base, get_db
 
 # Import models so Base.metadata.create_all picks them up.
-# Security models (audit_logger, access_control, compliance) are loaded
+# Security models (audit_logger, compliance) are loaded
 # transitively via main.py -> security router imports.
 import backend.src.models  # noqa: F401
 
 TEST_DATABASE_URL = "sqlite+aiosqlite://"
+
+
+def _make_mock_user(role: str = "admin") -> MagicMock:
+    """Create a mock BSVibeUser with the given role."""
+    user = MagicMock()
+    user.id = "test-user-id"
+    user.email = "test@example.com"
+    user.role = "authenticated"
+    user.app_metadata = {"role": role}
+    user.user_metadata = {}
+    return user
 
 
 @pytest_asyncio.fixture
@@ -78,13 +90,23 @@ async def mock_stream_manager():
 
 
 @pytest_asyncio.fixture
-async def client(db_session, mock_stream_manager):
+async def mock_user():
+    """Create a mock BSVibeUser with admin role."""
+    return _make_mock_user("admin")
+
+
+@pytest_asyncio.fixture
+async def client(db_session, mock_stream_manager, mock_user):
     """Create a test HTTP client with overridden dependencies."""
 
     async def override_get_db():
         yield db_session
 
+    async def override_get_current_user():
+        return mock_user
+
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = override_get_current_user
     app.state.stream_manager = mock_stream_manager
     app.state.orchestrators = {}
 

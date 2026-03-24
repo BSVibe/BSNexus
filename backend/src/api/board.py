@@ -7,7 +7,9 @@ import structlog
 from typing import AsyncGenerator
 
 import redis.asyncio as aioredis
+from bsvibe_auth import BSVibeUser
 from backend.src import models, schemas
+from backend.src.core.auth import Permission, require_permission
 from backend.src.repositories.task_repository import TaskRepository
 from backend.src.storage.database import get_db
 from fastapi import APIRouter, Depends, Request
@@ -101,6 +103,7 @@ async def _get_board_data(
 @router.get("/{project_id}")
 async def get_board(
     project_id: uuid.UUID,
+    _auth: BSVibeUser = Depends(require_permission(Permission.board_read)),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Get full board state for a project."""
@@ -140,6 +143,7 @@ async def _board_event_generator(
 async def board_events(
     project_id: uuid.UUID,
     request: Request,
+    _auth: BSVibeUser = Depends(require_permission(Permission.board_read)),
 ) -> EventSourceResponse:
     """SSE stream for board events."""
     redis_client: aioredis.Redis = request.app.state.redis

@@ -270,8 +270,8 @@ class ComplianceManager:
             framework=ComplianceFramework.soc2,
             title="Logical Access Controls",
             status=ComplianceStatus.compliant,
-            description="Role-based access control with API key authentication.",
-            evidence="AccessController with Role/Permission system, bearer token auth.",
+            description="Role-based access control with JWT authentication.",
+            evidence="JWT-based auth via Supabase (bsvibe-auth) with Role/Permission RBAC.",
         )
 
     def _check_system_boundaries(self) -> ComplianceCheck:

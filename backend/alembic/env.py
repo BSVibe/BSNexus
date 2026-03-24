@@ -12,7 +12,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from backend.src.models import *  # noqa: F401,F403 - import all models for autogenerate
 from backend.src.core.audit_logger import AuditLog  # noqa: F401
-from backend.src.core.access_control import APIKey  # noqa: F401
 from backend.src.core.compliance import DataProcessingRecord, ConsentRecord  # noqa: F401
 from backend.src.storage.database import Base
 

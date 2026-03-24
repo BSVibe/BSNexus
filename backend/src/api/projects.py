@@ -5,7 +5,9 @@ import unicodedata
 from typing import Optional
 from uuid import UUID
 
+from bsvibe_auth import BSVibeUser
 from backend.src import models, schemas
+from backend.src.core.auth import Permission, require_permission
 from backend.src.repositories.phase_repository import PhaseRepository
 from backend.src.repositories.project_repository import ProjectRepository
 from backend.src.storage.database import get_db
@@ -42,6 +44,7 @@ router = APIRouter(prefix="/api/v1/projects", tags=["projects"], redirect_slashe
 @router.post("", response_model=schemas.ProjectResponse, status_code=201)
 async def create_project(
     project_data: schemas.ProjectCreate,
+    _auth: BSVibeUser = Depends(require_permission(Permission.project_create)),
     db: AsyncSession = Depends(get_db),
 ) -> schemas.ProjectResponse:
     """Create a new project."""
@@ -64,6 +67,7 @@ async def create_project(
 async def list_projects(
     limit: int = Query(50, le=200),
     offset: int = Query(0, ge=0),
+    _auth: BSVibeUser = Depends(require_permission(Permission.project_read)),
     db: AsyncSession = Depends(get_db),
 ) -> list[schemas.ProjectResponse]:
     """List all projects with pagination."""
@@ -75,6 +79,7 @@ async def list_projects(
 @router.get("/{project_id}", response_model=schemas.ProjectResponse)
 async def get_project(
     project_id: UUID,
+    _auth: BSVibeUser = Depends(require_permission(Permission.project_read)),
     db: AsyncSession = Depends(get_db),
 ) -> schemas.ProjectResponse:
     """Get a project by ID."""
@@ -93,6 +98,7 @@ async def get_project(
 async def update_project(
     project_id: UUID,
     project_data: schemas.ProjectUpdate,
+    _auth: BSVibeUser = Depends(require_permission(Permission.project_update)),
     db: AsyncSession = Depends(get_db),
 ) -> schemas.ProjectResponse:
     """Update a project (partial update)."""
@@ -119,6 +125,7 @@ async def update_project(
 @router.delete("/{project_id}", response_model=schemas.DeleteResponse)
 async def delete_project(
     project_id: UUID,
+    _auth: BSVibeUser = Depends(require_permission(Permission.project_delete)),
     db: AsyncSession = Depends(get_db),
 ) -> schemas.DeleteResponse:
     """Delete a project and all associated phases, tasks, and design sessions."""
@@ -137,6 +144,7 @@ async def delete_project(
 @router.post("/batch-delete", response_model=schemas.BatchDeleteResponse)
 async def batch_delete_projects(
     body: schemas.BatchDeleteRequest,
+    _auth: BSVibeUser = Depends(require_permission(Permission.project_delete)),
     db: AsyncSession = Depends(get_db),
 ) -> schemas.BatchDeleteResponse:
     """Delete multiple projects by IDs."""
@@ -155,6 +163,7 @@ async def batch_delete_projects(
 async def create_phase(
     project_id: UUID,
     phase_data: schemas.PhaseCreate,
+    _auth: BSVibeUser = Depends(require_permission(Permission.project_create)),
     db: AsyncSession = Depends(get_db),
 ) -> schemas.PhaseResponse:
     """Create a new phase for a project."""
@@ -188,6 +197,7 @@ async def create_phase(
 @router.get("/{project_id}/phases", response_model=list[schemas.PhaseResponse])
 async def list_phases(
     project_id: UUID,
+    _auth: BSVibeUser = Depends(require_permission(Permission.project_read)),
     db: AsyncSession = Depends(get_db),
 ) -> list[schemas.PhaseResponse]:
     """List all phases for a project, ordered by phase order."""
@@ -206,6 +216,7 @@ async def list_phases(
 async def update_phase(
     phase_id: UUID,
     phase_data: PhaseUpdate,
+    _auth: BSVibeUser = Depends(require_permission(Permission.project_update)),
     db: AsyncSession = Depends(get_db),
 ) -> schemas.PhaseResponse:
     """Update a phase (partial update)."""

@@ -675,7 +675,7 @@ async def test_create_task_active_phase_direct(db_session):
         depends_on=[],
     )
     request = MagicMock()
-    result = await create_task(task_data, request, db_session)
+    result = await create_task(task_data, request, _auth=MagicMock(), db=db_session)
     assert result.status == schemas.TaskStatus.ready
     assert result.title == "Direct Create"
 
@@ -702,7 +702,7 @@ async def test_create_task_inactive_phase_direct(db_session):
         worker_prompt="w", qa_prompt="q", depends_on=[],
     )
     request = MagicMock()
-    result = await create_task(task_data, request, db_session)
+    result = await create_task(task_data, request, _auth=MagicMock(), db=db_session)
     assert result.status == schemas.TaskStatus.waiting
 
 
@@ -718,7 +718,7 @@ async def test_create_task_with_deps_direct(db_session):
         worker_prompt="w", qa_prompt="q", depends_on=[],
     )
     request = MagicMock()
-    dep_result = await create_task(dep_data, request, db_session)
+    dep_result = await create_task(dep_data, request, _auth=MagicMock(), db=db_session)
 
     task_data = schemas.TaskCreate(
         project_id=project.id, phase_id=phase.id,
@@ -727,7 +727,7 @@ async def test_create_task_with_deps_direct(db_session):
         worker_prompt="w", qa_prompt="q",
         depends_on=[dep_result.id],
     )
-    result = await create_task(task_data, request, db_session)
+    result = await create_task(task_data, request, _auth=MagicMock(), db=db_session)
     assert result.status == schemas.TaskStatus.waiting
     assert dep_result.id in result.depends_on
 
@@ -745,7 +745,7 @@ async def test_create_task_missing_dep_raises_400(db_session):
     )
     request = MagicMock()
     with pytest.raises(HTTPException) as exc_info:
-        await create_task(task_data, request, db_session)
+        await create_task(task_data, request, _auth=MagicMock(), db=db_session)
     assert exc_info.value.status_code == 400
     assert "Dependency tasks not found" in exc_info.value.detail
 

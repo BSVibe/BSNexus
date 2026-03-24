@@ -4,8 +4,10 @@ import json
 import uuid
 from typing import Any
 
+from bsvibe_auth import BSVibeUser
 from backend.src import models, schemas
 from backend.src.api.settings import get_raw_llm_config
+from backend.src.core.auth import Permission, require_permission
 from backend.src.core.architect_service import (
     FINALIZE_MARKER,
     ArchitectService,
@@ -67,6 +69,7 @@ def _to_session_response(session: models.DesignSession) -> schemas.DesignSession
 @router.get("/sessions", response_model=list[schemas.DesignSessionResponse])
 async def list_sessions(
     status: str | None = None,
+    _auth: BSVibeUser = Depends(require_permission(Permission.architect_session)),
     db: AsyncSession = Depends(get_db),
 ) -> list[schemas.DesignSessionResponse]:
     """List all design sessions, optionally filtered by status."""
@@ -87,6 +90,7 @@ async def list_sessions(
 @router.delete("/sessions/{session_id}", response_model=schemas.DeleteResponse)
 async def delete_session(
     session_id: uuid.UUID,
+    _auth: BSVibeUser = Depends(require_permission(Permission.architect_session)),
     db: AsyncSession = Depends(get_db),
 ) -> schemas.DeleteResponse:
     """Delete a design session and all its messages."""
@@ -107,6 +111,7 @@ async def delete_session(
 @router.post("/sessions/batch-delete", response_model=schemas.BatchDeleteResponse)
 async def batch_delete_sessions(
     body: schemas.BatchDeleteRequest,
+    _auth: BSVibeUser = Depends(require_permission(Permission.architect_session)),
     db: AsyncSession = Depends(get_db),
 ) -> schemas.BatchDeleteResponse:
     """Delete multiple design sessions by IDs."""
@@ -124,6 +129,7 @@ async def batch_delete_sessions(
 @router.post("/sessions", response_model=schemas.DesignSessionResponse, status_code=201)
 async def create_session(
     body: schemas.CreateSessionRequest,
+    _auth: BSVibeUser = Depends(require_permission(Permission.architect_session)),
     db: AsyncSession = Depends(get_db),
 ) -> schemas.DesignSessionResponse:
     """Create a new design session using global LLM settings."""
@@ -158,6 +164,7 @@ async def create_session(
 @router.get("/sessions/by-project/{project_id}", response_model=schemas.DesignSessionResponse)
 async def get_session_by_project(
     project_id: uuid.UUID,
+    _auth: BSVibeUser = Depends(require_permission(Permission.architect_session)),
     db: AsyncSession = Depends(get_db),
 ) -> schemas.DesignSessionResponse:
     """Get the project-bound session for a given project."""
@@ -171,6 +178,7 @@ async def get_session_by_project(
 @router.get("/sessions/{session_id}", response_model=schemas.DesignSessionResponse)
 async def get_session(
     session_id: uuid.UUID,
+    _auth: BSVibeUser = Depends(require_permission(Permission.architect_session)),
     db: AsyncSession = Depends(get_db),
 ) -> schemas.DesignSessionResponse:
     """Get a design session with all messages."""
@@ -188,6 +196,7 @@ async def get_session(
 async def send_message(
     session_id: uuid.UUID,
     body: schemas.MessageRequest,
+    _auth: BSVibeUser = Depends(require_permission(Permission.architect_session)),
     db: AsyncSession = Depends(get_db),
 ) -> schemas.DesignMessageResponse:
     """Send a message and get a non-streaming LLM response."""
@@ -251,6 +260,7 @@ async def send_message(
 async def send_message_stream(
     session_id: uuid.UUID,
     body: schemas.MessageRequest,
+    _auth: BSVibeUser = Depends(require_permission(Permission.architect_session)),
     db: AsyncSession = Depends(get_db),
 ) -> EventSourceResponse:
     """Send a message and stream the LLM response via SSE."""
@@ -397,6 +407,7 @@ async def send_message_stream(
 async def finalize_design(
     session_id: uuid.UUID,
     body: schemas.FinalizeRequest,
+    _auth: BSVibeUser = Depends(require_permission(Permission.architect_finalize)),
     db: AsyncSession = Depends(get_db),
 ) -> schemas.ProjectResponse:
     """Finalize a design session into a project with phases and tasks.
@@ -603,6 +614,7 @@ async def redesign_phase(
     phase_id: uuid.UUID,
     body: schemas.PhaseRedesignRequest,
     request: Request,
+    _auth: BSVibeUser = Depends(require_permission(Permission.architect_finalize)),
     db: AsyncSession = Depends(get_db),
 ) -> schemas.PhaseRedesignResponse:
     """Trigger manual phase-level redesign via Architect LLM.
@@ -853,6 +865,7 @@ async def redesign_phase(
 async def add_task(
     project_id: uuid.UUID,
     body: schemas.AddTaskRequest,
+    _auth: BSVibeUser = Depends(require_permission(Permission.architect_session)),
     db: AsyncSession = Depends(get_db),
 ) -> schemas.AddTaskResponse:
     """Add a task to an existing project using LLM."""

@@ -44,6 +44,13 @@ async def mock_redis() -> AsyncMock:
 @pytest_asyncio.fixture
 async def api_client(mock_redis: AsyncMock) -> AsyncGenerator[AsyncClient]:
     """Create an HTTP test client with mocked app state."""
+    from backend.src.core.auth import get_current_user
+
+    mock_user = MagicMock()
+    mock_user.id = "test-user-id"
+    mock_user.app_metadata = {"role": "admin"}
+
+    app.dependency_overrides[get_current_user] = lambda: mock_user
     app.state.redis = mock_redis
     app.state.stream_manager = AsyncMock()
     app.state.orchestrators = {}
@@ -53,6 +60,8 @@ async def api_client(mock_redis: AsyncMock) -> AsyncGenerator[AsyncClient]:
         base_url="http://test",
     ) as client:
         yield client
+
+    app.dependency_overrides.pop(get_current_user, None)
 
 
 # -- POST /api/v1/pm/{project_id}/start ------------------------------------------
