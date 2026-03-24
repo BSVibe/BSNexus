@@ -42,20 +42,23 @@ jobs:
           python-version: '3.11'
 
       - name: Install uv
-        run: pip install uv
+        uses: astral-sh/setup-uv@v4
 
       - name: Install dependencies
-        run: uv pip install --system -e "backend/[dev]"
+        working-directory: backend
+        run: uv sync --dev
 
       - name: Lint
-        run: ruff check backend/src/
+        working-directory: backend
+        run: uv run ruff check src/
 
       - name: Test
+        working-directory: backend
         env:
           DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/test
           REDIS_URL: redis://localhost:6379/0
           PROMPT_SIGNING_KEY: test-signing-key
-        run: python -m pytest backend/tests/ -v --cov=backend/src --cov-fail-under=80
+        run: uv run pytest tests/ -v --cov=src --cov-fail-under=80
 
   frontend-build:
     runs-on: ubuntu-latest
