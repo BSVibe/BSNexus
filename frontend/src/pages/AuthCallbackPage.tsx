@@ -14,10 +14,10 @@ export default function AuthCallbackPage() {
 
     if (accessToken && refreshToken) {
       handleCallback(accessToken, refreshToken).then(() => {
-        navigate('/', { replace: true })
+        navigate('/dashboard', { replace: true })
       })
     } else {
-      navigate('/', { replace: true })
+      navigate('/dashboard', { replace: true })
     }
   }, [handleCallback, navigate])
 
