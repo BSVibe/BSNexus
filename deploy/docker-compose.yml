@@ -1,0 +1,158 @@
+# =============================================================================
+# BSNexus Production Docker Compose
+# =============================================================================
+# FastAPI backend + React frontend + PostgreSQL + Redis
+#
+# Usage:
+#   docker-compose up -d                     # Backend + infra only
+#   docker-compose --profile full up -d      # + Frontend
+# =============================================================================
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "3"
+
+services:
+  # ===========================================================================
+  # Infrastructure
+  # ===========================================================================
+
+  postgres:
+    logging: *default-logging
+    image: postgres:16-alpine
+    container_name: bsnexus-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-bsnexus}
+      POSTGRES_USER: ${POSTGRES_USER:-bsnexus}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    ports:
+      - "127.0.0.1:5434:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bsnexus}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+    networks:
+      - bsnexus-network
+
+  redis:
+    logging: *default-logging
+    image: redis:7-alpine
+    container_name: bsnexus-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    ports:
+      - "127.0.0.1:6381:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 128M
+    networks:
+      - bsnexus-network
+
+  # ===========================================================================
+  # Backend
+  # ===========================================================================
+
+  app:
+    logging: *default-logging
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: bsnexus-app
+    restart: unless-stopped
+    ports:
+      - "8100:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-bsnexus}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-bsnexus}
+      REDIS_URL: redis://redis:6379
+      SUPABASE_JWT_SECRET: ${SUPABASE_JWT_SECRET:-}
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
+      BSVIBE_AUTH_URL: ${BSVIBE_AUTH_URL:-https://auth.bsvibe.dev}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3100}
+      PROMPT_SIGNING_KEY: ${PROMPT_SIGNING_KEY:-}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-["http://localhost:3100"]}
+      EXECUTOR_TYPE: ${EXECUTOR_TYPE:-claude-code}
+      EXECUTION_TIMEOUT_SECONDS: ${EXECUTION_TIMEOUT_SECONDS:-3600}
+      DEFAULT_LLM_MODEL: ${DEFAULT_LLM_MODEL:-}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
+    volumes:
+      - ../logs:/app/logs
+    networks:
+      - bsnexus-network
+
+  # ===========================================================================
+  # Frontend (full profile)
+  # ===========================================================================
+
+  frontend:
+    logging: *default-logging
+    build:
+      context: ../frontend
+      dockerfile: ../deploy/Dockerfile.frontend
+    container_name: bsnexus-frontend
+    restart: unless-stopped
+    ports:
+      - "3100:80"
+    depends_on:
+      - app
+    profiles:
+      - full
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 128M
+    networks:
+      - bsnexus-network
+
+volumes:
+  postgres-data:
+    name: bsnexus-postgres-data
+  redis-data:
+    name: bsnexus-redis-data
+
+networks:
+  bsnexus-network:
+    driver: bridge
+    name: bsnexus-network
