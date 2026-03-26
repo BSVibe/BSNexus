@@ -361,6 +361,19 @@ class FinalizeRequest(BaseModel):
         return _check_path_traversal(v)
 
 
+class MigrateRequest(BaseModel):
+    """Request to migrate an existing project folder into BSNexus."""
+
+    repo_path: str
+    name: Optional[str] = None
+    pm_llm_config: Optional[LLMConfigInput] = None
+
+    @field_validator("repo_path")
+    @classmethod
+    def _validate_repo_path(cls, v: str) -> str:
+        return _check_path_traversal(v)
+
+
 class PhaseRedesignRequest(BaseModel):
     """Request to trigger manual phase-level redesign."""
 

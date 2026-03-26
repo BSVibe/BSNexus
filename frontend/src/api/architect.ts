@@ -1,5 +1,5 @@
 import apiClient from './client'
-import type { DesignSession, CreateSessionRequest, DesignMessageResponse, FinalizeRequest } from '../types/architect'
+import type { DesignSession, CreateSessionRequest, DesignMessageResponse, FinalizeRequest, MigrateRequest, BrowseResult } from '../types/architect'
 import type { Project } from '../types/project'
 
 export interface PhaseRedesignRequest {
@@ -36,6 +36,8 @@ export const architectApi = {
   batchDeleteSessions: (ids: string[]) => apiClient.post<{ deleted: number }>('/api/v1/architect/sessions/batch-delete', { ids }).then(r => r.data),
   redesignPhase: (phaseId: string, data: PhaseRedesignRequest = {}) => apiClient.post<PhaseRedesignResponse>(`/api/v1/architect/redesign/phase/${phaseId}`, data).then(r => r.data),
   getSessionByProject: (projectId: string) => apiClient.get<DesignSession>(`/api/v1/architect/sessions/by-project/${projectId}`).then(r => r.data),
+  migrate: (data: MigrateRequest) => apiClient.post<Project>('/api/v1/architect/migrate', data).then(r => r.data),
+  browse: (path: string = '/') => apiClient.get<BrowseResult>('/api/v1/architect/browse', { params: { path } }).then(r => r.data),
 
   streamMessage: (sessionId: string, content: string, callbacks: StreamCallbacks): AbortController => {
     const controller = new AbortController()

@@ -48,6 +48,24 @@ export interface FinalizeRequest {
   pm_llm_config?: LLMConfigInput
 }
 
+export interface MigrateRequest {
+  repo_path: string
+  name?: string
+  pm_llm_config?: LLMConfigInput
+}
+
+export interface BrowseEntry {
+  name: string
+  path: string
+}
+
+export interface BrowseResult {
+  current: string
+  parent: string | null
+  has_git: boolean
+  directories: BrowseEntry[]
+}
+
 export interface AddTaskRequest {
   phase_id: string
   request_text: string

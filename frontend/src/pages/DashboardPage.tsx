@@ -6,7 +6,7 @@ import type { ProjectDashboardSummary } from '../types/project'
 import { Link, useNavigate } from 'react-router-dom'
 import { Badge, Button, Modal, StatCard } from '../components/common'
 import Header from '../components/layout/Header'
-import { ListChecks, Bug, MessageSquare } from 'lucide-react'
+import { ListChecks, Bug, MessageSquare, FolderInput } from 'lucide-react'
 
 const statusBadgeColors: Record<string, string> = {
   design: '#8B5CF6',
@@ -117,7 +117,15 @@ export default function DashboardPage() {
 
   return (
     <>
-      <Header title="Dashboard" action={<Button size="sm" onClick={() => navigate('/architect', { state: { openNewSession: true } })}>New Project</Button>} />
+      <Header title="Dashboard" action={
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="secondary" onClick={() => navigate('/migrate')}>
+            <FolderInput size={14} className="mr-1.5" />
+            Import Project
+          </Button>
+          <Button size="sm" onClick={() => navigate('/architect', { state: { openNewSession: true } })}>New Project</Button>
+        </div>
+      } />
       <div className="p-8">
         {/* Stat Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">

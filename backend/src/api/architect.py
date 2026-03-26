@@ -606,6 +606,292 @@ async def finalize_design(
         return schemas.ProjectResponse.model_validate(loaded_project)
 
 
+# ── 5a. Browse Directories ─────────────────────────────────────────
+
+
+@router.get("/browse")
+async def browse_directories(
+    path: str = "/",
+    _auth: BSVibeUser = Depends(require_permission(Permission.architect_session)),
+) -> dict:
+    """List directories at the given path for folder selection."""
+    from pathlib import Path as _Path
+
+    target = _Path(path)
+    if not target.exists():
+        raise HTTPException(status_code=400, detail=f"Path does not exist: {path}")
+    if not target.is_dir():
+        raise HTTPException(status_code=400, detail=f"Path is not a directory: {path}")
+
+    from backend.src.core.codebase_analyzer import _SKIP_DIRS
+
+    dirs: list[dict[str, str]] = []
+    has_git = (target / ".git").exists()
+
+    try:
+        for entry in sorted(target.iterdir(), key=lambda p: p.name.lower()):
+            if entry.is_dir() and entry.name not in _SKIP_DIRS and not entry.name.startswith("."):
+                dirs.append({"name": entry.name, "path": str(entry)})
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    return {
+        "current": str(target),
+        "parent": str(target.parent) if target != target.parent else None,
+        "has_git": has_git,
+        "directories": dirs,
+    }
+
+
+# ── 5b. Migrate Existing Project ──────────────────────────────────
+
+
+@router.post("/migrate/stream")
+async def migrate_project_stream(
+    body: schemas.MigrateRequest,
+    _auth: BSVibeUser = Depends(require_permission(Permission.architect_finalize)),
+    db: AsyncSession = Depends(get_db),
+) -> EventSourceResponse:
+    """Migrate an existing project folder into BSNexus management (SSE streaming).
+
+    Uses Claude Code CLI to analyze the codebase directly — no LLM API key needed.
+
+    Sends real-time progress events:
+      - step: {phase, detail} — current step
+      - done: {project_id} — success
+      - error: {detail} — failure
+    """
+    from pathlib import Path as _Path
+
+    from backend.src.core.executor.claude_code import ClaudeCodeExecutor
+
+    async def event_generator():  # noqa: C901
+        # ── Phase 1: Validate path ─────────────────────────────────────
+        yield {"event": "step", "data": json.dumps({"phase": "analyze", "detail": "Validating path..."})}
+
+        repo = _Path(body.repo_path)
+        if not repo.exists():
+            yield {"event": "error", "data": f"Path does not exist: {body.repo_path}"}
+            return
+        if not repo.is_dir():
+            yield {"event": "error", "data": f"Path is not a directory: {body.repo_path}"}
+            return
+
+        # ── Phase 2: Claude Code CLI analyzes codebase ─────────────────
+        yield {"event": "step", "data": json.dumps({"phase": "llm", "detail": "Claude Code is analyzing the codebase..."})}
+
+        prompt = get_prompt("migrate", "analyze_cli")
+        if body.name:
+            prompt += f"\n\nThe user wants the project named: {body.name}"
+
+        executor = ClaudeCodeExecutor(workspace_dir=body.repo_path)
+        cli_result = await executor.execute(prompt, context={"task_id": "migrate", "workspace_dir": body.repo_path})
+
+        if not cli_result.success:
+            detail = cli_result.error_message or cli_result.stderr or "Claude Code execution failed"
+            yield {"event": "error", "data": detail}
+            return
+
+        # Parse JSON from CLI output
+        raw_output = cli_result.stdout.strip()
+        try:
+            result = _extract_migrate_json(raw_output)
+        except ValueError as e:
+            yield {"event": "error", "data": str(e)}
+            return
+
+        if body.name:
+            result["project_name"] = body.name
+
+        # ── Phase 3: Write to DB ───────────────────────────────────────
+        yield {"event": "step", "data": json.dumps({"phase": "save", "detail": "Creating project..."})}
+
+        try:
+            async with async_session() as write_db:
+                # Read LLM config for project (optional, for ongoing architect chat)
+                raw_settings = await get_raw_llm_config(db)
+                llm_config_dict: dict[str, Any] = {}
+                if raw_settings.get("llm_api_key"):
+                    llm_config_dict["api_key"] = raw_settings["llm_api_key"]
+                if raw_settings.get("llm_model"):
+                    llm_config_dict["model"] = raw_settings["llm_model"]
+                if raw_settings.get("llm_base_url"):
+                    llm_config_dict["base_url"] = raw_settings["llm_base_url"]
+
+                project_llm_config: dict[str, Any] = {}
+                if llm_config_dict.get("api_key"):
+                    project_llm_config["architect"] = llm_config_dict
+                if body.pm_llm_config:
+                    pm_cfg: dict[str, Any] = {"api_key": body.pm_llm_config.api_key}
+                    if body.pm_llm_config.model:
+                        pm_cfg["model"] = body.pm_llm_config.model
+                    if body.pm_llm_config.base_url:
+                        pm_cfg["base_url"] = body.pm_llm_config.base_url
+                    project_llm_config["pm"] = pm_cfg
+
+                project = models.Project(
+                    name=result.get("project_name", repo.name),
+                    description=result.get("project_description", ""),
+                    repo_path=body.repo_path,
+                    status=models.ProjectStatus.active,
+                    llm_config=project_llm_config or None,
+                )
+                write_db.add(project)
+                await write_db.flush()
+
+                all_tasks: list[models.Task] = []
+                phases_data = result.get("phases", [])
+                phases_by_order: dict[int, models.Phase] = {}
+                phase_task_indices: dict[int, set[int]] = {}
+                flat_idx_counter = 0
+
+                for phase_order, phase_data in enumerate(phases_data, start=1):
+                    phase_name = phase_data.get("name", f"Phase {phase_order}")
+                    branch_name = f"phase/{slugify(phase_name)}"
+
+                    phase = models.Phase(
+                        project_id=project.id,
+                        name=phase_name,
+                        description=phase_data.get("description"),
+                        branch_name=branch_name,
+                        order=phase_order,
+                    )
+                    write_db.add(phase)
+                    phases_by_order[phase_order] = phase
+
+                # Flush all phases at once to get their IDs
+                await write_db.flush()
+
+                for phase_order, phase_data in enumerate(phases_data, start=1):
+                    phase = phases_by_order[phase_order]
+                    branch_name = phase.branch_name
+
+                    task_indices: set[int] = set()
+                    for task_data in phase_data.get("tasks", []):
+                        priority_str = task_data.get("priority", "medium")
+                        try:
+                            priority = models.TaskPriority(priority_str)
+                        except ValueError:
+                            priority = models.TaskPriority.medium
+
+                        task = models.Task(
+                            project_id=project.id,
+                            phase_id=phase.id,
+                            title=task_data.get("title", "Untitled Task"),
+                            description=task_data.get("description"),
+                            priority=priority,
+                            worker_prompt={"prompt": task_data.get("worker_prompt", "")},
+                            qa_prompt={"prompt": task_data.get("qa_prompt", "")},
+                            branch_name=branch_name,
+                        )
+                        write_db.add(task)
+                        all_tasks.append(task)
+                        task_indices.add(flat_idx_counter)
+                        flat_idx_counter += 1
+
+                    phase_task_indices[phase_order] = task_indices
+
+                # Flush all tasks at once to get their IDs
+                await write_db.flush()
+
+                task_repo = TaskRepository(write_db)
+                tasks_with_deps: set[int] = set()
+                flat_index = 0
+                for phase_data in phases_data:
+                    for task_data in phase_data.get("tasks", []):
+                        depends_on_indices = task_data.get("depends_on_indices", [])
+                        if depends_on_indices:
+                            dep_ids = []
+                            for idx in depends_on_indices:
+                                if 0 <= idx < len(all_tasks):
+                                    dep_ids.append(all_tasks[idx].id)
+                            if dep_ids:
+                                await task_repo.add_dependencies(all_tasks[flat_index].id, dep_ids)
+                                all_tasks[flat_index].status = models.TaskStatus.waiting
+                                tasks_with_deps.add(flat_index)
+                        flat_index += 1
+
+                if not phases_by_order:
+                    yield {"event": "error", "data": "Migration must produce at least one phase with tasks"}
+                    return
+
+                first_order = min(phases_by_order.keys())
+                phases_by_order[first_order].status = models.PhaseStatus.active
+                first_phase_indices = phase_task_indices.get(first_order, set())
+                for i, task in enumerate(all_tasks):
+                    if i not in tasks_with_deps and i in first_phase_indices:
+                        task.status = models.TaskStatus.ready
+
+                write_session_repo = DesignSessionRepository(write_db)
+                design_session = models.DesignSession(
+                    project_id=project.id,
+                    name=f"Migration: {project.name}",
+                    status=models.DesignSessionStatus.project_bound,
+                    llm_config=llm_config_dict or None,
+                )
+                write_db.add(design_session)
+                await write_db.flush()
+
+                await write_session_repo.add_message(
+                    design_session.id,
+                    models.MessageRole.user,
+                    f"[MIGRATE] Claude Code analysis of {body.repo_path}",
+                    message_type=models.MessageType.internal,
+                )
+                await write_session_repo.add_message(
+                    design_session.id,
+                    models.MessageRole.assistant,
+                    json.dumps(result, ensure_ascii=False),
+                    message_type=models.MessageType.internal,
+                )
+
+                await write_db.commit()
+
+                project_repo = ProjectRepository(write_db)
+                loaded_project = await project_repo.get_by_id(project.id)
+                project_response = schemas.ProjectResponse.model_validate(loaded_project)
+
+            yield {
+                "event": "done",
+                "data": json.dumps({"project_id": str(project_response.id), "name": project_response.name}),
+            }
+        except Exception as e:
+            yield {"event": "error", "data": f"Failed to save project: {e}"}
+
+    return EventSourceResponse(event_generator())
+
+
+def _extract_migrate_json(raw: str) -> dict[str, Any]:
+    """Extract JSON from Claude Code CLI output."""
+    import re
+
+    # Try direct parse
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        pass
+
+    # Try markdown code block
+    match = re.search(r"```(?:json)?\s*\n(.*?)\n```", raw, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group(1))
+        except json.JSONDecodeError:
+            pass
+
+    # Try raw_decode from first { — handles braces inside strings correctly
+    brace_start = raw.find("{")
+    if brace_start >= 0:
+        try:
+            obj, _ = json.JSONDecoder().raw_decode(raw, brace_start)
+            if isinstance(obj, dict):
+                return obj
+        except json.JSONDecodeError:
+            pass
+
+    raise ValueError(f"Could not extract valid JSON from Claude Code output (length={len(raw)})")
+
+
 # ── 6. Redesign Phase ──────────────────────────────────────────────
 
 
