@@ -33,6 +33,136 @@ from sse_starlette.sse import EventSourceResponse
 router = APIRouter(prefix="/api/v1/architect", tags=["architect"])
 
 _STREAM_MARKERS = ["<design_context>", "[FINALIZE]", "[CREATE_TASK]", "[MODIFY_TASK]"]
+
+
+def _build_llm_config_dict(
+    *,
+    raw_settings: dict[str, Any] | None = None,
+    llm_config_input: schemas.LLMConfigInput | None = None,
+) -> dict[str, Any]:
+    """Build an LLM config dict from either raw DB settings or a request body input.
+
+    Exactly one of raw_settings or llm_config_input should be provided.
+    """
+    cfg: dict[str, Any] = {}
+    if llm_config_input is not None:
+        cfg["api_key"] = llm_config_input.api_key
+        if llm_config_input.model:
+            cfg["model"] = llm_config_input.model
+        if llm_config_input.base_url:
+            cfg["base_url"] = llm_config_input.base_url
+    elif raw_settings is not None:
+        if raw_settings.get("llm_api_key"):
+            cfg["api_key"] = raw_settings["llm_api_key"]
+        if raw_settings.get("llm_model"):
+            cfg["model"] = raw_settings["llm_model"]
+        if raw_settings.get("llm_base_url"):
+            cfg["base_url"] = raw_settings["llm_base_url"]
+    return cfg
+
+
+def _build_project_llm_config(
+    architect_config: dict[str, Any],
+    pm_llm_config: schemas.LLMConfigInput | None = None,
+) -> dict[str, Any] | None:
+    """Build project-level LLM config dict with architect and optional PM sections."""
+    project_llm_config: dict[str, Any] = {}
+    if architect_config.get("api_key"):
+        project_llm_config["architect"] = architect_config
+    if pm_llm_config:
+        project_llm_config["pm"] = _build_llm_config_dict(llm_config_input=pm_llm_config)
+    return project_llm_config or None
+
+
+async def _create_phases_and_tasks(
+    db: AsyncSession,
+    project: models.Project,
+    phases_data: list[dict[str, Any]],
+) -> list[models.Task]:
+    """Create phases and tasks from LLM design output, wire dependencies, activate first phase.
+
+    Returns the flat list of all created tasks.
+    """
+    all_tasks: list[models.Task] = []
+    phases_by_order: dict[int, models.Phase] = {}
+    phase_task_indices: dict[int, set[int]] = {}
+    flat_idx_counter = 0
+
+    # Create all phases
+    for phase_order, phase_data in enumerate(phases_data, start=1):
+        phase_name = phase_data.get("name", f"Phase {phase_order}")
+        branch_name = f"phase/{slugify(phase_name)}"
+
+        phase = models.Phase(
+            project_id=project.id,
+            name=phase_name,
+            description=phase_data.get("description"),
+            branch_name=branch_name,
+            order=phase_order,
+        )
+        db.add(phase)
+        phases_by_order[phase_order] = phase
+
+    # Flush phases to get IDs
+    await db.flush()
+
+    # Create all tasks
+    for phase_order, phase_data in enumerate(phases_data, start=1):
+        phase = phases_by_order[phase_order]
+
+        task_indices: set[int] = set()
+        for task_data in phase_data.get("tasks", []):
+            priority_str = task_data.get("priority", "medium")
+            try:
+                priority = models.TaskPriority(priority_str)
+            except ValueError:
+                priority = models.TaskPriority.medium
+
+            task = models.Task(
+                project_id=project.id,
+                phase_id=phase.id,
+                title=task_data.get("title", "Untitled Task"),
+                description=task_data.get("description"),
+                priority=priority,
+                worker_prompt={"prompt": task_data.get("worker_prompt", "")},
+                qa_prompt={"prompt": task_data.get("qa_prompt", "")},
+                branch_name=phase.branch_name,
+            )
+            db.add(task)
+            all_tasks.append(task)
+            task_indices.add(flat_idx_counter)
+            flat_idx_counter += 1
+
+        phase_task_indices[phase_order] = task_indices
+
+    # Flush tasks to get IDs
+    await db.flush()
+
+    # Wire up dependencies
+    task_repo = TaskRepository(db)
+    tasks_with_deps: set[int] = set()
+    flat_index = 0
+    for phase_data in phases_data:
+        for task_data in phase_data.get("tasks", []):
+            depends_on_indices = task_data.get("depends_on_indices", [])
+            if depends_on_indices:
+                dep_ids = [all_tasks[idx].id for idx in depends_on_indices if 0 <= idx < len(all_tasks)]
+                if dep_ids:
+                    await task_repo.add_dependencies(all_tasks[flat_index].id, dep_ids)
+                    all_tasks[flat_index].status = models.TaskStatus.waiting
+                    tasks_with_deps.add(flat_index)
+            flat_index += 1
+
+    # Activate first phase, mark dep-free tasks as ready
+    if phases_by_order:
+        first_order = min(phases_by_order.keys())
+        phases_by_order[first_order].status = models.PhaseStatus.active
+        first_phase_indices = phase_task_indices.get(first_order, set())
+        for i, task in enumerate(all_tasks):
+            if i not in tasks_with_deps and i in first_phase_indices:
+                task.status = models.TaskStatus.ready
+
+    return all_tasks
 _MAX_MARKER_LEN = max(len(m) for m in _STREAM_MARKERS)
 
 
@@ -141,11 +271,7 @@ async def create_session(
             detail="LLM API key not configured. Set it in Settings first.",
         )
 
-    llm_config_dict: dict[str, Any] = {"api_key": api_key}
-    if settings.get("llm_model"):
-        llm_config_dict["model"] = settings["llm_model"]
-    if settings.get("llm_base_url"):
-        llm_config_dict["base_url"] = settings["llm_base_url"]
+    llm_config_dict = _build_llm_config_dict(raw_settings=settings)
 
     repo = DesignSessionRepository(db)
     session = await repo.add(models.DesignSession(name=body.name, llm_config=llm_config_dict))
@@ -491,20 +617,8 @@ async def finalize_design(
             message_type=models.MessageType.internal,
         )
 
-        # Build llm_config for the project
-        project_llm_config: dict[str, Any] = {
-            "architect": llm_config_dict,
-        }
-        if body.pm_llm_config:
-            project_llm_config["pm"] = {
-                "api_key": body.pm_llm_config.api_key,
-            }
-            if body.pm_llm_config.model:
-                project_llm_config["pm"]["model"] = body.pm_llm_config.model
-            if body.pm_llm_config.base_url:
-                project_llm_config["pm"]["base_url"] = body.pm_llm_config.base_url
+        project_llm_config = _build_project_llm_config(llm_config_dict, body.pm_llm_config)
 
-        # Create project
         project = models.Project(
             name=result.get("project_name", "Untitled Project"),
             description=result.get("project_description", ""),
@@ -515,85 +629,10 @@ async def finalize_design(
         write_db.add(project)
         await write_db.flush()
 
-        # Create phases and tasks, collecting all tasks in a flat list for dependency resolution
-        all_tasks: list[models.Task] = []
         phases_data = result.get("phases", [])
-        phases_by_order: dict[int, models.Phase] = {}
-
-        # Track which flat indices belong to each phase
-        phase_task_indices: dict[int, set[int]] = {}  # phase_order -> set of flat indices
-        flat_idx_counter = 0
-
-        for phase_order, phase_data in enumerate(phases_data, start=1):
-            phase_name = phase_data.get("name", f"Phase {phase_order}")
-            branch_name = f"phase/{slugify(phase_name)}"
-
-            phase = models.Phase(
-                project_id=project.id,
-                name=phase_name,
-                description=phase_data.get("description"),
-                branch_name=branch_name,
-                order=phase_order,
-            )
-            write_db.add(phase)
-            await write_db.flush()
-            phases_by_order[phase_order] = phase
-
-            task_indices: set[int] = set()
-            for task_data in phase_data.get("tasks", []):
-                priority_str = task_data.get("priority", "medium")
-                try:
-                    priority = models.TaskPriority(priority_str)
-                except ValueError:
-                    priority = models.TaskPriority.medium
-
-                task = models.Task(
-                    project_id=project.id,
-                    phase_id=phase.id,
-                    title=task_data.get("title", "Untitled Task"),
-                    description=task_data.get("description"),
-                    priority=priority,
-                    worker_prompt={"prompt": task_data.get("worker_prompt", "")},
-                    qa_prompt={"prompt": task_data.get("qa_prompt", "")},
-                    branch_name=branch_name,
-                )
-                write_db.add(task)
-                await write_db.flush()
-                all_tasks.append(task)
-                task_indices.add(flat_idx_counter)
-                flat_idx_counter += 1
-
-            phase_task_indices[phase_order] = task_indices
-
-        # Wire up dependencies using depends_on_indices
-        task_repo = TaskRepository(write_db)
-        tasks_with_deps: set[int] = set()
-        flat_index = 0
-        for phase_data in phases_data:
-            for task_data in phase_data.get("tasks", []):
-                depends_on_indices = task_data.get("depends_on_indices", [])
-                if depends_on_indices:
-                    dep_ids = []
-                    for idx in depends_on_indices:
-                        if 0 <= idx < len(all_tasks):
-                            dep_ids.append(all_tasks[idx].id)
-                    if dep_ids:
-                        await task_repo.add_dependencies(all_tasks[flat_index].id, dep_ids)
-                        all_tasks[flat_index].status = models.TaskStatus.waiting
-                        tasks_with_deps.add(flat_index)
-                flat_index += 1
-
-        # Phase-gated task status: only first phase is active, its dep-free tasks are ready
-        if not phases_by_order:
+        if not phases_data:
             raise HTTPException(status_code=400, detail="Design must contain at least one phase with tasks")
-
-        first_order = min(phases_by_order.keys())
-        phases_by_order[first_order].status = models.PhaseStatus.active
-        first_phase_indices = phase_task_indices.get(first_order, set())
-        for i, task in enumerate(all_tasks):
-            if i not in tasks_with_deps and i in first_phase_indices:
-                task.status = models.TaskStatus.ready
-            # All other tasks remain in default waiting status
+        await _create_phases_and_tasks(write_db, project, phases_data)
 
         # Update session status and link to project
         session.status = models.DesignSessionStatus.project_bound
@@ -708,119 +747,26 @@ async def migrate_project_stream(
 
         try:
             async with async_session() as write_db:
-                # Read LLM config for project (optional, for ongoing architect chat)
                 raw_settings = await get_raw_llm_config(db)
-                llm_config_dict: dict[str, Any] = {}
-                if raw_settings.get("llm_api_key"):
-                    llm_config_dict["api_key"] = raw_settings["llm_api_key"]
-                if raw_settings.get("llm_model"):
-                    llm_config_dict["model"] = raw_settings["llm_model"]
-                if raw_settings.get("llm_base_url"):
-                    llm_config_dict["base_url"] = raw_settings["llm_base_url"]
-
-                project_llm_config: dict[str, Any] = {}
-                if llm_config_dict.get("api_key"):
-                    project_llm_config["architect"] = llm_config_dict
-                if body.pm_llm_config:
-                    pm_cfg: dict[str, Any] = {"api_key": body.pm_llm_config.api_key}
-                    if body.pm_llm_config.model:
-                        pm_cfg["model"] = body.pm_llm_config.model
-                    if body.pm_llm_config.base_url:
-                        pm_cfg["base_url"] = body.pm_llm_config.base_url
-                    project_llm_config["pm"] = pm_cfg
+                llm_config_dict = _build_llm_config_dict(raw_settings=raw_settings)
+                project_llm_config = _build_project_llm_config(llm_config_dict, body.pm_llm_config)
 
                 project = models.Project(
                     name=result.get("project_name", repo.name),
                     description=result.get("project_description", ""),
                     repo_path=body.repo_path,
                     status=models.ProjectStatus.active,
-                    llm_config=project_llm_config or None,
+                    llm_config=project_llm_config,
                 )
                 write_db.add(project)
                 await write_db.flush()
 
-                all_tasks: list[models.Task] = []
                 phases_data = result.get("phases", [])
-                phases_by_order: dict[int, models.Phase] = {}
-                phase_task_indices: dict[int, set[int]] = {}
-                flat_idx_counter = 0
-
-                for phase_order, phase_data in enumerate(phases_data, start=1):
-                    phase_name = phase_data.get("name", f"Phase {phase_order}")
-                    branch_name = f"phase/{slugify(phase_name)}"
-
-                    phase = models.Phase(
-                        project_id=project.id,
-                        name=phase_name,
-                        description=phase_data.get("description"),
-                        branch_name=branch_name,
-                        order=phase_order,
-                    )
-                    write_db.add(phase)
-                    phases_by_order[phase_order] = phase
-
-                # Flush all phases at once to get their IDs
-                await write_db.flush()
-
-                for phase_order, phase_data in enumerate(phases_data, start=1):
-                    phase = phases_by_order[phase_order]
-                    branch_name = phase.branch_name
-
-                    task_indices: set[int] = set()
-                    for task_data in phase_data.get("tasks", []):
-                        priority_str = task_data.get("priority", "medium")
-                        try:
-                            priority = models.TaskPriority(priority_str)
-                        except ValueError:
-                            priority = models.TaskPriority.medium
-
-                        task = models.Task(
-                            project_id=project.id,
-                            phase_id=phase.id,
-                            title=task_data.get("title", "Untitled Task"),
-                            description=task_data.get("description"),
-                            priority=priority,
-                            worker_prompt={"prompt": task_data.get("worker_prompt", "")},
-                            qa_prompt={"prompt": task_data.get("qa_prompt", "")},
-                            branch_name=branch_name,
-                        )
-                        write_db.add(task)
-                        all_tasks.append(task)
-                        task_indices.add(flat_idx_counter)
-                        flat_idx_counter += 1
-
-                    phase_task_indices[phase_order] = task_indices
-
-                # Flush all tasks at once to get their IDs
-                await write_db.flush()
-
-                task_repo = TaskRepository(write_db)
-                tasks_with_deps: set[int] = set()
-                flat_index = 0
-                for phase_data in phases_data:
-                    for task_data in phase_data.get("tasks", []):
-                        depends_on_indices = task_data.get("depends_on_indices", [])
-                        if depends_on_indices:
-                            dep_ids = []
-                            for idx in depends_on_indices:
-                                if 0 <= idx < len(all_tasks):
-                                    dep_ids.append(all_tasks[idx].id)
-                            if dep_ids:
-                                await task_repo.add_dependencies(all_tasks[flat_index].id, dep_ids)
-                                all_tasks[flat_index].status = models.TaskStatus.waiting
-                                tasks_with_deps.add(flat_index)
-                        flat_index += 1
-
-                if not phases_by_order:
+                if not phases_data:
                     yield {"event": "error", "data": "Migration must produce at least one phase with tasks"}
                     return
 
-                first_order = min(phases_by_order.keys())
-                phases_by_order[first_order].status = models.PhaseStatus.active
-                first_phase_indices = phase_task_indices.get(first_order, set())
-                for i, task in enumerate(all_tasks):
-                    if i not in tasks_with_deps and i in first_phase_indices:
-                        task.status = models.TaskStatus.ready
+                await _create_phases_and_tasks(write_db, project, phases_data)
 
                 write_session_repo = DesignSessionRepository(write_db)
                 design_session = models.DesignSession(
@@ -931,11 +877,7 @@ async def redesign_phase(
     # Build LLM client — prefer request body config, then project config
     try:
         if body.llm_config:
-            llm_config_dict: dict[str, Any] = {"api_key": body.llm_config.api_key}
-            if body.llm_config.model:
-                llm_config_dict["model"] = body.llm_config.model
-            if body.llm_config.base_url:
-                llm_config_dict["base_url"] = body.llm_config.base_url
+            llm_config_dict = _build_llm_config_dict(llm_config_input=body.llm_config)
             config = build_llm_config(llm_config_dict)
             client = LLMClient(config)
         else:
@@ -1192,11 +1134,7 @@ async def add_task(
     # Determine LLM config: override from request body, project config, or fail
     llm_config_dict: dict[str, Any] | None = None
     if body.llm_config:
-        llm_config_dict = {"api_key": body.llm_config.api_key}
-        if body.llm_config.model:
-            llm_config_dict["model"] = body.llm_config.model
-        if body.llm_config.base_url:
-            llm_config_dict["base_url"] = body.llm_config.base_url
+        llm_config_dict = _build_llm_config_dict(llm_config_input=body.llm_config)
     elif project.llm_config and project.llm_config.get("architect"):
         llm_config_dict = project.llm_config["architect"]
 

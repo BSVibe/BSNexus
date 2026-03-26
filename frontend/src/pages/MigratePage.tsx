@@ -2,6 +2,7 @@ import { useState, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { architectApi } from '../api/architect'
+import { parseSSEStream } from '../utils/sse'
 import { Button, Modal } from '../components/common'
 import Header from '../components/layout/Header'
 import { useAuthStore } from '../stores/authStore'
@@ -88,39 +89,7 @@ export default function MigratePage() {
           setCurrentStep({ phase: 'error', detail: `HTTP ${response.status}: ${text}` })
           return
         }
-        const reader = response.body?.getReader()
-        if (!reader) {
-          setCurrentStep({ phase: 'error', detail: 'No response body' })
-          return
-        }
-        const decoder = new TextDecoder()
-        let buffer = ''
-
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
-
-          buffer += decoder.decode(value, { stream: true })
-          const lines = buffer.split('\n')
-          buffer = lines.pop() || ''
-
-          let currentEvent = ''
-          const dataLines: string[] = []
-          for (const line of lines) {
-            if (line.startsWith('event:')) {
-              currentEvent = line.slice(6).trim()
-            } else if (line.startsWith('data:')) {
-              dataLines.push(line.slice(5).trim())
-            } else if (line === '' || line === '\r') {
-              if (currentEvent && dataLines.length > 0) {
-                const data = dataLines.join('\n')
-                handleSSEEvent(currentEvent, data)
-              }
-              currentEvent = ''
-              dataLines.length = 0
-            }
-          }
-        }
+        await parseSSEStream(response, handleSSEEvent)
       })
       .catch((err) => {
         if (err.name !== 'AbortError') {

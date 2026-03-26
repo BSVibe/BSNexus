@@ -1,4 +1,5 @@
 import apiClient from './client'
+import { parseSSEStream } from '../utils/sse'
 import type { DesignSession, CreateSessionRequest, DesignMessageResponse, FinalizeRequest, MigrateRequest, BrowseResult } from '../types/architect'
 import type { Project } from '../types/project'
 
@@ -56,52 +57,22 @@ export const architectApi = {
           callbacks.onError(`HTTP ${response.status}: ${text}`)
           return
         }
-        const reader = response.body?.getReader()
-        if (!reader) {
-          callbacks.onError('No response body')
-          return
-        }
-        const decoder = new TextDecoder()
-        let buffer = ''
-
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
-
-          buffer += decoder.decode(value, { stream: true })
-          const lines = buffer.split('\n')
-          buffer = lines.pop() || ''
-
-          let currentEvent = ''
-          let dataLines: string[] = []
-          for (const line of lines) {
-            if (line.startsWith('event:')) {
-              currentEvent = line.slice(6).trim()
-            } else if (line.startsWith('data:')) {
-              dataLines.push(line.slice(5).trim())
-            } else if (line === '' || line === '\r') {
-              if (currentEvent && dataLines.length > 0) {
-                const data = dataLines.join('\n')
-                switch (currentEvent) {
-                  case 'chunk':
-                    callbacks.onChunk(data)
-                    break
-                  case 'done':
-                    callbacks.onDone(data)
-                    break
-                  case 'finalize_ready':
-                    callbacks.onFinalizeReady(data)
-                    break
-                  case 'error':
-                    callbacks.onError(data)
-                    break
-                }
-              }
-              currentEvent = ''
-              dataLines = []
-            }
+        await parseSSEStream(response, (event, data) => {
+          switch (event) {
+            case 'chunk':
+              callbacks.onChunk(data)
+              break
+            case 'done':
+              callbacks.onDone(data)
+              break
+            case 'finalize_ready':
+              callbacks.onFinalizeReady(data)
+              break
+            case 'error':
+              callbacks.onError(data)
+              break
           }
-        }
+        })
       })
       .catch((err) => {
         if (err.name !== 'AbortError') {
