@@ -1,5 +1,6 @@
 import apiClient from './client'
-import type { DesignSession, CreateSessionRequest, DesignMessageResponse, FinalizeRequest } from '../types/architect'
+import { parseSSEStream } from '../utils/sse'
+import type { DesignSession, CreateSessionRequest, DesignMessageResponse, FinalizeRequest, MigrateRequest, BrowseResult } from '../types/architect'
 import type { Project } from '../types/project'
 
 export interface PhaseRedesignRequest {
@@ -36,6 +37,8 @@ export const architectApi = {
   batchDeleteSessions: (ids: string[]) => apiClient.post<{ deleted: number }>('/api/v1/architect/sessions/batch-delete', { ids }).then(r => r.data),
   redesignPhase: (phaseId: string, data: PhaseRedesignRequest = {}) => apiClient.post<PhaseRedesignResponse>(`/api/v1/architect/redesign/phase/${phaseId}`, data).then(r => r.data),
   getSessionByProject: (projectId: string) => apiClient.get<DesignSession>(`/api/v1/architect/sessions/by-project/${projectId}`).then(r => r.data),
+  migrate: (data: MigrateRequest) => apiClient.post<Project>('/api/v1/architect/migrate', data).then(r => r.data),
+  browse: (path: string = '/') => apiClient.get<BrowseResult>('/api/v1/architect/browse', { params: { path } }).then(r => r.data),
 
   streamMessage: (sessionId: string, content: string, callbacks: StreamCallbacks): AbortController => {
     const controller = new AbortController()
@@ -54,52 +57,22 @@ export const architectApi = {
           callbacks.onError(`HTTP ${response.status}: ${text}`)
           return
         }
-        const reader = response.body?.getReader()
-        if (!reader) {
-          callbacks.onError('No response body')
-          return
-        }
-        const decoder = new TextDecoder()
-        let buffer = ''
-
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
-
-          buffer += decoder.decode(value, { stream: true })
-          const lines = buffer.split('\n')
-          buffer = lines.pop() || ''
-
-          let currentEvent = ''
-          let dataLines: string[] = []
-          for (const line of lines) {
-            if (line.startsWith('event:')) {
-              currentEvent = line.slice(6).trim()
-            } else if (line.startsWith('data:')) {
-              dataLines.push(line.slice(5).trim())
-            } else if (line === '' || line === '\r') {
-              if (currentEvent && dataLines.length > 0) {
-                const data = dataLines.join('\n')
-                switch (currentEvent) {
-                  case 'chunk':
-                    callbacks.onChunk(data)
-                    break
-                  case 'done':
-                    callbacks.onDone(data)
-                    break
-                  case 'finalize_ready':
-                    callbacks.onFinalizeReady(data)
-                    break
-                  case 'error':
-                    callbacks.onError(data)
-                    break
-                }
-              }
-              currentEvent = ''
-              dataLines = []
-            }
+        await parseSSEStream(response, (event, data) => {
+          switch (event) {
+            case 'chunk':
+              callbacks.onChunk(data)
+              break
+            case 'done':
+              callbacks.onDone(data)
+              break
+            case 'finalize_ready':
+              callbacks.onFinalizeReady(data)
+              break
+            case 'error':
+              callbacks.onError(data)
+              break
           }
-        }
+        })
       })
       .catch((err) => {
         if (err.name !== 'AbortError') {

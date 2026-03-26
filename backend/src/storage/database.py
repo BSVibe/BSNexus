@@ -18,4 +18,7 @@ async def get_db() -> AsyncGenerator[AsyncSession]:
 
 
 async def init_db():
-    pass
+    """Create all tables if they don't exist (useful for SQLite dev mode)."""
+    if engine.url.get_backend_name() == "sqlite":
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)

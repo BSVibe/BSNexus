@@ -87,6 +87,19 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
 }
 
 
+class _DevMockUser(BSVibeUser):
+    """Mock user for local development when no Supabase is configured."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            id="dev-user-00000000",
+            email="dev@localhost",
+            role="authenticated",
+            app_metadata={"role": "admin"},
+            user_metadata={},
+        )
+
+
 def _build_auth_provider() -> SupabaseAuthProvider:
     """Build SupabaseAuthProvider with the correct key/algorithm.
 
@@ -114,8 +127,15 @@ def _build_auth_provider() -> SupabaseAuthProvider:
 
 
 # Supabase auth provider + FastAPI dependency
-auth_provider = _build_auth_provider()
-get_current_user = create_auth_dependency(auth_provider)
+# In dev mode (no supabase_url and debug=True), use a mock user
+if settings.debug and not settings.supabase_url:
+
+    async def get_current_user() -> BSVibeUser:
+        return _DevMockUser()
+
+else:
+    auth_provider = _build_auth_provider()
+    get_current_user = create_auth_dependency(auth_provider)
 
 
 def require_permission(permission: Permission):
