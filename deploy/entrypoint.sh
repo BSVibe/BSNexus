@@ -2,6 +2,6 @@
 set -e
 
 echo "Running database migrations..."
-cd /app/backend && alembic upgrade head
+cd /app/backend && python -m alembic upgrade head
 
 exec "$@"
