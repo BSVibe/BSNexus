@@ -38,7 +38,7 @@
       "title": "Update TaskRunner to use ExecutorRegistry",
       "description": "Modify backend/src/core/task_runner.py: LocalTaskRunner should accept executor_name (optional, default='claude_code') and resolve via ExecutorRegistry instead of taking a BaseExecutor directly. Update all callers (orchestrator, worker). Write tests first.",
       "acceptanceCriteria": "LocalTaskRunner resolves executor from registry by task.task_type or explicit name. All existing tests pass. New tests verify registry-based resolution and fallback to default.",
-      "passes": false,
+      "passes": true,
       "priority": 5
     },
     {

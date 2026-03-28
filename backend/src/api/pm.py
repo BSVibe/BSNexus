@@ -8,7 +8,6 @@ from bsvibe_auth import BSVibeUser
 from backend.src import models
 from backend.src.config import settings
 from backend.src.core.auth import Permission, require_permission
-from backend.src.core.executor import create_executor
 from backend.src.core.orchestrator import PMOrchestrator
 from backend.src.core.state_machine import TaskStateMachine
 from backend.src.core.task_runner import LocalTaskRunner
@@ -43,7 +42,7 @@ def _build_orchestrator(request: Request) -> PMOrchestrator:
     stream_manager = _get_stream_manager(request)
     return PMOrchestrator(
         stream_manager=stream_manager,
-        task_runner=LocalTaskRunner(create_executor(settings.executor_type)),
+        task_runner=LocalTaskRunner(executor_name=settings.executor_type),
         state_machine=TaskStateMachine(),
     )
 

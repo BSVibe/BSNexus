@@ -42,3 +42,13 @@ Started: 2026-03-28T09:00:23Z
 - TDD: 15 tests in `backend/tests/test_task_executor_fields.py` (5 model, 10 schema)
 - All 923 tests pass, coverage 93.65%, ruff clean
 - Files changed: `models.py`, `schemas.py`, migration file (new), `test_task_executor_fields.py` (new)
+
+## TASK-005: Update TaskRunner to use ExecutorRegistry
+- Changed `LocalTaskRunner.__init__` from `executor: BaseExecutor` to `executor_name: str = "claude_code"` with optional `executor:` kwarg for backward compat
+- Added `_resolve_executor(executor_type)` method: tries task's executor_type from registry, falls back to default executor_name
+- `execute_task` and `review_task` now read `task.executor_type` and resolve executor per-task via registry
+- Updated callers: `pm.py` and `cli/_helpers.py` now pass `executor_name=settings.executor_type` instead of `create_executor()`
+- Backward compatible: existing tests pass unchanged using `executor=` kwarg
+- TDD: 10 new tests in `backend/tests/test_task_runner_registry.py` (init, resolve, execute, review, backward compat)
+- All 922 tests pass, coverage 93.65%, ruff clean
+- Files changed: `task_runner.py` (updated), `pm.py` (updated), `cli/_helpers.py` (updated), `test_task_runner.py` (updated imports), `test_task_runner_registry.py` (new)

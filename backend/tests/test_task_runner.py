@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from backend.src.core.executor.base import BaseExecutor, ExecutionResult, ReviewResult
+from backend.src.core.executor.base import ExecutionResult, ExecutorProtocol, ReviewResult
 from backend.src.core.task_runner import LocalTaskRunner, TaskExecutionResult, TaskReviewResult
 
 
@@ -40,12 +40,12 @@ def make_task(
 
 class TestClassifyException:
     def test_classify_exception_environment_errors(self) -> None:
-        runner = LocalTaskRunner(executor=AsyncMock(spec=BaseExecutor))
+        runner = LocalTaskRunner(executor=AsyncMock(spec=ExecutorProtocol))
         for exc in (FileNotFoundError("x"), PermissionError("x"), OSError("x")):
             assert runner._classify_exception(exc) == "environment"
 
     def test_classify_exception_non_environment(self) -> None:
-        runner = LocalTaskRunner(executor=AsyncMock(spec=BaseExecutor))
+        runner = LocalTaskRunner(executor=AsyncMock(spec=ExecutorProtocol))
         for exc in (ValueError("x"), RuntimeError("x"), KeyError("x")):
             assert runner._classify_exception(exc) == ""
 
@@ -86,7 +86,7 @@ class TestExtractPrompt:
 class TestExecuteTask:
     @pytest.mark.asyncio
     async def test_execute_task_success(self) -> None:
-        mock_executor = AsyncMock(spec=BaseExecutor)
+        mock_executor = AsyncMock(spec=ExecutorProtocol)
         mock_executor.execute.return_value = ExecutionResult(success=True)
 
         runner = LocalTaskRunner(executor=mock_executor)
@@ -101,7 +101,7 @@ class TestExecuteTask:
 
     @pytest.mark.asyncio
     async def test_execute_task_failure(self) -> None:
-        mock_executor = AsyncMock(spec=BaseExecutor)
+        mock_executor = AsyncMock(spec=ExecutorProtocol)
         mock_executor.execute.return_value = ExecutionResult(
             success=False, error_message="syntax error", error_category="tool"
         )
@@ -117,7 +117,7 @@ class TestExecuteTask:
 
     @pytest.mark.asyncio
     async def test_execute_task_exception(self) -> None:
-        mock_executor = AsyncMock(spec=BaseExecutor)
+        mock_executor = AsyncMock(spec=ExecutorProtocol)
         mock_executor.execute.side_effect = FileNotFoundError("no such file")
 
         runner = LocalTaskRunner(executor=mock_executor)
@@ -131,7 +131,7 @@ class TestExecuteTask:
 
     @pytest.mark.asyncio
     async def test_execute_task_exception_non_environment(self) -> None:
-        mock_executor = AsyncMock(spec=BaseExecutor)
+        mock_executor = AsyncMock(spec=ExecutorProtocol)
         mock_executor.execute.side_effect = ValueError("bad value")
 
         runner = LocalTaskRunner(executor=mock_executor)
@@ -145,7 +145,7 @@ class TestExecuteTask:
 
     @pytest.mark.asyncio
     async def test_execute_task_with_git_setup(self) -> None:
-        mock_executor = AsyncMock(spec=BaseExecutor)
+        mock_executor = AsyncMock(spec=ExecutorProtocol)
         mock_executor.execute.return_value = ExecutionResult(success=True)
 
         mock_git = AsyncMock()
@@ -164,7 +164,7 @@ class TestExecuteTask:
 
     @pytest.mark.asyncio
     async def test_execute_task_without_repo_path(self) -> None:
-        mock_executor = AsyncMock(spec=BaseExecutor)
+        mock_executor = AsyncMock(spec=ExecutorProtocol)
         mock_executor.execute.return_value = ExecutionResult(success=True)
 
         runner = LocalTaskRunner(executor=mock_executor)
@@ -178,7 +178,7 @@ class TestExecuteTask:
 
     @pytest.mark.asyncio
     async def test_execute_task_without_branch_name(self) -> None:
-        mock_executor = AsyncMock(spec=BaseExecutor)
+        mock_executor = AsyncMock(spec=ExecutorProtocol)
         mock_executor.execute.return_value = ExecutionResult(success=True)
 
         mock_git = AsyncMock()
@@ -196,7 +196,7 @@ class TestExecuteTask:
 
     @pytest.mark.asyncio
     async def test_execute_task_injects_retry_feedback(self) -> None:
-        mock_executor = AsyncMock(spec=BaseExecutor)
+        mock_executor = AsyncMock(spec=ExecutorProtocol)
         mock_executor.execute.return_value = ExecutionResult(success=True)
 
         runner = LocalTaskRunner(executor=mock_executor)
@@ -218,7 +218,7 @@ class TestExecuteTask:
 
     @pytest.mark.asyncio
     async def test_execute_task_no_feedback_on_first_attempt(self) -> None:
-        mock_executor = AsyncMock(spec=BaseExecutor)
+        mock_executor = AsyncMock(spec=ExecutorProtocol)
         mock_executor.execute.return_value = ExecutionResult(success=True)
 
         runner = LocalTaskRunner(executor=mock_executor)
@@ -237,7 +237,7 @@ class TestExecuteTask:
     @pytest.mark.asyncio
     async def test_execute_task_retry_feedback_string_entry(self) -> None:
         """qa_feedback_history entry is a plain string, not a dict."""
-        mock_executor = AsyncMock(spec=BaseExecutor)
+        mock_executor = AsyncMock(spec=ExecutorProtocol)
         mock_executor.execute.return_value = ExecutionResult(success=True)
 
         runner = LocalTaskRunner(executor=mock_executor)
@@ -255,7 +255,7 @@ class TestExecuteTask:
 
     @pytest.mark.asyncio
     async def test_execute_task_git_status_fails_gracefully(self) -> None:
-        mock_executor = AsyncMock(spec=BaseExecutor)
+        mock_executor = AsyncMock(spec=ExecutorProtocol)
         mock_executor.execute.return_value = ExecutionResult(success=True)
 
         mock_git = AsyncMock()
@@ -272,7 +272,7 @@ class TestExecuteTask:
 
     @pytest.mark.asyncio
     async def test_execute_task_context_includes_workspace_dir(self) -> None:
-        mock_executor = AsyncMock(spec=BaseExecutor)
+        mock_executor = AsyncMock(spec=ExecutorProtocol)
         mock_executor.execute.return_value = ExecutionResult(success=True)
 
         mock_git = AsyncMock()
@@ -295,7 +295,7 @@ class TestExecuteTask:
 class TestReviewTask:
     @pytest.mark.asyncio
     async def test_review_task_pass_with_commit(self) -> None:
-        mock_executor = AsyncMock(spec=BaseExecutor)
+        mock_executor = AsyncMock(spec=ExecutorProtocol)
         mock_executor.review.return_value = ReviewResult(
             passed=True, feedback="", error_message=None, error_category=""
         )
@@ -317,7 +317,7 @@ class TestReviewTask:
 
     @pytest.mark.asyncio
     async def test_review_task_pass_no_changes(self) -> None:
-        mock_executor = AsyncMock(spec=BaseExecutor)
+        mock_executor = AsyncMock(spec=ExecutorProtocol)
         mock_executor.review.return_value = ReviewResult(
             passed=True, feedback="", error_message=None, error_category=""
         )
@@ -336,7 +336,7 @@ class TestReviewTask:
 
     @pytest.mark.asyncio
     async def test_review_task_fail(self) -> None:
-        mock_executor = AsyncMock(spec=BaseExecutor)
+        mock_executor = AsyncMock(spec=ExecutorProtocol)
         mock_executor.review.return_value = ReviewResult(
             passed=False, feedback="Missing error handling in parse()", error_message=None, error_category=""
         )
@@ -352,7 +352,7 @@ class TestReviewTask:
 
     @pytest.mark.asyncio
     async def test_review_task_exception(self) -> None:
-        mock_executor = AsyncMock(spec=BaseExecutor)
+        mock_executor = AsyncMock(spec=ExecutorProtocol)
         mock_executor.review.side_effect = PermissionError("access denied")
 
         runner = LocalTaskRunner(executor=mock_executor)
@@ -366,7 +366,7 @@ class TestReviewTask:
 
     @pytest.mark.asyncio
     async def test_review_task_commit_failure(self) -> None:
-        mock_executor = AsyncMock(spec=BaseExecutor)
+        mock_executor = AsyncMock(spec=ExecutorProtocol)
         mock_executor.review.return_value = ReviewResult(
             passed=True, feedback="", error_message=None, error_category=""
         )
@@ -386,7 +386,7 @@ class TestReviewTask:
 
     @pytest.mark.asyncio
     async def test_review_task_without_repo_path(self) -> None:
-        mock_executor = AsyncMock(spec=BaseExecutor)
+        mock_executor = AsyncMock(spec=ExecutorProtocol)
         mock_executor.review.return_value = ReviewResult(
             passed=True, feedback="", error_message=None, error_category=""
         )
@@ -404,7 +404,7 @@ class TestReviewTask:
     @pytest.mark.asyncio
     async def test_review_task_without_branch_name(self) -> None:
         """Review passes but no branch_name means no commit attempt."""
-        mock_executor = AsyncMock(spec=BaseExecutor)
+        mock_executor = AsyncMock(spec=ExecutorProtocol)
         mock_executor.review.return_value = ReviewResult(
             passed=True, feedback="", error_message=None, error_category=""
         )
@@ -423,7 +423,7 @@ class TestReviewTask:
 
     @pytest.mark.asyncio
     async def test_review_task_fail_with_error_message(self) -> None:
-        mock_executor = AsyncMock(spec=BaseExecutor)
+        mock_executor = AsyncMock(spec=ExecutorProtocol)
         mock_executor.review.return_value = ReviewResult(
             passed=False, feedback="bad code", error_message="validation failed", error_category="tool"
         )
@@ -440,7 +440,7 @@ class TestReviewTask:
 
     @pytest.mark.asyncio
     async def test_review_task_exception_non_environment(self) -> None:
-        mock_executor = AsyncMock(spec=BaseExecutor)
+        mock_executor = AsyncMock(spec=ExecutorProtocol)
         mock_executor.review.side_effect = ValueError("bad input")
 
         runner = LocalTaskRunner(executor=mock_executor)
