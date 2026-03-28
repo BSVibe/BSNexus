@@ -1,9 +1,10 @@
 import asyncio
-import structlog
 import re
 import shutil
 import sys
 from typing import Any
+
+import structlog
 
 from backend.src.config import settings
 from backend.src.prompts.loader import get_prompt

@@ -46,7 +46,7 @@
       "title": "Code review — fix all issues including minor ones",
       "description": "Review all changes in this branch. Check: protocol compliance, test coverage >= 80%, no broken imports, backward compatibility (existing tasks still work), ruff check passes, no security issues. Fix any issues found.",
       "acceptanceCriteria": "ruff check backend/src/ passes. pytest backend/tests/ --cov=backend/src --cov-fail-under=80 passes. No lint warnings. All imports are clean.",
-      "passes": false,
+      "passes": true,
       "priority": 99
     }
   ]
