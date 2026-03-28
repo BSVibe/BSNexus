@@ -381,6 +381,9 @@ class TestLifespanErrorHandling:
             patch("backend.src.main.RedisStreamManager", return_value=mock_stream_manager),
             patch("backend.src.main.start_background_consumer", new_callable=AsyncMock),
             patch("backend.src.main.close_redis", new_callable=AsyncMock),
+            patch("backend.src.main.PlannerService"),
+            patch("backend.src.main.get_gateway_provider"),
+            patch("backend.src.main.get_knowledge_provider"),
             patch("backend.src.main.TelegramBot", return_value=mock_bot),
         ):
             # Should NOT raise — app should start even if bot fails
@@ -405,6 +408,9 @@ class TestLifespanErrorHandling:
             patch("backend.src.main.RedisStreamManager", return_value=mock_stream_manager),
             patch("backend.src.main.start_background_consumer", new_callable=AsyncMock),
             patch("backend.src.main.close_redis", new_callable=AsyncMock) as mock_close_redis,
+            patch("backend.src.main.PlannerService"),
+            patch("backend.src.main.get_gateway_provider"),
+            patch("backend.src.main.get_knowledge_provider"),
             patch("backend.src.main.TelegramBot", return_value=mock_bot),
         ):
             # Should NOT raise — shutdown should continue

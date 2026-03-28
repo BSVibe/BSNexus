@@ -19,12 +19,16 @@ from backend.src.api import (
     settings,
     tasks,
 )
+import structlog
+
 from backend.src.config import settings as app_settings
+from backend.src.core.planner_service import PlannerService
 from backend.src.core.rate_limiter import RateLimitMiddleware
 from backend.src.core.security_headers import SecurityHeadersMiddleware
+from backend.src.providers.dependencies import get_gateway_provider, get_knowledge_provider
 from backend.src.queue.background import start_background_consumer
 from backend.src.queue.streams import RedisStreamManager
-from backend.src.storage.database import init_db, engine
+from backend.src.storage.database import async_session, init_db, engine
 from backend.src.storage.redis_client import get_redis, close_redis
 from backend.src.telegram.bot import TelegramBot
 
@@ -87,15 +91,21 @@ async def lifespan(app: FastAPI):
     await start_background_consumer(app)
 
     # Telegram bot
+    planner_service = PlannerService(
+        gateway=get_gateway_provider(),
+        knowledge=get_knowledge_provider(),
+    )
     telegram_bot = TelegramBot(
         token=app_settings.telegram_bot_token,
         chat_id=app_settings.telegram_chat_id,
+        db_session_factory=async_session,
+        planner_service=planner_service,
+        project_id=app_settings.telegram_project_id,
     )
     app.state.telegram_bot = telegram_bot
     try:
         await telegram_bot.start()
     except Exception:
-        import structlog
         structlog.get_logger(__name__).error("telegram_bot_lifespan_start_failed", exc_info=True)
 
     yield
@@ -104,7 +114,6 @@ async def lifespan(app: FastAPI):
     try:
         await telegram_bot.stop()
     except Exception:
-        import structlog
         structlog.get_logger(__name__).error("telegram_bot_lifespan_stop_failed", exc_info=True)
     await close_redis()
 

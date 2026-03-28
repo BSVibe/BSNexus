@@ -84,6 +84,7 @@ class Settings(BaseSettings):
     # Telegram
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
+    telegram_project_id: str = ""
 
     # Planner
     planner_cron_schedule: str = "0 9 * * 1-5"
