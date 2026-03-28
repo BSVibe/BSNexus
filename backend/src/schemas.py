@@ -264,6 +264,83 @@ class TaskResponse(BaseModel):
     depends_on: list[uuid.UUID] = Field(default_factory=list)
 
 
+# ── TaskSuggestion Schemas ────────────────────────────────────────────
+
+
+class SuggestionStatus(str, enum.Enum):
+    pending = "pending"
+    approved = "approved"
+    rejected = "rejected"
+    modified = "modified"
+
+
+class TaskSuggestionCreate(BaseModel):
+    project_id: uuid.UUID
+    title: str
+    description: Optional[str] = None
+    task_type: str
+    priority: int = Field(..., gt=0)
+    estimated_effort: Optional[str] = None
+    reasoning: Optional[str] = None
+
+
+class TaskSuggestionUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    task_type: Optional[str] = None
+    priority: Optional[int] = Field(default=None, gt=0)
+    estimated_effort: Optional[str] = None
+    reasoning: Optional[str] = None
+    status: Optional[SuggestionStatus] = None
+    rejection_reason: Optional[str] = None
+
+
+class TaskSuggestionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    project_id: uuid.UUID
+    title: str
+    description: Optional[str] = None
+    task_type: str
+    priority: int
+    estimated_effort: Optional[str] = None
+    reasoning: Optional[str] = None
+    status: SuggestionStatus
+    rejection_reason: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class SuggestionApproveRequest(BaseModel):
+    phase_id: uuid.UUID
+
+
+class SuggestionRejectRequest(BaseModel):
+    reason: str = Field(..., min_length=1)
+
+
+class SuggestionModifyRequest(BaseModel):
+    phase_id: uuid.UUID
+    title: Optional[str] = None
+    description: Optional[str] = None
+    task_type: Optional[str] = None
+    priority: Optional[int] = Field(default=None, gt=0)
+    estimated_effort: Optional[str] = None
+    reasoning: Optional[str] = None
+
+
+class PlanGenerateRequest(BaseModel):
+    project_id: uuid.UUID
+
+
+class BriefingResponse(BaseModel):
+    suggestions: list[TaskSuggestionResponse]
+    pending_count: int
+    approved_today: int
+    total_tasks_active: int
+
+
 # ── Board Schemas ─────────────────────────────────────────────────────
 
 

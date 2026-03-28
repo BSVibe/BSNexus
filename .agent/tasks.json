@@ -1,51 +1,51 @@
 {
-  "branchName": "feat/provider-interfaces",
+  "branchName": "feat/planner-mode",
   "tasks": [
     {
       "id": "TASK-001",
-      "title": "GatewayProvider protocol + implementations",
-      "description": "Create backend/src/providers/ package. Define GatewayProvider protocol in providers/gateway.py: async chat_completion(messages, model_hint, task_metadata) -> dict. Implement BSGatewayProvider (routes through BSGateway API with X-BSNexus-* headers) and LiteLLMDirectProvider (direct litellm.acompletion fallback). Write tests first.",
-      "acceptanceCriteria": "GatewayProvider protocol defined. BSGatewayProvider sends requests to configured BSGateway URL with task metadata headers. LiteLLMDirectProvider calls litellm directly. Tests verify both implementations with mocked HTTP/LLM calls.",
+      "title": "TaskSuggestion SQLAlchemy model + Alembic migration",
+      "description": "Create TaskSuggestion model in backend/src/models.py (or a new file): id, project_id, title, description, task_type, priority (int), estimated_effort (str), reasoning, status (pending/approved/rejected/modified), created_at, updated_at. Add Pydantic schemas for request/response. Create Alembic migration. Write tests first.",
+      "acceptanceCriteria": "TaskSuggestion model defined. Alembic migration exists. Pydantic schemas cover creation, update, and response. Tests verify model CRUD with aiosqlite.",
       "passes": true,
       "priority": 1
     },
     {
       "id": "TASK-002",
-      "title": "SupervisorProvider protocol + implementations",
-      "description": "Define SupervisorProvider protocol in providers/supervisor.py: async log_event(agent_id, event_type, data) -> None, async check_permission(agent_id, action) -> bool. Implement BSupervisorProvider (HTTP client to BSupervisor API) and NoOpSupervisorProvider (does nothing, always allows). Write tests first.",
-      "acceptanceCriteria": "SupervisorProvider protocol defined. BSupervisorProvider sends events to configured URL. NoOpSupervisorProvider is a no-op that always returns True for permissions. Tests verify both.",
+      "title": "PlannerService core logic",
+      "description": "Create backend/src/core/planner_service.py. PlannerService class: async generate_daily_plan(project_id: str) -> list[TaskSuggestion]. Uses KnowledgeProvider to get SOT/SOP context, then GatewayProvider to call LLM with structured prompt, parses response into TaskSuggestion objects. Store generated suggestions in DB. Write tests first with mocked providers.",
+      "acceptanceCriteria": "PlannerService generates task suggestions from LLM. Uses KnowledgeProvider for context and GatewayProvider for LLM. Tests verify generation flow with mocked providers.",
       "passes": true,
       "priority": 2
     },
     {
       "id": "TASK-003",
-      "title": "KnowledgeProvider protocol + implementations",
-      "description": "Define KnowledgeProvider protocol in providers/knowledge.py: async get_sot(project_id) -> dict, async store_result(task_id, result) -> None, async search(query, limit) -> list[dict]. Implement BSageProvider (HTTP client to BSage /api/knowledge/* endpoints) and LocalMarkdownProvider (reads/writes local ./knowledge/ markdown files). Write tests first.",
-      "acceptanceCriteria": "KnowledgeProvider protocol defined. BSageProvider calls BSage API. LocalMarkdownProvider uses local filesystem. Tests verify both with mocks.",
+      "title": "Approval workflow API",
+      "description": "Create backend/src/api/planner.py router: GET /api/v1/planner/suggestions (list pending), POST /api/v1/planner/suggestions/{id}/approve (convert to Task), POST /api/v1/planner/suggestions/{id}/reject (dismiss with reason), POST /api/v1/planner/suggestions/{id}/modify (edit then approve), POST /api/v1/planner/generate (trigger plan generation). Use FastAPI DI for providers. Write tests first.",
+      "acceptanceCriteria": "All 5 endpoints work. Approved suggestions create real Tasks. Rejected suggestions store reason. Modified suggestions update fields then approve. Tests cover all endpoints and state transitions.",
       "passes": true,
       "priority": 3
     },
     {
       "id": "TASK-004",
-      "title": "Provider config via pydantic-settings",
-      "description": "Add provider selection to settings: GATEWAY_PROVIDER (bsgateway|litellm, default litellm), SUPERVISOR_PROVIDER (bsupervisor|noop, default noop), KNOWLEDGE_PROVIDER (bsage|local, default local). Add URL configs: BSGATEWAY_URL, BSUPERVISOR_URL, BSAGE_URL. Update .env.example. Write tests.",
-      "acceptanceCriteria": "Settings has provider selection fields with defaults. .env.example documents all new config keys. Tests verify provider selection from env vars.",
+      "title": "Morning briefing endpoint",
+      "description": "Add GET /api/v1/planner/briefing endpoint. Returns today's suggestions, pending approvals, project status summary as structured JSON. Designed for Telegram bot consumption. Include: suggestions (list), pending_count, approved_today, total_tasks_active. Write tests first.",
+      "acceptanceCriteria": "GET /api/v1/planner/briefing returns structured JSON with all fields. Tests verify response format and data aggregation.",
       "passes": true,
       "priority": 4
     },
     {
       "id": "TASK-005",
-      "title": "FastAPI dependency injection for providers",
-      "description": "Create provider factory functions and register as FastAPI dependencies. get_gateway_provider(), get_supervisor_provider(), get_knowledge_provider() resolve the configured provider. Inject into routes/services. Write tests.",
-      "acceptanceCriteria": "Providers available via Depends(). Fallback providers work without external services. Tests verify DI wiring.",
+      "title": "Register planner router + wire into app",
+      "description": "Include the planner router in main.py. Ensure all planner endpoints are accessible. Add planner-related settings to config (cron schedule, max suggestions per day). Write integration tests.",
+      "acceptanceCriteria": "Planner router is registered in the app. All endpoints are accessible. Settings are configurable via env vars. Integration tests pass.",
       "passes": true,
       "priority": 5
     },
     {
       "id": "REVIEW-001",
       "title": "Code review — fix all issues including minor ones",
-      "description": "Review all changes. Verify: each provider file self-contained, no cross-provider imports, all fallbacks work, test coverage >= 80%, ruff clean.",
-      "acceptanceCriteria": "ruff check passes. pytest coverage >= 80%. All existing tests pass.",
+      "description": "Review all changes. Verify: test coverage >= 80%, ruff check passes, no broken existing tests, TaskSuggestion and Task are separate models, approval is the bridge between them.",
+      "acceptanceCriteria": "ruff check passes. pytest coverage >= 80%. All existing and new tests pass.",
       "passes": true,
       "priority": 99
     }

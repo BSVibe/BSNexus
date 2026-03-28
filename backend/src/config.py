@@ -81,6 +81,10 @@ class Settings(BaseSettings):
     # Providers — Local knowledge
     knowledge_dir: str = "./knowledge"
 
+    # Planner
+    planner_cron_schedule: str = "0 9 * * 1-5"
+    planner_max_suggestions_per_day: int = 10
+
     # Logging
     log_dir: str = "logs"
     log_level: str = "INFO"

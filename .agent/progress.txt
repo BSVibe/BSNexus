@@ -172,3 +172,108 @@ Started: 2026-03-28T09:00:23Z
 - All fallback providers work without external services (LiteLLMDirect, NoOp, LocalMarkdown)
 - All providers use typing.Protocol with @runtime_checkable
 - All provider implementations pass protocol compliance tests
+
+---
+
+## TASK-001: TaskSuggestion SQLAlchemy model + Alembic migration
+- Created `SuggestionStatus` enum in `models.py`: pending, approved, rejected, modified
+- Created `TaskSuggestion` model in `models.py` with fields: id (UUID PK), project_id (FK to projects), title, description, task_type (str), priority (int), estimated_effort, reasoning, status (SuggestionStatus), rejection_reason, created_at, updated_at
+- Added composite index `ix_task_suggestions_project_status` on (project_id, status)
+- Added relationship to Project model
+- Created Pydantic schemas in `schemas.py`:
+  - `SuggestionStatus` enum (mirrors model enum)
+  - `TaskSuggestionCreate`: project_id, title, task_type, priority (gt=0), optional description/estimated_effort/reasoning
+  - `TaskSuggestionUpdate`: all fields optional, includes status and rejection_reason
+  - `TaskSuggestionResponse`: full model with from_attributes=True for ORM compatibility
+- Created Alembic migration `m5h6i7j8k9l0_add_task_suggestions_table.py` (down_revision: l4g5h6i7j8k9)
+- TDD: 19 tests in `backend/tests/test_task_suggestion.py`
+  - 4 SuggestionStatus enum tests
+  - 8 model CRUD tests (create, defaults, nullable, read, update, delete, rejection_reason, FK constraint)
+  - 3 TaskSuggestionCreate schema tests (valid, minimal, priority validation)
+  - 2 TaskSuggestionUpdate schema tests (partial update, rejection reason)
+  - 2 TaskSuggestionResponse schema tests (direct construction, from_attributes ORM)
+- Fixed pre-existing merge conflicts in test_api_architect.py (2 conflicts) and test_api_projects.py (1 conflict)
+- All 1027 tests pass, coverage 94.00%, ruff clean
+- Files created: `test_task_suggestion.py`, `m5h6i7j8k9l0_add_task_suggestions_table.py`
+- Files changed: `models.py`, `schemas.py`, `test_api_architect.py` (merge conflict fix), `test_api_projects.py` (merge conflict fix)
+- Key design: TaskSuggestion is fully separate from Task model — approval workflow (TASK-003) will bridge them
+
+## TASK-002: PlannerService core logic
+- Created `backend/src/core/planner_service.py` with `PlannerService` class
+- `generate_daily_plan(project_id, db)` method: fetches SOT + SOP context from KnowledgeProvider, builds structured LLM prompt, calls GatewayProvider, parses JSON response, persists TaskSuggestion models to DB
+- `_build_messages()`: constructs system + user messages with SOT/SOP context, requests JSON array response
+- `_parse_llm_response()`: handles raw JSON and markdown-wrapped JSON (```json...```), validates array type
+- Skips invalid suggestions (missing required fields: title, task_type) with warning log
+- Configurable `model_hint` (defaults to `settings.default_llm_model`)
+- TDD: 18 tests in `backend/tests/test_planner_service.py`
+  - 3 init tests (providers stored, custom model, default model)
+  - 6 generate_daily_plan tests (knowledge calls, gateway calls, return value, field correctness, DB persistence, pending status)
+  - 4 parse edge case tests (markdown-wrapped JSON, empty list, invalid JSON raises ValueError, missing fields skipped)
+  - 5 prompt construction tests (SOT included, SOP included, JSON requested, model_hint passed, empty context works)
+- All 1045 tests pass, coverage 94.06%, ruff clean
+- Files created: `core/planner_service.py`, `tests/test_planner_service.py`
+
+## TASK-003: Approval workflow API
+- Created `backend/src/api/planner.py` router with 5 endpoints:
+  - `GET /api/v1/planner/suggestions` — list suggestions by project, defaults to pending status, optional status filter
+  - `POST /api/v1/planner/suggestions/{id}/approve` — validates pending status, creates real Task from suggestion, maps priority (int→enum) and task_type (str→enum)
+  - `POST /api/v1/planner/suggestions/{id}/reject` — validates pending status, stores rejection reason, updates status to rejected
+  - `POST /api/v1/planner/suggestions/{id}/modify` — updates suggestion fields, marks as modified, creates Task with modified values
+  - `POST /api/v1/planner/generate` — verifies project exists, creates PlannerService with injected providers, generates suggestions
+- Added planner permissions to `core/auth.py`: `planner_read` (viewer+), `planner_manage` (operator+)
+- Added request schemas to `schemas.py`: `SuggestionApproveRequest` (phase_id), `SuggestionRejectRequest` (reason), `SuggestionModifyRequest` (phase_id + optional fields), `PlanGenerateRequest` (project_id)
+- Registered planner router in `main.py`
+- Helper `_create_task_from_suggestion()` maps suggestion fields to Task model:
+  - task_type: best-effort enum mapping with feature fallback
+  - priority: numeric→enum (1=critical, 2-3=high, 4-6=medium, 7+=low)
+  - source: TaskSource.architect, status: TaskStatus.ready
+- Helper `_task_to_response()` avoids lazy-loading `depends_on` relationship for newly created tasks
+- TDD: 18 tests in `backend/tests/test_planner_api.py`
+  - 3 list tests (pending default, status filter, project_id required)
+  - 5 approve tests (creates task, updates status, 404 nonexistent, 400 already approved, 404 invalid phase)
+  - 4 reject tests (sets status+reason, 404 nonexistent, 400 already rejected, 422 missing reason)
+  - 4 modify tests (updates+approves, status=modified, 404 nonexistent, 400 non-pending)
+  - 2 generate tests (calls planner service, 404 nonexistent project)
+- All 1063 tests pass, coverage 93.17%, ruff clean
+- Files created: `api/planner.py`, `tests/test_planner_api.py`
+- Files changed: `main.py` (router registration), `schemas.py` (request schemas), `core/auth.py` (planner permissions)
+
+## TASK-004: Morning briefing endpoint
+- Added `GET /api/v1/planner/briefing?project_id=<uuid>` endpoint to `api/planner.py`
+- Returns `BriefingResponse` with: suggestions (today's, all statuses), pending_count, approved_today, total_tasks_active
+- `suggestions`: all TaskSuggestions created today for the project, ordered by priority
+- `pending_count`: count of suggestions with status=pending
+- `approved_today`: count of suggestions approved today (status=approved, updated_at >= today start)
+- `total_tasks_active`: count of tasks in active statuses (ready, in_progress, review)
+- Added `BriefingResponse` schema to `schemas.py`
+- TDD: 8 tests in `backend/tests/test_planner_briefing.py`
+  - structured JSON response, today's suggestions, pending count, approved today, active tasks, 422 on missing project_id, empty project, nonexistent project
+- All 1071 tests pass, coverage 93.03%, ruff clean
+- Files changed: `api/planner.py` (new endpoint), `schemas.py` (BriefingResponse)
+- Files created: `tests/test_planner_briefing.py`
+
+## TASK-005: Register planner router + wire into app
+- Planner router was already registered in `main.py` (line 164) from TASK-003
+- Added planner settings to `config.py`: `planner_cron_schedule` (default: "0 9 * * 1-5"), `planner_max_suggestions_per_day` (default: 10)
+- Updated `.env.example` with `PLANNER_CRON_SCHEDULE` and `PLANNER_MAX_SUGGESTIONS_PER_DAY` documentation
+- TDD: 5 config tests in `tests/test_planner_config.py` (defaults, env overrides, edge cases)
+- TDD: 10 integration tests in `tests/integration/test_planner_workflow.py`:
+  - 6 endpoint accessibility tests (all 6 planner endpoints return expected status codes, not 404)
+  - 3 full workflow tests (generate→approve→reject, modify→verify task, briefing aggregation)
+  - 1 settings integration test (planner fields exist and have correct types)
+- All 1086 tests pass, coverage 93.03%, ruff clean
+- Files changed: `config.py` (planner settings), `.env.example` (planner env vars)
+- Files created: `tests/test_planner_config.py`, `tests/integration/test_planner_workflow.py`
+
+## REVIEW-001: Code review — fix all issues including minor ones
+- Ran `ruff check backend/src/` — all checks passed, zero issues
+- Ran `pytest backend/tests/ -v --cov=backend/src --cov-fail-under=80` — 1086 passed, 93.03% coverage
+- Verified design constraints:
+  - TaskSuggestion and Task are SEPARATE models in models.py (Task lines 149-207, TaskSuggestion lines 210-237)
+  - Approval workflow in api/planner.py converts suggestion to task via `_create_task_from_suggestion()`
+  - PlannerService uses KnowledgeProvider (get_sot) and GatewayProvider (chat_completion), no direct litellm imports
+  - All 6 planner endpoints exist and work (briefing, suggestions, approve, reject, modify, generate)
+  - Planner router registered in main.py (line 164)
+  - Provider DI via dependencies.py with lru_cache singleton pattern
+- No issues found — all acceptance criteria met
+## Completed at 2026-03-28T10:47:23Z after 6 iterations
