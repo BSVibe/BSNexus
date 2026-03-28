@@ -20,8 +20,6 @@ logger = structlog.get_logger(__name__)
 class KnowledgeProvider(Protocol):
     """Knowledge base interface using structural subtyping."""
 
-    async def get_sot(self, project_id: str) -> dict[str, Any]: ...
-
     async def store_result(self, task_id: str, result: dict[str, Any]) -> None: ...
 
     async def search(self, query: str, limit: int = 10) -> list[dict[str, Any]]: ...
@@ -50,18 +48,6 @@ class BSageProvider:
             "Authorization": f"Bearer {self._api_key}",
             "Content-Type": "application/json",
         }
-
-    async def get_sot(self, project_id: str) -> dict[str, Any]:
-        """Fetch source-of-truth for a project from BSage API."""
-        logger.info("bsage_get_sot", project_id=project_id)
-
-        resp = await self._client.get(
-            f"{self._base_url}/api/knowledge/sot/{project_id}",
-            headers=self._headers(),
-        )
-        resp.raise_for_status()
-
-        return resp.json()
 
     async def store_result(self, task_id: str, result: dict[str, Any]) -> None:
         """Store a task result in BSage API."""
@@ -103,19 +89,6 @@ class LocalMarkdownProvider:
 
     def __init__(self, knowledge_dir: str | Path) -> None:
         self._knowledge_dir = Path(knowledge_dir)
-
-    async def get_sot(self, project_id: str) -> dict[str, Any]:
-        """Read source-of-truth from a local markdown file."""
-        sot_file = self._knowledge_dir / "sot" / f"{project_id}.md"
-
-        if not sot_file.exists():
-            logger.info("local_knowledge_sot_not_found", project_id=project_id)
-            return {}
-
-        content = await asyncio.to_thread(sot_file.read_text, encoding="utf-8")
-        logger.info("local_knowledge_get_sot", project_id=project_id)
-
-        return {"project_id": project_id, "content": content}
 
     async def store_result(self, task_id: str, result: dict[str, Any]) -> None:
         """Write task result to a local markdown file."""

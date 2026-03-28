@@ -40,11 +40,9 @@ def mock_gateway() -> AsyncMock:
 @pytest.fixture
 def mock_knowledge() -> AsyncMock:
     knowledge = AsyncMock()
-    knowledge.get_sot.return_value = {
-        "project_id": "test",
-        "content": "# Project SOT\nThis is a web app with React frontend and FastAPI backend.",
-    }
-    knowledge.search.return_value = [
+    knowledge.search.side_effect = lambda query, **kwargs: [
+        {"file": "sot.md", "content": "# Project SOT\nThis is a web app with React frontend and FastAPI backend."},
+    ] if "SOT" in query else [
         {"file": "sop.md", "content": "# SOP\nUse TDD for all features."},
     ]
     return knowledge
@@ -124,8 +122,8 @@ class TestGenerateDailyPlan:
         svc = PlannerService(gateway=mock_gateway_with_response, knowledge=mock_knowledge)
         await svc.generate_daily_plan(project_id=str(project.id), db=db_session)
 
-        mock_knowledge.get_sot.assert_awaited_once_with(str(project.id))
-        mock_knowledge.search.assert_awaited_once()
+        # Two search calls: one for SOT context, one for SOP
+        assert mock_knowledge.search.await_count == 2
 
     async def test_calls_gateway_for_llm_completion(
         self,
@@ -389,7 +387,7 @@ class TestPromptConstruction:
         """If knowledge provider returns empty SOT, plan generation should still work."""
         from backend.src.core.planner_service import PlannerService
 
-        mock_knowledge.get_sot.return_value = {}
+        mock_knowledge.search.side_effect = None
         mock_knowledge.search.return_value = []
 
         svc = PlannerService(gateway=mock_gateway_with_response, knowledge=mock_knowledge)

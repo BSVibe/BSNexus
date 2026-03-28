@@ -48,12 +48,12 @@ class PlannerService:
         """
         logger.info("planner_generate_start", project_id=project_id)
 
-        # 1. Gather context
-        sot = await self._knowledge.get_sot(project_id)
+        # 1. Gather context via search
+        sot_results = await self._knowledge.search(f"project:{project_id} SOT", limit=5)
         sop_results = await self._knowledge.search("SOP standard operating procedures", limit=5)
 
         # 2. Build prompt
-        messages = self._build_messages(project_id, sot, sop_results)
+        messages = self._build_messages(project_id, sot_results, sop_results)
 
         # 3. Call LLM
         result = await self._gateway.chat_completion(
@@ -97,11 +97,11 @@ class PlannerService:
     def _build_messages(
         self,
         project_id: str,
-        sot: dict[str, Any],
+        sot_results: list[dict[str, Any]],
         sop_results: list[dict[str, Any]],
     ) -> list[dict[str, str]]:
         """Build LLM messages with project context."""
-        sot_text = sot.get("content", "") if sot else ""
+        sot_text = "\n\n".join(r.get("content", "") for r in sot_results) if sot_results else ""
         sop_text = "\n\n".join(r.get("content", "") for r in sop_results) if sop_results else ""
 
         system_prompt = (

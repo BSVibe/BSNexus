@@ -31,9 +31,6 @@ class TestKnowledgeProviderProtocol:
 
     def test_compliant_class_is_instance(self) -> None:
         class _FakeKnowledge:
-            async def get_sot(self, project_id: str) -> dict[str, Any]:
-                return {}
-
             async def store_result(self, task_id: str, result: dict[str, Any]) -> None:
                 pass
 
@@ -83,47 +80,6 @@ class TestBSageProvider:
             timeout=30.0,
             client=mock_client,
         )
-
-    async def test_get_sot_success(self, provider: BSageProvider, mock_client: AsyncMock) -> None:
-        """Should GET source-of-truth from BSage API."""
-        mock_client.get = AsyncMock(return_value=_mock_response(
-            json_data={
-                "project_id": "p-123",
-                "architecture": "monolith",
-                "tech_stack": ["python", "fastapi"],
-            }
-        ))
-
-        result = await provider.get_sot("p-123")
-
-        assert result["project_id"] == "p-123"
-        assert result["architecture"] == "monolith"
-
-        mock_client.get.assert_called_once()
-        call_args = mock_client.get.call_args
-        assert call_args[0][0] == "https://bsage.example.com/api/knowledge/sot/p-123"
-
-    async def test_get_sot_sends_auth_header(self, provider: BSageProvider, mock_client: AsyncMock) -> None:
-        """API key should be sent as Bearer token."""
-        mock_client.get = AsyncMock(return_value=_mock_response(json_data={}))
-
-        await provider.get_sot("p-123")
-
-        call_args = mock_client.get.call_args
-        headers = call_args[1].get("headers", {})
-        assert headers["Authorization"] == "Bearer test-bsage-key-1234"
-
-    async def test_get_sot_http_error(self, provider: BSageProvider, mock_client: AsyncMock) -> None:
-        """Should raise on HTTP errors."""
-        error_resp = MagicMock()
-        error_resp.status_code = 404
-        mock_client.get = AsyncMock(return_value=_mock_response(
-            status_code=404,
-            raise_error=httpx.HTTPStatusError("Not Found", request=MagicMock(), response=error_resp),
-        ))
-
-        with pytest.raises(httpx.HTTPStatusError):
-            await provider.get_sot("p-unknown")
 
     async def test_store_result_success(self, provider: BSageProvider, mock_client: AsyncMock) -> None:
         """Should POST result to BSage API."""
@@ -189,23 +145,6 @@ class TestLocalMarkdownProvider:
     @pytest.fixture
     def provider(self, tmp_path) -> LocalMarkdownProvider:
         return LocalMarkdownProvider(knowledge_dir=tmp_path)
-
-    async def test_get_sot_reads_project_file(self, provider: LocalMarkdownProvider, tmp_path) -> None:
-        """Should read source-of-truth from a markdown file for the project."""
-        sot_file = tmp_path / "sot" / "p-123.md"
-        sot_file.parent.mkdir(parents=True, exist_ok=True)
-        sot_file.write_text("# Project p-123\n\nArchitecture: monolith\nStack: Python, FastAPI\n")
-
-        result = await provider.get_sot("p-123")
-
-        assert result["project_id"] == "p-123"
-        assert "# Project p-123" in result["content"]
-
-    async def test_get_sot_returns_empty_when_not_found(self, provider: LocalMarkdownProvider) -> None:
-        """Should return empty dict when project SOT file doesn't exist."""
-        result = await provider.get_sot("p-nonexistent")
-
-        assert result == {}
 
     async def test_store_result_writes_file(self, provider: LocalMarkdownProvider, tmp_path) -> None:
         """Should write result to a markdown file."""
