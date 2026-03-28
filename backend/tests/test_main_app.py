@@ -143,12 +143,17 @@ async def test_lifespan_startup_and_shutdown() -> None:
     mock_redis = AsyncMock()
     mock_stream_manager = AsyncMock()
 
+    mock_bot = AsyncMock()
+    mock_bot.start = AsyncMock()
+    mock_bot.stop = AsyncMock()
+
     with (
         patch("backend.src.main.init_db", new_callable=AsyncMock) as mock_init_db,
         patch("backend.src.main.get_redis", new_callable=AsyncMock, return_value=mock_redis),
         patch("backend.src.main.RedisStreamManager", return_value=mock_stream_manager),
         patch("backend.src.main.start_background_consumer", new_callable=AsyncMock),
         patch("backend.src.main.close_redis", new_callable=AsyncMock) as mock_close_redis,
+        patch("backend.src.main.TelegramBot", return_value=mock_bot),
     ):
         async with lifespan(mock_app):
             mock_init_db.assert_awaited_once()

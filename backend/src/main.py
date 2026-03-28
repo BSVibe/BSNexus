@@ -26,6 +26,7 @@ from backend.src.queue.background import start_background_consumer
 from backend.src.queue.streams import RedisStreamManager
 from backend.src.storage.database import init_db, engine
 from backend.src.storage.redis_client import get_redis, close_redis
+from backend.src.telegram.bot import TelegramBot
 
 
 def _setup_logging() -> None:
@@ -85,9 +86,18 @@ async def lifespan(app: FastAPI):
     app.state.stream_manager = stream_manager
     await start_background_consumer(app)
 
+    # Telegram bot
+    telegram_bot = TelegramBot(
+        token=app_settings.telegram_bot_token,
+        chat_id=app_settings.telegram_chat_id,
+    )
+    app.state.telegram_bot = telegram_bot
+    await telegram_bot.start()
+
     yield
 
     # Shutdown
+    await telegram_bot.stop()
     await close_redis()
 
 

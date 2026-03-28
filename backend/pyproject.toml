@@ -19,6 +19,7 @@ dependencies = [
     "pyyaml>=6.0",
     "click>=8.0.0",
     "structlog>=23.0.0",
+    "python-telegram-bot>=20.0",
     "bsvibe-auth[fastapi] @ git+https://github.com/blas1n/BSVibe-Auth.git#subdirectory=python",
 ]
 
