@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from backend.src.core.executor.base import ExecutionResult, ExecutorProtocol, ReviewResult
+from backend.src.core.executor.base import ExecutorProtocol
 from backend.src.core.executor.claude_code import ClaudeCodeExecutor
 from backend.src.core.executor.registry import ExecutorRegistry
 

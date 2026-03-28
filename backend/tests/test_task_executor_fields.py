@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.src.models import Task, TaskStatus, TaskPriority, TaskType, TaskSource
+from backend.src.models import Task, TaskStatus, TaskPriority
 from backend.src.schemas import TaskCreate, TaskResponse, TaskUpdate
 
 

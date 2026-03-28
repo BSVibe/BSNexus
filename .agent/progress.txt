@@ -57,7 +57,12 @@ Started: 2026-03-28T09:00:23Z
 - Ran `ruff check backend/src/` — all checks passed
 - Ran `pytest backend/tests/ --cov=backend/src --cov-fail-under=80` — 922 passed, 93.65% coverage
 - Reviewed all 22 changed files on the branch
+- Fixed CRITICAL: `.env.example` (root + deploy) and `docker-compose.yml` still had `EXECUTOR_TYPE=claude-code` (old hyphenated name), updated to `claude_code`
+- Fixed unused imports in 4 test files: `test_claude_code_protocol.py` (ExecutionResult, ReviewResult), `test_protocol.py` (runtime_checkable, AsyncMock, pytest), `test_task_executor_fields.py` (TaskType, TaskSource), `test_task_runner_registry.py` (TaskExecutionResult, TaskReviewResult)
+- Verified: ruff clean on src/ and all changed test files, 922 tests pass, 93.65% coverage
+- Files changed: `.env.example`, `deploy/.env.example`, `deploy/docker-compose.yml`, 4 test files (import cleanup)
 - Fixed import order in `claude_code.py`: moved `structlog` (third-party) after stdlib imports (`asyncio`, `re`, `shutil`, `sys`)
 - Verified: protocol compliance correct, thread-safe registry, backward compatibility with getattr fallback, no security issues, clean imports
 - All tests still pass after fix, coverage unchanged at 93.65%
 - Files changed: `claude_code.py` (import reorder)
+## Completed at 2026-03-28T09:24:30Z after 6 iterations

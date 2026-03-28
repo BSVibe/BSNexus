@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from backend.src.core.executor.base import ExecutionResult, ExecutorProtocol, ReviewResult
-from backend.src.core.task_runner import LocalTaskRunner, TaskExecutionResult, TaskReviewResult
+from backend.src.core.task_runner import LocalTaskRunner
 
 
 def _make_mock_executor() -> AsyncMock:

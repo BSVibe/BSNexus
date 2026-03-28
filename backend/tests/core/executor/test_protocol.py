@@ -1,9 +1,6 @@
 """Tests for ExecutorProtocol — verifies the protocol contract."""
 
-from typing import Any, runtime_checkable
-from unittest.mock import AsyncMock
-
-import pytest
+from typing import Any
 
 from backend.src.core.executor.base import ExecutionResult, ExecutorProtocol, ReviewResult
 
