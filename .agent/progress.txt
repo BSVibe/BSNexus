@@ -66,3 +66,28 @@ Started: 2026-03-28T09:00:23Z
 - All tests still pass after fix, coverage unchanged at 93.65%
 - Files changed: `claude_code.py` (import reorder)
 ## Completed at 2026-03-28T09:24:30Z after 6 iterations
+
+---
+
+## TASK-001: GatewayProvider protocol + implementations
+- Created `backend/src/providers/` package (new)
+- Defined `GatewayProvider` protocol in `providers/gateway.py` using `@runtime_checkable` Protocol
+- `ChatCompletionResult` dataclass: content, model, usage fields
+- Protocol method: `async chat_completion(messages, model_hint, task_metadata) -> ChatCompletionResult`
+- Implemented `BSGatewayProvider`: routes requests through BSGateway API
+  - Sends POST to `{base_url}/v1/chat/completions` with Bearer auth
+  - Adds `X-BSNexus-*` headers from task_metadata dict
+  - Uses httpx.AsyncClient for async HTTP
+- Implemented `LiteLLMDirectProvider`: direct litellm.acompletion fallback
+  - Falls back to default_model when model_hint is empty
+  - Passes api_key and optional base_url to litellm
+  - Extracts usage data from litellm response
+- TDD: 17 tests written first in `backend/tests/providers/test_gateway.py`
+  - 3 protocol compliance tests
+  - 2 ChatCompletionResult tests
+  - 5 BSGatewayProvider tests (success, no metadata, HTTP error, auth header, body)
+  - 7 LiteLLMDirectProvider tests (success, model hint, default model, api key, error, metadata ignored, base_url)
+- 100% coverage on gateway.py (49 statements, 0 missed)
+- All 939 existing tests still pass, ruff clean
+- Files created: `providers/__init__.py`, `providers/gateway.py`, `tests/providers/__init__.py`, `tests/providers/test_gateway.py`
+- Key decisions: self-contained module (no cross-provider imports), structlog for logging, no settings import (config passed at construction time)

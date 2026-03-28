@@ -1,52 +1,52 @@
 {
-  "branchName": "feat/executor-protocol",
+  "branchName": "feat/provider-interfaces",
   "tasks": [
     {
       "id": "TASK-001",
-      "title": "Define ExecutorProtocol with typing.Protocol",
-      "description": "Refactor backend/src/core/executor/base.py: Replace BaseExecutor ABC with ExecutorProtocol using typing.Protocol. Keep ExecutionResult and ReviewResult dataclasses. Add supported_task_types() -> list[str] method to the protocol. Write tests first (TDD).",
-      "acceptanceCriteria": "ExecutorProtocol is a typing.Protocol class with execute(), review(), and supported_task_types() methods. Old BaseExecutor is removed. Tests in backend/tests/core/executor/ verify the protocol contract.",
+      "title": "GatewayProvider protocol + implementations",
+      "description": "Create backend/src/providers/ package. Define GatewayProvider protocol in providers/gateway.py: async chat_completion(messages, model_hint, task_metadata) -> dict. Implement BSGatewayProvider (routes through BSGateway API with X-BSNexus-* headers) and LiteLLMDirectProvider (direct litellm.acompletion fallback). Write tests first.",
+      "acceptanceCriteria": "GatewayProvider protocol defined. BSGatewayProvider sends requests to configured BSGateway URL with task metadata headers. LiteLLMDirectProvider calls litellm directly. Tests verify both implementations with mocked HTTP/LLM calls.",
       "passes": true,
       "priority": 1
     },
     {
       "id": "TASK-002",
-      "title": "Create ExecutorRegistry",
-      "description": "Create backend/src/core/executor/registry.py with an ExecutorRegistry class. Methods: register(name: str, executor_factory: Callable) -> None, get(name: str) -> ExecutorProtocol, list_available() -> list[str]. Thread-safe singleton pattern. Write tests first.",
-      "acceptanceCriteria": "ExecutorRegistry can register and retrieve executors by name. Raises KeyError for unknown executors. Tests cover register, get, list_available, and duplicate registration.",
-      "passes": true,
+      "title": "SupervisorProvider protocol + implementations",
+      "description": "Define SupervisorProvider protocol in providers/supervisor.py: async log_event(agent_id, event_type, data) -> None, async check_permission(agent_id, action) -> bool. Implement BSupervisorProvider (HTTP client to BSupervisor API) and NoOpSupervisorProvider (does nothing, always allows). Write tests first.",
+      "acceptanceCriteria": "SupervisorProvider protocol defined. BSupervisorProvider sends events to configured URL. NoOpSupervisorProvider is a no-op that always returns True for permissions. Tests verify both.",
+      "passes": false,
       "priority": 2
     },
     {
       "id": "TASK-003",
-      "title": "Refactor ClaudeCodeExecutor to implement ExecutorProtocol",
-      "description": "Update backend/src/core/executor/claude_code.py to implement ExecutorProtocol (structural subtyping, no inheritance needed). Add supported_task_types() returning ['coding', 'refactor', 'bugfix', 'test']. Register it in the ExecutorRegistry. Update imports throughout the codebase. Write tests first.",
-      "acceptanceCriteria": "ClaudeCodeExecutor satisfies ExecutorProtocol. It's registered in the registry. All existing tests still pass. New tests verify protocol compliance.",
-      "passes": true,
+      "title": "KnowledgeProvider protocol + implementations",
+      "description": "Define KnowledgeProvider protocol in providers/knowledge.py: async get_sot(project_id) -> dict, async store_result(task_id, result) -> None, async search(query, limit) -> list[dict]. Implement BSageProvider (HTTP client to BSage /api/knowledge/* endpoints) and LocalMarkdownProvider (reads/writes local ./knowledge/ markdown files). Write tests first.",
+      "acceptanceCriteria": "KnowledgeProvider protocol defined. BSageProvider calls BSage API. LocalMarkdownProvider uses local filesystem. Tests verify both with mocks.",
+      "passes": false,
       "priority": 3
     },
     {
       "id": "TASK-004",
-      "title": "Add task_type and metadata fields to Task model",
-      "description": "Add task_type: str (default='coding') and metadata: JSON (default={}) columns to the Task SQLAlchemy model in backend/src/models.py. Create an Alembic migration. Update Pydantic schemas in backend/src/schemas.py. Write tests first.",
-      "acceptanceCriteria": "Task model has task_type and metadata columns. Alembic migration exists and is valid. Schemas accept task_type and metadata. Existing tasks default to task_type='coding'. Tests verify defaults and serialization.",
-      "passes": true,
+      "title": "Provider config via pydantic-settings",
+      "description": "Add provider selection to settings: GATEWAY_PROVIDER (bsgateway|litellm, default litellm), SUPERVISOR_PROVIDER (bsupervisor|noop, default noop), KNOWLEDGE_PROVIDER (bsage|local, default local). Add URL configs: BSGATEWAY_URL, BSUPERVISOR_URL, BSAGE_URL. Update .env.example. Write tests.",
+      "acceptanceCriteria": "Settings has provider selection fields with defaults. .env.example documents all new config keys. Tests verify provider selection from env vars.",
+      "passes": false,
       "priority": 4
     },
     {
       "id": "TASK-005",
-      "title": "Update TaskRunner to use ExecutorRegistry",
-      "description": "Modify backend/src/core/task_runner.py: LocalTaskRunner should accept executor_name (optional, default='claude_code') and resolve via ExecutorRegistry instead of taking a BaseExecutor directly. Update all callers (orchestrator, worker). Write tests first.",
-      "acceptanceCriteria": "LocalTaskRunner resolves executor from registry by task.task_type or explicit name. All existing tests pass. New tests verify registry-based resolution and fallback to default.",
-      "passes": true,
+      "title": "FastAPI dependency injection for providers",
+      "description": "Create provider factory functions and register as FastAPI dependencies. get_gateway_provider(), get_supervisor_provider(), get_knowledge_provider() resolve the configured provider. Inject into routes/services. Write tests.",
+      "acceptanceCriteria": "Providers available via Depends(). Fallback providers work without external services. Tests verify DI wiring.",
+      "passes": false,
       "priority": 5
     },
     {
       "id": "REVIEW-001",
       "title": "Code review — fix all issues including minor ones",
-      "description": "Review all changes in this branch. Check: protocol compliance, test coverage >= 80%, no broken imports, backward compatibility (existing tasks still work), ruff check passes, no security issues. Fix any issues found.",
-      "acceptanceCriteria": "ruff check backend/src/ passes. pytest backend/tests/ --cov=backend/src --cov-fail-under=80 passes. No lint warnings. All imports are clean.",
-      "passes": true,
+      "description": "Review all changes. Verify: each provider file self-contained, no cross-provider imports, all fallbacks work, test coverage >= 80%, ruff clean.",
+      "acceptanceCriteria": "ruff check passes. pytest coverage >= 80%. All existing tests pass.",
+      "passes": false,
       "priority": 99
     }
   ]
