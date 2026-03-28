@@ -1,10 +1,9 @@
 """Tests for JWT-based authentication and RBAC permission system."""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
-from httpx import AsyncClient
 
 from backend.src.core.auth import (
     Permission,

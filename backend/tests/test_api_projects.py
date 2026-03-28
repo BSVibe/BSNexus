@@ -442,9 +442,9 @@ async def test_update_phase_name_slugifies_special_chars(client: AsyncClient, db
 # httpx ASGITransport doesn't always register with coverage.py, so we
 # call endpoint functions directly to ensure line-level coverage.
 
-import pytest
-from backend.src import schemas
-from backend.src.api.projects import (
+import pytest  # noqa: E402
+from backend.src import schemas  # noqa: E402
+from backend.src.api.projects import (  # noqa: E402
     batch_delete_projects,
     create_phase,
     create_project,

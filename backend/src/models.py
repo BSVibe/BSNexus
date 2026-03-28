@@ -68,6 +68,13 @@ class TaskSource(str, enum.Enum):
     manual = "manual"
 
 
+class SuggestionStatus(str, enum.Enum):
+    pending = "pending"
+    approved = "approved"
+    rejected = "rejected"
+    modified = "modified"
+
+
 class DesignSessionStatus(str, enum.Enum):
     active = "active"
     project_bound = "project_bound"
@@ -163,6 +170,8 @@ class Task(Base):
     branch_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     commit_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     qa_result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    executor_type: Mapped[str] = mapped_column(String(50), nullable=False, default="coding", server_default="coding")
+    executor_metadata: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict, server_default="{}")
     output_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -196,6 +205,35 @@ class Task(Base):
         secondaryjoin=id == task_dependencies.c.dependency_id,
         backref="dependents",
     )
+
+
+class TaskSuggestion(Base):
+    __tablename__ = "task_suggestions"
+    __table_args__ = (
+        Index("ix_task_suggestions_project_status", "project_id", "status"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
+    )
+    title: Mapped[str] = mapped_column(String(500), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    task_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    priority: Mapped[int] = mapped_column(Integer, nullable=False)
+    estimated_effort: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    reasoning: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[SuggestionStatus] = mapped_column(
+        Enum(SuggestionStatus), nullable=False, default=SuggestionStatus.pending
+    )
+    rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    # Relationships
+    project: Mapped["Project"] = relationship("Project")
 
 
 class TaskHistory(Base):

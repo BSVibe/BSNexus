@@ -5,7 +5,8 @@ import structlog
 import time
 from dataclasses import dataclass
 
-from backend.src.core.executor.base import BaseExecutor
+from backend.src.core.executor.base import ExecutorProtocol
+from backend.src.core.executor.registry import ExecutorRegistry
 from backend.src.core.git_ops import GitOps
 from backend.src.models import Task
 
@@ -41,8 +42,26 @@ class TaskReviewResult:
 class LocalTaskRunner:
     """Executes tasks and QA reviews locally on the backend server."""
 
-    def __init__(self, executor: BaseExecutor) -> None:
-        self.executor = executor
+    def __init__(
+        self,
+        executor_name: str = "claude_code",
+        *,
+        executor: ExecutorProtocol | None = None,
+    ) -> None:
+        self._default_executor_name = executor_name
+        self._executor = executor
+
+    def _resolve_executor(self, executor_type: str) -> ExecutorProtocol:
+        """Resolve an executor: try executor_type from registry, fall back to default name."""
+        if self._executor is not None:
+            return self._executor
+        registry = ExecutorRegistry()
+        try:
+            return registry.get(executor_type)
+        except KeyError:
+            if executor_type != self._default_executor_name:
+                return registry.get(self._default_executor_name)
+            raise
 
     @staticmethod
     def _classify_exception(exc: Exception) -> str:
@@ -70,9 +89,11 @@ class LocalTaskRunner:
         task_id = str(task.id)
         branch_name = task.branch_name or ""
         title = task.title or ""
+        executor_type = getattr(task, "executor_type", self._default_executor_name) or self._default_executor_name
 
-        logger.info(">>> TASK START task_id=%s title='%s'", task_id, title)
+        logger.info(">>> TASK START task_id=%s title='%s' executor_type=%s", task_id, title, executor_type)
 
+        executor = self._resolve_executor(executor_type)
         prompt = self._extract_prompt(task.worker_prompt)
 
         # Inject retry feedback from previous failed attempt
@@ -104,7 +125,7 @@ class LocalTaskRunner:
             if repo_path:
                 context["workspace_dir"] = repo_path
 
-            result = await self.executor.execute(prompt, context)
+            result = await executor.execute(prompt, context)
             elapsed = time.monotonic() - t0
 
             if git_ops:
@@ -143,9 +164,11 @@ class LocalTaskRunner:
         task_id = str(task.id)
         branch_name = task.branch_name or ""
         title = task.title or ""
+        executor_type = getattr(task, "executor_type", self._default_executor_name) or self._default_executor_name
 
-        logger.info(">>> QA START task_id=%s", task_id)
+        logger.info(">>> QA START task_id=%s executor_type=%s", task_id, executor_type)
 
+        executor = self._resolve_executor(executor_type)
         prompt = self._extract_prompt(task.qa_prompt)
 
         t0 = time.monotonic()
@@ -161,7 +184,7 @@ class LocalTaskRunner:
             if repo_path:
                 context["workspace_dir"] = repo_path
 
-            result = await self.executor.review(prompt, context)
+            result = await executor.review(prompt, context)
             elapsed = time.monotonic() - t0
 
             commit_hash = ""

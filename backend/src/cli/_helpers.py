@@ -24,7 +24,6 @@ async def build_orchestrator() -> tuple[Any, Any, Any]:
     The caller is responsible for closing the redis connection on shutdown.
     """
     from backend.src.config import settings
-    from backend.src.core.executor import create_executor
     from backend.src.core.orchestrator import PMOrchestrator
     from backend.src.core.state_machine import TaskStateMachine
     from backend.src.core.task_runner import LocalTaskRunner
@@ -36,7 +35,7 @@ async def build_orchestrator() -> tuple[Any, Any, Any]:
     stream_manager = RedisStreamManager(redis)
     await stream_manager.initialize_streams()
 
-    task_runner = LocalTaskRunner(create_executor(settings.executor_type))
+    task_runner = LocalTaskRunner(executor_name=settings.executor_type)
     state_machine = TaskStateMachine()
 
     orchestrator = PMOrchestrator(

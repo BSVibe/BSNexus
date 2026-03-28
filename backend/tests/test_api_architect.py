@@ -2150,7 +2150,7 @@ class TestRedesignPhaseDirect:
             db_session, redesign_count=2, done_count=1,
         )
         kept_task = redesign_tasks[0]
-        deleted_task = redesign_tasks[1]
+        _ = redesign_tasks[1]  # deleted_task — used only for setup
 
         llm_response = {
             "reasoning": "Task 2 is obsolete, adding new task instead",

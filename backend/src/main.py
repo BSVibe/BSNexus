@@ -12,6 +12,7 @@ from backend.src.api import (
     auth,
     board,
     dashboard,
+    planner,
     pm,
     projects,
     security,
@@ -160,3 +161,4 @@ app.include_router(board.router)
 app.include_router(dashboard.router)
 app.include_router(settings.router)
 app.include_router(security.router)
+app.include_router(planner.router)

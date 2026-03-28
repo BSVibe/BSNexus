@@ -53,6 +53,10 @@ class Permission(str, enum.Enum):
     # PM permissions
     pm_control = "pm.control"
 
+    # Planner permissions
+    planner_read = "planner.read"
+    planner_manage = "planner.manage"
+
 
 # Role-to-permissions mapping
 ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
@@ -72,12 +76,15 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.architect_finalize,
         Permission.board_read,
         Permission.pm_control,
+        Permission.planner_read,
+        Permission.planner_manage,
     },
     Role.viewer: {
         Permission.project_read,
         Permission.task_read,
         Permission.worker_read,
         Permission.board_read,
+        Permission.planner_read,
     },
     Role.worker: {
         Permission.task_read,

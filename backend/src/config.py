@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -51,7 +51,7 @@ class Settings(BaseSettings):
 
     # Executor
     workspace_dir: str = "/workspace"
-    executor_type: str = "claude-code"
+    executor_type: str = "claude_code"
     execution_timeout_seconds: int = 3600
     total_execution_timeout_seconds: int = 7200
     rate_limit_retry_count: int = 5
@@ -60,6 +60,34 @@ class Settings(BaseSettings):
 
     # Auto-redesign
     max_auto_redesigns: int = 2
+
+    # Providers — selection
+    gateway_provider: Literal["bsgateway", "litellm"] = "litellm"
+    supervisor_provider: Literal["bsupervisor", "noop"] = "noop"
+    knowledge_provider: Literal["bsage", "local"] = "local"
+
+    # Providers — BSGateway
+    bsgateway_url: str = ""
+    bsgateway_api_key: str = ""
+
+    # Providers — BSupervisor
+    bsupervisor_url: str = ""
+    bsupervisor_api_key: str = ""
+
+    # Providers — BSage
+    bsage_url: str = ""
+    bsage_api_key: str = ""
+
+    # Providers — Local knowledge
+    knowledge_dir: str = "./knowledge"
+
+    # Notification
+    notification_provider: Literal["bsage", "noop"] = "noop"
+    bsage_notification_url: str = ""
+
+    # Planner
+    planner_cron_schedule: str = "0 9 * * 1-5"
+    planner_max_suggestions_per_day: int = 10
 
     # Logging
     log_dir: str = "logs"
