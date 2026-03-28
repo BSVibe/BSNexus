@@ -42,12 +42,16 @@ class ApprovalHandler:
             await query.edit_message_text("오류: 잘못된 제안 ID입니다.")
             return
 
-        if action == "approve":
-            await self._handle_approve(query, suggestion_id)
-        elif action == "reject":
-            await self._handle_reject(query, context, suggestion_id)
-        else:
-            await query.edit_message_text("오류: 알 수 없는 작업입니다.")
+        try:
+            if action == "approve":
+                await self._handle_approve(query, suggestion_id)
+            elif action == "reject":
+                await self._handle_reject(query, context, suggestion_id)
+            else:
+                await query.edit_message_text("오류: 알 수 없는 작업입니다.")
+        except Exception:
+            logger.error("callback_handler_error", action=action, suggestion_id=str(suggestion_id), exc_info=True)
+            await query.edit_message_text("오류가 발생했습니다. 잠시 후 다시 시도해주세요.")
 
     async def _handle_approve(self, query, suggestion_id: uuid.UUID) -> None:
         """Approve a suggestion: mark as approved and create a Task."""
@@ -107,20 +111,24 @@ class ApprovalHandler:
         reason = update.message.text
         suggestion_id = uuid.UUID(pending_id)
 
-        async with self.db_session_factory() as session:
-            suggestion = await self._get_suggestion(session, suggestion_id)
-            if suggestion is None:
-                del context.user_data["pending_rejection_id"]
-                await update.message.reply_text("제안을 찾을 수 없습니다.")
-                return True
+        try:
+            async with self.db_session_factory() as session:
+                suggestion = await self._get_suggestion(session, suggestion_id)
+                if suggestion is None:
+                    del context.user_data["pending_rejection_id"]
+                    await update.message.reply_text("제안을 찾을 수 없습니다.")
+                    return True
 
-            suggestion.status = models.SuggestionStatus.rejected
-            suggestion.rejection_reason = reason
-            await session.commit()
+                suggestion.status = models.SuggestionStatus.rejected
+                suggestion.rejection_reason = reason
+                await session.commit()
 
-        del context.user_data["pending_rejection_id"]
-        logger.info("suggestion_rejected_via_telegram", suggestion_id=str(suggestion_id), reason=reason)
-        await update.message.reply_text(f"거부 완료: {suggestion.title}\n사유: {reason}")
+            del context.user_data["pending_rejection_id"]
+            logger.info("suggestion_rejected_via_telegram", suggestion_id=str(suggestion_id), reason=reason)
+            await update.message.reply_text(f"거부 완료: {suggestion.title}\n사유: {reason}")
+        except Exception:
+            logger.error("rejection_reason_error", suggestion_id=str(suggestion_id), exc_info=True)
+            await update.message.reply_text("오류가 발생했습니다. 거부 처리에 실패했습니다.")
         return True
 
     @staticmethod

@@ -92,12 +92,20 @@ async def lifespan(app: FastAPI):
         chat_id=app_settings.telegram_chat_id,
     )
     app.state.telegram_bot = telegram_bot
-    await telegram_bot.start()
+    try:
+        await telegram_bot.start()
+    except Exception:
+        import structlog
+        structlog.get_logger(__name__).error("telegram_bot_lifespan_start_failed", exc_info=True)
 
     yield
 
     # Shutdown
-    await telegram_bot.stop()
+    try:
+        await telegram_bot.stop()
+    except Exception:
+        import structlog
+        structlog.get_logger(__name__).error("telegram_bot_lifespan_stop_failed", exc_info=True)
     await close_redis()
 
 

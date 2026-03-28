@@ -63,18 +63,25 @@ class BriefingHandler:
         """Generate daily plan and send briefing message to the configured chat."""
         logger.info("briefing_start", project_id=self.project_id, chat_id=self.chat_id)
 
-        async with self.db_session_factory() as session:
-            suggestions = await self.planner_service.generate_daily_plan(
-                self.project_id, session
+        try:
+            async with self.db_session_factory() as session:
+                suggestions = await self.planner_service.generate_daily_plan(
+                    self.project_id, session
+                )
+
+            text, keyboard_rows = self.format_briefing(suggestions)
+
+            reply_markup = InlineKeyboardMarkup(keyboard_rows) if keyboard_rows else None
+            await bot.send_message(
+                chat_id=self.chat_id,
+                text=text,
+                reply_markup=reply_markup,
             )
 
-        text, keyboard_rows = self.format_briefing(suggestions)
-
-        reply_markup = InlineKeyboardMarkup(keyboard_rows) if keyboard_rows else None
-        await bot.send_message(
-            chat_id=self.chat_id,
-            text=text,
-            reply_markup=reply_markup,
-        )
-
-        logger.info("briefing_sent", suggestion_count=len(suggestions))
+            logger.info("briefing_sent", suggestion_count=len(suggestions))
+        except Exception:
+            logger.error("briefing_error", project_id=self.project_id, exc_info=True)
+            await bot.send_message(
+                chat_id=self.chat_id,
+                text="오류가 발생했습니다. 브리핑 생성에 실패했습니다.",
+            )

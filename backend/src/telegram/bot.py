@@ -82,19 +82,25 @@ class TelegramBot:
         """Initialize and start polling for updates."""
         if not self.is_enabled:
             return
-        await self.application.initialize()
-        await self.application.start()
-        await self.application.updater.start_polling()
-        logger.info("telegram_bot_started")
+        try:
+            await self.application.initialize()
+            await self.application.start()
+            await self.application.updater.start_polling()
+            logger.info("telegram_bot_started")
+        except Exception:
+            logger.error("telegram_bot_start_failed", exc_info=True)
 
     async def stop(self) -> None:
         """Gracefully shut down the bot."""
         if not self.is_enabled:
             return
-        await self.application.updater.stop()
-        await self.application.stop()
-        await self.application.shutdown()
-        logger.info("telegram_bot_stopped")
+        try:
+            await self.application.updater.stop()
+            await self.application.stop()
+            await self.application.shutdown()
+            logger.info("telegram_bot_stopped")
+        except Exception:
+            logger.error("telegram_bot_stop_failed", exc_info=True)
 
     # ------------------------------------------------------------------
     # Command handlers
