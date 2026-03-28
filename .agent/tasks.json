@@ -30,7 +30,7 @@
       "title": "Provider config via pydantic-settings",
       "description": "Add provider selection to settings: GATEWAY_PROVIDER (bsgateway|litellm, default litellm), SUPERVISOR_PROVIDER (bsupervisor|noop, default noop), KNOWLEDGE_PROVIDER (bsage|local, default local). Add URL configs: BSGATEWAY_URL, BSUPERVISOR_URL, BSAGE_URL. Update .env.example. Write tests.",
       "acceptanceCriteria": "Settings has provider selection fields with defaults. .env.example documents all new config keys. Tests verify provider selection from env vars.",
-      "passes": false,
+      "passes": true,
       "priority": 4
     },
     {

@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -60,6 +60,26 @@ class Settings(BaseSettings):
 
     # Auto-redesign
     max_auto_redesigns: int = 2
+
+    # Providers — selection
+    gateway_provider: Literal["bsgateway", "litellm"] = "litellm"
+    supervisor_provider: Literal["bsupervisor", "noop"] = "noop"
+    knowledge_provider: Literal["bsage", "local"] = "local"
+
+    # Providers — BSGateway
+    bsgateway_url: str = ""
+    bsgateway_api_key: str = ""
+
+    # Providers — BSupervisor
+    bsupervisor_url: str = ""
+    bsupervisor_api_key: str = ""
+
+    # Providers — BSage
+    bsage_url: str = ""
+    bsage_api_key: str = ""
+
+    # Providers — Local knowledge
+    knowledge_dir: str = "./knowledge"
 
     # Logging
     log_dir: str = "logs"

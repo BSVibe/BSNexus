@@ -125,3 +125,18 @@ Started: 2026-03-28T09:00:23Z
 - 100% coverage on knowledge.py (67 statements, 0 missed)
 - All 975 tests pass, coverage 93.86%, ruff clean
 - Self-contained module, no cross-provider imports, config passed at construction time
+
+## TASK-004: Provider config via pydantic-settings
+- Added provider selection fields to `Settings` in `backend/src/config.py`:
+  - `gateway_provider: Literal["bsgateway", "litellm"]` (default: "litellm")
+  - `supervisor_provider: Literal["bsupervisor", "noop"]` (default: "noop")
+  - `knowledge_provider: Literal["bsage", "local"]` (default: "local")
+- Added URL and API key configs: `bsgateway_url`, `bsgateway_api_key`, `bsupervisor_url`, `bsupervisor_api_key`, `bsage_url`, `bsage_api_key`
+- Added `knowledge_dir` for local knowledge directory (default: "./knowledge")
+- Used `Literal` types for provider selection — invalid values raise `ValidationError`
+- All defaults are fallback providers (litellm, noop, local) — no external dependencies required
+- Updated `.env.example` with all new config keys and comments
+- TDD: 20 tests in `backend/tests/providers/test_provider_config.py`
+  - 10 default value tests, 7 env var override tests, 3 validation tests
+- All 995 tests pass, coverage 93.87%, ruff clean
+- Files changed: `config.py` (updated), `.env.example` (updated), `test_provider_config.py` (new)
