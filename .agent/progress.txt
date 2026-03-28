@@ -91,3 +91,21 @@ Started: 2026-03-28T09:00:23Z
 - All 939 existing tests still pass, ruff clean
 - Files created: `providers/__init__.py`, `providers/gateway.py`, `tests/providers/__init__.py`, `tests/providers/test_gateway.py`
 - Key decisions: self-contained module (no cross-provider imports), structlog for logging, no settings import (config passed at construction time)
+
+## TASK-002: SupervisorProvider protocol + implementations
+- Created `backend/src/providers/supervisor.py` with `SupervisorProvider` protocol (`@runtime_checkable`)
+- Protocol methods: `async log_event(agent_id, event_type, data) -> None`, `async check_permission(agent_id, action) -> bool`
+- Implemented `BSupervisorProvider`: HTTP client to BSupervisor API
+  - `log_event` POSTs to `{base_url}/api/v1/events` with Bearer auth and JSON body
+  - `check_permission` POSTs to `{base_url}/api/v1/permissions/check`, returns `resp["allowed"]`
+  - Uses httpx.AsyncClient for async HTTP, structlog for logging
+- Implemented `NoOpSupervisorProvider`: no-op fallback
+  - `log_event` does nothing (silent no-op)
+  - `check_permission` always returns True (permissive fallback)
+- TDD: 18 tests written first in `backend/tests/providers/test_supervisor.py`
+  - 4 protocol compliance tests (runtime_checkable, compliant, non-compliant, partial)
+  - 8 BSupervisorProvider tests (log_event success/no-data/error/auth, check_permission allowed/denied/error/auth)
+  - 6 NoOpSupervisorProvider tests (log_event no-op, check_permission always true, protocol compliance)
+- All 957 tests pass, coverage 93.76%, ruff clean
+- Files created: `providers/supervisor.py`, `tests/providers/test_supervisor.py`
+- Self-contained module, no cross-provider imports, config passed at construction time

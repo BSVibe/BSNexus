@@ -14,7 +14,7 @@
       "title": "SupervisorProvider protocol + implementations",
       "description": "Define SupervisorProvider protocol in providers/supervisor.py: async log_event(agent_id, event_type, data) -> None, async check_permission(agent_id, action) -> bool. Implement BSupervisorProvider (HTTP client to BSupervisor API) and NoOpSupervisorProvider (does nothing, always allows). Write tests first.",
       "acceptanceCriteria": "SupervisorProvider protocol defined. BSupervisorProvider sends events to configured URL. NoOpSupervisorProvider is a no-op that always returns True for permissions. Tests verify both.",
-      "passes": false,
+      "passes": true,
       "priority": 2
     },
     {
