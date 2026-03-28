@@ -20,8 +20,15 @@ suggestion_status_enum = sa.Enum("pending", "approved", "rejected", "modified", 
 
 
 def upgrade() -> None:
-    conn = op.get_bind()
-    suggestion_status_enum.create(conn, checkfirst=True)
+    # Use raw DDL with DO block to handle "already exists" idempotently.
+    # sa.Enum.create(checkfirst=True) doesn't work reliably with asyncpg via run_sync,
+    # and metadata-associated enums from model imports fire their own CREATE TYPE DDL.
+    op.execute(sa.text(
+        "DO $$ BEGIN "
+        "CREATE TYPE suggestionstatus AS ENUM ('pending', 'approved', 'rejected', 'modified'); "
+        "EXCEPTION WHEN duplicate_object THEN NULL; "
+        "END $$"
+    ))
     op.create_table(
         "task_suggestions",
         sa.Column("id", sa.Uuid(), nullable=False),

@@ -224,7 +224,7 @@ class TaskSuggestion(Base):
     estimated_effort: Mapped[str | None] = mapped_column(String(50), nullable=True)
     reasoning: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[SuggestionStatus] = mapped_column(
-        Enum(SuggestionStatus), nullable=False, default=SuggestionStatus.pending
+        Enum(SuggestionStatus, create_type=False), nullable=False, default=SuggestionStatus.pending
     )
     rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
