@@ -140,3 +140,22 @@ Started: 2026-03-28T09:00:23Z
   - 10 default value tests, 7 env var override tests, 3 validation tests
 - All 995 tests pass, coverage 93.87%, ruff clean
 - Files changed: `config.py` (updated), `.env.example` (updated), `test_provider_config.py` (new)
+
+## TASK-005: FastAPI dependency injection for providers
+- Created `backend/src/providers/dependencies.py` with factory and DI functions
+- Factory functions: `create_gateway_provider()`, `create_supervisor_provider()`, `create_knowledge_provider()`
+  - Each reads `settings` to resolve the configured provider implementation
+  - Returns fallback providers by default (LiteLLMDirect, NoOp, LocalMarkdown)
+- DI functions: `get_gateway_provider()`, `get_supervisor_provider()`, `get_knowledge_provider()`
+  - Wrapped with `@functools.lru_cache(maxsize=1)` for singleton caching
+  - Compatible with `FastAPI Depends()` and `app.dependency_overrides` in tests
+- TDD: 13 tests in `backend/tests/providers/test_dependencies.py`
+  - 3 gateway factory tests (litellm default, bsgateway, fallback)
+  - 2 supervisor factory tests (noop default, bsupervisor)
+  - 2 knowledge factory tests (local default, bsage)
+  - 3 DI function tests (returns correct type for each provider)
+  - 3 override tests (verifies `app.dependency_overrides` works for test mocking)
+- 100% coverage on dependencies.py (35 statements, 0 missed)
+- All 1008 tests pass, coverage 93.92%, ruff clean
+- Files created: `providers/dependencies.py`, `tests/providers/test_dependencies.py`
+- Self-contained module, uses structlog for logging, settings patched in tests

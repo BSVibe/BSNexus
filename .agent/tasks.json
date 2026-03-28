@@ -38,7 +38,7 @@
       "title": "FastAPI dependency injection for providers",
       "description": "Create provider factory functions and register as FastAPI dependencies. get_gateway_provider(), get_supervisor_provider(), get_knowledge_provider() resolve the configured provider. Inject into routes/services. Write tests.",
       "acceptanceCriteria": "Providers available via Depends(). Fallback providers work without external services. Tests verify DI wiring.",
-      "passes": false,
+      "passes": true,
       "priority": 5
     },
     {
