@@ -30,10 +30,16 @@ class KnowledgeProvider(Protocol):
 class BSageProvider:
     """Routes knowledge calls through BSage HTTP API."""
 
-    def __init__(self, base_url: str, api_key: str, timeout: float = 30.0) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str,
+        timeout: float = 30.0,
+        client: httpx.AsyncClient | None = None,
+    ) -> None:
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key
-        self._client = httpx.AsyncClient(timeout=timeout)
+        self._client = client or httpx.AsyncClient(timeout=timeout)
 
     async def close(self) -> None:
         """Close the underlying HTTP client."""

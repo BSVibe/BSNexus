@@ -6,7 +6,7 @@ TDD: Written BEFORE implementation code.
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
@@ -50,36 +50,51 @@ class TestKnowledgeProviderProtocol:
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+def _mock_response(
+    status_code: int = 200,
+    json_data: dict[str, Any] | None = None,
+    raise_error: httpx.HTTPStatusError | None = None,
+) -> MagicMock:
+    resp = MagicMock()
+    resp.status_code = status_code
+    resp.json.return_value = json_data or {}
+    if raise_error:
+        resp.raise_for_status.side_effect = raise_error
+    else:
+        resp.raise_for_status = MagicMock()
+    return resp
+
+
+# ---------------------------------------------------------------------------
 # BSageProvider tests
 # ---------------------------------------------------------------------------
 class TestBSageProvider:
     @pytest.fixture
-    def provider(self) -> BSageProvider:
+    def mock_client(self) -> AsyncMock:
+        return AsyncMock()
+
+    @pytest.fixture
+    def provider(self, mock_client: AsyncMock) -> BSageProvider:
         return BSageProvider(
             base_url="https://bsage.example.com",
             api_key="test-bsage-key-1234",
             timeout=30.0,
+            client=mock_client,
         )
 
-    async def test_get_sot_success(self, provider: BSageProvider) -> None:
+    async def test_get_sot_success(self, provider: BSageProvider, mock_client: AsyncMock) -> None:
         """Should GET source-of-truth from BSage API."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "project_id": "p-123",
-            "architecture": "monolith",
-            "tech_stack": ["python", "fastapi"],
-        }
-        mock_response.raise_for_status = MagicMock()
+        mock_client.get = AsyncMock(return_value=_mock_response(
+            json_data={
+                "project_id": "p-123",
+                "architecture": "monolith",
+                "tech_stack": ["python", "fastapi"],
+            }
+        ))
 
-        with patch("backend.src.providers.knowledge.httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client.get = AsyncMock(return_value=mock_response)
-            mock_client_cls.return_value = mock_client
-
-            result = await provider.get_sot("p-123")
+        result = await provider.get_sot("p-123")
 
         assert result["project_id"] == "p-123"
         assert result["architecture"] == "monolith"
@@ -88,60 +103,34 @@ class TestBSageProvider:
         call_args = mock_client.get.call_args
         assert call_args[0][0] == "https://bsage.example.com/api/knowledge/sot/p-123"
 
-    async def test_get_sot_sends_auth_header(self, provider: BSageProvider) -> None:
+    async def test_get_sot_sends_auth_header(self, provider: BSageProvider, mock_client: AsyncMock) -> None:
         """API key should be sent as Bearer token."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {}
-        mock_response.raise_for_status = MagicMock()
+        mock_client.get = AsyncMock(return_value=_mock_response(json_data={}))
 
-        with patch("backend.src.providers.knowledge.httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client.get = AsyncMock(return_value=mock_response)
-            mock_client_cls.return_value = mock_client
-
-            await provider.get_sot("p-123")
+        await provider.get_sot("p-123")
 
         call_args = mock_client.get.call_args
         headers = call_args[1].get("headers", {})
         assert headers["Authorization"] == "Bearer test-bsage-key-1234"
 
-    async def test_get_sot_http_error(self, provider: BSageProvider) -> None:
+    async def test_get_sot_http_error(self, provider: BSageProvider, mock_client: AsyncMock) -> None:
         """Should raise on HTTP errors."""
-        mock_response = MagicMock()
-        mock_response.status_code = 404
-        mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
-            "Not Found", request=MagicMock(), response=mock_response
-        )
+        error_resp = MagicMock()
+        error_resp.status_code = 404
+        mock_client.get = AsyncMock(return_value=_mock_response(
+            status_code=404,
+            raise_error=httpx.HTTPStatusError("Not Found", request=MagicMock(), response=error_resp),
+        ))
 
-        with patch("backend.src.providers.knowledge.httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client.get = AsyncMock(return_value=mock_response)
-            mock_client_cls.return_value = mock_client
+        with pytest.raises(httpx.HTTPStatusError):
+            await provider.get_sot("p-unknown")
 
-            with pytest.raises(httpx.HTTPStatusError):
-                await provider.get_sot("p-unknown")
-
-    async def test_store_result_success(self, provider: BSageProvider) -> None:
+    async def test_store_result_success(self, provider: BSageProvider, mock_client: AsyncMock) -> None:
         """Should POST result to BSage API."""
-        mock_response = MagicMock()
-        mock_response.status_code = 201
-        mock_response.raise_for_status = MagicMock()
+        mock_client.post = AsyncMock(return_value=_mock_response(status_code=201))
 
         result_data = {"status": "done", "output": "code generated"}
-
-        with patch("backend.src.providers.knowledge.httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client.post = AsyncMock(return_value=mock_response)
-            mock_client_cls.return_value = mock_client
-
-            await provider.store_result("t-456", result_data)
+        await provider.store_result("t-456", result_data)
 
         mock_client.post.assert_called_once()
         call_args = mock_client.post.call_args
@@ -150,44 +139,30 @@ class TestBSageProvider:
         assert body["task_id"] == "t-456"
         assert body["result"] == result_data
 
-    async def test_store_result_http_error(self, provider: BSageProvider) -> None:
+    async def test_store_result_http_error(self, provider: BSageProvider, mock_client: AsyncMock) -> None:
         """Should raise on HTTP errors."""
-        mock_response = MagicMock()
-        mock_response.status_code = 500
-        mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
-            "Server Error", request=MagicMock(), response=mock_response
-        )
+        error_resp = MagicMock()
+        error_resp.status_code = 500
+        mock_client.post = AsyncMock(return_value=_mock_response(
+            status_code=500,
+            raise_error=httpx.HTTPStatusError("Server Error", request=MagicMock(), response=error_resp),
+        ))
 
-        with patch("backend.src.providers.knowledge.httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client.post = AsyncMock(return_value=mock_response)
-            mock_client_cls.return_value = mock_client
+        with pytest.raises(httpx.HTTPStatusError):
+            await provider.store_result("t-456", {"status": "done"})
 
-            with pytest.raises(httpx.HTTPStatusError):
-                await provider.store_result("t-456", {"status": "done"})
-
-    async def test_search_success(self, provider: BSageProvider) -> None:
+    async def test_search_success(self, provider: BSageProvider, mock_client: AsyncMock) -> None:
         """Should POST search query to BSage API and return results."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "results": [
-                {"id": "doc-1", "content": "FastAPI setup", "score": 0.95},
-                {"id": "doc-2", "content": "Database config", "score": 0.87},
-            ]
-        }
-        mock_response.raise_for_status = MagicMock()
+        mock_client.post = AsyncMock(return_value=_mock_response(
+            json_data={
+                "results": [
+                    {"id": "doc-1", "content": "FastAPI setup", "score": 0.95},
+                    {"id": "doc-2", "content": "Database config", "score": 0.87},
+                ]
+            }
+        ))
 
-        with patch("backend.src.providers.knowledge.httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client.post = AsyncMock(return_value=mock_response)
-            mock_client_cls.return_value = mock_client
-
-            results = await provider.search("FastAPI patterns", limit=5)
+        results = await provider.search("FastAPI patterns", limit=5)
 
         assert len(results) == 2
         assert results[0]["id"] == "doc-1"
@@ -198,21 +173,11 @@ class TestBSageProvider:
         assert body["query"] == "FastAPI patterns"
         assert body["limit"] == 5
 
-    async def test_search_empty_results(self, provider: BSageProvider) -> None:
+    async def test_search_empty_results(self, provider: BSageProvider, mock_client: AsyncMock) -> None:
         """Should return empty list when no results found."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"results": []}
-        mock_response.raise_for_status = MagicMock()
+        mock_client.post = AsyncMock(return_value=_mock_response(json_data={"results": []}))
 
-        with patch("backend.src.providers.knowledge.httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client.post = AsyncMock(return_value=mock_response)
-            mock_client_cls.return_value = mock_client
-
-            results = await provider.search("nonexistent", limit=10)
+        results = await provider.search("nonexistent", limit=10)
 
         assert results == []
 

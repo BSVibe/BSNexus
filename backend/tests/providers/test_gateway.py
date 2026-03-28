@@ -73,46 +73,72 @@ class TestChatCompletionResult:
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+def _mock_response(
+    status_code: int = 200,
+    json_data: dict[str, Any] | None = None,
+    raise_error: httpx.HTTPStatusError | None = None,
+) -> MagicMock:
+    resp = MagicMock()
+    resp.status_code = status_code
+    resp.json.return_value = json_data or {}
+    if raise_error:
+        resp.raise_for_status.side_effect = raise_error
+    else:
+        resp.raise_for_status = MagicMock()
+    return resp
+
+
+def _mock_httpx_client(
+    post_response: MagicMock | None = None,
+    get_response: MagicMock | None = None,
+) -> AsyncMock:
+    client = AsyncMock()
+    if post_response is not None:
+        client.post = AsyncMock(return_value=post_response)
+    if get_response is not None:
+        client.get = AsyncMock(return_value=get_response)
+    return client
+
+
+# ---------------------------------------------------------------------------
 # BSGatewayProvider tests
 # ---------------------------------------------------------------------------
 class TestBSGatewayProvider:
     @pytest.fixture
-    def provider(self) -> BSGatewayProvider:
+    def mock_client(self) -> AsyncMock:
+        return AsyncMock()
+
+    @pytest.fixture
+    def provider(self, mock_client: AsyncMock) -> BSGatewayProvider:
         return BSGatewayProvider(
             base_url="https://gateway.example.com",
             api_key="test-gw-key-1234",
             timeout=30.0,
+            client=mock_client,
         )
 
-    async def test_chat_completion_success(self, provider: BSGatewayProvider) -> None:
+    async def test_chat_completion_success(self, provider: BSGatewayProvider, mock_client: AsyncMock) -> None:
         """Should POST to BSGateway and return parsed result."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "choices": [{"message": {"content": "Hello from gateway"}}],
-            "model": "gpt-4o",
-            "usage": {"prompt_tokens": 5, "completion_tokens": 10},
-        }
-        mock_response.raise_for_status = MagicMock()
+        mock_client.post = AsyncMock(return_value=_mock_response(
+            json_data={
+                "choices": [{"message": {"content": "Hello from gateway"}}],
+                "model": "gpt-4o",
+                "usage": {"prompt_tokens": 5, "completion_tokens": 10},
+            }
+        ))
 
-        with patch("backend.src.providers.gateway.httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client.post = AsyncMock(return_value=mock_response)
-            mock_client_cls.return_value = mock_client
-
-            result = await provider.chat_completion(
-                messages=[{"role": "user", "content": "Hi"}],
-                model_hint="gpt-4o",
-                task_metadata={"task_id": "t-123", "project_id": "p-456"},
-            )
+        result = await provider.chat_completion(
+            messages=[{"role": "user", "content": "Hi"}],
+            model_hint="gpt-4o",
+            task_metadata={"task_id": "t-123", "project_id": "p-456"},
+        )
 
         assert result.content == "Hello from gateway"
         assert result.model == "gpt-4o"
         assert result.usage == {"prompt_tokens": 5, "completion_tokens": 10}
 
-        # Verify POST was called with correct URL and headers
         mock_client.post.assert_called_once()
         call_args = mock_client.post.call_args
         assert call_args[0][0] == "https://gateway.example.com/v1/chat/completions"
@@ -120,101 +146,62 @@ class TestBSGatewayProvider:
         assert headers["X-BSNexus-Task-Id"] == "t-123"
         assert headers["X-BSNexus-Project-Id"] == "p-456"
 
-    async def test_chat_completion_with_no_metadata(self, provider: BSGatewayProvider) -> None:
+    async def test_chat_completion_with_no_metadata(self, provider: BSGatewayProvider, mock_client: AsyncMock) -> None:
         """Should work without task_metadata (no X-BSNexus headers)."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "choices": [{"message": {"content": "response"}}],
-        }
-        mock_response.raise_for_status = MagicMock()
+        mock_client.post = AsyncMock(return_value=_mock_response(
+            json_data={"choices": [{"message": {"content": "response"}}]},
+        ))
 
-        with patch("backend.src.providers.gateway.httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client.post = AsyncMock(return_value=mock_response)
-            mock_client_cls.return_value = mock_client
-
-            result = await provider.chat_completion(
-                messages=[{"role": "user", "content": "Hi"}],
-                model_hint="gpt-4o",
-            )
+        result = await provider.chat_completion(
+            messages=[{"role": "user", "content": "Hi"}],
+            model_hint="gpt-4o",
+        )
 
         assert result.content == "response"
         call_args = mock_client.post.call_args
         headers = call_args[1].get("headers", {})
-        # No X-BSNexus headers when no metadata
         assert not any(k.startswith("X-BSNexus") for k in headers)
 
-    async def test_chat_completion_http_error(self, provider: BSGatewayProvider) -> None:
+    async def test_chat_completion_http_error(self, provider: BSGatewayProvider, mock_client: AsyncMock) -> None:
         """Should raise on HTTP errors from BSGateway."""
-        mock_response = MagicMock()
-        mock_response.status_code = 500
-        mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
-            "Internal Server Error",
-            request=MagicMock(),
-            response=mock_response,
-        )
+        error_resp = MagicMock()
+        error_resp.status_code = 500
+        mock_client.post = AsyncMock(return_value=_mock_response(
+            status_code=500,
+            raise_error=httpx.HTTPStatusError("Internal Server Error", request=MagicMock(), response=error_resp),
+        ))
 
-        with patch("backend.src.providers.gateway.httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client.post = AsyncMock(return_value=mock_response)
-            mock_client_cls.return_value = mock_client
-
-            with pytest.raises(httpx.HTTPStatusError):
-                await provider.chat_completion(
-                    messages=[{"role": "user", "content": "Hi"}],
-                    model_hint="gpt-4o",
-                )
-
-    async def test_api_key_sent_as_bearer(self, provider: BSGatewayProvider) -> None:
-        """API key should be sent as Bearer token in Authorization header."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "choices": [{"message": {"content": "ok"}}],
-        }
-        mock_response.raise_for_status = MagicMock()
-
-        with patch("backend.src.providers.gateway.httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client.post = AsyncMock(return_value=mock_response)
-            mock_client_cls.return_value = mock_client
-
+        with pytest.raises(httpx.HTTPStatusError):
             await provider.chat_completion(
                 messages=[{"role": "user", "content": "Hi"}],
                 model_hint="gpt-4o",
             )
+
+    async def test_api_key_sent_as_bearer(self, provider: BSGatewayProvider, mock_client: AsyncMock) -> None:
+        """API key should be sent as Bearer token in Authorization header."""
+        mock_client.post = AsyncMock(return_value=_mock_response(
+            json_data={"choices": [{"message": {"content": "ok"}}]},
+        ))
+
+        await provider.chat_completion(
+            messages=[{"role": "user", "content": "Hi"}],
+            model_hint="gpt-4o",
+        )
 
         call_args = mock_client.post.call_args
         headers = call_args[1].get("headers", {})
         assert headers["Authorization"] == "Bearer test-gw-key-1234"
 
-    async def test_model_hint_sent_in_body(self, provider: BSGatewayProvider) -> None:
+    async def test_model_hint_sent_in_body(self, provider: BSGatewayProvider, mock_client: AsyncMock) -> None:
         """model_hint should be sent in the request body."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "choices": [{"message": {"content": "ok"}}],
-        }
-        mock_response.raise_for_status = MagicMock()
+        mock_client.post = AsyncMock(return_value=_mock_response(
+            json_data={"choices": [{"message": {"content": "ok"}}]},
+        ))
 
-        with patch("backend.src.providers.gateway.httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=False)
-            mock_client.post = AsyncMock(return_value=mock_response)
-            mock_client_cls.return_value = mock_client
-
-            await provider.chat_completion(
-                messages=[{"role": "user", "content": "Hi"}],
-                model_hint="claude-sonnet",
-            )
+        await provider.chat_completion(
+            messages=[{"role": "user", "content": "Hi"}],
+            model_hint="claude-sonnet",
+        )
 
         call_args = mock_client.post.call_args
         body = call_args[1].get("json", {})
