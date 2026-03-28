@@ -493,7 +493,10 @@ async def test_finalize_design_success(client: AsyncClient, db_session):
 
 async def test_finalize_creates_project(client: AsyncClient, db_session):
     """POST /api/architect/sessions/{id}/finalize creates project successfully."""
+<<<<<<< HEAD
     from sqlalchemy import select
+=======
+>>>>>>> fix(tests): clean up lint issues across test files
 
     # Create session
     await insert_global_llm_settings(db_session)
@@ -2150,7 +2153,11 @@ class TestRedesignPhaseDirect:
             db_session, redesign_count=2, done_count=1,
         )
         kept_task = redesign_tasks[0]
+<<<<<<< HEAD
         deleted_task = redesign_tasks[1]
+=======
+        _ = redesign_tasks[1]  # deleted_task — used only for setup
+>>>>>>> fix(tests): clean up lint issues across test files
 
         llm_response = {
             "reasoning": "Task 2 is obsolete, adding new task instead",

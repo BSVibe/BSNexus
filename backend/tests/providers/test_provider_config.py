@@ -5,9 +5,6 @@ TDD: These tests are written BEFORE the implementation.
 
 from __future__ import annotations
 
-import os
-from typing import Literal
-from unittest.mock import patch
 
 import pytest
 

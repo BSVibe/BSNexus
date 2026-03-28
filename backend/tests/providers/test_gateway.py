@@ -5,7 +5,6 @@ TDD: Written BEFORE implementation code.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 

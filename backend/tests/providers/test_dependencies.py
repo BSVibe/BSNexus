@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
 
-import pytest
 
 from backend.src.providers.dependencies import (
     create_gateway_provider,

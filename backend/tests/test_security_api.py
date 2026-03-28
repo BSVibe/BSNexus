@@ -5,7 +5,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.api.security import list_audit_logs, run_security_scan
-from backend.src.core.audit_logger import AuditAction, AuditLog, AuditLogger
+from backend.src.core.audit_logger import AuditAction, AuditLogger
 from unittest.mock import MagicMock
 
 pytestmark = pytest.mark.asyncio

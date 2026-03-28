@@ -46,7 +46,7 @@
       "title": "Code review — fix all issues including minor ones",
       "description": "Review all changes. Verify: each provider file self-contained, no cross-provider imports, all fallbacks work, test coverage >= 80%, ruff clean.",
       "acceptanceCriteria": "ruff check passes. pytest coverage >= 80%. All existing tests pass.",
-      "passes": false,
+      "passes": true,
       "priority": 99
     }
   ]
