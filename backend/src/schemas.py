@@ -208,6 +208,8 @@ class TaskCreate(BaseModel):
     description: str
     priority: TaskPriority
     task_type: TaskType = TaskType.feature
+    executor_type: str = "coding"
+    executor_metadata: dict = Field(default_factory=dict)
     depends_on: list[uuid.UUID] = Field(default_factory=list)
     worker_prompt: str
     qa_prompt: str
@@ -217,6 +219,8 @@ class TaskUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     priority: Optional[TaskPriority] = None
+    executor_type: Optional[str] = None
+    executor_metadata: Optional[dict] = None
     expected_version: Optional[int] = None
 
 
@@ -238,6 +242,8 @@ class TaskResponse(BaseModel):
     status: TaskStatus
     priority: TaskPriority
     task_type: TaskType = TaskType.feature
+    executor_type: str = "coding"
+    executor_metadata: dict = Field(default_factory=dict)
     source: TaskSource = TaskSource.architect
     parent_task_id: Optional[uuid.UUID] = None
     worker_prompt: Optional[dict] = None

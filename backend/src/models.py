@@ -163,6 +163,8 @@ class Task(Base):
     branch_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     commit_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     qa_result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    executor_type: Mapped[str] = mapped_column(String(50), nullable=False, default="coding", server_default="coding")
+    executor_metadata: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict, server_default="{}")
     output_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

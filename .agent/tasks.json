@@ -30,7 +30,7 @@
       "title": "Add task_type and metadata fields to Task model",
       "description": "Add task_type: str (default='coding') and metadata: JSON (default={}) columns to the Task SQLAlchemy model in backend/src/models.py. Create an Alembic migration. Update Pydantic schemas in backend/src/schemas.py. Write tests first.",
       "acceptanceCriteria": "Task model has task_type and metadata columns. Alembic migration exists and is valid. Schemas accept task_type and metadata. Existing tasks default to task_type='coding'. Tests verify defaults and serialization.",
-      "passes": false,
+      "passes": true,
       "priority": 4
     },
     {

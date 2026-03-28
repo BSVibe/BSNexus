@@ -32,3 +32,13 @@ Started: 2026-03-28T09:00:23Z
 - Updated existing tests in `test_executor_claude_code.py` to use new executor name and KeyError
 - All 897 tests pass, coverage 93.64%, ruff clean
 - Files changed: `__init__.py` (updated), `config.py` (updated), `test_claude_code_protocol.py` (new), `test_registry.py` (fixture fix), `test_executor_claude_code.py` (updated)
+
+## TASK-004: Add executor_type and executor_metadata fields to Task model
+- Added `executor_type: str` (default='coding', server_default='coding') to Task model for executor routing
+- Added `executor_metadata: dict` (default={}, server_default='{}') to Task model for executor-specific configuration
+- Named `executor_metadata` instead of `metadata` because SQLAlchemy reserves `metadata` attribute name on declarative models
+- Created Alembic migration `l4g5h6i7j8k9_add_executor_type_and_metadata_to_tasks.py`
+- Updated schemas: `TaskCreate`, `TaskUpdate`, `TaskResponse` all include both new fields with defaults
+- TDD: 15 tests in `backend/tests/test_task_executor_fields.py` (5 model, 10 schema)
+- All 923 tests pass, coverage 93.65%, ruff clean
+- Files changed: `models.py`, `schemas.py`, migration file (new), `test_task_executor_fields.py` (new)
