@@ -22,7 +22,7 @@
       "title": "KnowledgeProvider protocol + implementations",
       "description": "Define KnowledgeProvider protocol in providers/knowledge.py: async get_sot(project_id) -> dict, async store_result(task_id, result) -> None, async search(query, limit) -> list[dict]. Implement BSageProvider (HTTP client to BSage /api/knowledge/* endpoints) and LocalMarkdownProvider (reads/writes local ./knowledge/ markdown files). Write tests first.",
       "acceptanceCriteria": "KnowledgeProvider protocol defined. BSageProvider calls BSage API. LocalMarkdownProvider uses local filesystem. Tests verify both with mocks.",
-      "passes": false,
+      "passes": true,
       "priority": 3
     },
     {

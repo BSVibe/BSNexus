@@ -109,3 +109,19 @@ Started: 2026-03-28T09:00:23Z
 - All 957 tests pass, coverage 93.76%, ruff clean
 - Files created: `providers/supervisor.py`, `tests/providers/test_supervisor.py`
 - Self-contained module, no cross-provider imports, config passed at construction time
+
+## TASK-003: KnowledgeProvider protocol + implementations
+- Created `backend/src/providers/knowledge.py` with `KnowledgeProvider` protocol (`@runtime_checkable`)
+- Protocol methods: `async get_sot(project_id) -> dict`, `async store_result(task_id, result) -> None`, `async search(query, limit) -> list[dict]`
+- Implemented `BSageProvider`: HTTP client to BSage API
+  - `get_sot` GETs from `{base_url}/api/knowledge/sot/{project_id}` with Bearer auth
+  - `store_result` POSTs to `{base_url}/api/knowledge/results/{task_id}` with task_id and result in body
+  - `search` POSTs to `{base_url}/api/knowledge/search` with query and limit, returns `resp["results"]`
+- Implemented `LocalMarkdownProvider`: local filesystem fallback
+  - `get_sot` reads `{knowledge_dir}/sot/{project_id}.md`, returns empty dict if not found
+  - `store_result` writes JSON to `{knowledge_dir}/results/{task_id}.md`, creates dir if needed
+  - `search` scans `{knowledge_dir}/docs/*.md` for case-insensitive match, respects limit
+- TDD: 18 tests in `backend/tests/providers/test_knowledge.py`
+- 100% coverage on knowledge.py (67 statements, 0 missed)
+- All 975 tests pass, coverage 93.86%, ruff clean
+- Self-contained module, no cross-provider imports, config passed at construction time
