@@ -565,16 +565,16 @@ class TestParseReviewVerdict:
 
 
 def test_create_executor_claude_code():
-    """create_executor('claude-code') returns ClaudeCodeExecutor."""
+    """create_executor('claude_code') returns ClaudeCodeExecutor."""
     from backend.src.core.executor import create_executor
 
-    executor = create_executor("claude-code")
+    executor = create_executor("claude_code")
     assert isinstance(executor, ClaudeCodeExecutor)
 
 
 def test_create_executor_unknown_raises():
-    """create_executor with unknown type raises ValueError."""
+    """create_executor with unknown type raises KeyError."""
     from backend.src.core.executor import create_executor
 
-    with pytest.raises(ValueError, match="Unknown executor type"):
+    with pytest.raises(KeyError, match="not registered"):
         create_executor("not-a-real-executor")

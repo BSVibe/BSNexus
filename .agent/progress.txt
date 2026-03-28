@@ -20,3 +20,15 @@ Started: 2026-03-28T09:00:23Z
 - Exported `ExecutorRegistry` from `__init__.py`
 - All 886 tests pass, coverage 93.61%, ruff clean
 - Files changed: `registry.py` (new), `__init__.py` (updated), `test_registry.py` (new)
+
+## TASK-003: Refactor ClaudeCodeExecutor to implement ExecutorProtocol
+- ClaudeCodeExecutor already satisfies ExecutorProtocol structurally (execute, review, supported_task_types methods added in TASK-001)
+- Registered ClaudeCodeExecutor in ExecutorRegistry at module init (`__init__.py`)
+- Rewrote `create_executor()` to delegate to `ExecutorRegistry.get()` instead of hardcoded if/else
+- Changed canonical executor name from `"claude-code"` to `"claude_code"` (underscores, matching Python conventions)
+- Updated `config.py` default `executor_type` from `"claude-code"` to `"claude_code"`
+- Fixed singleton test isolation bug: `ExecutorRegistry.__new__()` returned the singleton, so test fixtures clearing `_executors` corrupted global state. Fixed by using `object.__new__()` in test fixtures.
+- TDD: 11 new tests in `backend/tests/core/executor/test_claude_code_protocol.py` (protocol compliance, registration, create_executor integration)
+- Updated existing tests in `test_executor_claude_code.py` to use new executor name and KeyError
+- All 897 tests pass, coverage 93.64%, ruff clean
+- Files changed: `__init__.py` (updated), `config.py` (updated), `test_claude_code_protocol.py` (new), `test_registry.py` (fixture fix), `test_executor_claude_code.py` (updated)

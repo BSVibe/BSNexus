@@ -39,7 +39,7 @@ class AnotherFakeExecutor:
 @pytest.fixture
 def registry() -> ExecutorRegistry:
     """Fresh registry for each test (no singleton leakage)."""
-    reg = ExecutorRegistry.__new__(ExecutorRegistry)
+    reg = object.__new__(ExecutorRegistry)
     reg._executors = {}
     return reg
 

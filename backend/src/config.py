@@ -51,7 +51,7 @@ class Settings(BaseSettings):
 
     # Executor
     workspace_dir: str = "/workspace"
-    executor_type: str = "claude-code"
+    executor_type: str = "claude_code"
     execution_timeout_seconds: int = 3600
     total_execution_timeout_seconds: int = 7200
     rate_limit_retry_count: int = 5

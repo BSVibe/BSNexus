@@ -22,7 +22,7 @@
       "title": "Refactor ClaudeCodeExecutor to implement ExecutorProtocol",
       "description": "Update backend/src/core/executor/claude_code.py to implement ExecutorProtocol (structural subtyping, no inheritance needed). Add supported_task_types() returning ['coding', 'refactor', 'bugfix', 'test']. Register it in the ExecutorRegistry. Update imports throughout the codebase. Write tests first.",
       "acceptanceCriteria": "ClaudeCodeExecutor satisfies ExecutorProtocol. It's registered in the registry. All existing tests still pass. New tests verify protocol compliance.",
-      "passes": false,
+      "passes": true,
       "priority": 3
     },
     {
