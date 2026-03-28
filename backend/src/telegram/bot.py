@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import structlog
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from telegram.ext import ApplicationBuilder, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
+
+from backend.src.telegram.handlers.approval import ApprovalHandler
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import async_sessionmaker
 
 logger = structlog.get_logger(__name__)
 
@@ -16,10 +23,11 @@ class TelegramBot:
     so the FastAPI app can run without Telegram credentials.
     """
 
-    def __init__(self, token: str, chat_id: str) -> None:
+    def __init__(self, token: str, chat_id: str, db_session_factory: async_sessionmaker | None = None) -> None:
         self.token = token
         self.chat_id = chat_id
         self.application = None
+        self.approval_handler: ApprovalHandler | None = None
 
         if token:
             self.application = (
@@ -27,6 +35,8 @@ class TelegramBot:
                 .token(token)
                 .build()
             )
+            if db_session_factory is not None:
+                self.approval_handler = ApprovalHandler(db_session_factory=db_session_factory)
             self._register_handlers()
             logger.info("telegram_bot_created", chat_id=chat_id)
         else:
@@ -40,6 +50,11 @@ class TelegramBot:
     def _register_handlers(self) -> None:
         """Register all command handlers on the application."""
         self.application.add_handler(CommandHandler("start", self._handle_start))
+        if self.approval_handler:
+            self.application.add_handler(CallbackQueryHandler(self.approval_handler.handle_callback))
+            self.application.add_handler(
+                MessageHandler(filters.TEXT & ~filters.COMMAND, self._handle_text)
+            )
 
     async def start(self) -> None:
         """Initialize and start polling for updates."""
@@ -62,6 +77,11 @@ class TelegramBot:
     # ------------------------------------------------------------------
     # Command handlers
     # ------------------------------------------------------------------
+
+    async def _handle_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle plain text messages — delegates to rejection reason handler if pending."""
+        if self.approval_handler:
+            await self.approval_handler.handle_rejection_reason(update, context)
 
     @staticmethod
     async def _handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
