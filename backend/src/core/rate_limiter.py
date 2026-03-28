@@ -1,40 +1,20 @@
-"""Rate limiting middleware for API protection."""
+"""Rate limiting middleware for API protection.
+
+Uses a Redis-backed sliding window counter for multi-worker / multi-process safety.
+"""
+
+from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
+import structlog
+from redis.asyncio import Redis
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-
-@dataclass
-class RateLimitBucket:
-    """Token bucket for rate limiting a single client."""
-
-    tokens: float
-    max_tokens: float
-    refill_rate: float  # tokens per second
-    last_refill: float = field(default_factory=time.monotonic)
-
-    def consume(self) -> bool:
-        """Try to consume a token. Returns True if allowed."""
-        now = time.monotonic()
-        elapsed = now - self.last_refill
-        self.tokens = min(self.max_tokens, self.tokens + elapsed * self.refill_rate)
-        self.last_refill = now
-
-        if self.tokens >= 1.0:
-            self.tokens -= 1.0
-            return True
-        return False
-
-    @property
-    def retry_after(self) -> float:
-        """Seconds until a token is available."""
-        if self.tokens >= 1.0:
-            return 0.0
-        return (1.0 - self.tokens) / self.refill_rate
+logger = structlog.get_logger(__name__)
 
 
 @dataclass
@@ -45,8 +25,14 @@ class RateLimitConfig:
     burst_size: int = 20
 
     @property
-    def refill_rate(self) -> float:
-        return self.requests_per_second
+    def window_seconds(self) -> int:
+        """Sliding window size derived from burst_size / rps (minimum 1s)."""
+        return max(1, int(self.burst_size / self.requests_per_second))
+
+    @property
+    def max_requests(self) -> int:
+        """Maximum requests allowed within the sliding window."""
+        return self.burst_size
 
 
 # Default rate limits by path prefix
@@ -59,29 +45,65 @@ DEFAULT_RATE_LIMITS: dict[str, RateLimitConfig] = {
 }
 
 
+# Lua script for atomic sliding window check-and-increment.
+# KEYS[1] = sorted-set key, ARGV = [now_ms, window_start_ms, max_requests, window_seconds]
+_SLIDING_WINDOW_LUA = """
+local key = KEYS[1]
+local now_ms = tonumber(ARGV[1])
+local window_start_ms = tonumber(ARGV[2])
+local max_requests = tonumber(ARGV[3])
+local window_seconds = tonumber(ARGV[4])
+
+-- Remove entries outside the window
+redis.call('ZREMRANGEBYSCORE', key, '-inf', window_start_ms)
+
+-- Count current entries
+local count = redis.call('ZCARD', key)
+
+if count < max_requests then
+    -- Add current request
+    redis.call('ZADD', key, now_ms, now_ms .. ':' .. math.random(1000000))
+    redis.call('EXPIRE', key, window_seconds + 1)
+    return {1, 0}  -- allowed=1, retry_after=0
+else
+    -- Rejected: compute retry_after from oldest entry
+    local oldest = redis.call('ZRANGE', key, 0, 0, 'WITHSCORES')
+    local retry_ms = 0
+    if #oldest >= 2 then
+        retry_ms = tonumber(oldest[2]) + (window_seconds * 1000) - now_ms
+        if retry_ms < 0 then retry_ms = 0 end
+    end
+    return {0, retry_ms}
+end
+"""
+
+
 class RateLimiter:
-    """In-memory token bucket rate limiter.
+    """Redis-backed sliding window rate limiter.
 
-    Limitations:
-    - Single-process only: with multiple uvicorn workers, each process has its
-      own bucket dict, effectively multiplying the rate limit by the worker count.
-    - Memory: stale buckets are cleaned every 5 minutes, but sustained traffic
-      from many distinct IPs will grow the dict proportionally.
-
-    TODO: Replace with Redis-backed implementation (e.g. sliding window counter
-    via EVALSHA) for production multi-worker deployments.
+    Each (client, path-prefix) pair gets a Redis sorted set.
+    Members are timestamped request entries; the window slides
+    forward continuously, so the limit is enforced across all workers.
     """
 
-    def __init__(self, rate_limits: dict[str, RateLimitConfig] | None = None) -> None:
+    def __init__(
+        self,
+        rate_limits: dict[str, RateLimitConfig] | None = None,
+        redis: Redis | None = None,
+    ) -> None:
         self.rate_limits = rate_limits or DEFAULT_RATE_LIMITS
-        self._buckets: dict[str, RateLimitBucket] = {}
-        self._last_cleanup = time.monotonic()
-        self._cleanup_interval = 300.0  # Clean up stale buckets every 5 minutes
+        self._redis: Redis | None = redis
+        self._script_sha: str | None = None
+
+    def set_redis(self, redis: Redis) -> None:
+        """Attach a Redis connection (called once at startup)."""
+        self._redis = redis
+        self._script_sha = None
 
     def _get_config(self, path: str) -> RateLimitConfig:
         """Find the most specific rate limit config for a path."""
         best_match = ""
-        best_config = RateLimitConfig()  # default fallback
+        best_config = RateLimitConfig()
 
         for prefix, config in self.rate_limits.items():
             if path.startswith(prefix) and len(prefix) > len(best_match):
@@ -91,52 +113,56 @@ class RateLimiter:
         return best_config
 
     def _get_bucket_key(self, client_id: str, path: str) -> str:
-        """Generate a bucket key from client ID and matched path prefix."""
+        """Generate a Redis key from client ID and matched path prefix."""
         config_prefix = ""
         best_len = 0
         for prefix in self.rate_limits:
             if path.startswith(prefix) and len(prefix) > best_len:
                 config_prefix = prefix
                 best_len = len(prefix)
-        return f"{client_id}:{config_prefix or 'default'}"
+        return f"rl:{client_id}:{config_prefix or 'default'}"
 
-    def _cleanup_stale_buckets(self) -> None:
-        """Remove buckets that haven't been used recently."""
-        now = time.monotonic()
-        if now - self._last_cleanup < self._cleanup_interval:
-            return
-        self._last_cleanup = now
-
-        stale_keys = [key for key, bucket in self._buckets.items() if now - bucket.last_refill > self._cleanup_interval]
-        for key in stale_keys:
-            del self._buckets[key]
-
-    def check(self, client_id: str, path: str) -> tuple[bool, float]:
+    async def check(self, client_id: str, path: str) -> tuple[bool, float]:
         """Check if a request is allowed.
 
         Returns:
             Tuple of (allowed, retry_after_seconds).
         """
-        self._cleanup_stale_buckets()
+        if self._redis is None:
+            # Fallback: allow everything if Redis is not available
+            return True, 0.0
 
         config = self._get_config(path)
         bucket_key = self._get_bucket_key(client_id, path)
+        now_ms = int(time.time() * 1000)
+        window_start_ms = now_ms - (config.window_seconds * 1000)
 
-        if bucket_key not in self._buckets:
-            self._buckets[bucket_key] = RateLimitBucket(
-                tokens=float(config.burst_size),
-                max_tokens=float(config.burst_size),
-                refill_rate=config.refill_rate,
+        try:
+            if self._script_sha is None:
+                self._script_sha = await self._redis.script_load(_SLIDING_WINDOW_LUA)
+
+            result = await self._redis.evalsha(
+                self._script_sha,
+                1,
+                bucket_key,
+                str(now_ms),
+                str(window_start_ms),
+                str(config.max_requests),
+                str(config.window_seconds),
             )
 
-        bucket = self._buckets[bucket_key]
-        allowed = bucket.consume()
-        return allowed, bucket.retry_after
+            allowed = bool(result[0])
+            retry_after_ms = int(result[1])
+            return allowed, retry_after_ms / 1000.0
+
+        except Exception:
+            # Redis failure: degrade gracefully — allow the request
+            logger.warning("rate_limiter_redis_error", client_id=client_id, path=path, exc_info=True)
+            return True, 0.0
 
 
 def _get_client_id(request: Request) -> str:
     """Extract client identifier from request."""
-    # Use X-Forwarded-For if behind a reverse proxy, otherwise use client host
     forwarded_for = request.headers.get("X-Forwarded-For")
     if forwarded_for:
         return forwarded_for.split(",")[0].strip()
@@ -171,8 +197,14 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if request.url.path in self.exempt_paths:
             return await call_next(request)
 
+        # Lazily attach Redis from app state if not already set
+        if self.rate_limiter._redis is None:
+            redis_client = getattr(getattr(app_state, "state", None), "redis", None)
+            if redis_client is not None:
+                self.rate_limiter.set_redis(redis_client)
+
         client_id = _get_client_id(request)
-        allowed, retry_after = self.rate_limiter.check(client_id, request.url.path)
+        allowed, retry_after = await self.rate_limiter.check(client_id, request.url.path)
 
         if not allowed:
             return JSONResponse(

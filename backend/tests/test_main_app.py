@@ -79,8 +79,8 @@ async def test_init_db_is_noop() -> None:
 # -- CORS tests ----------------------------------------------------------------
 
 
-async def test_cors_preflight(client: AsyncClient) -> None:
-    """OPTIONS request returns CORS headers."""
+async def test_cors_preflight_blocked_by_default(client: AsyncClient) -> None:
+    """OPTIONS request is blocked when no origins are configured (secure default)."""
     response = await client.options(
         "/health",
         headers={
@@ -88,18 +88,18 @@ async def test_cors_preflight(client: AsyncClient) -> None:
             "Access-Control-Request-Method": "GET",
         },
     )
-    assert response.status_code == 200
-    assert "access-control-allow-origin" in response.headers
+    # With empty allow_origins, CORSMiddleware returns 400 for preflight
+    assert response.status_code == 400
 
 
-async def test_cors_origin_reflected(client: AsyncClient) -> None:
-    """GET with Origin header returns Access-Control-Allow-Origin."""
+async def test_cors_origin_not_reflected_by_default(client: AsyncClient) -> None:
+    """GET with Origin header does NOT reflect it when origins list is empty."""
     response = await client.get(
         "/health",
         headers={"Origin": "http://localhost:3000"},
     )
     assert response.status_code == 200
-    assert "access-control-allow-origin" in response.headers
+    assert "access-control-allow-origin" not in response.headers
 
 
 # -- Router registration tests ------------------------------------------------
@@ -144,12 +144,17 @@ async def test_lifespan_startup_and_shutdown() -> None:
     mock_stream_manager = AsyncMock()
 
     with (
+        patch("backend.src.main.app_settings") as mock_settings,
         patch("backend.src.main.init_db", new_callable=AsyncMock) as mock_init_db,
         patch("backend.src.main.get_redis", new_callable=AsyncMock, return_value=mock_redis),
         patch("backend.src.main.RedisStreamManager", return_value=mock_stream_manager),
         patch("backend.src.main.start_background_consumer", new_callable=AsyncMock),
         patch("backend.src.main.close_redis", new_callable=AsyncMock) as mock_close_redis,
     ):
+        # Bypass signing key validation (debug mode)
+        mock_settings.debug = True
+        mock_settings.prompt_signing_key = "dev-signing-key-change-in-production"
+
         async with lifespan(mock_app):
             mock_init_db.assert_awaited_once()
             assert mock_app.state.redis == mock_redis

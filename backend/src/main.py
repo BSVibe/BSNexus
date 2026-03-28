@@ -12,6 +12,7 @@ from backend.src.api import (
     auth,
     board,
     dashboard,
+    mcp,
     planner,
     pm,
     projects,
@@ -73,10 +74,19 @@ def _setup_logging() -> None:
 _setup_logging()
 
 
+_DEV_SIGNING_KEY = "dev-signing-key-change-in-production"
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage server lifecycle: startup and shutdown."""
-    # Startup
+    # Startup — security gate
+    if not app_settings.debug and app_settings.prompt_signing_key == _DEV_SIGNING_KEY:
+        raise RuntimeError(
+            "FATAL: prompt_signing_key is still the dev default. "
+            "Set a secure PROMPT_SIGNING_KEY env var for production."
+        )
+
     await init_db()
     redis = await get_redis()
     stream_manager = RedisStreamManager(redis)
@@ -162,3 +172,4 @@ app.include_router(dashboard.router)
 app.include_router(settings.router)
 app.include_router(security.router)
 app.include_router(planner.router)
+app.include_router(mcp.router)

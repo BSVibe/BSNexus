@@ -26,7 +26,8 @@ class Settings(BaseSettings):
     encryption_key: str = "dev-encryption-key-change-in-production"
 
     # Security - CORS
-    cors_allowed_origins: list[str] = ["*"]
+    # SECURITY: empty by default — must be explicitly configured per environment
+    cors_allowed_origins: list[str] = []
 
     # Security - rate limiting
     rate_limit_enabled: bool = True
