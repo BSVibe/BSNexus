@@ -81,10 +81,9 @@ class Settings(BaseSettings):
     # Providers — Local knowledge
     knowledge_dir: str = "./knowledge"
 
-    # Telegram
-    telegram_bot_token: str = ""
-    telegram_chat_id: str = ""
-    telegram_project_id: str = ""
+    # Notification
+    notification_provider: Literal["bsage", "noop"] = "noop"
+    bsage_notification_url: str = ""
 
     # Planner
     planner_cron_schedule: str = "0 9 * * 1-5"
