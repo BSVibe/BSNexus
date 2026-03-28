@@ -14,7 +14,7 @@
       "title": "Create ExecutorRegistry",
       "description": "Create backend/src/core/executor/registry.py with an ExecutorRegistry class. Methods: register(name: str, executor_factory: Callable) -> None, get(name: str) -> ExecutorProtocol, list_available() -> list[str]. Thread-safe singleton pattern. Write tests first.",
       "acceptanceCriteria": "ExecutorRegistry can register and retrieve executors by name. Raises KeyError for unknown executors. Tests cover register, get, list_available, and duplicate registration.",
-      "passes": false,
+      "passes": true,
       "priority": 2
     },
     {

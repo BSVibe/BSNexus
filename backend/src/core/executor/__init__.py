@@ -1,7 +1,15 @@
 from backend.src.core.executor.base import BaseExecutor, ExecutionResult, ExecutorProtocol, ReviewResult
 from backend.src.core.executor.claude_code import ClaudeCodeExecutor
+from backend.src.core.executor.registry import ExecutorRegistry
 
-__all__ = ["BaseExecutor", "ClaudeCodeExecutor", "ExecutionResult", "ExecutorProtocol", "ReviewResult"]
+__all__ = [
+    "BaseExecutor",
+    "ClaudeCodeExecutor",
+    "ExecutionResult",
+    "ExecutorProtocol",
+    "ExecutorRegistry",
+    "ReviewResult",
+]
 
 
 def create_executor(executor_type: str = "claude-code") -> ExecutorProtocol:

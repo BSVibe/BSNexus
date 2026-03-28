@@ -11,3 +11,12 @@ Started: 2026-03-28T09:00:23Z
 - 8 new protocol tests in `backend/tests/core/executor/test_protocol.py`
 - Files changed: `base.py`, `claude_code.py`, `__init__.py`
 - Key decision: `BaseExecutor = ExecutorProtocol` alias preserves all existing imports in task_runner.py and tests without changes
+
+## TASK-002: Create ExecutorRegistry
+- Created `backend/src/core/executor/registry.py` with thread-safe singleton `ExecutorRegistry`
+- Methods: `register(name, factory)`, `get(name)` (creates new instance each call), `list_available()`
+- Raises `KeyError` for duplicate registration and unknown executor lookup
+- TDD: 7 tests written first in `backend/tests/core/executor/test_registry.py`
+- Exported `ExecutorRegistry` from `__init__.py`
+- All 886 tests pass, coverage 93.61%, ruff clean
+- Files changed: `registry.py` (new), `__init__.py` (updated), `test_registry.py` (new)
