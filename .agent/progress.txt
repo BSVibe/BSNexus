@@ -1,0 +1,13 @@
+# Progress Log
+Started: 2026-03-28T09:00:23Z
+
+## TASK-001: Define ExecutorProtocol with typing.Protocol
+- Replaced `BaseExecutor(ABC)` with `ExecutorProtocol(Protocol)` using `@runtime_checkable`
+- Added `supported_task_types() -> list[str]` method to the protocol
+- Kept `BaseExecutor` as backward-compatible alias (`BaseExecutor = ExecutorProtocol`)
+- Removed ABC inheritance from `ClaudeCodeExecutor`, added `supported_task_types()` returning `["coding", "refactor", "bugfix", "test"]`
+- Updated `__init__.py` to export `ExecutorProtocol`
+- All 879 existing tests still pass, coverage 93.57%
+- 8 new protocol tests in `backend/tests/core/executor/test_protocol.py`
+- Files changed: `base.py`, `claude_code.py`, `__init__.py`
+- Key decision: `BaseExecutor = ExecutorProtocol` alias preserves all existing imports in task_runner.py and tests without changes

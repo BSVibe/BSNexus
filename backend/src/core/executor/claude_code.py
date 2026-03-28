@@ -8,12 +8,12 @@ from typing import Any
 from backend.src.config import settings
 from backend.src.prompts.loader import get_prompt
 
-from .base import BaseExecutor, ExecutionResult, ReviewResult
+from .base import ExecutionResult, ReviewResult
 
 logger = structlog.get_logger(__name__)
 
 
-class ClaudeCodeExecutor(BaseExecutor):
+class ClaudeCodeExecutor:
     """Claude Code CLI executor."""
 
     def __init__(self, workspace_dir: str | None = None) -> None:
@@ -24,6 +24,10 @@ class ClaudeCodeExecutor(BaseExecutor):
         self._execution_timeout_seconds = settings.execution_timeout_seconds
         self._total_execution_timeout_seconds = settings.total_execution_timeout_seconds
         self._skip_permissions = settings.executor_skip_permissions
+
+    def supported_task_types(self) -> list[str]:
+        """Return task types this executor can handle."""
+        return ["coding", "refactor", "bugfix", "test"]
 
     @staticmethod
     def _resolve_claude_cmd() -> str:
