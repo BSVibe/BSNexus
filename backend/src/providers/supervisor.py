@@ -37,7 +37,11 @@ class BSupervisorProvider:
     def __init__(self, base_url: str, api_key: str, timeout: float = 30.0) -> None:
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key
-        self._timeout = timeout
+        self._client = httpx.AsyncClient(timeout=timeout)
+
+    async def close(self) -> None:
+        """Close the underlying HTTP client."""
+        await self._client.aclose()
 
     def _headers(self) -> dict[str, str]:
         return {
@@ -60,13 +64,12 @@ class BSupervisorProvider:
 
         logger.info("bsupervisor_log_event", agent_id=agent_id, event_type=event_type)
 
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            resp = await client.post(
-                f"{self._base_url}/api/v1/events",
-                headers=self._headers(),
-                json=body,
-            )
-            resp.raise_for_status()
+        resp = await self._client.post(
+            f"{self._base_url}/api/v1/events",
+            headers=self._headers(),
+            json=body,
+        )
+        resp.raise_for_status()
 
     async def check_permission(
         self,
@@ -81,13 +84,12 @@ class BSupervisorProvider:
 
         logger.info("bsupervisor_check_permission", agent_id=agent_id, action=action)
 
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            resp = await client.post(
-                f"{self._base_url}/api/v1/permissions/check",
-                headers=self._headers(),
-                json=body,
-            )
-            resp.raise_for_status()
+        resp = await self._client.post(
+            f"{self._base_url}/api/v1/permissions/check",
+            headers=self._headers(),
+            json=body,
+        )
+        resp.raise_for_status()
 
         return resp.json()["allowed"]
 

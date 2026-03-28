@@ -42,7 +42,11 @@ class BSGatewayProvider:
     def __init__(self, base_url: str, api_key: str, timeout: float = 120.0) -> None:
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key
-        self._timeout = timeout
+        self._client = httpx.AsyncClient(timeout=timeout)
+
+    async def close(self) -> None:
+        """Close the underlying HTTP client."""
+        await self._client.aclose()
 
     async def chat_completion(
         self,
@@ -68,13 +72,12 @@ class BSGatewayProvider:
 
         logger.info("bsgateway_request", model=model_hint, task_metadata_keys=list(task_metadata or {}))
 
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            resp = await client.post(
-                f"{self._base_url}/v1/chat/completions",
-                headers=headers,
-                json=body,
-            )
-            resp.raise_for_status()
+        resp = await self._client.post(
+            f"{self._base_url}/v1/chat/completions",
+            headers=headers,
+            json=body,
+        )
+        resp.raise_for_status()
 
         data = resp.json()
         content = data["choices"][0]["message"]["content"]

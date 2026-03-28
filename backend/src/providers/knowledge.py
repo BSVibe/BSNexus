@@ -5,6 +5,7 @@ Self-contained module — no cross-provider imports.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
@@ -32,7 +33,11 @@ class BSageProvider:
     def __init__(self, base_url: str, api_key: str, timeout: float = 30.0) -> None:
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key
-        self._timeout = timeout
+        self._client = httpx.AsyncClient(timeout=timeout)
+
+    async def close(self) -> None:
+        """Close the underlying HTTP client."""
+        await self._client.aclose()
 
     def _headers(self) -> dict[str, str]:
         return {
@@ -44,12 +49,11 @@ class BSageProvider:
         """Fetch source-of-truth for a project from BSage API."""
         logger.info("bsage_get_sot", project_id=project_id)
 
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            resp = await client.get(
-                f"{self._base_url}/api/knowledge/sot/{project_id}",
-                headers=self._headers(),
-            )
-            resp.raise_for_status()
+        resp = await self._client.get(
+            f"{self._base_url}/api/knowledge/sot/{project_id}",
+            headers=self._headers(),
+        )
+        resp.raise_for_status()
 
         return resp.json()
 
@@ -62,13 +66,12 @@ class BSageProvider:
 
         logger.info("bsage_store_result", task_id=task_id)
 
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            resp = await client.post(
-                f"{self._base_url}/api/knowledge/results/{task_id}",
-                headers=self._headers(),
-                json=body,
-            )
-            resp.raise_for_status()
+        resp = await self._client.post(
+            f"{self._base_url}/api/knowledge/results/{task_id}",
+            headers=self._headers(),
+            json=body,
+        )
+        resp.raise_for_status()
 
     async def search(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
         """Search the knowledge base via BSage API."""
@@ -79,13 +82,12 @@ class BSageProvider:
 
         logger.info("bsage_search", query=query, limit=limit)
 
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            resp = await client.post(
-                f"{self._base_url}/api/knowledge/search",
-                headers=self._headers(),
-                json=body,
-            )
-            resp.raise_for_status()
+        resp = await self._client.post(
+            f"{self._base_url}/api/knowledge/search",
+            headers=self._headers(),
+            json=body,
+        )
+        resp.raise_for_status()
 
         return resp.json()["results"]
 
@@ -104,7 +106,7 @@ class LocalMarkdownProvider:
             logger.info("local_knowledge_sot_not_found", project_id=project_id)
             return {}
 
-        content = sot_file.read_text(encoding="utf-8")
+        content = await asyncio.to_thread(sot_file.read_text, encoding="utf-8")
         logger.info("local_knowledge_get_sot", project_id=project_id)
 
         return {"project_id": project_id, "content": content}
@@ -116,7 +118,7 @@ class LocalMarkdownProvider:
 
         result_file = results_dir / f"{task_id}.md"
         content = f"# Task Result: {task_id}\n\n```json\n{json.dumps(result, indent=2)}\n```\n"
-        result_file.write_text(content, encoding="utf-8")
+        await asyncio.to_thread(result_file.write_text, content, encoding="utf-8")
 
         logger.info("local_knowledge_store_result", task_id=task_id)
 
@@ -131,7 +133,7 @@ class LocalMarkdownProvider:
         query_lower = query.lower()
 
         for md_file in sorted(docs_dir.glob("*.md")):
-            content = md_file.read_text(encoding="utf-8")
+            content = await asyncio.to_thread(md_file.read_text, encoding="utf-8")
             if query_lower in content.lower():
                 results.append({
                     "file": md_file.name,
