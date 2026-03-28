@@ -9,9 +9,12 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
 from backend.src.telegram.handlers.approval import ApprovalHandler
+from backend.src.telegram.handlers.commands import CommandsHandler
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from backend.src.core.planner_service import PlannerService
 
 logger = structlog.get_logger(__name__)
 
@@ -23,11 +26,19 @@ class TelegramBot:
     so the FastAPI app can run without Telegram credentials.
     """
 
-    def __init__(self, token: str, chat_id: str, db_session_factory: async_sessionmaker | None = None) -> None:
+    def __init__(
+        self,
+        token: str,
+        chat_id: str,
+        db_session_factory: async_sessionmaker | None = None,
+        planner_service: PlannerService | None = None,
+        project_id: str = "",
+    ) -> None:
         self.token = token
         self.chat_id = chat_id
         self.application = None
         self.approval_handler: ApprovalHandler | None = None
+        self.commands_handler: CommandsHandler | None = None
 
         if token:
             self.application = (
@@ -37,6 +48,13 @@ class TelegramBot:
             )
             if db_session_factory is not None:
                 self.approval_handler = ApprovalHandler(db_session_factory=db_session_factory)
+                if planner_service is not None:
+                    self.commands_handler = CommandsHandler(
+                        db_session_factory=db_session_factory,
+                        planner_service=planner_service,
+                        chat_id=chat_id,
+                        project_id=project_id,
+                    )
             self._register_handlers()
             logger.info("telegram_bot_created", chat_id=chat_id)
         else:
@@ -50,6 +68,10 @@ class TelegramBot:
     def _register_handlers(self) -> None:
         """Register all command handlers on the application."""
         self.application.add_handler(CommandHandler("start", self._handle_start))
+        if self.commands_handler:
+            self.application.add_handler(CommandHandler("status", self.commands_handler.handle_status))
+            self.application.add_handler(CommandHandler("plan", self.commands_handler.handle_plan))
+            self.application.add_handler(CommandHandler("cost", self.commands_handler.handle_cost))
         if self.approval_handler:
             self.application.add_handler(CallbackQueryHandler(self.approval_handler.handle_callback))
             self.application.add_handler(
