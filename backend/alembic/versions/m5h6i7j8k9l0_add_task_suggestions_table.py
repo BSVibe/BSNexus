@@ -20,7 +20,8 @@ suggestion_status_enum = sa.Enum("pending", "approved", "rejected", "modified", 
 
 
 def upgrade() -> None:
-    suggestion_status_enum.create(op.get_bind(), checkfirst=True)
+    conn = op.get_bind()
+    suggestion_status_enum.create(conn, checkfirst=True)
     op.create_table(
         "task_suggestions",
         sa.Column("id", sa.Uuid(), nullable=False),
@@ -31,7 +32,12 @@ def upgrade() -> None:
         sa.Column("priority", sa.Integer(), nullable=False),
         sa.Column("estimated_effort", sa.String(50), nullable=True),
         sa.Column("reasoning", sa.Text(), nullable=True),
-        sa.Column("status", suggestion_status_enum, nullable=False, server_default="pending"),
+        sa.Column(
+            "status",
+            sa.Enum("pending", "approved", "rejected", "modified", name="suggestionstatus", create_type=False),
+            nullable=False,
+            server_default="pending",
+        ),
         sa.Column("rejection_reason", sa.Text(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
@@ -44,4 +50,5 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_index("ix_task_suggestions_project_status", table_name="task_suggestions")
     op.drop_table("task_suggestions")
-    suggestion_status_enum.drop(op.get_bind(), checkfirst=True)
+    conn = op.get_bind()
+    suggestion_status_enum.drop(conn, checkfirst=True)
