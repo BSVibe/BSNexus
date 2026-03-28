@@ -3,10 +3,14 @@ FROM python:3.11-slim AS builder
 WORKDIR /workspace
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 
+RUN apt-get update && apt-get install -y --no-install-recommends git \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
-# Install Python dependencies (cache layer)
+# Install Python dependencies
 COPY backend/pyproject.toml backend/uv.lock* ./backend/
+COPY backend/src/ ./backend/src/
 RUN cd backend && uv pip install --system --compile-bytecode --no-cache .
 
 # Runtime stage
