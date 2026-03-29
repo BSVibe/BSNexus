@@ -3,8 +3,8 @@
 from urllib.parse import urlencode
 
 import structlog
-from bsvibe_auth import BSVibeUser
-from fastapi import APIRouter, Depends, Query, Request, status
+from bsvibe_auth import AuthError, BSVibeUser
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
@@ -64,13 +64,9 @@ async def auth_callback(
 @router.post("/api/v1/auth/refresh", response_model=TokenResponse)
 async def refresh(body: RefreshRequest) -> TokenResponse:
     """Exchange a refresh token for a new access token via BSVibe Auth."""
-    from bsvibe_auth import AuthError
-
     try:
         pair = await auth_provider.refresh_token(body.refresh_token)
     except AuthError:
-        from fastapi import HTTPException
-
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired refresh token",
@@ -106,4 +102,7 @@ async def logout(request: Request, user: BSVibeUser = Depends(get_current_user))
     auth_header = request.headers.get("authorization", "")
     token = auth_header.removeprefix("Bearer ").strip()
     if token:
-        await auth_provider.logout(token)
+        try:
+            await auth_provider.logout(token)
+        except Exception:
+            logger.warning("bsvibe_logout_failed", user_id=user.id, exc_info=True)
