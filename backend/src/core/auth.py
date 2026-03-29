@@ -1,9 +1,8 @@
 """JWT-based authentication via bsvibe-auth (Supabase)."""
 
 import enum
-import logging
-
 import httpx
+import structlog
 from jwt import PyJWK
 
 from bsvibe_auth import BSVibeUser, SupabaseAuthProvider
@@ -12,7 +11,7 @@ from fastapi import Depends, HTTPException, status
 
 from backend.src.config import settings
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class Role(str, enum.Enum):

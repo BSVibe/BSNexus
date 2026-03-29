@@ -95,6 +95,11 @@ class RateLimiter:
         self._redis: Redis | None = redis
         self._script_sha: str | None = None
 
+    @property
+    def has_redis(self) -> bool:
+        """Whether a Redis connection has been attached."""
+        return self._redis is not None
+
     def set_redis(self, redis: Redis) -> None:
         """Attach a Redis connection (called once at startup)."""
         self._redis = redis
@@ -198,7 +203,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         # Lazily attach Redis from app state if not already set
-        if self.rate_limiter._redis is None:
+        if not self.rate_limiter.has_redis:
             redis_client = getattr(getattr(app_state, "state", None), "redis", None)
             if redis_client is not None:
                 self.rate_limiter.set_redis(redis_client)
