@@ -17,7 +17,7 @@ import ChatMessage from '../components/architect/ChatMessage'
 import ChatInput from '../components/architect/ChatInput'
 import Header from '../components/layout/Header'
 import type { Task } from '../types/task'
-import { MessageSquare, PanelRightClose, PanelRightOpen } from 'lucide-react'
+import { MessageSquare, PanelRightClose, PanelRightOpen, Bot } from 'lucide-react'
 
 export default function ProjectPage() {
   const { projectId } = useParams<{ projectId: string }>()
@@ -201,13 +201,13 @@ function ProjectContent({ projectId }: { projectId: string }) {
       <div className="flex h-[calc(100vh-64px)] overflow-hidden">
         {/* Main content: Board */}
         <div className="flex-1 flex flex-col overflow-hidden">
-          <div className="px-4 pt-3 pb-2 flex items-center gap-4">
+          <div className="px-6 pt-4 pb-3 flex items-center gap-4">
             <BoardStats />
             <PMControl projectId={projectId} />
           </div>
 
           {isRedesigning && (
-            <div className="px-4 pb-2">
+            <div className="px-6 pb-3">
               <RedesignView
                 tasks={redesignTasks as Task[]}
                 onDone={handleRedesignDone}
@@ -215,7 +215,7 @@ function ProjectContent({ projectId }: { projectId: string }) {
             </div>
           )}
 
-          <div className="flex-1 overflow-auto px-4 pb-4">
+          <div className="flex-1 overflow-auto px-6 pb-6">
             <KanbanBoard
               columns={columns}
               onTaskClick={(task: Task) => setSelectedTask(task)}
@@ -225,23 +225,33 @@ function ProjectContent({ projectId }: { projectId: string }) {
 
         {/* Right panel: Architect Chat */}
         {chatOpen && (
-          <div className="w-[400px] border-l border-border bg-bg-surface flex flex-col shrink-0">
-            <div className="px-4 py-3 border-b border-border-subtle flex items-center gap-2">
-              <MessageSquare size={16} className="text-accent" />
+          <div className="w-[420px] border-l border-border/40 bg-bg-surface flex flex-col shrink-0">
+            <div className="px-4 py-3 border-b border-border/30 flex items-center gap-2.5">
+              <div className="w-7 h-7 rounded-lg bg-accent/10 flex items-center justify-center">
+                <Bot size={14} className="text-accent" />
+              </div>
               <h3 className="text-sm font-semibold text-text-primary">Architect</h3>
               {sessionId && (
-                <span className="ml-auto text-xs text-text-muted">project-bound</span>
+                <span className="ml-auto text-[11px] text-text-muted bg-bg-elevated px-2 py-0.5 rounded-md border border-border/30">
+                  project-bound
+                </span>
               )}
             </div>
 
-            <div className="flex-1 overflow-y-auto p-3 space-y-2">
+            <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
               {!sessionId ? (
-                <div className="flex items-center justify-center h-full">
+                <div className="flex flex-col items-center justify-center h-full gap-3">
+                  <div className="w-12 h-12 rounded-xl bg-bg-elevated flex items-center justify-center">
+                    <MessageSquare size={20} className="text-text-muted" />
+                  </div>
                   <p className="text-sm text-text-muted">No architect session for this project.</p>
                 </div>
               ) : messages.length === 0 ? (
-                <div className="flex items-center justify-center h-full">
-                  <p className="text-sm text-text-muted">Start a conversation with the Architect.</p>
+                <div className="flex flex-col items-center justify-center h-full gap-3">
+                  <div className="w-12 h-12 rounded-xl bg-accent/10 flex items-center justify-center">
+                    <Bot size={20} className="text-accent" />
+                  </div>
+                  <p className="text-sm text-text-tertiary">Start a conversation with the Architect.</p>
                 </div>
               ) : (
                 messages.map((msg) => (
@@ -252,7 +262,7 @@ function ProjectContent({ projectId }: { projectId: string }) {
             </div>
 
             {sessionId && (
-              <div className="p-3 border-t border-border-subtle">
+              <div className="p-4 border-t border-border/30">
                 <ChatInput onSend={handleSend} disabled={isStreaming || !sessionId} />
               </div>
             )}

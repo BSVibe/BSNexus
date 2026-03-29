@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Button } from '../common'
+import { Send } from 'lucide-react'
 
 interface Props {
   onSend: (message: string) => void
@@ -31,24 +31,25 @@ export default function ChatInput({ onSend, disabled }: Props) {
   }
 
   return (
-    <div className="flex gap-2 items-end">
+    <div className="relative">
       <textarea
         ref={textareaRef}
         value={input}
         onChange={(e) => setInput(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder="Type a message... (Enter to send, Shift+Enter for newline)"
+        placeholder="Describe your project idea..."
         disabled={disabled}
         rows={1}
-        className="flex-1 resize-none rounded-lg bg-bg-input border border-border px-4 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent disabled:opacity-50"
+        className="w-full resize-none rounded-xl bg-bg-elevated border border-border/50 pl-4 pr-12 py-3 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/30 disabled:opacity-50 transition-colors"
       />
-      <Button
-        variant="primary"
+      <button
+        type="button"
         onClick={handleSubmit}
         disabled={disabled || !input.trim()}
+        className="absolute right-2 bottom-2 p-2 rounded-lg bg-accent hover:bg-accent-light text-white disabled:opacity-30 disabled:hover:bg-accent transition-colors"
       >
-        Send
-      </Button>
+        <Send size={16} />
+      </button>
     </div>
   )
 }

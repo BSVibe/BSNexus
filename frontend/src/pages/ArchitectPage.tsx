@@ -11,6 +11,7 @@ import SessionList from '../components/architect/SessionList'
 import NewSessionModal from '../components/architect/NewSessionModal'
 import FinalizePanel from '../components/architect/FinalizePanel'
 import Header from '../components/layout/Header'
+import { Bot, Sparkles } from 'lucide-react'
 
 function stripDesignContext(content: string): string {
   return content.replace(/<design_context>[\s\S]*?<\/design_context>/g, '').trim()
@@ -106,7 +107,6 @@ export default function ArchitectPage() {
 
       if (session.status === 'project_bound' && session.project_id) {
         setFinalizedProjectId(session.project_id)
-        // Project-bound sessions keep chat open - no finalize panel lock
         setShowFinalizePanel(false)
       } else {
         setFinalizedProjectId(null)
@@ -260,10 +260,28 @@ export default function ArchitectPage() {
             onDelete={handleDeleteSession}
             onBatchDelete={handleBatchDeleteSessions}
           />
-          <div className="flex-1 flex items-center justify-center">
-            <div className="text-center space-y-4">
-              <div className="text-text-tertiary text-lg">No session selected</div>
-              <p className="text-text-muted text-sm">Select a session from the sidebar or create a new one.</p>
+          <div className="flex-1 flex items-center justify-center bg-bg-primary">
+            <div className="text-center space-y-5 max-w-sm">
+              <div className="relative mx-auto w-20 h-20">
+                <div className="absolute inset-0 bg-accent/10 rounded-2xl" />
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <Bot size={32} className="text-accent" />
+                </div>
+              </div>
+              <div>
+                <h2 className="text-text-primary text-lg font-semibold mb-2">BSNexus Architect</h2>
+                <p className="text-text-tertiary text-sm leading-relaxed">
+                  Select a session from the sidebar or create a new one to start designing your project.
+                </p>
+              </div>
+              <div className="flex items-center justify-center gap-4 text-[11px] text-text-muted">
+                <span className="flex items-center gap-1.5">
+                  <Sparkles size={12} />
+                  AI-powered design
+                </span>
+                <span className="w-1 h-1 rounded-full bg-border" />
+                <span>Auto-decomposition</span>
+              </div>
             </div>
           </div>
         </div>
@@ -281,9 +299,11 @@ export default function ArchitectPage() {
       <Header
         title={headerTitle}
         action={
-          <div className="flex items-center gap-2">
-            <span className={`inline-block w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
-            <span className="text-xs text-text-secondary">{isConnected ? 'Connected' : 'Disconnected'}</span>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-bg-elevated border border-border/30">
+              <span className={`inline-block w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
+              <span className="text-xs text-text-secondary">{isConnected ? 'Connected' : 'Disconnected'}</span>
+            </div>
           </div>
         }
       />
@@ -296,14 +316,19 @@ export default function ArchitectPage() {
           onDelete={handleDeleteSession}
           onBatchDelete={handleBatchDeleteSessions}
         />
-        <div className="flex-1 flex flex-col">
+        <div className="flex-1 flex flex-col bg-bg-primary">
           {/* Messages area */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-2">
+          <div className="flex-1 overflow-y-auto px-6 py-6 space-y-4">
             {messages.length === 0 ? (
               <div className="flex-1 flex items-center justify-center h-full">
-                <div className="text-center space-y-2">
-                  <p className="text-lg font-medium text-text-secondary">안녕하세요! BSNexus Architect입니다.</p>
-                  <p className="text-sm text-text-muted">어떤 프로젝트를 만들고 싶으신가요?</p>
+                <div className="text-center space-y-4">
+                  <div className="bg-accent/10 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto">
+                    <Bot size={28} className="text-accent" />
+                  </div>
+                  <div>
+                    <p className="text-lg font-semibold text-text-primary">BSNexus Architect</p>
+                    <p className="text-sm text-text-tertiary mt-1">Describe the project you'd like to build.</p>
+                  </div>
                 </div>
               </div>
             ) : (
@@ -314,13 +339,16 @@ export default function ArchitectPage() {
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Input area - hidden when finalize panel is showing */}
+          {/* Input area */}
           {!showFinalizePanel && (
-            <div className="p-4 border-t border-border">
+            <div className="px-6 pb-6 pt-2">
               <ChatInput
                 onSend={handleSend}
                 disabled={isStreaming || !isConnected}
               />
+              <p className="text-[11px] text-text-muted text-center mt-2">
+                Enter to send, Shift+Enter for newline
+              </p>
             </div>
           )}
         </div>

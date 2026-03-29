@@ -2,6 +2,7 @@ import ReactMarkdown from 'react-markdown'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import type { ChatMessage as ChatMessageType } from '../../stores/architectStore'
+import { Bot, User } from 'lucide-react'
 
 interface Props {
   message: ChatMessageType
@@ -27,16 +28,21 @@ export default function ChatMessage({ message }: Props) {
   const isAssistant = message.role === 'assistant'
 
   return (
-    <div className={`flex ${isAssistant ? 'justify-start' : 'justify-end'} mb-4`}>
+    <div className={`flex gap-3 ${isAssistant ? 'justify-start' : 'justify-end'}`}>
+      {isAssistant && (
+        <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center shrink-0 mt-1">
+          <Bot size={16} className="text-accent" />
+        </div>
+      )}
       <div
-        className={`max-w-[70%] rounded-lg px-4 py-3 ${
+        className={`max-w-[75%] rounded-xl px-4 py-3 ${
           isAssistant
-            ? 'bg-gray-850 text-gray-50 border border-gray-700'
-            : 'bg-accent text-white'
+            ? 'bg-bg-elevated border border-border/40'
+            : 'bg-accent/15 border border-accent/20'
         }`}
       >
         {isAssistant ? (
-          <div className="prose prose-sm max-w-none">
+          <div className="prose prose-sm max-w-none [&_p]:text-text-primary [&_p]:leading-relaxed [&_li]:text-text-primary [&_strong]:text-text-primary">
             <ReactMarkdown
               components={{
                 code({ className, children, ...props }) {
@@ -44,34 +50,57 @@ export default function ChatMessage({ message }: Props) {
                   const codeStr = String(children).replace(/\n$/, '')
                   if (match) {
                     return (
-                      <SyntaxHighlighter
-                        style={oneDark}
-                        language={match[1]}
-                        PreTag="div"
-                      >
-                        {codeStr}
-                      </SyntaxHighlighter>
+                      <div className="rounded-lg overflow-hidden my-3 border border-border/30">
+                        <div className="bg-bg-hover px-3 py-1.5 text-[11px] font-mono text-text-tertiary border-b border-border/30">
+                          {match[1]}
+                        </div>
+                        <SyntaxHighlighter
+                          style={oneDark}
+                          language={match[1]}
+                          PreTag="div"
+                          customStyle={{
+                            margin: 0,
+                            borderRadius: 0,
+                            background: 'var(--bg-primary)',
+                            fontSize: '13px',
+                          }}
+                        >
+                          {codeStr}
+                        </SyntaxHighlighter>
+                      </div>
                     )
                   }
-                  return <code className={`${className} bg-gray-800 text-gray-300 px-1 py-0.5 rounded`} {...props}>{children}</code>
+                  return (
+                    <code
+                      className={`${className} bg-bg-hover text-accent-light px-1.5 py-0.5 rounded-md text-[13px] font-mono`}
+                      {...props}
+                    >
+                      {children}
+                    </code>
+                  )
                 },
               }}
             >
               {sanitizeContent(message.content)}
             </ReactMarkdown>
             {message.isStreaming && (
-              <span className="inline-block w-2 h-4 bg-accent animate-pulse ml-0.5" />
+              <span className="inline-block w-1.5 h-4 bg-accent rounded-sm animate-pulse ml-0.5" />
             )}
           </div>
         ) : (
-          <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+          <p className="text-sm text-text-primary whitespace-pre-wrap leading-relaxed">{message.content}</p>
         )}
         {message.createdAt && (
-          <div className={`text-xs mt-1 ${isAssistant ? 'text-gray-500' : 'text-white/70'}`}>
+          <div className={`text-[11px] mt-2 ${isAssistant ? 'text-text-muted' : 'text-text-tertiary'}`}>
             {formatTime(message.createdAt)}
           </div>
         )}
       </div>
+      {!isAssistant && (
+        <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center shrink-0 mt-1">
+          <User size={16} className="text-accent" />
+        </div>
+      )}
     </div>
   )
 }
