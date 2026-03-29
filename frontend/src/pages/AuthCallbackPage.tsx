@@ -13,11 +13,11 @@ export default function AuthCallbackPage() {
     const refreshToken = params.get('refresh_token')
 
     if (accessToken && refreshToken) {
-      handleCallback(accessToken, refreshToken).then(() => {
-        navigate('/dashboard', { replace: true })
-      })
+      handleCallback(accessToken, refreshToken)
+        .then(() => navigate('/dashboard', { replace: true }))
+        .catch(() => navigate('/', { replace: true }))
     } else {
-      navigate('/dashboard', { replace: true })
+      navigate('/', { replace: true })
     }
   }, [handleCallback, navigate])
 

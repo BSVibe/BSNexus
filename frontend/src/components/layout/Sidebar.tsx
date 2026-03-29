@@ -27,14 +27,14 @@ export default function Sidebar() {
   }
 
   return (
-    <aside className="w-[200px] bg-gray-900 border-r border-gray-700 h-screen flex flex-col">
+    <aside className="w-[200px] bg-gray-900 border-r border-gray-800 h-screen flex flex-col">
       {/* Logo area */}
-      <div className="p-4 mb-4">
+      <div className="p-4 mb-2">
         <div className="flex items-center gap-3">
-          <div className="bg-accent w-8 h-8 rounded-lg flex items-center justify-center">
+          <div className="bg-accent w-8 h-8 rounded-lg flex items-center justify-center shadow-md shadow-accent/20">
             <span className="text-white text-sm font-bold">B</span>
           </div>
-          <span className="text-gray-50 text-sm font-semibold">BSNexus</span>
+          <span className="text-gray-50 text-sm font-bold tracking-tight">BSNexus</span>
         </div>
       </div>
 
@@ -49,9 +49,9 @@ export default function Sidebar() {
               key={item.to}
               to={item.to}
               end={item.to === '/dashboard'}
-              className={`flex items-center gap-3 px-3 py-2 text-sm font-medium transition-colors rounded-md ${
+              className={`flex items-center gap-3 px-3 py-2.5 text-sm font-medium transition-all rounded-lg ${
                 active
-                  ? 'bg-accent/15 text-accent-text border-l-2 border-accent'
+                  ? 'bg-accent/15 text-accent-text shadow-sm'
                   : 'text-gray-400 hover:bg-gray-800 hover:text-gray-300'
               }`}
             >
@@ -63,16 +63,16 @@ export default function Sidebar() {
       </nav>
 
       {/* Bottom section */}
-      <div className="mt-auto px-3 pb-4 flex flex-col gap-1">
-        {user && (
-          <div className="px-3 py-2 text-xs text-gray-500 truncate">
+      <div className="mt-auto px-3 pb-4 flex flex-col gap-0.5">
+        {user?.email && (
+          <div className="px-3 py-2 text-xs text-gray-500 truncate" title={user.email}>
             {user.email}
           </div>
         )}
         <button
           type="button"
           onClick={() => setSettingsOpen(true)}
-          className="flex items-center gap-3 px-3 py-2 text-sm text-gray-400 hover:bg-gray-800 hover:text-gray-300 rounded-md cursor-pointer transition-colors w-full"
+          className="flex items-center gap-3 px-3 py-2.5 text-sm text-gray-400 hover:bg-gray-800 hover:text-gray-300 rounded-lg cursor-pointer transition-colors w-full"
         >
           <Settings size={18} />
           Settings
@@ -80,7 +80,7 @@ export default function Sidebar() {
         <button
           type="button"
           onClick={handleLogout}
-          className="flex items-center gap-3 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 rounded-md cursor-pointer transition-colors w-full"
+          className="flex items-center gap-3 px-3 py-2.5 text-sm text-red-400 hover:bg-red-500/10 rounded-lg cursor-pointer transition-colors w-full"
         >
           <LogOut size={18} />
           Logout
