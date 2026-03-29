@@ -168,12 +168,8 @@ async def test_execution_loop_transitions_to_done_on_qa_pass() -> None:
     task = make_task(status=TaskStatus.in_progress, project_id=project_id)
 
     mock_task_runner = AsyncMock()
-    mock_task_runner.execute_task = AsyncMock(
-        return_value=TaskExecutionResult(success=True)
-    )
-    mock_task_runner.review_task = AsyncMock(
-        return_value=TaskReviewResult(passed=True, commit_hash="abc123")
-    )
+    mock_task_runner.execute_task = AsyncMock(return_value=TaskExecutionResult(success=True))
+    mock_task_runner.review_task = AsyncMock(return_value=TaskReviewResult(passed=True, commit_hash="abc123"))
 
     orch = _build_orchestrator(task_runner=mock_task_runner)
     db = _mock_db()
@@ -188,8 +184,7 @@ async def test_execution_loop_transitions_to_done_on_qa_pass() -> None:
     # Should transition: in_progress->review, then review->done
     assert orch.state_machine.transition.await_count == 2
     done_calls = [
-        c for c in orch.state_machine.transition.call_args_list
-        if c.kwargs.get("new_status") == TaskStatus.done
+        c for c in orch.state_machine.transition.call_args_list if c.kwargs.get("new_status") == TaskStatus.done
     ]
     assert len(done_calls) == 1
     assert task.commit_hash == "abc123"
@@ -531,9 +526,7 @@ async def test_execute_and_review_handles_missing_task() -> None:
     task = make_task(status=TaskStatus.in_progress, project_id=project_id)
 
     mock_task_runner = AsyncMock()
-    mock_task_runner.execute_task = AsyncMock(
-        return_value=TaskExecutionResult(success=True)
-    )
+    mock_task_runner.execute_task = AsyncMock(return_value=TaskExecutionResult(success=True))
 
     orch = _build_orchestrator(task_runner=mock_task_runner)
     db = _mock_db()
@@ -682,9 +675,7 @@ async def test_execute_and_review_handles_qa_failure() -> None:
     task = make_task(status=TaskStatus.in_progress, project_id=project_id)
 
     mock_task_runner = AsyncMock()
-    mock_task_runner.execute_task = AsyncMock(
-        return_value=TaskExecutionResult(success=True)
-    )
+    mock_task_runner.execute_task = AsyncMock(return_value=TaskExecutionResult(success=True))
     mock_task_runner.review_task = AsyncMock(
         return_value=TaskReviewResult(
             passed=False, feedback="Tests failing", error_message="assertion error", error_category="test"
@@ -1087,7 +1078,10 @@ async def test_process_escalation_llm_error_triggers_intervention() -> None:
         patch("backend.src.core.orchestrator.PhaseRepository", return_value=mock_phase_repo),
         patch("backend.src.core.orchestrator.settings") as mock_settings,
         patch("backend.src.core.orchestrator.create_llm_client_from_project", return_value=mock_llm_client),
-        patch("backend.src.core.orchestrator.get_prompt", return_value="mock prompt {failed_task_title} {failed_task_error} {failed_task_history} {done_tasks} {incomplete_tasks} {phase_name} {branch_name}"),
+        patch(
+            "backend.src.core.orchestrator.get_prompt",
+            return_value="mock prompt {failed_task_title} {failed_task_error} {failed_task_history} {done_tasks} {incomplete_tasks} {phase_name} {branch_name}",
+        ),
         patch.object(orch, "_mark_redesign_needs_intervention", new_callable=AsyncMock) as mock_intervene,
     ):
         mock_settings.max_auto_redesigns = 10
@@ -1133,7 +1127,10 @@ async def test_process_escalation_invalid_tasks_format() -> None:
         patch("backend.src.core.orchestrator.PhaseRepository", return_value=mock_phase_repo),
         patch("backend.src.core.orchestrator.settings") as mock_settings,
         patch("backend.src.core.orchestrator.create_llm_client_from_project", return_value=mock_llm_client),
-        patch("backend.src.core.orchestrator.get_prompt", return_value="mock prompt {failed_task_title} {failed_task_error} {failed_task_history} {done_tasks} {incomplete_tasks} {phase_name} {branch_name}"),
+        patch(
+            "backend.src.core.orchestrator.get_prompt",
+            return_value="mock prompt {failed_task_title} {failed_task_error} {failed_task_history} {done_tasks} {incomplete_tasks} {phase_name} {branch_name}",
+        ),
         patch.object(orch, "_mark_redesign_needs_intervention", new_callable=AsyncMock) as mock_intervene,
     ):
         mock_settings.max_auto_redesigns = 10
@@ -1180,7 +1177,10 @@ async def test_process_escalation_successful_redesign() -> None:
         patch("backend.src.core.orchestrator.PhaseRepository", return_value=mock_phase_repo),
         patch("backend.src.core.orchestrator.settings") as mock_settings,
         patch("backend.src.core.orchestrator.create_llm_client_from_project", return_value=mock_llm_client),
-        patch("backend.src.core.orchestrator.get_prompt", return_value="mock prompt {failed_task_title} {failed_task_error} {failed_task_history} {done_tasks} {incomplete_tasks} {phase_name} {branch_name}"),
+        patch(
+            "backend.src.core.orchestrator.get_prompt",
+            return_value="mock prompt {failed_task_title} {failed_task_error} {failed_task_history} {done_tasks} {incomplete_tasks} {phase_name} {branch_name}",
+        ),
         patch.object(orch, "_apply_phase_redesign", new_callable=AsyncMock) as mock_apply,
     ):
         mock_settings.max_auto_redesigns = 10
@@ -1361,7 +1361,10 @@ async def test_process_escalation_apply_redesign_failure() -> None:
         patch("backend.src.core.orchestrator.PhaseRepository", return_value=mock_phase_repo),
         patch("backend.src.core.orchestrator.settings") as mock_settings,
         patch("backend.src.core.orchestrator.create_llm_client_from_project", return_value=mock_llm_client),
-        patch("backend.src.core.orchestrator.get_prompt", return_value="mock {failed_task_title} {failed_task_error} {failed_task_history} {done_tasks} {incomplete_tasks} {phase_name} {branch_name}"),
+        patch(
+            "backend.src.core.orchestrator.get_prompt",
+            return_value="mock {failed_task_title} {failed_task_error} {failed_task_history} {done_tasks} {incomplete_tasks} {phase_name} {branch_name}",
+        ),
         patch.object(orch, "_apply_phase_redesign", new_callable=AsyncMock, side_effect=RuntimeError("DB error")),
         patch.object(orch, "_mark_redesign_needs_intervention", new_callable=AsyncMock) as mock_intervene,
     ):

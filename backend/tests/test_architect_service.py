@@ -169,15 +169,9 @@ def test_extract_design_context_no_assistant_messages() -> None:
 @patch("backend.src.core.architect_service.get_prompt", return_value="system prompt")
 def test_build_message_history_sorts_by_timestamp(mock_get_prompt: MagicMock) -> None:
     """Messages are ordered chronologically in the history."""
-    msg_early = _make_message(
-        MessageRole.user, "first", created_at=datetime(2025, 1, 1, tzinfo=timezone.utc)
-    )
-    msg_late = _make_message(
-        MessageRole.assistant, "second", created_at=datetime(2025, 1, 2, tzinfo=timezone.utc)
-    )
-    msg_middle = _make_message(
-        MessageRole.user, "middle", created_at=datetime(2025, 1, 1, 12, tzinfo=timezone.utc)
-    )
+    msg_early = _make_message(MessageRole.user, "first", created_at=datetime(2025, 1, 1, tzinfo=timezone.utc))
+    msg_late = _make_message(MessageRole.assistant, "second", created_at=datetime(2025, 1, 2, tzinfo=timezone.utc))
+    msg_middle = _make_message(MessageRole.user, "middle", created_at=datetime(2025, 1, 1, 12, tzinfo=timezone.utc))
 
     session = _make_session([msg_late, msg_early, msg_middle])
 
@@ -245,7 +239,7 @@ async def test_send_message_raises_value_error_on_llm_failure(
 
 
 def test_strip_action_markers_removes_create_task() -> None:
-    text = "Hello [CREATE_TASK]{\"title\": \"t1\"}[/CREATE_TASK] world"
+    text = 'Hello [CREATE_TASK]{"title": "t1"}[/CREATE_TASK] world'
     result = strip_action_markers(text)
     assert "[CREATE_TASK]" not in result
     assert "Hello" in result
@@ -253,7 +247,7 @@ def test_strip_action_markers_removes_create_task() -> None:
 
 
 def test_strip_action_markers_removes_modify_task() -> None:
-    text = "Start [MODIFY_TASK]{\"task_id\": \"abc\"}[/MODIFY_TASK] end"
+    text = 'Start [MODIFY_TASK]{"task_id": "abc"}[/MODIFY_TASK] end'
     result = strip_action_markers(text)
     assert "[MODIFY_TASK]" not in result
     assert "Start" in result
@@ -495,9 +489,7 @@ async def test_send_message_project_bound_strips_markers(
 ) -> None:
     """Project-bound session executes action markers and strips them."""
     now = datetime.now(timezone.utc)
-    project = Project(
-        name="P", description="d", repo_path="/tmp", status=ProjectStatus.active
-    )
+    project = Project(name="P", description="d", repo_path="/tmp", status=ProjectStatus.active)
     db_session.add(project)
     await db_session.flush()
 
@@ -515,9 +507,7 @@ async def test_send_message_project_bound_strips_markers(
     mock_build_config.return_value = MagicMock()
     mock_client = AsyncMock()
     # Response with an action marker that should be stripped
-    mock_client.chat = AsyncMock(
-        return_value="Response text [CREATE_TASK]{\"title\":\"T\"}[/CREATE_TASK] end"
-    )
+    mock_client.chat = AsyncMock(return_value='Response text [CREATE_TASK]{"title":"T"}[/CREATE_TASK] end')
     mock_llm_cls.return_value = mock_client
 
     service = ArchitectService(db_session)
@@ -540,12 +530,18 @@ async def test_send_message_project_bound_strips_markers(
 async def test_list_sessions(db_session) -> None:
     now = datetime.now(timezone.utc)
     s1 = DesignSession(
-        id=uuid.uuid4(), status=DesignSessionStatus.active,
-        llm_config={"api_key": "k"}, created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        status=DesignSessionStatus.active,
+        llm_config={"api_key": "k"},
+        created_at=now,
+        updated_at=now,
     )
     s2 = DesignSession(
-        id=uuid.uuid4(), status=DesignSessionStatus.cancelled,
-        llm_config={"api_key": "k"}, created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        status=DesignSessionStatus.cancelled,
+        llm_config={"api_key": "k"},
+        created_at=now,
+        updated_at=now,
     )
     db_session.add_all([s1, s2])
     await db_session.flush()
@@ -562,8 +558,11 @@ async def test_list_sessions(db_session) -> None:
 async def test_get_session(db_session) -> None:
     now = datetime.now(timezone.utc)
     s = DesignSession(
-        id=uuid.uuid4(), status=DesignSessionStatus.active,
-        llm_config={"api_key": "k"}, created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        status=DesignSessionStatus.active,
+        llm_config={"api_key": "k"},
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(s)
     await db_session.flush()
@@ -594,8 +593,12 @@ async def test_load_project_with_tasks(db_session) -> None:
     await db_session.flush()
 
     task = Task(
-        project_id=project.id, phase_id=phase.id, title="T1",
-        branch_name="b", status=TaskStatus.ready, priority=TaskPriority.medium,
+        project_id=project.id,
+        phase_id=phase.id,
+        title="T1",
+        branch_name="b",
+        status=TaskStatus.ready,
+        priority=TaskPriority.medium,
     )
     db_session.add(task)
     await db_session.commit()
@@ -723,11 +726,13 @@ async def test_finalize_with_pm_config(
     await db_session.commit()
 
     mock_client = AsyncMock()
-    mock_client.structured_output = AsyncMock(return_value={
-        "project_name": "P",
-        "project_description": "d",
-        "phases": [{"name": "Ph", "tasks": [{"title": "T"}]}],
-    })
+    mock_client.structured_output = AsyncMock(
+        return_value={
+            "project_name": "P",
+            "project_description": "d",
+            "phases": [{"name": "Ph", "tasks": [{"title": "T"}]}],
+        }
+    )
     mock_llm_cls.return_value = mock_client
 
     service = ArchitectService(db_session, session_factory=test_session_maker)
@@ -757,6 +762,7 @@ async def test_finalize_with_design_context(
 
     # Add an assistant message with design_context
     from backend.src.models import DesignMessage as DM
+
     msg = DM(
         session_id=session.id,
         role=MessageRole.assistant,
@@ -768,10 +774,12 @@ async def test_finalize_with_design_context(
     await db_session.commit()
 
     mock_client = AsyncMock()
-    mock_client.structured_output = AsyncMock(return_value={
-        "project_name": "P",
-        "phases": [{"name": "Ph", "tasks": [{"title": "T"}]}],
-    })
+    mock_client.structured_output = AsyncMock(
+        return_value={
+            "project_name": "P",
+            "phases": [{"name": "Ph", "tasks": [{"title": "T"}]}],
+        }
+    )
     mock_llm_cls.return_value = mock_client
 
     service = ArchitectService(db_session, session_factory=test_session_maker)
@@ -828,10 +836,12 @@ async def test_finalize_no_phases_raises(
     await db_session.commit()
 
     mock_client = AsyncMock()
-    mock_client.structured_output = AsyncMock(return_value={
-        "project_name": "P",
-        "phases": [],
-    })
+    mock_client.structured_output = AsyncMock(
+        return_value={
+            "project_name": "P",
+            "phases": [],
+        }
+    )
     mock_llm_cls.return_value = mock_client
 
     service = ArchitectService(db_session, session_factory=test_session_maker)
@@ -858,10 +868,12 @@ async def test_finalize_invalid_priority_falls_back(
     await db_session.commit()
 
     mock_client = AsyncMock()
-    mock_client.structured_output = AsyncMock(return_value={
-        "project_name": "P",
-        "phases": [{"name": "Ph", "tasks": [{"title": "T", "priority": "INVALID"}]}],
-    })
+    mock_client.structured_output = AsyncMock(
+        return_value={
+            "project_name": "P",
+            "phases": [{"name": "Ph", "tasks": [{"title": "T", "priority": "INVALID"}]}],
+        }
+    )
     mock_llm_cls.return_value = mock_client
 
     service = ArchitectService(db_session, session_factory=test_session_maker)
@@ -909,8 +921,11 @@ async def test_execute_action_markers_create_task(db_session) -> None:
     await db_session.flush()
 
     phase = Phase(
-        project_id=project.id, name="Active Phase", branch_name="phase/active",
-        order=1, status=PhaseStatus.active,
+        project_id=project.id,
+        name="Active Phase",
+        branch_name="phase/active",
+        order=1,
+        status=PhaseStatus.active,
     )
     db_session.add(phase)
     await db_session.flush()
@@ -919,14 +934,16 @@ async def test_execute_action_markers_create_task(db_session) -> None:
     session_mock = MagicMock(spec=DesignSession)
     session_mock.project_id = project.id
 
-    task_json = json.dumps({
-        "title": "New Task",
-        "description": "Created via marker",
-        "priority": "high",
-        "task_type": "bug",
-        "worker_prompt": "fix it",
-        "qa_prompt": "verify fix",
-    })
+    task_json = json.dumps(
+        {
+            "title": "New Task",
+            "description": "Created via marker",
+            "priority": "high",
+            "task_type": "bug",
+            "worker_prompt": "fix it",
+            "qa_prompt": "verify fix",
+        }
+    )
     text = f"Some text [CREATE_TASK]{task_json}[/CREATE_TASK] more text"
 
     service = ArchitectService(db_session)
@@ -955,8 +972,11 @@ async def test_execute_action_markers_no_active_phase(db_session) -> None:
 
     # Only a pending phase, not active
     phase = Phase(
-        project_id=project.id, name="Pending", branch_name="b",
-        order=1, status=PhaseStatus.pending,
+        project_id=project.id,
+        name="Pending",
+        branch_name="b",
+        order=1,
+        status=PhaseStatus.pending,
     )
     db_session.add(phase)
     await db_session.flush()
@@ -978,8 +998,11 @@ async def test_execute_action_markers_invalid_json(db_session) -> None:
     await db_session.flush()
 
     phase = Phase(
-        project_id=project.id, name="Ph", branch_name="b",
-        order=1, status=PhaseStatus.active,
+        project_id=project.id,
+        name="Ph",
+        branch_name="b",
+        order=1,
+        status=PhaseStatus.active,
     )
     db_session.add(phase)
     await db_session.flush()
@@ -1001,15 +1024,22 @@ async def test_execute_action_markers_modify_task(db_session) -> None:
     await db_session.flush()
 
     phase = Phase(
-        project_id=project.id, name="Ph", branch_name="b",
-        order=1, status=PhaseStatus.active,
+        project_id=project.id,
+        name="Ph",
+        branch_name="b",
+        order=1,
+        status=PhaseStatus.active,
     )
     db_session.add(phase)
     await db_session.flush()
 
     task = Task(
-        project_id=project.id, phase_id=phase.id, title="Original",
-        branch_name="b", status=TaskStatus.ready, priority=TaskPriority.medium,
+        project_id=project.id,
+        phase_id=phase.id,
+        title="Original",
+        branch_name="b",
+        status=TaskStatus.ready,
+        priority=TaskPriority.medium,
     )
     db_session.add(task)
     await db_session.flush()
@@ -1018,14 +1048,16 @@ async def test_execute_action_markers_modify_task(db_session) -> None:
     session_mock = MagicMock(spec=DesignSession)
     session_mock.project_id = project.id
 
-    modify_json = json.dumps({
-        "task_id": str(task.id),
-        "title": "Modified Title",
-        "description": "New desc",
-        "priority": "high",
-        "worker_prompt": "new prompt",
-        "qa_prompt": "new qa",
-    })
+    modify_json = json.dumps(
+        {
+            "task_id": str(task.id),
+            "title": "Modified Title",
+            "description": "New desc",
+            "priority": "high",
+            "worker_prompt": "new prompt",
+            "qa_prompt": "new qa",
+        }
+    )
     text = f"[MODIFY_TASK]{modify_json}[/MODIFY_TASK]"
 
     service = ArchitectService(db_session)
@@ -1077,15 +1109,22 @@ async def test_execute_action_markers_modify_task_wrong_status(db_session) -> No
     await db_session.flush()
 
     phase = Phase(
-        project_id=project.id, name="Ph", branch_name="b",
-        order=1, status=PhaseStatus.active,
+        project_id=project.id,
+        name="Ph",
+        branch_name="b",
+        order=1,
+        status=PhaseStatus.active,
     )
     db_session.add(phase)
     await db_session.flush()
 
     task = Task(
-        project_id=project.id, phase_id=phase.id, title="InProgress",
-        branch_name="b", status=TaskStatus.in_progress, priority=TaskPriority.medium,
+        project_id=project.id,
+        phase_id=phase.id,
+        title="InProgress",
+        branch_name="b",
+        status=TaskStatus.in_progress,
+        priority=TaskPriority.medium,
     )
     db_session.add(task)
     await db_session.flush()
@@ -1114,8 +1153,12 @@ async def test_execute_action_markers_modify_task_wrong_project(db_session) -> N
     await db_session.flush()
 
     task = Task(
-        project_id=project1.id, phase_id=phase.id, title="T",
-        branch_name="b", status=TaskStatus.ready, priority=TaskPriority.medium,
+        project_id=project1.id,
+        phase_id=phase.id,
+        title="T",
+        branch_name="b",
+        status=TaskStatus.ready,
+        priority=TaskPriority.medium,
     )
     db_session.add(task)
     await db_session.flush()
@@ -1155,15 +1198,22 @@ async def test_execute_action_markers_modify_invalid_priority_ignored(db_session
     await db_session.flush()
 
     phase = Phase(
-        project_id=project.id, name="Ph", branch_name="b",
-        order=1, status=PhaseStatus.active,
+        project_id=project.id,
+        name="Ph",
+        branch_name="b",
+        order=1,
+        status=PhaseStatus.active,
     )
     db_session.add(phase)
     await db_session.flush()
 
     task = Task(
-        project_id=project.id, phase_id=phase.id, title="T",
-        branch_name="b", status=TaskStatus.ready, priority=TaskPriority.medium,
+        project_id=project.id,
+        phase_id=phase.id,
+        title="T",
+        branch_name="b",
+        status=TaskStatus.ready,
+        priority=TaskPriority.medium,
     )
     db_session.add(task)
     await db_session.flush()
@@ -1189,8 +1239,11 @@ async def test_execute_action_markers_create_invalid_task_type(db_session) -> No
     await db_session.flush()
 
     phase = Phase(
-        project_id=project.id, name="Ph", branch_name="b",
-        order=1, status=PhaseStatus.active,
+        project_id=project.id,
+        name="Ph",
+        branch_name="b",
+        order=1,
+        status=PhaseStatus.active,
     )
     db_session.add(phase)
     await db_session.flush()

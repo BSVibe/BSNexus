@@ -1,4 +1,5 @@
 """Tests for TaskSuggestion model and Pydantic schemas (TASK-001)."""
+
 import uuid
 from datetime import datetime
 
@@ -273,6 +274,7 @@ class TestTaskSuggestionResponseSchema:
 
     def test_from_orm_model(self, db_session):
         """TaskSuggestionResponse should work with from_attributes=True."""
+
         # Simulate ORM-like object
         class FakeORM:
             id = uuid.uuid4()

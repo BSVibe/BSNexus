@@ -35,8 +35,7 @@ def upgrade() -> None:
     # 3. Recreate enum without rejected/blocked, with redesign
     op.execute("DROP TYPE taskstatus")
     op.execute(
-        "CREATE TYPE taskstatus AS ENUM "
-        "('waiting', 'ready', 'queued', 'in_progress', 'review', 'done', 'redesign')"
+        "CREATE TYPE taskstatus AS ENUM ('waiting', 'ready', 'queued', 'in_progress', 'review', 'done', 'redesign')"
     )
     op.execute("ALTER TABLE tasks ALTER COLUMN status TYPE taskstatus USING status::taskstatus")
     op.execute("ALTER TABLE task_history ALTER COLUMN from_status TYPE taskstatus USING from_status::taskstatus")

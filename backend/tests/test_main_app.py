@@ -1,4 +1,5 @@
 """Tests for main.py app endpoints and infrastructure functions."""
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch

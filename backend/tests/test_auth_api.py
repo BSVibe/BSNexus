@@ -61,9 +61,12 @@ async def test_refresh_success(client: AsyncClient):
         mock_client.__aexit__ = AsyncMock(return_value=False)
         MockClient.return_value = mock_client
 
-        resp = await client.post("/api/v1/auth/refresh", json={
-            "refresh_token": "old-refresh-token",
-        })
+        resp = await client.post(
+            "/api/v1/auth/refresh",
+            json={
+                "refresh_token": "old-refresh-token",
+            },
+        )
 
     assert resp.status_code == 200
     data = resp.json()
@@ -83,9 +86,12 @@ async def test_refresh_invalid_token(client: AsyncClient):
         mock_client.__aexit__ = AsyncMock(return_value=False)
         MockClient.return_value = mock_client
 
-        resp = await client.post("/api/v1/auth/refresh", json={
-            "refresh_token": "expired-token",
-        })
+        resp = await client.post(
+            "/api/v1/auth/refresh",
+            json={
+                "refresh_token": "expired-token",
+            },
+        )
 
     assert resp.status_code == 401
 
@@ -113,8 +119,10 @@ async def test_logout_with_service_key(client: AsyncClient):
     mock_response = MagicMock()
     mock_response.status_code = 200
 
-    with patch("backend.src.api.auth.settings") as mock_settings, \
-         patch("backend.src.api.auth.httpx.AsyncClient") as MockClient:
+    with (
+        patch("backend.src.api.auth.settings") as mock_settings,
+        patch("backend.src.api.auth.httpx.AsyncClient") as MockClient,
+    ):
         mock_settings.supabase_service_role_key = "svc-key"
         mock_settings.supabase_url = "https://test.supabase.co"
 

@@ -48,8 +48,7 @@ def upgrade() -> None:
     op.execute("DROP TYPE designsessionstatus")
     op.execute("CREATE TYPE designsessionstatus AS ENUM ('active', 'project_bound', 'cancelled')")
     op.execute(
-        "ALTER TABLE design_sessions ALTER COLUMN status TYPE designsessionstatus "
-        "USING status::designsessionstatus"
+        "ALTER TABLE design_sessions ALTER COLUMN status TYPE designsessionstatus USING status::designsessionstatus"
     )
 
 
@@ -60,8 +59,7 @@ def downgrade() -> None:
     op.execute("DROP TYPE designsessionstatus")
     op.execute("CREATE TYPE designsessionstatus AS ENUM ('active', 'finalized', 'cancelled')")
     op.execute(
-        "ALTER TABLE design_sessions ALTER COLUMN status TYPE designsessionstatus "
-        "USING status::designsessionstatus"
+        "ALTER TABLE design_sessions ALTER COLUMN status TYPE designsessionstatus USING status::designsessionstatus"
     )
 
     # Remove parent_task_id

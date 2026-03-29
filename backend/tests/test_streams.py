@@ -46,9 +46,7 @@ async def test_initialize_streams_creates_group(manager: RedisStreamManager, moc
 
 async def test_initialize_streams_ignores_busygroup(manager: RedisStreamManager, mock_redis: AsyncMock) -> None:
     """BUSYGROUP error is silently ignored (group already exists)."""
-    mock_redis.xgroup_create.side_effect = aioredis.ResponseError(
-        "BUSYGROUP Consumer Group name already exists"
-    )
+    mock_redis.xgroup_create.side_effect = aioredis.ResponseError("BUSYGROUP Consumer Group name already exists")
 
     # Should not raise
     await manager.initialize_streams()
@@ -69,12 +67,15 @@ async def test_publish_encodes_dict_values(manager: RedisStreamManager, mock_red
     """Dict and list values are JSON-encoded; strings pass through."""
     mock_redis.xadd.return_value = b"1-0"
 
-    await manager.publish("test-stream", {
-        "simple": "hello",
-        "nested": {"a": 1},
-        "items": [1, 2, 3],
-        "number": 42,
-    })
+    await manager.publish(
+        "test-stream",
+        {
+            "simple": "hello",
+            "nested": {"a": 1},
+            "items": [1, 2, 3],
+            "number": 42,
+        },
+    )
 
     call_args = mock_redis.xadd.call_args
     flat_data = call_args[0][1]
@@ -102,9 +103,12 @@ async def test_consume_parses_json_values(manager: RedisStreamManager, mock_redi
     """JSON strings in messages are decoded to Python objects."""
     # Mock returns string keys/values matching decode_responses=True in production
     mock_redis.xreadgroup.return_value = [
-        ("tasks:escalation", [
-            ("1-0", {"task_id": '"abc"', "count": "5", "meta": '{"x": 1}'}),
-        ]),
+        (
+            "tasks:escalation",
+            [
+                ("1-0", {"task_id": '"abc"', "count": "5", "meta": '{"x": 1}'}),
+            ],
+        ),
     ]
 
     results = await manager.consume("tasks:escalation", "architect", "worker-1")
@@ -118,9 +122,12 @@ async def test_consume_parses_json_values(manager: RedisStreamManager, mock_redi
 async def test_consume_handles_decode_error(manager: RedisStreamManager, mock_redis: AsyncMock) -> None:
     """Invalid JSON is kept as-is (raw string)."""
     mock_redis.xreadgroup.return_value = [
-        ("tasks:escalation", [
-            ("1-0", {"bad": "not{json"}),
-        ]),
+        (
+            "tasks:escalation",
+            [
+                ("1-0", {"bad": "not{json"}),
+            ],
+        ),
     ]
 
     results = await manager.consume("tasks:escalation", "architect", "worker-1")
@@ -180,9 +187,7 @@ async def test_publish_board_event_formats_correctly(manager: RedisStreamManager
 # ── trim_streams ──────────────────────────────────────────────────────
 
 
-async def test_trim_streams_calls_xtrim_with_correct_maxlen(
-    manager: RedisStreamManager, mock_redis: AsyncMock
-) -> None:
+async def test_trim_streams_calls_xtrim_with_correct_maxlen(manager: RedisStreamManager, mock_redis: AsyncMock) -> None:
     """xtrim uses caller maxlen for escalation, hardcoded 5000 for board."""
     await manager.trim_streams(maxlen=500)
 

@@ -64,9 +64,7 @@ def downgrade() -> None:
         sa.Column("last_heartbeat", sa.DateTime(timezone=True), nullable=True),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_foreign_key(
-        "fk_workers_project_id", "workers", "projects", ["project_id"], ["id"], ondelete="SET NULL"
-    )
+    op.create_foreign_key("fk_workers_project_id", "workers", "projects", ["project_id"], ["id"], ondelete="SET NULL")
 
     # 3. Recreate registration_tokens table
     op.create_table(

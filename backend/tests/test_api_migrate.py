@@ -102,21 +102,15 @@ def _mock_executor_success(output: str = _MOCK_CLI_OUTPUT) -> AsyncMock:
 def _mock_executor_failure(error: str = "CLI failed") -> AsyncMock:
     """Create a mock executor that returns failed CLI result."""
     mock = AsyncMock()
-    mock.execute = AsyncMock(
-        return_value=ExecutionResult(success=False, error_message=error, error_category="tool")
-    )
+    mock.execute = AsyncMock(return_value=ExecutionResult(success=False, error_message=error, error_category="tool"))
     return mock
 
 
 @pytest.mark.asyncio
 class TestMigrateStreamEndpoint:
-    async def test_migrate_creates_project(
-        self, client: AsyncClient, sample_project_path: str, db_session
-    ) -> None:
+    async def test_migrate_creates_project(self, client: AsyncClient, sample_project_path: str, db_session) -> None:
         """Test successful migration via Claude Code CLI creates project."""
-        with patch(
-            "backend.src.core.executor.claude_code.ClaudeCodeExecutor", return_value=_mock_executor_success()
-        ):
+        with patch("backend.src.core.executor.claude_code.ClaudeCodeExecutor", return_value=_mock_executor_success()):
             response = await client.post(
                 "/api/v1/architect/migrate/stream",
                 json={"repo_path": sample_project_path},
@@ -132,12 +126,8 @@ class TestMigrateStreamEndpoint:
         assert "project_id" in done_data
         assert done_data["name"] == "Test Project"
 
-    async def test_migrate_with_custom_name(
-        self, client: AsyncClient, sample_project_path: str, db_session
-    ) -> None:
-        with patch(
-            "backend.src.core.executor.claude_code.ClaudeCodeExecutor", return_value=_mock_executor_success()
-        ):
+    async def test_migrate_with_custom_name(self, client: AsyncClient, sample_project_path: str, db_session) -> None:
+        with patch("backend.src.core.executor.claude_code.ClaudeCodeExecutor", return_value=_mock_executor_success()):
             response = await client.post(
                 "/api/v1/architect/migrate/stream",
                 json={"repo_path": sample_project_path, "name": "Custom Name"},
@@ -153,9 +143,7 @@ class TestMigrateStreamEndpoint:
         from sqlalchemy import select
         from backend.src import models
 
-        with patch(
-            "backend.src.core.executor.claude_code.ClaudeCodeExecutor", return_value=_mock_executor_success()
-        ):
+        with patch("backend.src.core.executor.claude_code.ClaudeCodeExecutor", return_value=_mock_executor_success()):
             response = await client.post(
                 "/api/v1/architect/migrate/stream",
                 json={"repo_path": sample_project_path},
@@ -190,9 +178,7 @@ class TestMigrateStreamEndpoint:
         )
         assert response.status_code == 422
 
-    async def test_migrate_cli_error(
-        self, client: AsyncClient, sample_project_path: str, db_session
-    ) -> None:
+    async def test_migrate_cli_error(self, client: AsyncClient, sample_project_path: str, db_session) -> None:
         with patch(
             "backend.src.core.executor.claude_code.ClaudeCodeExecutor",
             return_value=_mock_executor_failure("claude: command not found"),
@@ -207,16 +193,12 @@ class TestMigrateStreamEndpoint:
         assert len(error_events) > 0
         assert "command not found" in error_events[0][1]
 
-    async def test_migrate_task_dependencies(
-        self, client: AsyncClient, sample_project_path: str, db_session
-    ) -> None:
+    async def test_migrate_task_dependencies(self, client: AsyncClient, sample_project_path: str, db_session) -> None:
         from sqlalchemy import select
         from sqlalchemy.orm import selectinload
         from backend.src import models
 
-        with patch(
-            "backend.src.core.executor.claude_code.ClaudeCodeExecutor", return_value=_mock_executor_success()
-        ):
+        with patch("backend.src.core.executor.claude_code.ClaudeCodeExecutor", return_value=_mock_executor_success()):
             response = await client.post(
                 "/api/v1/architect/migrate/stream",
                 json={"repo_path": sample_project_path},
@@ -239,12 +221,8 @@ class TestMigrateStreamEndpoint:
         assert len(tasks[1].depends_on) == 1
         assert tasks[2].status == models.TaskStatus.waiting
 
-    async def test_migrate_progress_events(
-        self, client: AsyncClient, sample_project_path: str, db_session
-    ) -> None:
-        with patch(
-            "backend.src.core.executor.claude_code.ClaudeCodeExecutor", return_value=_mock_executor_success()
-        ):
+    async def test_migrate_progress_events(self, client: AsyncClient, sample_project_path: str, db_session) -> None:
+        with patch("backend.src.core.executor.claude_code.ClaudeCodeExecutor", return_value=_mock_executor_success()):
             response = await client.post(
                 "/api/v1/architect/migrate/stream",
                 json={"repo_path": sample_project_path},
@@ -262,9 +240,7 @@ class TestMigrateStreamEndpoint:
     ) -> None:
         """Test that invalid JSON from CLI returns error event."""
         mock = AsyncMock()
-        mock.execute = AsyncMock(
-            return_value=ExecutionResult(success=True, stdout="This is not JSON at all")
-        )
+        mock.execute = AsyncMock(return_value=ExecutionResult(success=True, stdout="This is not JSON at all"))
         with patch("backend.src.core.executor.claude_code.ClaudeCodeExecutor", return_value=mock):
             response = await client.post(
                 "/api/v1/architect/migrate/stream",

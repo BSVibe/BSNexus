@@ -209,14 +209,10 @@ class Task(Base):
 
 class TaskSuggestion(Base):
     __tablename__ = "task_suggestions"
-    __table_args__ = (
-        Index("ix_task_suggestions_project_status", "project_id", "status"),
-    )
+    __table_args__ = (Index("ix_task_suggestions_project_status", "project_id", "status"),)
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    project_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
-    )
+    project_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     task_type: Mapped[str] = mapped_column(String(50), nullable=False)

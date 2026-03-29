@@ -64,9 +64,7 @@ async def test_create_bug_task_sets_correct_fields() -> None:
     mock_db.add = MagicMock()
     mock_db.flush = AsyncMock()
 
-    bug_task = await orchestrator._create_bug_task(
-        failed_task, mock_db, "NullPointerError", "runtime"
-    )
+    bug_task = await orchestrator._create_bug_task(failed_task, mock_db, "NullPointerError", "runtime")
 
     assert bug_task is not None
     assert bug_task.title == "Bug: Broken Feature"
@@ -150,9 +148,7 @@ async def test_create_bug_task_worker_prompt_includes_error() -> None:
     mock_db.add = MagicMock()
     mock_db.flush = AsyncMock()
 
-    bug_task = await orchestrator._create_bug_task(
-        failed_task, mock_db, "Auth token expired"
-    )
+    bug_task = await orchestrator._create_bug_task(failed_task, mock_db, "Auth token expired")
 
     assert bug_task is not None
     assert "Auth token expired" in bug_task.worker_prompt["prompt"]

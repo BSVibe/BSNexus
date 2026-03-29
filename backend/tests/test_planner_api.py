@@ -5,9 +5,7 @@ from __future__ import annotations
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 import pytest_asyncio
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.models import (
@@ -16,7 +14,6 @@ from backend.src.models import (
     Project,
     ProjectStatus,
     SuggestionStatus,
-    Task,
     TaskSuggestion,
 )
 
@@ -289,7 +286,7 @@ class TestGeneratePlan:
         assert data[0]["title"] == "Generated task"
 
     async def test_generate_nonexistent_project_returns_404(self, client):
-        with patch("backend.src.api.planner.PlannerService") as mock_cls:
+        with patch("backend.src.api.planner.PlannerService") as _mock_cls:
             resp = await client.post(
                 "/api/v1/planner/generate",
                 json={"project_id": str(uuid.uuid4())},

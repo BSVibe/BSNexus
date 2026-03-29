@@ -118,11 +118,13 @@ class TestBSageSend:
 
     async def test_send_http_error_returns_failure(self) -> None:
         mock_client = AsyncMock(spec=httpx.AsyncClient)
-        mock_client.post = AsyncMock(side_effect=httpx.HTTPStatusError(
-            "Server Error",
-            request=MagicMock(),
-            response=MagicMock(status_code=500),
-        ))
+        mock_client.post = AsyncMock(
+            side_effect=httpx.HTTPStatusError(
+                "Server Error",
+                request=MagicMock(),
+                response=MagicMock(status_code=500),
+            )
+        )
 
         provider = BSageNotificationProvider(
             base_url="http://bsage.test",

@@ -376,17 +376,26 @@ async def test_build_task_response_includes_all_fields(db_session):
 
     now = datetime.now(timezone.utc)
     task = Task(
-        id=uuid.uuid4(), project_id=project.id, phase_id=phase.id,
-        title="T", status=TaskStatus.ready, priority=TaskPriority.high,
-        version=2, retry_count=1, max_retries=5,
-        branch_name="feat/x", commit_hash="abc123",
-        created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        project_id=project.id,
+        phase_id=phase.id,
+        title="T",
+        status=TaskStatus.ready,
+        priority=TaskPriority.high,
+        version=2,
+        retry_count=1,
+        max_retries=5,
+        branch_name="feat/x",
+        commit_hash="abc123",
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(task)
     await db_session.commit()
 
     # Reload with eager loading via TaskRepository to avoid lazy-load issues
     from backend.src.repositories.task_repository import TaskRepository
+
     repo = TaskRepository(db_session)
     loaded_task = await repo.get_by_id(task.id)
 

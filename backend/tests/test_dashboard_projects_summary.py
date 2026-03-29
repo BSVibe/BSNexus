@@ -38,33 +38,52 @@ async def test_projects_summary_with_data(client: AsyncClient, db_session) -> No
     now = datetime.now(timezone.utc)
 
     project = Project(
-        id=uuid.uuid4(), name="Test Project", description="desc",
-        repo_path="/test", status=ProjectStatus.active,
-        created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        name="Test Project",
+        description="desc",
+        repo_path="/test",
+        status=ProjectStatus.active,
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(project)
 
     phase = Phase(
-        id=uuid.uuid4(), project_id=project.id, name="Phase 1", order=1,
-        status=PhaseStatus.active, branch_name="main",
-        created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        project_id=project.id,
+        name="Phase 1",
+        order=1,
+        status=PhaseStatus.active,
+        branch_name="main",
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(phase)
     await db_session.flush()
 
     # 2 ready tasks, 1 done task, 1 bug task
-    for i, (status, task_type) in enumerate([
-        (TaskStatus.ready, TaskType.feature),
-        (TaskStatus.ready, TaskType.feature),
-        (TaskStatus.done, TaskType.feature),
-        (TaskStatus.ready, TaskType.bug),
-    ]):
-        db_session.add(Task(
-            id=uuid.uuid4(), project_id=project.id, phase_id=phase.id,
-            title=f"Task {i}", status=status, priority=TaskPriority.medium,
-            task_type=task_type, source=TaskSource.architect,
-            created_at=now, updated_at=now,
-        ))
+    for i, (status, task_type) in enumerate(
+        [
+            (TaskStatus.ready, TaskType.feature),
+            (TaskStatus.ready, TaskType.feature),
+            (TaskStatus.done, TaskType.feature),
+            (TaskStatus.ready, TaskType.bug),
+        ]
+    ):
+        db_session.add(
+            Task(
+                id=uuid.uuid4(),
+                project_id=project.id,
+                phase_id=phase.id,
+                title=f"Task {i}",
+                status=status,
+                priority=TaskPriority.medium,
+                task_type=task_type,
+                source=TaskSource.architect,
+                created_at=now,
+                updated_at=now,
+            )
+        )
     await db_session.flush()
 
     resp = await client.get("/api/v1/dashboard/projects-summary")
@@ -87,22 +106,35 @@ async def test_projects_summary_architect_session(client: AsyncClient, db_sessio
     now = datetime.now(timezone.utc)
 
     project = Project(
-        id=uuid.uuid4(), name="P", description="d", repo_path="/t",
-        status=ProjectStatus.active, created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        name="P",
+        description="d",
+        repo_path="/t",
+        status=ProjectStatus.active,
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(project)
 
     phase = Phase(
-        id=uuid.uuid4(), project_id=project.id, name="Ph", order=1,
-        status=PhaseStatus.active, branch_name="b",
-        created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        project_id=project.id,
+        name="Ph",
+        order=1,
+        status=PhaseStatus.active,
+        branch_name="b",
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(phase)
 
     session = DesignSession(
-        id=uuid.uuid4(), status=DesignSessionStatus.project_bound,
-        project_id=project.id, llm_config={},
-        created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        status=DesignSessionStatus.project_bound,
+        project_id=project.id,
+        llm_config={},
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(session)
     await db_session.flush()
@@ -122,8 +154,13 @@ async def test_projects_summary_multiple_projects(client: AsyncClient, db_sessio
     # Create multiple projects with different statuses
     for status in (ProjectStatus.active, ProjectStatus.design, ProjectStatus.completed):
         project = Project(
-            id=uuid.uuid4(), name=f"P-{status.value}", description="d", repo_path="/t",
-            status=status, created_at=now, updated_at=now,
+            id=uuid.uuid4(),
+            name=f"P-{status.value}",
+            description="d",
+            repo_path="/t",
+            status=status,
+            created_at=now,
+            updated_at=now,
         )
         db_session.add(project)
 
@@ -140,16 +177,26 @@ async def test_projects_summary_no_active_phase(client: AsyncClient, db_session)
     now = datetime.now(timezone.utc)
 
     project = Project(
-        id=uuid.uuid4(), name="No Active Phase", description="d", repo_path="/t",
-        status=ProjectStatus.active, created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        name="No Active Phase",
+        description="d",
+        repo_path="/t",
+        status=ProjectStatus.active,
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(project)
 
     # Only a completed phase, no active phase
     phase = Phase(
-        id=uuid.uuid4(), project_id=project.id, name="Old Phase", order=1,
-        status=PhaseStatus.completed, branch_name="old",
-        created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        project_id=project.id,
+        name="Old Phase",
+        order=1,
+        status=PhaseStatus.completed,
+        branch_name="old",
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(phase)
     await db_session.flush()
@@ -168,15 +215,25 @@ async def test_projects_summary_no_tasks(client: AsyncClient, db_session) -> Non
     now = datetime.now(timezone.utc)
 
     project = Project(
-        id=uuid.uuid4(), name="Empty Tasks", description="d", repo_path="/t",
-        status=ProjectStatus.design, created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        name="Empty Tasks",
+        description="d",
+        repo_path="/t",
+        status=ProjectStatus.design,
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(project)
 
     phase = Phase(
-        id=uuid.uuid4(), project_id=project.id, name="Phase 1", order=1,
-        status=PhaseStatus.active, branch_name="main",
-        created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        project_id=project.id,
+        name="Phase 1",
+        order=1,
+        status=PhaseStatus.active,
+        branch_name="main",
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(phase)
     await db_session.flush()
@@ -196,15 +253,25 @@ async def test_projects_summary_last_activity(client: AsyncClient, db_session) -
     now = datetime.now(timezone.utc)
 
     project = Project(
-        id=uuid.uuid4(), name="Activity Project", description="d", repo_path="/t",
-        status=ProjectStatus.active, created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        name="Activity Project",
+        description="d",
+        repo_path="/t",
+        status=ProjectStatus.active,
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(project)
 
     phase = Phase(
-        id=uuid.uuid4(), project_id=project.id, name="Ph", order=1,
-        status=PhaseStatus.active, branch_name="b",
-        created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        project_id=project.id,
+        name="Ph",
+        order=1,
+        status=PhaseStatus.active,
+        branch_name="b",
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(phase)
     await db_session.flush()
@@ -214,18 +281,34 @@ async def test_projects_summary_last_activity(client: AsyncClient, db_session) -
     earlier = now - timedelta(hours=2)
     later = now - timedelta(hours=1)
 
-    db_session.add(Task(
-        id=uuid.uuid4(), project_id=project.id, phase_id=phase.id,
-        title="Old Task", status=TaskStatus.done, priority=TaskPriority.medium,
-        task_type=TaskType.feature, source=TaskSource.architect,
-        created_at=earlier, updated_at=earlier,
-    ))
-    db_session.add(Task(
-        id=uuid.uuid4(), project_id=project.id, phase_id=phase.id,
-        title="New Task", status=TaskStatus.in_progress, priority=TaskPriority.high,
-        task_type=TaskType.feature, source=TaskSource.architect,
-        created_at=later, updated_at=later,
-    ))
+    db_session.add(
+        Task(
+            id=uuid.uuid4(),
+            project_id=project.id,
+            phase_id=phase.id,
+            title="Old Task",
+            status=TaskStatus.done,
+            priority=TaskPriority.medium,
+            task_type=TaskType.feature,
+            source=TaskSource.architect,
+            created_at=earlier,
+            updated_at=earlier,
+        )
+    )
+    db_session.add(
+        Task(
+            id=uuid.uuid4(),
+            project_id=project.id,
+            phase_id=phase.id,
+            title="New Task",
+            status=TaskStatus.in_progress,
+            priority=TaskPriority.high,
+            task_type=TaskType.feature,
+            source=TaskSource.architect,
+            created_at=later,
+            updated_at=later,
+        )
+    )
     await db_session.flush()
 
     resp = await client.get("/api/v1/dashboard/projects-summary")
@@ -243,27 +326,45 @@ async def test_projects_summary_bug_count_aggregation(client: AsyncClient, db_se
     now = datetime.now(timezone.utc)
 
     project = Project(
-        id=uuid.uuid4(), name="Bug Project", description="d", repo_path="/t",
-        status=ProjectStatus.active, created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        name="Bug Project",
+        description="d",
+        repo_path="/t",
+        status=ProjectStatus.active,
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(project)
 
     phase = Phase(
-        id=uuid.uuid4(), project_id=project.id, name="Ph", order=1,
-        status=PhaseStatus.active, branch_name="b",
-        created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        project_id=project.id,
+        name="Ph",
+        order=1,
+        status=PhaseStatus.active,
+        branch_name="b",
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(phase)
     await db_session.flush()
 
     # 3 bugs, 2 features
     for i, tt in enumerate([TaskType.bug, TaskType.bug, TaskType.bug, TaskType.feature, TaskType.feature]):
-        db_session.add(Task(
-            id=uuid.uuid4(), project_id=project.id, phase_id=phase.id,
-            title=f"Task {i}", status=TaskStatus.ready, priority=TaskPriority.medium,
-            task_type=tt, source=TaskSource.architect,
-            created_at=now, updated_at=now,
-        ))
+        db_session.add(
+            Task(
+                id=uuid.uuid4(),
+                project_id=project.id,
+                phase_id=phase.id,
+                title=f"Task {i}",
+                status=TaskStatus.ready,
+                priority=TaskPriority.medium,
+                task_type=tt,
+                source=TaskSource.architect,
+                created_at=now,
+                updated_at=now,
+            )
+        )
     await db_session.flush()
 
     resp = await client.get("/api/v1/dashboard/projects-summary")
@@ -279,49 +380,93 @@ async def test_projects_summary_multiple_projects_with_tasks(client: AsyncClient
     now = datetime.now(timezone.utc)
 
     p1 = Project(
-        id=uuid.uuid4(), name="P1", description="d", repo_path="/t1",
-        status=ProjectStatus.active, created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        name="P1",
+        description="d",
+        repo_path="/t1",
+        status=ProjectStatus.active,
+        created_at=now,
+        updated_at=now,
     )
     p2 = Project(
-        id=uuid.uuid4(), name="P2", description="d", repo_path="/t2",
-        status=ProjectStatus.design, created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        name="P2",
+        description="d",
+        repo_path="/t2",
+        status=ProjectStatus.design,
+        created_at=now,
+        updated_at=now,
     )
     db_session.add_all([p1, p2])
 
     ph1 = Phase(
-        id=uuid.uuid4(), project_id=p1.id, name="Ph1", order=1,
-        status=PhaseStatus.active, branch_name="b1",
-        created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        project_id=p1.id,
+        name="Ph1",
+        order=1,
+        status=PhaseStatus.active,
+        branch_name="b1",
+        created_at=now,
+        updated_at=now,
     )
     ph2 = Phase(
-        id=uuid.uuid4(), project_id=p2.id, name="Ph2", order=1,
-        status=PhaseStatus.pending, branch_name="b2",
-        created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        project_id=p2.id,
+        name="Ph2",
+        order=1,
+        status=PhaseStatus.pending,
+        branch_name="b2",
+        created_at=now,
+        updated_at=now,
     )
     db_session.add_all([ph1, ph2])
     await db_session.flush()
 
     # P1: 2 done tasks, 1 bug
-    db_session.add(Task(
-        id=uuid.uuid4(), project_id=p1.id, phase_id=ph1.id,
-        title="P1 done", status=TaskStatus.done, priority=TaskPriority.medium,
-        task_type=TaskType.feature, source=TaskSource.architect,
-        created_at=now, updated_at=now,
-    ))
-    db_session.add(Task(
-        id=uuid.uuid4(), project_id=p1.id, phase_id=ph1.id,
-        title="P1 bug", status=TaskStatus.ready, priority=TaskPriority.high,
-        task_type=TaskType.bug, source=TaskSource.auto_bug,
-        created_at=now, updated_at=now,
-    ))
+    db_session.add(
+        Task(
+            id=uuid.uuid4(),
+            project_id=p1.id,
+            phase_id=ph1.id,
+            title="P1 done",
+            status=TaskStatus.done,
+            priority=TaskPriority.medium,
+            task_type=TaskType.feature,
+            source=TaskSource.architect,
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    db_session.add(
+        Task(
+            id=uuid.uuid4(),
+            project_id=p1.id,
+            phase_id=ph1.id,
+            title="P1 bug",
+            status=TaskStatus.ready,
+            priority=TaskPriority.high,
+            task_type=TaskType.bug,
+            source=TaskSource.auto_bug,
+            created_at=now,
+            updated_at=now,
+        )
+    )
 
     # P2: 1 waiting task, no bugs
-    db_session.add(Task(
-        id=uuid.uuid4(), project_id=p2.id, phase_id=ph2.id,
-        title="P2 waiting", status=TaskStatus.waiting, priority=TaskPriority.low,
-        task_type=TaskType.chore, source=TaskSource.manual,
-        created_at=now, updated_at=now,
-    ))
+    db_session.add(
+        Task(
+            id=uuid.uuid4(),
+            project_id=p2.id,
+            phase_id=ph2.id,
+            title="P2 waiting",
+            status=TaskStatus.waiting,
+            priority=TaskPriority.low,
+            task_type=TaskType.chore,
+            source=TaskSource.manual,
+            created_at=now,
+            updated_at=now,
+        )
+    )
     await db_session.flush()
 
     resp = await client.get("/api/v1/dashboard/projects-summary")
@@ -356,15 +501,25 @@ async def test_get_projects_summary_direct_no_active_phase(db_session) -> None:
     now = datetime.now(timezone.utc)
 
     project = Project(
-        id=uuid.uuid4(), name="NoPhase", description="d", repo_path="/t",
-        status=ProjectStatus.active, created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        name="NoPhase",
+        description="d",
+        repo_path="/t",
+        status=ProjectStatus.active,
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(project)
 
     phase = Phase(
-        id=uuid.uuid4(), project_id=project.id, name="Completed Phase", order=1,
-        status=PhaseStatus.completed, branch_name="old",
-        created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        project_id=project.id,
+        name="Completed Phase",
+        order=1,
+        status=PhaseStatus.completed,
+        branch_name="old",
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(phase)
     await db_session.flush()
@@ -383,15 +538,25 @@ async def test_get_projects_summary_direct_with_tasks_and_bugs(db_session) -> No
     now = datetime.now(timezone.utc)
 
     project = Project(
-        id=uuid.uuid4(), name="Full", description="d", repo_path="/t",
-        status=ProjectStatus.active, created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        name="Full",
+        description="d",
+        repo_path="/t",
+        status=ProjectStatus.active,
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(project)
 
     phase = Phase(
-        id=uuid.uuid4(), project_id=project.id, name="Active Phase", order=1,
-        status=PhaseStatus.active, branch_name="main",
-        created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        project_id=project.id,
+        name="Active Phase",
+        order=1,
+        status=PhaseStatus.active,
+        branch_name="main",
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(phase)
     await db_session.flush()
@@ -402,30 +567,62 @@ async def test_get_projects_summary_direct_with_tasks_and_bugs(db_session) -> No
     later = now - timedelta(hours=1)
 
     # 2 features (ready, done), 2 bugs (ready, in_progress)
-    db_session.add(Task(
-        id=uuid.uuid4(), project_id=project.id, phase_id=phase.id,
-        title="feat-ready", status=TaskStatus.ready, priority=TaskPriority.medium,
-        task_type=TaskType.feature, source=TaskSource.architect,
-        created_at=earlier, updated_at=earlier,
-    ))
-    db_session.add(Task(
-        id=uuid.uuid4(), project_id=project.id, phase_id=phase.id,
-        title="feat-done", status=TaskStatus.done, priority=TaskPriority.medium,
-        task_type=TaskType.feature, source=TaskSource.architect,
-        created_at=earlier, updated_at=earlier,
-    ))
-    db_session.add(Task(
-        id=uuid.uuid4(), project_id=project.id, phase_id=phase.id,
-        title="bug-ready", status=TaskStatus.ready, priority=TaskPriority.high,
-        task_type=TaskType.bug, source=TaskSource.auto_bug,
-        created_at=later, updated_at=later,
-    ))
-    db_session.add(Task(
-        id=uuid.uuid4(), project_id=project.id, phase_id=phase.id,
-        title="bug-ip", status=TaskStatus.in_progress, priority=TaskPriority.high,
-        task_type=TaskType.bug, source=TaskSource.auto_bug,
-        created_at=later, updated_at=later,
-    ))
+    db_session.add(
+        Task(
+            id=uuid.uuid4(),
+            project_id=project.id,
+            phase_id=phase.id,
+            title="feat-ready",
+            status=TaskStatus.ready,
+            priority=TaskPriority.medium,
+            task_type=TaskType.feature,
+            source=TaskSource.architect,
+            created_at=earlier,
+            updated_at=earlier,
+        )
+    )
+    db_session.add(
+        Task(
+            id=uuid.uuid4(),
+            project_id=project.id,
+            phase_id=phase.id,
+            title="feat-done",
+            status=TaskStatus.done,
+            priority=TaskPriority.medium,
+            task_type=TaskType.feature,
+            source=TaskSource.architect,
+            created_at=earlier,
+            updated_at=earlier,
+        )
+    )
+    db_session.add(
+        Task(
+            id=uuid.uuid4(),
+            project_id=project.id,
+            phase_id=phase.id,
+            title="bug-ready",
+            status=TaskStatus.ready,
+            priority=TaskPriority.high,
+            task_type=TaskType.bug,
+            source=TaskSource.auto_bug,
+            created_at=later,
+            updated_at=later,
+        )
+    )
+    db_session.add(
+        Task(
+            id=uuid.uuid4(),
+            project_id=project.id,
+            phase_id=phase.id,
+            title="bug-ip",
+            status=TaskStatus.in_progress,
+            priority=TaskPriority.high,
+            task_type=TaskType.bug,
+            source=TaskSource.auto_bug,
+            created_at=later,
+            updated_at=later,
+        )
+    )
     await db_session.flush()
 
     result = await get_projects_summary(db=db_session)
@@ -443,22 +640,35 @@ async def test_get_projects_summary_direct_architect_session(db_session) -> None
     now = datetime.now(timezone.utc)
 
     project = Project(
-        id=uuid.uuid4(), name="WithSession", description="d", repo_path="/t",
-        status=ProjectStatus.active, created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        name="WithSession",
+        description="d",
+        repo_path="/t",
+        status=ProjectStatus.active,
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(project)
 
     phase = Phase(
-        id=uuid.uuid4(), project_id=project.id, name="Ph", order=1,
-        status=PhaseStatus.active, branch_name="b",
-        created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        project_id=project.id,
+        name="Ph",
+        order=1,
+        status=PhaseStatus.active,
+        branch_name="b",
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(phase)
 
     session = DesignSession(
-        id=uuid.uuid4(), status=DesignSessionStatus.project_bound,
-        project_id=project.id, llm_config={},
-        created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        status=DesignSessionStatus.project_bound,
+        project_id=project.id,
+        llm_config={},
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(session)
     await db_session.flush()
@@ -474,41 +684,77 @@ async def test_get_projects_summary_direct_multiple_projects(db_session) -> None
     from datetime import timedelta
 
     p1 = Project(
-        id=uuid.uuid4(), name="P1", description="d", repo_path="/t1",
-        status=ProjectStatus.active, created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        name="P1",
+        description="d",
+        repo_path="/t1",
+        status=ProjectStatus.active,
+        created_at=now,
+        updated_at=now,
     )
     p2 = Project(
-        id=uuid.uuid4(), name="P2", description="d", repo_path="/t2",
-        status=ProjectStatus.design, created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        name="P2",
+        description="d",
+        repo_path="/t2",
+        status=ProjectStatus.design,
+        created_at=now,
+        updated_at=now,
     )
     db_session.add_all([p1, p2])
 
     ph1 = Phase(
-        id=uuid.uuid4(), project_id=p1.id, name="Ph1", order=1,
-        status=PhaseStatus.active, branch_name="b1",
-        created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        project_id=p1.id,
+        name="Ph1",
+        order=1,
+        status=PhaseStatus.active,
+        branch_name="b1",
+        created_at=now,
+        updated_at=now,
     )
     ph2 = Phase(
-        id=uuid.uuid4(), project_id=p2.id, name="Ph2", order=1,
-        status=PhaseStatus.pending, branch_name="b2",
-        created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        project_id=p2.id,
+        name="Ph2",
+        order=1,
+        status=PhaseStatus.pending,
+        branch_name="b2",
+        created_at=now,
+        updated_at=now,
     )
     db_session.add_all([ph1, ph2])
     await db_session.flush()
 
     # P1: 1 bug + 1 feature
-    db_session.add(Task(
-        id=uuid.uuid4(), project_id=p1.id, phase_id=ph1.id,
-        title="P1-bug", status=TaskStatus.ready, priority=TaskPriority.high,
-        task_type=TaskType.bug, source=TaskSource.auto_bug,
-        created_at=now, updated_at=now,
-    ))
-    db_session.add(Task(
-        id=uuid.uuid4(), project_id=p1.id, phase_id=ph1.id,
-        title="P1-feat", status=TaskStatus.done, priority=TaskPriority.medium,
-        task_type=TaskType.feature, source=TaskSource.architect,
-        created_at=now - timedelta(hours=1), updated_at=now - timedelta(hours=1),
-    ))
+    db_session.add(
+        Task(
+            id=uuid.uuid4(),
+            project_id=p1.id,
+            phase_id=ph1.id,
+            title="P1-bug",
+            status=TaskStatus.ready,
+            priority=TaskPriority.high,
+            task_type=TaskType.bug,
+            source=TaskSource.auto_bug,
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    db_session.add(
+        Task(
+            id=uuid.uuid4(),
+            project_id=p1.id,
+            phase_id=ph1.id,
+            title="P1-feat",
+            status=TaskStatus.done,
+            priority=TaskPriority.medium,
+            task_type=TaskType.feature,
+            source=TaskSource.architect,
+            created_at=now - timedelta(hours=1),
+            updated_at=now - timedelta(hours=1),
+        )
+    )
 
     # P2: no tasks
     await db_session.flush()

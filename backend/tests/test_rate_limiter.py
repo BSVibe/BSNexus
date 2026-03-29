@@ -137,11 +137,13 @@ class TestRateLimitMiddleware:
         async def homepage(request: Request) -> JSONResponse:
             return JSONResponse({"ok": True})
 
-        starlette_app = Starlette(routes=[
-            Route("/", homepage),
-            Route("/api/test", homepage),
-            Route("/health", homepage),
-        ])
+        starlette_app = Starlette(
+            routes=[
+                Route("/", homepage),
+                Route("/api/test", homepage),
+                Route("/health", homepage),
+            ]
+        )
         mock_redis = AsyncMock()
         mock_redis.script_load = AsyncMock(return_value="sha123")
         mock_redis.evalsha = AsyncMock(return_value=[1, 0])
@@ -159,6 +161,7 @@ class TestRateLimitMiddleware:
 
     async def test_blocks_excessive_requests(self):
         """Middleware returns 429 when limiter denies."""
+
         async def homepage(request: Request) -> JSONResponse:
             return JSONResponse({"ok": True})
 
@@ -184,6 +187,7 @@ class TestRateLimitMiddleware:
 
     async def test_rate_limit_disabled_via_state(self):
         """When rate_limit_disabled is True on app.state, requests pass through."""
+
         async def homepage(request: Request) -> JSONResponse:
             return JSONResponse({"ok": True})
 

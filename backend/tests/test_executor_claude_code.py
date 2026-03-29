@@ -16,6 +16,7 @@ from backend.src.core.executor.claude_code import ClaudeCodeExecutor
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_executor(
     workspace_dir: str = "/workspace",
     rate_limit_retry_count: int = 3,
@@ -63,6 +64,7 @@ class TestResolveClaueCmd:
 
     def test_windows_fallback_to_claude_cmd(self) -> None:
         """On Windows, if 'claude' is not found, try 'claude.cmd'."""
+
         def _which(name: str) -> str | None:
             if name == "claude":
                 return None
@@ -136,8 +138,10 @@ class TestRunCli:
         mock_proc.returncode = None
         mock_proc.kill = MagicMock()  # kill() is synchronous
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_proc), \
-             patch("asyncio.wait_for", side_effect=asyncio.TimeoutError()):
+        with (
+            patch("asyncio.create_subprocess_exec", return_value=mock_proc),
+            patch("asyncio.wait_for", side_effect=asyncio.TimeoutError()),
+        ):
             result = await executor._run_cli("slow prompt", "task-2", "/workspace")
 
         assert result.success is False
@@ -264,9 +268,7 @@ class TestExecuteWithRateLimitRetry:
     async def test_retry_on_rate_limit_then_success(self) -> None:
         executor = _make_executor(rate_limit_retry_count=3, rate_limit_wait_seconds=0)
 
-        rate_limited = ExecutionResult(
-            success=False, stdout="hit your limit", stderr="", error_category="tool"
-        )
+        rate_limited = ExecutionResult(success=False, stdout="hit your limit", stderr="", error_category="tool")
         success = ExecutionResult(success=True, stdout="done", stderr="")
 
         call_count = 0
@@ -297,9 +299,7 @@ class TestExecuteWithRateLimitRetry:
     async def test_max_retries_exceeded(self) -> None:
         executor = _make_executor(rate_limit_retry_count=2, rate_limit_wait_seconds=0)
 
-        rate_limited = ExecutionResult(
-            success=False, stdout="rate limit exceeded", stderr="", error_category="tool"
-        )
+        rate_limited = ExecutionResult(success=False, stdout="rate limit exceeded", stderr="", error_category="tool")
 
         async def fake_run_cli(prompt: str, task_id: str, workspace: str) -> ExecutionResult:
             return rate_limited
@@ -318,9 +318,7 @@ class TestExecuteWithRateLimitRetry:
     async def test_non_rate_limit_failure_no_retry(self) -> None:
         executor = _make_executor(rate_limit_retry_count=3)
 
-        failure = ExecutionResult(
-            success=False, stdout="", stderr="syntax error", error_category="tool"
-        )
+        failure = ExecutionResult(success=False, stdout="", stderr="syntax error", error_category="tool")
 
         call_count = 0
 
@@ -340,9 +338,7 @@ class TestExecuteWithRateLimitRetry:
     async def test_rate_limit_sleep_duration(self) -> None:
         executor = _make_executor(rate_limit_retry_count=1, rate_limit_wait_seconds=42)
 
-        rate_limited = ExecutionResult(
-            success=False, stdout="hit your limit", stderr="", error_category="tool"
-        )
+        rate_limited = ExecutionResult(success=False, stdout="hit your limit", stderr="", error_category="tool")
         success = ExecutionResult(success=True, stdout="ok", stderr="")
 
         calls = 0
@@ -445,8 +441,10 @@ class TestReview:
         executor = _make_executor()
         mock_proc = _mock_process(stdout=b"All looks good.\nVERDICT: PASS", returncode=0)
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_proc), \
-             patch("backend.src.core.executor.claude_code.get_prompt", return_value="review: {task_prompt}"):
+        with (
+            patch("asyncio.create_subprocess_exec", return_value=mock_proc),
+            patch("backend.src.core.executor.claude_code.get_prompt", return_value="review: {task_prompt}"),
+        ):
             result = await executor.review("check this", {"task_id": "t-r1"})
 
         assert isinstance(result, ReviewResult)
@@ -458,8 +456,10 @@ class TestReview:
         executor = _make_executor()
         mock_proc = _mock_process(stdout=b"Issues found.\nVERDICT: FAIL", returncode=0)
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_proc), \
-             patch("backend.src.core.executor.claude_code.get_prompt", return_value="review: {task_prompt}"):
+        with (
+            patch("asyncio.create_subprocess_exec", return_value=mock_proc),
+            patch("backend.src.core.executor.claude_code.get_prompt", return_value="review: {task_prompt}"),
+        ):
             result = await executor.review("check this", {"task_id": "t-r2"})
 
         assert result.passed is False
@@ -470,8 +470,10 @@ class TestReview:
         executor = _make_executor()
         mock_proc = _mock_process(stdout=b"", stderr=b"crash", returncode=1)
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_proc), \
-             patch("backend.src.core.executor.claude_code.get_prompt", return_value="review: {task_prompt}"):
+        with (
+            patch("asyncio.create_subprocess_exec", return_value=mock_proc),
+            patch("backend.src.core.executor.claude_code.get_prompt", return_value="review: {task_prompt}"),
+        ):
             result = await executor.review("check this", {"task_id": "t-r3"})
 
         assert result.passed is False
@@ -482,8 +484,10 @@ class TestReview:
         executor = _make_executor()
         mock_proc = _mock_process(stdout=b"Some feedback with no verdict line", returncode=0)
 
-        with patch("asyncio.create_subprocess_exec", return_value=mock_proc), \
-             patch("backend.src.core.executor.claude_code.get_prompt", return_value="review: {task_prompt}"):
+        with (
+            patch("asyncio.create_subprocess_exec", return_value=mock_proc),
+            patch("backend.src.core.executor.claude_code.get_prompt", return_value="review: {task_prompt}"),
+        ):
             result = await executor.review("check this", {"task_id": "t-r4"})
 
         assert result.passed is False

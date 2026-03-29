@@ -154,8 +154,7 @@ async def create_task(
         task_type=models.TaskType(body.task_type.value),
         source=models.TaskSource.manual,
         status=(
-            models.TaskStatus.ready if active_phase.status == models.PhaseStatus.active
-            else models.TaskStatus.waiting
+            models.TaskStatus.ready if active_phase.status == models.PhaseStatus.active else models.TaskStatus.waiting
         ),
         worker_prompt={"prompt": body.description},
         qa_prompt={"prompt": f"Verify that: {body.title}"},
@@ -270,8 +269,7 @@ async def trigger_executor(
     if task.status not in (models.TaskStatus.waiting, models.TaskStatus.redesign):
         raise HTTPException(
             status_code=400,
-            detail=f"Task cannot be triggered from status '{task.status.value}'. "
-            "Must be 'waiting' or 'redesign'.",
+            detail=f"Task cannot be triggered from status '{task.status.value}'. Must be 'waiting' or 'redesign'.",
         )
 
     stream_manager = getattr(getattr(request.app, "state", None), "stream_manager", None)

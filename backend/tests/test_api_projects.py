@@ -488,6 +488,7 @@ async def test_direct_get_project_success(db_session: AsyncSession) -> None:
 
 async def test_direct_get_project_not_found(db_session: AsyncSession) -> None:
     from fastapi import HTTPException
+
     with pytest.raises(HTTPException) as exc_info:
         await get_project(uuid.uuid4(), db=db_session)
     assert exc_info.value.status_code == 404
@@ -511,6 +512,7 @@ async def test_direct_update_project(db_session: AsyncSession) -> None:
 
 async def test_direct_update_project_not_found(db_session: AsyncSession) -> None:
     from fastapi import HTTPException
+
     with pytest.raises(HTTPException) as exc_info:
         await update_project(uuid.uuid4(), schemas.ProjectUpdate(name="X"), db=db_session)
     assert exc_info.value.status_code == 404
@@ -524,6 +526,7 @@ async def test_direct_delete_project(db_session: AsyncSession) -> None:
 
 async def test_direct_delete_project_not_found(db_session: AsyncSession) -> None:
     from fastapi import HTTPException
+
     with pytest.raises(HTTPException) as exc_info:
         await delete_project(uuid.uuid4(), db=db_session)
     assert exc_info.value.status_code == 404
@@ -548,6 +551,7 @@ async def test_direct_create_phase(db_session: AsyncSession) -> None:
 
 async def test_direct_create_phase_project_not_found(db_session: AsyncSession) -> None:
     from fastapi import HTTPException
+
     data = schemas.PhaseCreate(name="X", description="X", order=1)
     with pytest.raises(HTTPException) as exc_info:
         await create_phase(uuid.uuid4(), data, db=db_session)
@@ -563,6 +567,7 @@ async def test_direct_list_phases(db_session: AsyncSession) -> None:
 
 async def test_direct_list_phases_project_not_found(db_session: AsyncSession) -> None:
     from fastapi import HTTPException
+
     with pytest.raises(HTTPException) as exc_info:
         await list_phases(uuid.uuid4(), db=db_session)
     assert exc_info.value.status_code == 404
@@ -580,6 +585,7 @@ async def test_direct_update_phase(db_session: AsyncSession) -> None:
 
 async def test_direct_update_phase_not_found(db_session: AsyncSession) -> None:
     from fastapi import HTTPException
+
     with pytest.raises(HTTPException) as exc_info:
         await update_phase(uuid.uuid4(), PhaseUpdate(name="X"), db=db_session)
     assert exc_info.value.status_code == 404

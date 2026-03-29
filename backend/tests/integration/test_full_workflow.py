@@ -1,4 +1,5 @@
 """Integration tests for full end-to-end workflows."""
+
 from __future__ import annotations
 
 import uuid as uuid_mod
@@ -17,9 +18,11 @@ from backend.src.models import Phase, PhaseStatus
 
 def _async_iter(items: list):
     """Helper to create an async iterator from a list."""
+
     async def _gen():
         for item in items:
             yield item
+
     return _gen()
 
 
@@ -53,9 +56,7 @@ async def _create_phase(client: AsyncClient, project_id: str) -> dict:
 
 async def _activate_phase(db_session: AsyncSession, phase_id: str) -> None:
     """Set a phase to active status directly in the database."""
-    await db_session.execute(
-        update(Phase).where(Phase.id == uuid_mod.UUID(phase_id)).values(status=PhaseStatus.active)
-    )
+    await db_session.execute(update(Phase).where(Phase.id == uuid_mod.UUID(phase_id)).values(status=PhaseStatus.active))
     await db_session.flush()
 
 
@@ -215,9 +216,7 @@ async def test_board_snapshot(client: AsyncClient, db_session: AsyncSession, moc
     await _transition_task(client, task_active["id"], "in_progress")
 
     # Create a task with dependency (waiting)
-    task_waiting = await _create_task(
-        client, project["id"], phase["id"], "Waiting Task", depends_on=[task_ready["id"]]
-    )
+    task_waiting = await _create_task(client, project["id"], phase["id"], "Waiting Task", depends_on=[task_ready["id"]])
     assert task_waiting["status"] == "waiting"
 
     # Get board state

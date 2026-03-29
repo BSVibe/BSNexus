@@ -136,10 +136,12 @@ class TestBSupervisorProvider:
         """Should raise on HTTP errors from BSupervisor."""
         error_resp = MagicMock()
         error_resp.status_code = 500
-        mock_client.post = AsyncMock(return_value=_mock_response(
-            status_code=500,
-            raise_error=httpx.HTTPStatusError("Internal Server Error", request=MagicMock(), response=error_resp),
-        ))
+        mock_client.post = AsyncMock(
+            return_value=_mock_response(
+                status_code=500,
+                raise_error=httpx.HTTPStatusError("Internal Server Error", request=MagicMock(), response=error_resp),
+            )
+        )
 
         with pytest.raises(httpx.HTTPStatusError):
             await provider.log_event(agent_id="agent-001", event_type="task_started")
@@ -180,10 +182,12 @@ class TestBSupervisorProvider:
         """Should raise on HTTP errors from BSupervisor."""
         error_resp = MagicMock()
         error_resp.status_code = 403
-        mock_client.post = AsyncMock(return_value=_mock_response(
-            status_code=403,
-            raise_error=httpx.HTTPStatusError("Forbidden", request=MagicMock(), response=error_resp),
-        ))
+        mock_client.post = AsyncMock(
+            return_value=_mock_response(
+                status_code=403,
+                raise_error=httpx.HTTPStatusError("Forbidden", request=MagicMock(), response=error_resp),
+            )
+        )
 
         with pytest.raises(httpx.HTTPStatusError):
             await provider.check_permission(agent_id="agent-001", action="deploy")

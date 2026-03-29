@@ -9,9 +9,9 @@ class TestExecutorProtocol:
     """Verify ExecutorProtocol is a typing.Protocol with correct methods."""
 
     def test_protocol_is_runtime_checkable(self) -> None:
-        assert hasattr(ExecutorProtocol, "__protocol_attrs__") or hasattr(
-            ExecutorProtocol, "__abstractmethods__"
-        ), "ExecutorProtocol should be a Protocol"
+        assert hasattr(ExecutorProtocol, "__protocol_attrs__") or hasattr(ExecutorProtocol, "__abstractmethods__"), (
+            "ExecutorProtocol should be a Protocol"
+        )
 
     def test_compliant_class_is_instance(self) -> None:
         """A class with the right methods satisfies the protocol structurally."""

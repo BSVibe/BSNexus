@@ -599,6 +599,7 @@ async def test_409_response_contains_current_version(client: AsyncClient, db_ses
 # Direct-call unit tests for coverage (ASGI transport doesn't trace handler bodies)
 # ---------------------------------------------------------------------------
 
+
 def _make_task_orm(**overrides) -> Task:
     """Build a minimal Task ORM object with sensible defaults."""
     now = datetime.now(timezone.utc)
@@ -639,6 +640,7 @@ def _make_task_orm(**overrides) -> Task:
 
 # -- build_task_response -------------------------------------------------------
 
+
 async def test_build_task_response_basic(db_session):
     """build_task_response converts ORM Task to TaskResponse."""
     task = _make_task_orm()
@@ -659,6 +661,7 @@ async def test_build_task_response_with_deps(db_session):
 
 
 # -- create_task (direct call) ------------------------------------------------
+
 
 async def test_create_task_active_phase_direct(db_session):
     """create_task sets status=ready when phase is active and no deps."""
@@ -684,22 +687,37 @@ async def test_create_task_inactive_phase_direct(db_session):
     """create_task sets status=waiting when phase is pending and no deps."""
     now = datetime.now(timezone.utc)
     project = Project(
-        id=uuid.uuid4(), name="P", description="d", repo_path="/r",
-        status=ProjectStatus.active, created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        name="P",
+        description="d",
+        repo_path="/r",
+        status=ProjectStatus.active,
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(project)
     phase = Phase(
-        id=uuid.uuid4(), project_id=project.id, name="Ph", branch_name="b",
-        order=1, status=PhaseStatus.pending, created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        project_id=project.id,
+        name="Ph",
+        branch_name="b",
+        order=1,
+        status=PhaseStatus.pending,
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(phase)
     await db_session.commit()
 
     task_data = schemas.TaskCreate(
-        project_id=project.id, phase_id=phase.id,
-        title="Inactive", description="test",
+        project_id=project.id,
+        phase_id=phase.id,
+        title="Inactive",
+        description="test",
         priority=schemas.TaskPriority.high,
-        worker_prompt="w", qa_prompt="q", depends_on=[],
+        worker_prompt="w",
+        qa_prompt="q",
+        depends_on=[],
     )
     request = MagicMock()
     result = await create_task(task_data, request, _auth=MagicMock(), db=db_session)
@@ -712,19 +730,26 @@ async def test_create_task_with_deps_direct(db_session):
 
     # Create a dependency task first
     dep_data = schemas.TaskCreate(
-        project_id=project.id, phase_id=phase.id,
-        title="Dep", description="d",
+        project_id=project.id,
+        phase_id=phase.id,
+        title="Dep",
+        description="d",
         priority=schemas.TaskPriority.medium,
-        worker_prompt="w", qa_prompt="q", depends_on=[],
+        worker_prompt="w",
+        qa_prompt="q",
+        depends_on=[],
     )
     request = MagicMock()
     dep_result = await create_task(dep_data, request, _auth=MagicMock(), db=db_session)
 
     task_data = schemas.TaskCreate(
-        project_id=project.id, phase_id=phase.id,
-        title="Dependent", description="d",
+        project_id=project.id,
+        phase_id=phase.id,
+        title="Dependent",
+        description="d",
         priority=schemas.TaskPriority.medium,
-        worker_prompt="w", qa_prompt="q",
+        worker_prompt="w",
+        qa_prompt="q",
         depends_on=[dep_result.id],
     )
     result = await create_task(task_data, request, _auth=MagicMock(), db=db_session)
@@ -737,10 +762,13 @@ async def test_create_task_missing_dep_raises_400(db_session):
     project, phase = await create_project_and_phase(db_session)
     fake_id = uuid.uuid4()
     task_data = schemas.TaskCreate(
-        project_id=project.id, phase_id=phase.id,
-        title="Bad Dep", description="d",
+        project_id=project.id,
+        phase_id=phase.id,
+        title="Bad Dep",
+        description="d",
         priority=schemas.TaskPriority.medium,
-        worker_prompt="w", qa_prompt="q",
+        worker_prompt="w",
+        qa_prompt="q",
         depends_on=[fake_id],
     )
     request = MagicMock()
@@ -752,15 +780,21 @@ async def test_create_task_missing_dep_raises_400(db_session):
 
 # -- get_task (direct call) ----------------------------------------------------
 
+
 async def test_get_task_found_direct(db_session):
     """get_task returns TaskResponse for existing task."""
     project, phase = await create_project_and_phase(db_session)
     now = datetime.now(timezone.utc)
     task = Task(
-        id=uuid.uuid4(), project_id=project.id, phase_id=phase.id,
-        title="Find Me", status=TaskStatus.ready,
-        priority=TaskPriority.medium, version=1,
-        created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        project_id=project.id,
+        phase_id=phase.id,
+        title="Find Me",
+        status=TaskStatus.ready,
+        priority=TaskPriority.medium,
+        version=1,
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(task)
     await db_session.commit()
@@ -779,15 +813,21 @@ async def test_get_task_not_found_direct(db_session):
 
 # -- update_task (direct call) -------------------------------------------------
 
+
 async def test_update_task_ready_direct(db_session):
     """update_task succeeds for task in ready status."""
     project, phase = await create_project_and_phase(db_session)
     now = datetime.now(timezone.utc)
     task = Task(
-        id=uuid.uuid4(), project_id=project.id, phase_id=phase.id,
-        title="Updatable", status=TaskStatus.ready,
-        priority=TaskPriority.medium, version=1,
-        created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        project_id=project.id,
+        phase_id=phase.id,
+        title="Updatable",
+        status=TaskStatus.ready,
+        priority=TaskPriority.medium,
+        version=1,
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(task)
     await db_session.commit()
@@ -803,10 +843,15 @@ async def test_update_task_waiting_direct(db_session):
     project, phase = await create_project_and_phase(db_session)
     now = datetime.now(timezone.utc)
     task = Task(
-        id=uuid.uuid4(), project_id=project.id, phase_id=phase.id,
-        title="Waiting", status=TaskStatus.waiting,
-        priority=TaskPriority.low, version=1,
-        created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        project_id=project.id,
+        phase_id=phase.id,
+        title="Waiting",
+        status=TaskStatus.waiting,
+        priority=TaskPriority.low,
+        version=1,
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(task)
     await db_session.commit()
@@ -820,6 +865,7 @@ async def test_update_task_waiting_direct(db_session):
 async def test_update_task_not_found_direct(db_session):
     """update_task raises 404 when task does not exist."""
     from fastapi import HTTPException
+
     update_data = schemas.TaskUpdate(title="Nope")
     with pytest.raises(HTTPException) as exc_info:
         await update_task(uuid.uuid4(), update_data, db=db_session)
@@ -831,10 +877,15 @@ async def test_update_task_non_editable_status_direct(db_session):
     project, phase = await create_project_and_phase(db_session)
     now = datetime.now(timezone.utc)
     task = Task(
-        id=uuid.uuid4(), project_id=project.id, phase_id=phase.id,
-        title="Review", status=TaskStatus.review,
-        priority=TaskPriority.high, version=1,
-        created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        project_id=project.id,
+        phase_id=phase.id,
+        title="Review",
+        status=TaskStatus.review,
+        priority=TaskPriority.high,
+        version=1,
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(task)
     await db_session.commit()
@@ -850,10 +901,15 @@ async def test_update_task_done_status_direct(db_session):
     project, phase = await create_project_and_phase(db_session)
     now = datetime.now(timezone.utc)
     task = Task(
-        id=uuid.uuid4(), project_id=project.id, phase_id=phase.id,
-        title="Done", status=TaskStatus.done,
-        priority=TaskPriority.low, version=2,
-        created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        project_id=project.id,
+        phase_id=phase.id,
+        title="Done",
+        status=TaskStatus.done,
+        priority=TaskPriority.low,
+        version=2,
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(task)
     await db_session.commit()
@@ -868,10 +924,15 @@ async def test_update_task_version_conflict_direct(db_session):
     project, phase = await create_project_and_phase(db_session)
     now = datetime.now(timezone.utc)
     task = Task(
-        id=uuid.uuid4(), project_id=project.id, phase_id=phase.id,
-        title="Versioned", status=TaskStatus.ready,
-        priority=TaskPriority.medium, version=1,
-        created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        project_id=project.id,
+        phase_id=phase.id,
+        title="Versioned",
+        status=TaskStatus.ready,
+        priority=TaskPriority.medium,
+        version=1,
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(task)
     await db_session.commit()
@@ -883,9 +944,11 @@ async def test_update_task_version_conflict_direct(db_session):
 
 # -- transition_task (direct call) ---------------------------------------------
 
+
 async def test_transition_task_not_found_direct(db_session):
     """transition_task raises 404 for non-existent task."""
     from fastapi import HTTPException
+
     request = MagicMock()
     request.app.state = MagicMock()
     request.app.state.stream_manager = None
@@ -900,10 +963,15 @@ async def test_transition_task_valid_direct(db_session, mock_stream_manager):
     project, phase = await create_project_and_phase(db_session)
     now = datetime.now(timezone.utc)
     task = Task(
-        id=uuid.uuid4(), project_id=project.id, phase_id=phase.id,
-        title="Trans", status=TaskStatus.ready,
-        priority=TaskPriority.medium, version=1,
-        created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        project_id=project.id,
+        phase_id=phase.id,
+        title="Trans",
+        status=TaskStatus.ready,
+        priority=TaskPriority.medium,
+        version=1,
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(task)
     await db_session.commit()
@@ -921,10 +989,15 @@ async def test_transition_task_invalid_direct(db_session, mock_stream_manager):
     project, phase = await create_project_and_phase(db_session)
     now = datetime.now(timezone.utc)
     task = Task(
-        id=uuid.uuid4(), project_id=project.id, phase_id=phase.id,
-        title="BadTrans", status=TaskStatus.ready,
-        priority=TaskPriority.medium, version=1,
-        created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        project_id=project.id,
+        phase_id=phase.id,
+        title="BadTrans",
+        status=TaskStatus.ready,
+        priority=TaskPriority.medium,
+        version=1,
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(task)
     await db_session.commit()
@@ -932,6 +1005,7 @@ async def test_transition_task_invalid_direct(db_session, mock_stream_manager):
     request = MagicMock()
     request.app.state.stream_manager = mock_stream_manager
     from fastapi import HTTPException
+
     transition = schemas.TaskTransition(new_status=schemas.TaskStatus.done, actor="test")
     with pytest.raises(HTTPException) as exc_info:
         await transition_task(task.id, transition, request, db=db_session)
@@ -943,10 +1017,15 @@ async def test_transition_task_version_conflict_direct(db_session, mock_stream_m
     project, phase = await create_project_and_phase(db_session)
     now = datetime.now(timezone.utc)
     task = Task(
-        id=uuid.uuid4(), project_id=project.id, phase_id=phase.id,
-        title="VerTrans", status=TaskStatus.ready,
-        priority=TaskPriority.medium, version=1,
-        created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        project_id=project.id,
+        phase_id=phase.id,
+        title="VerTrans",
+        status=TaskStatus.ready,
+        priority=TaskPriority.medium,
+        version=1,
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(task)
     await db_session.commit()
@@ -954,8 +1033,11 @@ async def test_transition_task_version_conflict_direct(db_session, mock_stream_m
     request = MagicMock()
     request.app.state.stream_manager = mock_stream_manager
     from fastapi import HTTPException
+
     transition = schemas.TaskTransition(
-        new_status=schemas.TaskStatus.in_progress, actor="test", expected_version=999,
+        new_status=schemas.TaskStatus.in_progress,
+        actor="test",
+        expected_version=999,
     )
     with pytest.raises(HTTPException) as exc_info:
         await transition_task(task.id, transition, request, db=db_session)
@@ -964,21 +1046,35 @@ async def test_transition_task_version_conflict_direct(db_session, mock_stream_m
 
 # -- list_project_tasks (direct call) ------------------------------------------
 
+
 async def test_list_project_tasks_direct(db_session):
     """list_project_tasks returns tasks for a project."""
     project, phase = await create_project_and_phase(db_session)
     now = datetime.now(timezone.utc)
     for title in ["A", "B"]:
-        db_session.add(Task(
-            id=uuid.uuid4(), project_id=project.id, phase_id=phase.id,
-            title=title, status=TaskStatus.ready,
-            priority=TaskPriority.medium, version=1,
-            created_at=now, updated_at=now,
-        ))
+        db_session.add(
+            Task(
+                id=uuid.uuid4(),
+                project_id=project.id,
+                phase_id=phase.id,
+                title=title,
+                status=TaskStatus.ready,
+                priority=TaskPriority.medium,
+                version=1,
+                created_at=now,
+                updated_at=now,
+            )
+        )
     await db_session.commit()
 
     result = await list_project_tasks(
-        project.id, status=None, phase_id=None, priority=None, limit=50, offset=0, db=db_session,
+        project.id,
+        status=None,
+        phase_id=None,
+        priority=None,
+        limit=50,
+        offset=0,
+        db=db_session,
     )
     assert len(result) == 2
 
@@ -987,22 +1083,42 @@ async def test_list_project_tasks_with_filters_direct(db_session):
     """list_project_tasks filters by status and priority."""
     project, phase = await create_project_and_phase(db_session)
     now = datetime.now(timezone.utc)
-    db_session.add(Task(
-        id=uuid.uuid4(), project_id=project.id, phase_id=phase.id,
-        title="High Ready", status=TaskStatus.ready,
-        priority=TaskPriority.high, version=1,
-        created_at=now, updated_at=now,
-    ))
-    db_session.add(Task(
-        id=uuid.uuid4(), project_id=project.id, phase_id=phase.id,
-        title="Low Done", status=TaskStatus.done,
-        priority=TaskPriority.low, version=1,
-        created_at=now, updated_at=now,
-    ))
+    db_session.add(
+        Task(
+            id=uuid.uuid4(),
+            project_id=project.id,
+            phase_id=phase.id,
+            title="High Ready",
+            status=TaskStatus.ready,
+            priority=TaskPriority.high,
+            version=1,
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    db_session.add(
+        Task(
+            id=uuid.uuid4(),
+            project_id=project.id,
+            phase_id=phase.id,
+            title="Low Done",
+            status=TaskStatus.done,
+            priority=TaskPriority.low,
+            version=1,
+            created_at=now,
+            updated_at=now,
+        )
+    )
     await db_session.commit()
 
     result = await list_project_tasks(
-        project.id, status="ready", phase_id=None, priority="high", limit=50, offset=0, db=db_session,
+        project.id,
+        status="ready",
+        phase_id=None,
+        priority="high",
+        limit=50,
+        offset=0,
+        db=db_session,
     )
     assert len(result) == 1
     assert result[0].priority == schemas.TaskPriority.high
@@ -1013,21 +1129,40 @@ async def test_list_project_tasks_pagination_direct(db_session):
     project, phase = await create_project_and_phase(db_session)
     now = datetime.now(timezone.utc)
     for i in range(5):
-        db_session.add(Task(
-            id=uuid.uuid4(), project_id=project.id, phase_id=phase.id,
-            title=f"Task {i}", status=TaskStatus.ready,
-            priority=TaskPriority.medium, version=1,
-            created_at=now, updated_at=now,
-        ))
+        db_session.add(
+            Task(
+                id=uuid.uuid4(),
+                project_id=project.id,
+                phase_id=phase.id,
+                title=f"Task {i}",
+                status=TaskStatus.ready,
+                priority=TaskPriority.medium,
+                version=1,
+                created_at=now,
+                updated_at=now,
+            )
+        )
     await db_session.commit()
 
     result = await list_project_tasks(
-        project.id, status=None, phase_id=None, priority=None, limit=2, offset=0, db=db_session,
+        project.id,
+        status=None,
+        phase_id=None,
+        priority=None,
+        limit=2,
+        offset=0,
+        db=db_session,
     )
     assert len(result) == 2
 
     result2 = await list_project_tasks(
-        project.id, status=None, phase_id=None, priority=None, limit=10, offset=3, db=db_session,
+        project.id,
+        status=None,
+        phase_id=None,
+        priority=None,
+        limit=10,
+        offset=3,
+        db=db_session,
     )
     assert len(result2) == 2
 
@@ -1037,7 +1172,13 @@ async def test_list_project_tasks_invalid_status_direct(db_session):
     project, _ = await create_project_and_phase(db_session)
     with pytest.raises(HTTPException) as exc_info:
         await list_project_tasks(
-            project.id, status="bogus", phase_id=None, priority=None, limit=50, offset=0, db=db_session,
+            project.id,
+            status="bogus",
+            phase_id=None,
+            priority=None,
+            limit=50,
+            offset=0,
+            db=db_session,
         )
     assert exc_info.value.status_code == 400
 
@@ -1047,26 +1188,52 @@ async def test_list_project_tasks_phase_filter_direct(db_session):
     project, phase = await create_project_and_phase(db_session)
     now = datetime.now(timezone.utc)
     phase2 = Phase(
-        id=uuid.uuid4(), project_id=project.id, name="Ph2", branch_name="b2",
-        order=2, status=PhaseStatus.active, created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        project_id=project.id,
+        name="Ph2",
+        branch_name="b2",
+        order=2,
+        status=PhaseStatus.active,
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(phase2)
-    db_session.add(Task(
-        id=uuid.uuid4(), project_id=project.id, phase_id=phase.id,
-        title="Ph1 Task", status=TaskStatus.ready,
-        priority=TaskPriority.medium, version=1,
-        created_at=now, updated_at=now,
-    ))
-    db_session.add(Task(
-        id=uuid.uuid4(), project_id=project.id, phase_id=phase2.id,
-        title="Ph2 Task", status=TaskStatus.ready,
-        priority=TaskPriority.medium, version=1,
-        created_at=now, updated_at=now,
-    ))
+    db_session.add(
+        Task(
+            id=uuid.uuid4(),
+            project_id=project.id,
+            phase_id=phase.id,
+            title="Ph1 Task",
+            status=TaskStatus.ready,
+            priority=TaskPriority.medium,
+            version=1,
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    db_session.add(
+        Task(
+            id=uuid.uuid4(),
+            project_id=project.id,
+            phase_id=phase2.id,
+            title="Ph2 Task",
+            status=TaskStatus.ready,
+            priority=TaskPriority.medium,
+            version=1,
+            created_at=now,
+            updated_at=now,
+        )
+    )
     await db_session.commit()
 
     result = await list_project_tasks(
-        project.id, status=None, phase_id=phase2.id, priority=None, limit=50, offset=0, db=db_session,
+        project.id,
+        status=None,
+        phase_id=phase2.id,
+        priority=None,
+        limit=50,
+        offset=0,
+        db=db_session,
     )
     assert len(result) == 1
     assert result[0].title == "Ph2 Task"

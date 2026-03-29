@@ -25,9 +25,9 @@ class TestKnowledgeProviderProtocol:
     """Verify KnowledgeProvider is a typing.Protocol with correct methods."""
 
     def test_protocol_is_runtime_checkable(self) -> None:
-        assert hasattr(KnowledgeProvider, "__protocol_attrs__") or hasattr(
-            KnowledgeProvider, "__abstractmethods__"
-        ), "KnowledgeProvider must be a Protocol"
+        assert hasattr(KnowledgeProvider, "__protocol_attrs__") or hasattr(KnowledgeProvider, "__abstractmethods__"), (
+            "KnowledgeProvider must be a Protocol"
+        )
 
     def test_compliant_class_is_instance(self) -> None:
         class _FakeKnowledge:
@@ -99,24 +99,28 @@ class TestBSageProvider:
         """Should raise on HTTP errors."""
         error_resp = MagicMock()
         error_resp.status_code = 500
-        mock_client.post = AsyncMock(return_value=_mock_response(
-            status_code=500,
-            raise_error=httpx.HTTPStatusError("Server Error", request=MagicMock(), response=error_resp),
-        ))
+        mock_client.post = AsyncMock(
+            return_value=_mock_response(
+                status_code=500,
+                raise_error=httpx.HTTPStatusError("Server Error", request=MagicMock(), response=error_resp),
+            )
+        )
 
         with pytest.raises(httpx.HTTPStatusError):
             await provider.store_result("t-456", {"status": "done"})
 
     async def test_search_success(self, provider: BSageProvider, mock_client: AsyncMock) -> None:
         """Should POST search query to BSage API and return results."""
-        mock_client.post = AsyncMock(return_value=_mock_response(
-            json_data={
-                "results": [
-                    {"id": "doc-1", "content": "FastAPI setup", "score": 0.95},
-                    {"id": "doc-2", "content": "Database config", "score": 0.87},
-                ]
-            }
-        ))
+        mock_client.post = AsyncMock(
+            return_value=_mock_response(
+                json_data={
+                    "results": [
+                        {"id": "doc-1", "content": "FastAPI setup", "score": 0.95},
+                        {"id": "doc-2", "content": "Database config", "score": 0.87},
+                    ]
+                }
+            )
+        )
 
         results = await provider.search("FastAPI patterns", limit=5)
 

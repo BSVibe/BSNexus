@@ -70,11 +70,13 @@ async def auth_callback(
     state: str = Query(""),
 ) -> RedirectResponse:
     """Receive tokens from BSVibe Auth portal and redirect to frontend."""
-    fragment = urlencode({
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "state": state,
-    })
+    fragment = urlencode(
+        {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "state": state,
+        }
+    )
     redirect_url = f"{settings.frontend_url}/auth/callback#{fragment}"
     return RedirectResponse(url=redirect_url, status_code=302)
 

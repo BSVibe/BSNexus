@@ -28,22 +28,35 @@ async def _setup_project_bound_session(db_session) -> tuple:
     now = datetime.now(timezone.utc)
 
     project = Project(
-        id=uuid.uuid4(), name="Test", description="d", repo_path="/t",
-        status=ProjectStatus.active, created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        name="Test",
+        description="d",
+        repo_path="/t",
+        status=ProjectStatus.active,
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(project)
 
     phase = Phase(
-        id=uuid.uuid4(), project_id=project.id, name="Phase 1", order=1,
-        status=PhaseStatus.active, branch_name="main",
-        created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        project_id=project.id,
+        name="Phase 1",
+        order=1,
+        status=PhaseStatus.active,
+        branch_name="main",
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(phase)
 
     session = DesignSession(
-        id=uuid.uuid4(), status=DesignSessionStatus.project_bound,
-        project_id=project.id, llm_config=LLM_CONFIG,
-        created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        status=DesignSessionStatus.project_bound,
+        project_id=project.id,
+        llm_config=LLM_CONFIG,
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(session)
 
@@ -81,8 +94,11 @@ async def test_cancelled_session_rejects_messages(client: AsyncClient, db_sessio
     now = datetime.now(timezone.utc)
 
     session = DesignSession(
-        id=uuid.uuid4(), status=DesignSessionStatus.cancelled,
-        llm_config=LLM_CONFIG, created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        status=DesignSessionStatus.cancelled,
+        llm_config=LLM_CONFIG,
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(session)
     db_session.add(Setting(key="llm_api_key", value="sk-test"))

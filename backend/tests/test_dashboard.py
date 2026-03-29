@@ -56,9 +56,7 @@ async def test_dashboard_stats_with_data(client: AsyncClient, db_session) -> Non
 
     # Get the active project for tasks
     active_project = (
-        await db_session.execute(
-            __import__("sqlalchemy").select(Project).where(Project.status == ProjectStatus.active)
-        )
+        await db_session.execute(__import__("sqlalchemy").select(Project).where(Project.status == ProjectStatus.active))
     ).scalar_one()
 
     phase = Phase(
@@ -194,34 +192,57 @@ async def test_get_dashboard_stats_direct_with_data(db_session) -> None:
     for status in (ProjectStatus.active, ProjectStatus.completed, ProjectStatus.design):
         db_session.add(
             Project(
-                id=uuid.uuid4(), name=f"P-{status.value}", description="d",
-                repo_path="/t", status=status, created_at=now, updated_at=now,
+                id=uuid.uuid4(),
+                name=f"P-{status.value}",
+                description="d",
+                repo_path="/t",
+                status=status,
+                created_at=now,
+                updated_at=now,
             )
         )
     await db_session.flush()
 
     from sqlalchemy import select
 
-    active_project = (await db_session.execute(
-        select(Project).where(Project.status == ProjectStatus.active)
-    )).scalar_one()
+    active_project = (
+        await db_session.execute(select(Project).where(Project.status == ProjectStatus.active))
+    ).scalar_one()
 
     phase = Phase(
-        id=uuid.uuid4(), project_id=active_project.id, name="Ph1",
-        branch_name="b", order=1, status=PhaseStatus.active,
-        created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        project_id=active_project.id,
+        name="Ph1",
+        branch_name="b",
+        order=1,
+        status=PhaseStatus.active,
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(phase)
     await db_session.flush()
 
     # Create tasks covering all counted statuses: ready, in_progress, review, done, waiting
-    for ts in [TaskStatus.ready, TaskStatus.ready, TaskStatus.in_progress, TaskStatus.review,
-               TaskStatus.done, TaskStatus.done, TaskStatus.waiting]:
+    for ts in [
+        TaskStatus.ready,
+        TaskStatus.ready,
+        TaskStatus.in_progress,
+        TaskStatus.review,
+        TaskStatus.done,
+        TaskStatus.done,
+        TaskStatus.waiting,
+    ]:
         db_session.add(
             Task(
-                id=uuid.uuid4(), project_id=active_project.id, phase_id=phase.id,
-                title=f"Task-{ts.value}", status=ts, priority=TaskPriority.medium,
-                version=1, created_at=now, updated_at=now,
+                id=uuid.uuid4(),
+                project_id=active_project.id,
+                phase_id=phase.id,
+                title=f"Task-{ts.value}",
+                status=ts,
+                priority=TaskPriority.medium,
+                version=1,
+                created_at=now,
+                updated_at=now,
             )
         )
     await db_session.flush()
@@ -245,16 +266,26 @@ async def test_get_dashboard_stats_direct_all_done(db_session) -> None:
     now = datetime.now(timezone.utc)
 
     project = Project(
-        id=uuid.uuid4(), name="AllDone", description="d",
-        repo_path="/t", status=ProjectStatus.completed, created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        name="AllDone",
+        description="d",
+        repo_path="/t",
+        status=ProjectStatus.completed,
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(project)
     await db_session.flush()
 
     phase = Phase(
-        id=uuid.uuid4(), project_id=project.id, name="Ph1",
-        branch_name="b", order=1, status=PhaseStatus.completed,
-        created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        project_id=project.id,
+        name="Ph1",
+        branch_name="b",
+        order=1,
+        status=PhaseStatus.completed,
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(phase)
     await db_session.flush()
@@ -262,9 +293,15 @@ async def test_get_dashboard_stats_direct_all_done(db_session) -> None:
     for i in range(4):
         db_session.add(
             Task(
-                id=uuid.uuid4(), project_id=project.id, phase_id=phase.id,
-                title=f"Done-{i}", status=TaskStatus.done, priority=TaskPriority.low,
-                version=1, created_at=now, updated_at=now,
+                id=uuid.uuid4(),
+                project_id=project.id,
+                phase_id=phase.id,
+                title=f"Done-{i}",
+                status=TaskStatus.done,
+                priority=TaskPriority.low,
+                version=1,
+                created_at=now,
+                updated_at=now,
             )
         )
     await db_session.flush()
