@@ -1,8 +1,9 @@
 """Tests for auth API endpoints (callback, refresh, me, logout)."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
+from bsvibe_auth import TokenPair
 from httpx import AsyncClient
 
 pytestmark = pytest.mark.asyncio
@@ -45,52 +46,38 @@ async def test_auth_callback_empty_state(client: AsyncClient):
 
 
 async def test_refresh_success(client: AsyncClient):
-    """POST /api/v1/auth/refresh returns new tokens."""
-    mock_response = MagicMock()
-    mock_response.status_code = 200
-    mock_response.json.return_value = {
-        "access_token": "eyJ-new-access",
-        "refresh_token": "eyJ-new-refresh",
-        "expires_in": 3600,
-    }
+    """POST /api/v1/auth/refresh returns new tokens via auth_provider."""
+    mock_pair = TokenPair(
+        access_token="eyJ-new-access",
+        refresh_token="eyJ-new-refresh",
+        expires_in=3600,
+    )
 
-    with patch("backend.src.api.auth.httpx.AsyncClient") as MockClient:
-        mock_client = AsyncMock()
-        mock_client.post.return_value = mock_response
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        MockClient.return_value = mock_client
+    with patch("backend.src.api.auth.auth_provider") as mock_provider:
+        mock_provider.refresh_token = AsyncMock(return_value=mock_pair)
 
         resp = await client.post(
             "/api/v1/auth/refresh",
-            json={
-                "refresh_token": "old-refresh-token",
-            },
+            json={"refresh_token": "old-refresh-token"},
         )
 
     assert resp.status_code == 200
     data = resp.json()
     assert data["access_token"] == "eyJ-new-access"
+    assert data["refresh_token"] == "eyJ-new-refresh"
+    assert data["expires_in"] == 3600
 
 
 async def test_refresh_invalid_token(client: AsyncClient):
     """POST /api/v1/auth/refresh returns 401 on invalid refresh token."""
-    mock_response = MagicMock()
-    mock_response.status_code = 400
-    mock_response.json.return_value = {"error": "invalid_grant"}
+    from bsvibe_auth import AuthError
 
-    with patch("backend.src.api.auth.httpx.AsyncClient") as MockClient:
-        mock_client = AsyncMock()
-        mock_client.post.return_value = mock_response
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        MockClient.return_value = mock_client
+    with patch("backend.src.api.auth.auth_provider") as mock_provider:
+        mock_provider.refresh_token = AsyncMock(side_effect=AuthError("Invalid"))
 
         resp = await client.post(
             "/api/v1/auth/refresh",
-            json={
-                "refresh_token": "expired-token",
-            },
+            json={"refresh_token": "expired-token"},
         )
 
     assert resp.status_code == 401
@@ -106,32 +93,9 @@ async def test_get_me(client: AsyncClient):
 
 
 async def test_logout(client: AsyncClient):
-    """POST /api/v1/auth/logout returns 204."""
-    with patch("backend.src.api.auth.settings") as mock_settings:
-        mock_settings.supabase_service_role_key = ""
-        resp = await client.post("/api/v1/auth/logout")
-
-    assert resp.status_code == 204
-
-
-async def test_logout_with_service_key(client: AsyncClient):
-    """POST /api/v1/auth/logout calls Supabase when service key is set."""
-    mock_response = MagicMock()
-    mock_response.status_code = 200
-
-    with (
-        patch("backend.src.api.auth.settings") as mock_settings,
-        patch("backend.src.api.auth.httpx.AsyncClient") as MockClient,
-    ):
-        mock_settings.supabase_service_role_key = "svc-key"
-        mock_settings.supabase_url = "https://test.supabase.co"
-
-        mock_client = AsyncMock()
-        mock_client.post.return_value = mock_response
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        MockClient.return_value = mock_client
-
+    """POST /api/v1/auth/logout returns 204 and calls auth_provider.logout."""
+    with patch("backend.src.api.auth.auth_provider") as mock_provider:
+        mock_provider.logout = AsyncMock()
         resp = await client.post("/api/v1/auth/logout")
 
     assert resp.status_code == 204

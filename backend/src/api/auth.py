@@ -3,40 +3,17 @@
 from urllib.parse import urlencode
 
 import structlog
+from bsvibe_auth import BSVibeUser
+from fastapi import APIRouter, Depends, Query, Request, status
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
-import httpx
-from bsvibe_auth import BSVibeUser
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.responses import RedirectResponse
-
 from backend.src.config import settings
-from backend.src.core.auth import get_current_user
+from backend.src.core.auth import auth_provider, get_current_user
 
 logger = structlog.get_logger(__name__)
 
 router = APIRouter(tags=["auth"])
-
-_GOTRUE_TIMEOUT = 10.0
-
-
-def _gotrue_url(path: str) -> str:
-    return f"{settings.supabase_url}/auth/v1{path}"
-
-
-def _anon_headers() -> dict[str, str]:
-    return {
-        "apikey": settings.supabase_anon_key,
-        "Content-Type": "application/json",
-    }
-
-
-def _service_headers() -> dict[str, str]:
-    return {
-        "apikey": settings.supabase_service_role_key,
-        "Authorization": f"Bearer {settings.supabase_service_role_key}",
-        "Content-Type": "application/json",
-    }
 
 
 # ── Schemas ──────────────────────────────────────────────────────────
@@ -86,25 +63,23 @@ async def auth_callback(
 
 @router.post("/api/v1/auth/refresh", response_model=TokenResponse)
 async def refresh(body: RefreshRequest) -> TokenResponse:
-    """Exchange a refresh token for a new access token."""
-    async with httpx.AsyncClient(timeout=_GOTRUE_TIMEOUT) as client:
-        resp = await client.post(
-            _gotrue_url("/token?grant_type=refresh_token"),
-            headers=_anon_headers(),
-            json={"refresh_token": body.refresh_token},
-        )
+    """Exchange a refresh token for a new access token via BSVibe Auth."""
+    from bsvibe_auth import AuthError
 
-    if resp.status_code != 200:
+    try:
+        pair = await auth_provider.refresh_token(body.refresh_token)
+    except AuthError:
+        from fastapi import HTTPException
+
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired refresh token",
         )
 
-    data = resp.json()
     return TokenResponse(
-        access_token=data["access_token"],
-        refresh_token=data["refresh_token"],
-        expires_in=data["expires_in"],
+        access_token=pair.access_token,
+        refresh_token=pair.refresh_token,
+        expires_in=pair.expires_in,
     )
 
 
@@ -126,16 +101,9 @@ async def get_me(user: BSVibeUser = Depends(get_current_user)) -> UserResponse:
 
 
 @router.post("/api/v1/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
-async def logout(user: BSVibeUser = Depends(get_current_user)) -> None:
-    """Invalidate the user's session on Supabase (best-effort)."""
-    if not settings.supabase_service_role_key:
-        return
-
-    try:
-        async with httpx.AsyncClient(timeout=_GOTRUE_TIMEOUT) as client:
-            await client.post(
-                _gotrue_url(f"/admin/users/{user.id}/logout"),
-                headers=_service_headers(),
-            )
-    except Exception:
-        logger.warning("supabase_logout_failed", user_id=user.id, exc_info=True)
+async def logout(request: Request, user: BSVibeUser = Depends(get_current_user)) -> None:
+    """Invalidate the user's session via BSVibe Auth (best-effort)."""
+    auth_header = request.headers.get("authorization", "")
+    token = auth_header.removeprefix("Bearer ").strip()
+    if token:
+        await auth_provider.logout(token)

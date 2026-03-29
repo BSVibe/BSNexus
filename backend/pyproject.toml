@@ -19,7 +19,7 @@ dependencies = [
     "pyyaml>=6.0",
     "click>=8.0.0",
     "structlog>=23.0.0",
-    "bsvibe-auth[fastapi] @ git+https://github.com/blas1n/BSVibe-Auth.git@v0.2.0#subdirectory=python",
+    "bsvibe-auth[fastapi] @ git+https://github.com/blas1n/BSVibe-Auth.git@v0.4.0#subdirectory=python",
 ]
 
 [project.scripts]

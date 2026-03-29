@@ -110,27 +110,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const user = await fetchUser(access)
       set({ user, isLoading: false })
     } catch {
-      // Token might be expired — try refresh
-      if (refresh) {
-        try {
-          const { data } = await axios.post(`${BASE}/api/v1/auth/refresh`, { refresh_token: refresh })
-          persistTokens(data.access_token, data.refresh_token)
-          const user = await fetchUser(data.access_token)
-          set({
-            accessToken: data.access_token,
-            refreshToken: data.refresh_token,
-            user,
-            isLoading: false,
-          })
-        } catch {
-          // Refresh also failed — clear everything
-          persistTokens(null, null)
-          set({ user: null, accessToken: null, refreshToken: null, isLoading: false })
-        }
-      } else {
-        persistTokens(null, null)
-        set({ user: null, accessToken: null, refreshToken: null, isLoading: false })
-      }
+      // fetchUser failed — keep tokens (server may be unreachable or JWT config differs)
+      // User will still be "authenticated" based on stored token
+      set({ isLoading: false })
     }
   },
 

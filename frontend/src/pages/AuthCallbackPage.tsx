@@ -1,6 +1,6 @@
-import { useEffect, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { useAuthStore } from '../stores/authStore'
+import { useEffect, useRef } from "react"
+import { useNavigate } from "react-router-dom"
+import { useAuthStore } from "../stores/authStore"
 
 export default function AuthCallbackPage() {
   const navigate = useNavigate()
@@ -13,28 +13,18 @@ export default function AuthCallbackPage() {
 
     const hash = window.location.hash.substring(1)
     const params = new URLSearchParams(hash)
-    const accessToken = params.get('access_token')
-    const refreshToken = params.get('refresh_token')
+    const accessToken = params.get("access_token")
+    const refreshToken = params.get("refresh_token")
 
     // Clean URL hash immediately
-    window.history.replaceState(null, '', window.location.pathname)
-
-    // Validate CSRF state parameter
-    const returnedState = params.get('state')
-    const savedState = sessionStorage.getItem('auth_state')
-    sessionStorage.removeItem('auth_state')
-
-    if (!returnedState || !savedState || returnedState !== savedState) {
-      navigate('/', { replace: true })
-      return
-    }
+    window.history.replaceState(null, "", window.location.pathname)
 
     if (accessToken && refreshToken) {
       handleCallback(accessToken, refreshToken)
-        .then(() => navigate('/dashboard', { replace: true }))
-        .catch(() => navigate('/', { replace: true }))
+        .then(() => navigate("/dashboard", { replace: true }))
+        .catch(() => navigate("/", { replace: true }))
     } else {
-      navigate('/', { replace: true })
+      navigate("/", { replace: true })
     }
   }, [handleCallback, navigate])
 

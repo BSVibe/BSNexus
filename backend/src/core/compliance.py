@@ -271,7 +271,7 @@ class ComplianceManager:
             title="Logical Access Controls",
             status=ComplianceStatus.compliant,
             description="Role-based access control with JWT authentication.",
-            evidence="JWT-based auth via Supabase (bsvibe-auth) with Role/Permission RBAC.",
+            evidence="JWT-based auth via bsvibe-auth (JWKS/ES256) with Role/Permission RBAC.",
         )
 
     def _check_system_boundaries(self) -> ComplianceCheck:

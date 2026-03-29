@@ -11,11 +11,6 @@ class Settings(BaseSettings):
     redis_url: str = "redis://redis:6379"
     database_url: str = "postgresql+asyncpg://bsnexus:bsnexus_dev@postgres:5432/bsnexus"
 
-    # Supabase Admin API (refresh, logout)
-    supabase_url: str = ""
-    supabase_anon_key: str = ""
-    supabase_service_role_key: str = ""
-
     # BSVibe Auth
     bsvibe_auth_url: str = "https://auth.bsvibe.dev"
     frontend_url: str = "http://localhost:3000"
