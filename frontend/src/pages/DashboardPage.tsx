@@ -97,7 +97,9 @@ export default function DashboardPage() {
     return (
       <>
         <Header title="Dashboard" />
-        <div className="p-8 text-text-secondary">Loading projects...</div>
+        <div className="p-8 flex items-center justify-center h-64">
+          <div className="animate-spin rounded-full h-8 w-8 border-2 border-accent border-t-transparent" />
+        </div>
       </>
     )
   }
@@ -107,7 +109,7 @@ export default function DashboardPage() {
       <>
         <Header title="Dashboard" />
         <div className="p-8">
-          <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-400">
+          <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-6 text-sm text-red-400 text-center">
             Failed to load projects. Please try again.
           </div>
         </div>
@@ -121,21 +123,21 @@ export default function DashboardPage() {
         <div className="flex items-center gap-2">
           <Button size="sm" variant="secondary" onClick={() => navigate('/migrate')}>
             <FolderInput size={14} className="mr-1.5" />
-            Import Project
+            Import
           </Button>
           <Button size="sm" onClick={() => navigate('/architect', { state: { openNewSession: true } })}>New Project</Button>
         </div>
       } />
-      <div className="p-8">
+      <div className="p-8 max-w-7xl mx-auto">
         {/* Stat Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
           <StatCard
-            label="Total Projects"
+            label="Projects"
             value={stats.totalProjects}
             subtext={`${stats.activeProjects} active, ${stats.completedProjects} completed`}
           />
           <StatCard
-            label="Total Tasks"
+            label="Tasks"
             value={stats.totalTasks}
             subtext={`${stats.doneTasks} done`}
           />
@@ -145,7 +147,7 @@ export default function DashboardPage() {
             subtext="auto-detected"
           />
           <StatCard
-            label="Completion Rate"
+            label="Completion"
             value={stats.completionRate}
             subtext={`${stats.doneTasks} of ${stats.totalTasks} tasks`}
           />
@@ -155,8 +157,8 @@ export default function DashboardPage() {
         {(projects?.length ?? 0) > 0 && (
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
-              <h2 className="text-lg font-semibold text-text-primary">
-                Projects <span className="text-text-tertiary font-normal text-sm">({projects?.length})</span>
+              <h2 className="text-lg font-bold text-text-primary tracking-tight">
+                Projects <span className="text-text-muted font-normal text-sm ml-1">({projects?.length})</span>
               </h2>
               {!selectMode && (
                 <button
@@ -170,16 +172,10 @@ export default function DashboardPage() {
             </div>
             {selectMode && (
               <div className="flex items-center gap-2">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={selectAll}
-                >
-                  All
-                </Button>
+                <Button variant="secondary" size="sm" onClick={selectAll}>All</Button>
                 {selectedIds.size > 0 && (
                   <>
-                    <span className="text-xs text-text-secondary bg-bg-surface px-2 py-1 rounded-full">
+                    <span className="text-xs text-text-secondary bg-bg-elevated px-2.5 py-1 rounded-full border border-border/50">
                       {selectedIds.size} selected
                     </span>
                     <Button
@@ -191,13 +187,7 @@ export default function DashboardPage() {
                     </Button>
                   </>
                 )}
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={exitSelectMode}
-                >
-                  Cancel
-                </Button>
+                <Button variant="secondary" size="sm" onClick={exitSelectMode}>Cancel</Button>
               </div>
             )}
           </div>
@@ -205,9 +195,13 @@ export default function DashboardPage() {
 
         {/* Project List */}
         {projects?.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-border p-12 text-center">
-            <p className="text-text-secondary mb-4">No projects yet. Start by creating one with the Architect.</p>
-            <Button onClick={() => navigate('/architect')}>
+          <div className="rounded-xl border border-dashed border-border p-16 text-center">
+            <div className="bg-accent/10 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <span className="text-accent text-2xl font-bold">+</span>
+            </div>
+            <p className="text-text-secondary mb-2 font-medium">No projects yet</p>
+            <p className="text-sm text-text-muted mb-6">Start by creating one with the Architect.</p>
+            <Button onClick={() => navigate('/architect', { state: { openNewSession: true } })}>
               Start with Architect
             </Button>
           </div>
@@ -222,10 +216,10 @@ export default function DashboardPage() {
                 <div
                   key={project.id}
                   onClick={selectMode ? () => toggleSelect(project.id) : undefined}
-                  className={`relative rounded-lg border bg-bg-card p-6 transition-all group ${
+                  className={`relative rounded-xl border bg-bg-card p-5 transition-all group ${
                     selectMode ? 'cursor-pointer' : ''
                   } ${
-                    isSelected ? 'border-accent ring-1 ring-accent/30' : 'border-border hover:border-accent/30 hover:shadow-md'
+                    isSelected ? 'border-accent ring-1 ring-accent/30' : 'border-border/40 hover:border-accent/30 hover:shadow-lg hover:shadow-black/20'
                   }`}
                 >
                   {/* Checkbox (select mode only) */}
@@ -252,7 +246,7 @@ export default function DashboardPage() {
                         e.stopPropagation()
                         setDeleteTarget({ id: project.id, name: project.name })
                       }}
-                      className="absolute top-3 right-3 p-1 rounded-md text-text-tertiary hover:text-red-500 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-all"
+                      className="absolute top-3 right-3 p-1.5 rounded-lg text-text-tertiary hover:text-red-500 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-all"
                       title="Delete project"
                     >
                       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -263,7 +257,7 @@ export default function DashboardPage() {
                   {selectMode ? (
                     <div className="pl-4">
                       <div className="flex items-start justify-between mb-3">
-                        <h3 className="text-lg font-semibold text-text-primary">{project.name}</h3>
+                        <h3 className="text-base font-semibold text-text-primary">{project.name}</h3>
                         <Badge color={badgeColor} label={project.status} />
                       </div>
                       <p className="text-sm text-text-secondary mt-1 mb-4 line-clamp-2">{project.description}</p>
@@ -278,10 +272,10 @@ export default function DashboardPage() {
                       className="block cursor-pointer"
                     >
                       <div className="flex items-start justify-between mb-3 pr-6">
-                        <h3 className="text-lg font-semibold text-text-primary">{project.name}</h3>
+                        <h3 className="text-base font-semibold text-text-primary">{project.name}</h3>
                         <Badge color={badgeColor} label={project.status} />
                       </div>
-                      <p className="text-sm text-text-secondary mt-1 mb-4 line-clamp-2">{project.description}</p>
+                      <p className="text-sm text-text-secondary mt-1 mb-4 line-clamp-2 leading-relaxed">{project.description}</p>
 
                       {/* Task distribution bar */}
                       {(() => {
@@ -296,12 +290,12 @@ export default function DashboardPage() {
                         const pctInProgress = Math.round((inProgress / total) * 100)
                         return (
                           <div className="mb-3">
-                            <div className="flex items-center gap-2 mb-1">
+                            <div className="flex items-center gap-2 mb-1.5">
                               <div className="flex-1 h-1.5 rounded-full bg-bg-hover overflow-hidden flex">
-                                <div className="h-full bg-green-500" style={{ width: `${pctDone}%` }} />
-                                <div className="h-full bg-blue-500" style={{ width: `${pctInProgress}%` }} />
+                                <div className="h-full bg-green-500 rounded-l-full" style={{ width: `${pctDone}%` }} />
+                                <div className="h-full bg-accent" style={{ width: `${pctInProgress}%` }} />
                               </div>
-                              <span className="text-xs text-text-tertiary">{pctDone}%</span>
+                              <span className="text-xs font-medium text-text-secondary">{pctDone}%</span>
                             </div>
                             <div className="flex items-center gap-3 text-xs text-text-muted">
                               <span>{total} tasks</span>
@@ -322,7 +316,7 @@ export default function DashboardPage() {
                         )
                       })()}
 
-                      <div className="flex items-center justify-between text-xs text-text-tertiary">
+                      <div className="flex items-center justify-between text-xs text-text-muted pt-2 border-t border-border/50">
                         <span>{phaseCount} phase{phaseCount !== 1 ? 's' : ''}</span>
                         <span>{new Date(project.updated_at).toLocaleDateString()}</span>
                       </div>
