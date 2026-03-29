@@ -165,6 +165,38 @@ async def test_lifespan_startup_and_shutdown() -> None:
         mock_close_redis.assert_awaited_once()
 
 
+async def test_lifespan_rejects_dev_signing_key_in_production() -> None:
+    """Lifespan raises RuntimeError when prompt_signing_key is the dev default in non-debug mode."""
+    from backend.src.main import lifespan
+
+    mock_app = MagicMock()
+
+    with patch("backend.src.main.app_settings") as mock_settings:
+        mock_settings.debug = False
+        mock_settings.prompt_signing_key = "dev-signing-key-change-in-production"
+        mock_settings.encryption_key = "real-key"
+
+        with pytest.raises(RuntimeError, match="prompt_signing_key"):
+            async with lifespan(mock_app):
+                pass
+
+
+async def test_lifespan_rejects_dev_encryption_key_in_production() -> None:
+    """Lifespan raises RuntimeError when encryption_key is the dev default in non-debug mode."""
+    from backend.src.main import lifespan
+
+    mock_app = MagicMock()
+
+    with patch("backend.src.main.app_settings") as mock_settings:
+        mock_settings.debug = False
+        mock_settings.prompt_signing_key = "real-key"
+        mock_settings.encryption_key = "dev-encryption-key-change-in-production"
+
+        with pytest.raises(RuntimeError, match="encryption_key"):
+            async with lifespan(mock_app):
+                pass
+
+
 # -- _setup_logging with file handlers ----------------------------------------
 
 

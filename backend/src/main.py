@@ -75,6 +75,7 @@ _setup_logging()
 
 
 _DEV_SIGNING_KEY = Settings.model_fields["prompt_signing_key"].default
+_DEV_ENCRYPTION_KEY = Settings.model_fields["encryption_key"].default
 
 
 @asynccontextmanager
@@ -85,6 +86,11 @@ async def lifespan(app: FastAPI):
         raise RuntimeError(
             "FATAL: prompt_signing_key is still the dev default. "
             "Set a secure PROMPT_SIGNING_KEY env var for production."
+        )
+    if not app_settings.debug and app_settings.encryption_key == _DEV_ENCRYPTION_KEY:
+        raise RuntimeError(
+            "FATAL: encryption_key is still the dev default. "
+            "Set a secure ENCRYPTION_KEY env var for production."
         )
 
     await init_db()
