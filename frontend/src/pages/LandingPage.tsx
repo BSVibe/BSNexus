@@ -3,9 +3,15 @@ import { useAuthStore } from '../stores/authStore'
 
 const BSVIBE_AUTH_URL = import.meta.env.VITE_BSVIBE_AUTH_URL || 'https://auth.bsvibe.dev'
 
+function generateSecureState(): string {
+  const buffer = new Uint8Array(32)
+  crypto.getRandomValues(buffer)
+  return Array.from(buffer, (b) => b.toString(16).padStart(2, '0')).join('')
+}
+
 function handleLogin() {
   const callbackUrl = `${window.location.origin}/auth/callback`
-  const state = Math.random().toString(36).substring(2) + Date.now().toString(36)
+  const state = generateSecureState()
   sessionStorage.setItem('auth_state', state)
   window.location.href = `${BSVIBE_AUTH_URL}/login?redirect_uri=${encodeURIComponent(callbackUrl)}&state=${encodeURIComponent(state)}`
 }

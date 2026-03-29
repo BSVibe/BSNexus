@@ -8,6 +8,7 @@ and trigger execution.
 from __future__ import annotations
 
 import uuid
+from collections import deque
 
 import structlog
 from bsvibe_auth import BSVibeUser
@@ -152,7 +153,10 @@ async def create_task(
         priority=models.TaskPriority.medium,
         task_type=models.TaskType(body.task_type.value),
         source=models.TaskSource.manual,
-        status=models.TaskStatus.ready if active_phase.status == models.PhaseStatus.active else models.TaskStatus.waiting,
+        status=(
+            models.TaskStatus.ready if active_phase.status == models.PhaseStatus.active
+            else models.TaskStatus.waiting
+        ),
         worker_prompt={"prompt": body.description},
         qa_prompt={"prompt": f"Verify that: {body.title}"},
         version=1,
@@ -220,10 +224,10 @@ async def get_task_dependencies(
     # BFS to collect transitive dependencies
     visited: set[uuid.UUID] = set()
     nodes: list[MCPDependencyNode] = []
-    queue = [root_task]
+    bfs_queue: deque[models.Task] = deque([root_task])
 
-    while queue:
-        current = queue.pop(0)
+    while bfs_queue:
+        current = bfs_queue.popleft()
         if current.id in visited:
             continue
         visited.add(current.id)
@@ -242,7 +246,7 @@ async def get_task_dependencies(
             if dep.id not in visited:
                 dep_task = await repo.get_by_id(dep.id, load_depends=True)
                 if dep_task:
-                    queue.append(dep_task)
+                    bfs_queue.append(dep_task)
 
     return MCPDependencyGraphResponse(task_id=task_id, nodes=nodes)
 

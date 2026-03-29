@@ -1,6 +1,7 @@
 """JWT-based authentication via bsvibe-auth (Supabase)."""
 
 import enum
+import logging
 
 import httpx
 from jwt import PyJWK
@@ -10,6 +11,8 @@ from bsvibe_auth.fastapi import create_auth_dependency
 from fastapi import Depends, HTTPException, status
 
 from backend.src.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class Role(str, enum.Enum):
@@ -115,7 +118,7 @@ def _build_auth_provider() -> SupabaseAuthProvider:
                     algorithms=[alg],
                 )
         except Exception:
-            pass  # Fall through to HS256
+            logger.warning("Failed to fetch Supabase JWKS from %s, falling back to HS256", jwks_url, exc_info=True)
 
     return SupabaseAuthProvider(jwt_secret=settings.supabase_jwt_secret)
 

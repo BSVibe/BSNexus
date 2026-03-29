@@ -20,7 +20,7 @@ from backend.src.api import (
     settings,
     tasks,
 )
-from backend.src.config import settings as app_settings
+from backend.src.config import Settings, settings as app_settings
 from backend.src.core.rate_limiter import RateLimitMiddleware
 from backend.src.core.security_headers import SecurityHeadersMiddleware
 from backend.src.queue.background import start_background_consumer
@@ -74,7 +74,7 @@ def _setup_logging() -> None:
 _setup_logging()
 
 
-_DEV_SIGNING_KEY = "dev-signing-key-change-in-production"
+_DEV_SIGNING_KEY = Settings.model_fields["prompt_signing_key"].default
 
 
 @asynccontextmanager

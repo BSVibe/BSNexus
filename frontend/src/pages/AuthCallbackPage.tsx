@@ -12,6 +12,16 @@ export default function AuthCallbackPage() {
     const accessToken = params.get('access_token')
     const refreshToken = params.get('refresh_token')
 
+    // Validate CSRF state parameter
+    const returnedState = params.get('state')
+    const savedState = sessionStorage.getItem('auth_state')
+    sessionStorage.removeItem('auth_state')
+
+    if (!returnedState || !savedState || returnedState !== savedState) {
+      navigate('/', { replace: true })
+      return
+    }
+
     if (accessToken && refreshToken) {
       handleCallback(accessToken, refreshToken)
         .then(() => navigate('/dashboard', { replace: true }))
@@ -23,7 +33,7 @@ export default function AuthCallbackPage() {
 
   return (
     <div className="flex items-center justify-center min-h-screen">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent" />
     </div>
   )
 }
