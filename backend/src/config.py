@@ -11,8 +11,7 @@ class Settings(BaseSettings):
     redis_url: str = "redis://redis:6379"
     database_url: str = "postgresql+asyncpg://bsnexus:bsnexus_dev@postgres:5432/bsnexus"
 
-    # Supabase Auth
-    supabase_jwt_secret: str = ""
+    # Supabase Admin API (refresh, logout)
     supabase_url: str = ""
     supabase_anon_key: str = ""
     supabase_service_role_key: str = ""

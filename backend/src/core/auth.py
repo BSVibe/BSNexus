@@ -1,11 +1,10 @@
-"""JWT-based authentication via bsvibe-auth (Supabase)."""
+"""JWT-based authentication via bsvibe-auth."""
 
 import enum
-import httpx
-import structlog
-from jwt import PyJWK
 
-from bsvibe_auth import BSVibeUser, SupabaseAuthProvider
+import structlog
+
+from bsvibe_auth import BSVibeUser, BsvibeAuthProvider
 from bsvibe_auth.fastapi import create_auth_dependency
 from fastapi import Depends, HTTPException, status
 
@@ -96,34 +95,7 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
 }
 
 
-def _build_auth_provider() -> SupabaseAuthProvider:
-    """Build SupabaseAuthProvider with the correct key/algorithm.
-
-    Supabase projects may use HS256 (HMAC + jwt_secret) or ES256 (ECDSA + JWKS).
-    When supabase_url is set, fetch the JWKS to detect the algorithm automatically.
-    """
-    if settings.supabase_url:
-        try:
-            jwks_url = f"{settings.supabase_url}/auth/v1/.well-known/jwks.json"
-            resp = httpx.get(jwks_url, timeout=5.0)
-            resp.raise_for_status()
-            jwks_data = resp.json()
-            keys = jwks_data.get("keys", [])
-            if keys:
-                jwk_obj = PyJWK(keys[0])
-                alg = keys[0].get("alg", "ES256")
-                return SupabaseAuthProvider(
-                    jwt_secret=jwk_obj.key,
-                    algorithms=[alg],
-                )
-        except Exception:
-            logger.warning("Failed to fetch Supabase JWKS from %s, falling back to HS256", jwks_url, exc_info=True)
-
-    return SupabaseAuthProvider(jwt_secret=settings.supabase_jwt_secret)
-
-
-# Supabase auth provider + FastAPI dependency
-auth_provider = _build_auth_provider()
+auth_provider = BsvibeAuthProvider(auth_url=settings.bsvibe_auth_url)
 get_current_user = create_auth_dependency(auth_provider)
 
 
