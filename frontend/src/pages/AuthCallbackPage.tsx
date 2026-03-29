@@ -12,6 +12,9 @@ export default function AuthCallbackPage() {
     const accessToken = params.get('access_token')
     const refreshToken = params.get('refresh_token')
 
+    // Clean URL hash immediately
+    window.history.replaceState(null, '', window.location.pathname)
+
     // Validate CSRF state parameter
     const returnedState = params.get('state')
     const savedState = sessionStorage.getItem('auth_state')
@@ -25,7 +28,6 @@ export default function AuthCallbackPage() {
     if (accessToken && refreshToken) {
       handleCallback(accessToken, refreshToken)
         .then(() => navigate('/dashboard', { replace: true }))
-        .catch(() => navigate('/', { replace: true }))
     } else {
       navigate('/', { replace: true })
     }

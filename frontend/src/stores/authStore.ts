@@ -59,10 +59,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   handleCallback: async (accessToken: string, refreshToken: string) => {
     persistTokens(accessToken, refreshToken)
-    set({ accessToken, refreshToken })
+    set({ accessToken, refreshToken, isLoading: false })
 
-    const user = await fetchUser(accessToken)
-    set({ user })
+    try {
+      const user = await fetchUser(accessToken)
+      set({ user })
+    } catch {
+      // User fetch is best-effort — tokens are already stored
+    }
   },
 
   signOut: async () => {
