@@ -1,12 +1,16 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 
 export default function AuthCallbackPage() {
   const navigate = useNavigate()
   const handleCallback = useAuthStore((s) => s.handleCallback)
+  const processed = useRef(false)
 
   useEffect(() => {
+    if (processed.current) return
+    processed.current = true
+
     const hash = window.location.hash.substring(1)
     const params = new URLSearchParams(hash)
     const accessToken = params.get('access_token')
@@ -28,6 +32,7 @@ export default function AuthCallbackPage() {
     if (accessToken && refreshToken) {
       handleCallback(accessToken, refreshToken)
         .then(() => navigate('/dashboard', { replace: true }))
+        .catch(() => navigate('/', { replace: true }))
     } else {
       navigate('/', { replace: true })
     }
