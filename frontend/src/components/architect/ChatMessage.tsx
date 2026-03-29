@@ -1,8 +1,7 @@
 import ReactMarkdown from 'react-markdown'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
-import { oneLight, oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
+import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import type { ChatMessage as ChatMessageType } from '../../stores/architectStore'
-import { useThemeStore } from '../../stores/themeStore'
 
 interface Props {
   message: ChatMessageType
@@ -25,15 +24,15 @@ function sanitizeContent(content: string): string {
 }
 
 export default function ChatMessage({ message }: Props) {
-  const theme = useThemeStore((s) => s.theme)
-  const isDark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
   const isAssistant = message.role === 'assistant'
 
   return (
     <div className={`flex ${isAssistant ? 'justify-start' : 'justify-end'} mb-4`}>
       <div
         className={`max-w-[70%] rounded-lg px-4 py-3 ${
-          isAssistant ? 'bg-bg-elevated text-text-primary' : 'bg-accent text-white'
+          isAssistant
+            ? 'bg-gray-850 text-gray-50 border border-gray-700'
+            : 'bg-accent text-white'
         }`}
       >
         {isAssistant ? (
@@ -46,7 +45,7 @@ export default function ChatMessage({ message }: Props) {
                   if (match) {
                     return (
                       <SyntaxHighlighter
-                        style={isDark ? oneDark : oneLight}
+                        style={oneDark}
                         language={match[1]}
                         PreTag="div"
                       >
@@ -54,21 +53,21 @@ export default function ChatMessage({ message }: Props) {
                       </SyntaxHighlighter>
                     )
                   }
-                  return <code className={className} {...props}>{children}</code>
+                  return <code className={`${className} bg-gray-800 text-gray-300 px-1 py-0.5 rounded`} {...props}>{children}</code>
                 },
               }}
             >
               {sanitizeContent(message.content)}
             </ReactMarkdown>
             {message.isStreaming && (
-              <span className="inline-block w-2 h-4 bg-text-tertiary animate-pulse ml-0.5" />
+              <span className="inline-block w-2 h-4 bg-accent animate-pulse ml-0.5" />
             )}
           </div>
         ) : (
           <p className="text-sm whitespace-pre-wrap">{message.content}</p>
         )}
         {message.createdAt && (
-          <div className={`text-xs mt-1 ${isAssistant ? 'text-text-tertiary' : 'text-white/70'}`}>
+          <div className={`text-xs mt-1 ${isAssistant ? 'text-gray-500' : 'text-white/70'}`}>
             {formatTime(message.createdAt)}
           </div>
         )}

@@ -16,27 +16,33 @@ export default function LandingPage() {
   const navigate = useNavigate()
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50">
+    <div className="flex flex-col items-center justify-center min-h-screen bg-bg-primary">
       <div className="text-center space-y-6 max-w-lg px-6">
-        <h1 className="text-4xl font-bold text-gray-900">BSNexus</h1>
-        <p className="text-lg text-gray-600">
+        {/* Logo */}
+        <div className="flex items-center justify-center gap-3 mb-2">
+          <div className="bg-accent w-12 h-12 rounded-xl flex items-center justify-center">
+            <span className="text-white text-xl font-bold">B</span>
+          </div>
+        </div>
+        <h1 className="text-4xl font-bold text-text-primary">BSNexus</h1>
+        <p className="text-lg text-text-secondary">
           AI-Powered Development Manager
         </p>
-        <p className="text-sm text-gray-500">
+        <p className="text-sm text-text-tertiary">
           LLM Architect가 프로젝트를 설계하고, 분산 Worker가 자동으로 코드를 작성합니다.
         </p>
         <div className="pt-4">
           {user ? (
             <button
               onClick={() => navigate('/dashboard')}
-              className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-base font-medium"
+              className="px-6 py-3 bg-accent text-white rounded-lg hover:bg-accent-light text-base font-medium transition-colors"
             >
               대시보드로 이동
             </button>
           ) : (
             <button
               onClick={handleLogin}
-              className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-base font-medium"
+              className="px-6 py-3 bg-accent text-white rounded-lg hover:bg-accent-light text-base font-medium transition-colors"
             >
               로그인
             </button>

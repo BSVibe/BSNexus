@@ -233,9 +233,9 @@ export default function MigratePage() {
               </div>
             ) : currentStep.phase === 'error' ? (
               <div className="space-y-3 py-4">
-                <div className="rounded-md border border-red-200 bg-red-50 p-3">
-                  <div className="text-sm font-medium text-red-700">Migration failed</div>
-                  <div className="text-xs text-red-600 mt-1">{currentStep.detail}</div>
+                <div className="rounded-md border border-red-500/30 bg-red-500/10 p-3">
+                  <div className="text-sm font-medium text-red-400">Migration failed</div>
+                  <div className="text-xs text-red-300 mt-1">{currentStep.detail}</div>
                 </div>
                 <div className="flex items-center gap-3">
                   <Button type="submit" disabled={!repoPath.trim()}>

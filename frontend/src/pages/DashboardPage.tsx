@@ -107,7 +107,7 @@ export default function DashboardPage() {
       <>
         <Header title="Dashboard" />
         <div className="p-8">
-          <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-400">
             Failed to load projects. Please try again.
           </div>
         </div>

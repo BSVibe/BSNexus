@@ -1,11 +1,10 @@
 import { useState, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
-import { oneLight, oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
+import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import type { Project } from '../../types/project'
 import { projectsApi } from '../../api/projects'
 import { Badge, Button } from '../common'
-import { useThemeStore } from '../../stores/themeStore'
 
 type PanelPhase = 'review' | 'loading' | 'complete' | 'error'
 
@@ -25,8 +24,6 @@ interface Props {
 }
 
 export default function FinalizePanel({ designSummary, onConfirm, onCancel, onGoToBoard, finalizedProjectId }: Props) {
-  const theme = useThemeStore((s) => s.theme)
-  const isDark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
   const [phase, setPhase] = useState<PanelPhase>(finalizedProjectId ? 'loading' : 'review')
   const [repoPath, setRepoPath] = useState('')
   const [project, setProject] = useState<Project | null>(null)
@@ -87,7 +84,7 @@ export default function FinalizePanel({ designSummary, onConfirm, onCancel, onGo
                     const codeStr = String(children).replace(/\n$/, '')
                     if (match) {
                       return (
-                        <SyntaxHighlighter style={isDark ? oneDark : oneLight} language={match[1]} PreTag="div">
+                        <SyntaxHighlighter style={oneDark} language={match[1]} PreTag="div">
                           {codeStr}
                         </SyntaxHighlighter>
                       )
