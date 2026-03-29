@@ -89,8 +89,7 @@ async def lifespan(app: FastAPI):
         )
     if not app_settings.debug and app_settings.encryption_key == _DEV_ENCRYPTION_KEY:
         raise RuntimeError(
-            "FATAL: encryption_key is still the dev default. "
-            "Set a secure ENCRYPTION_KEY env var for production."
+            "FATAL: encryption_key is still the dev default. Set a secure ENCRYPTION_KEY env var for production."
         )
 
     await init_db()
