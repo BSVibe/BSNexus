@@ -32,7 +32,7 @@ export default function Sidebar() {
       <div className="p-4 mb-2">
         <div className="flex items-center gap-3">
           <div className="bg-accent w-8 h-8 rounded-lg flex items-center justify-center shadow-md shadow-accent/20">
-            <span className="text-white text-sm font-bold">B</span>
+            <span className="text-gray-50 text-sm font-bold">B</span>
           </div>
           <span className="text-text-primary text-sm font-bold tracking-tight">BSNexus</span>
         </div>
@@ -80,7 +80,7 @@ export default function Sidebar() {
         <button
           type="button"
           onClick={handleLogout}
-          className="flex items-center gap-3 px-3 py-2.5 text-sm text-red-400 hover:bg-red-500/10 rounded-lg cursor-pointer transition-colors w-full"
+          className="flex items-center gap-3 px-3 py-2.5 text-sm text-error hover:bg-error/10 rounded-lg cursor-pointer transition-colors w-full"
         >
           <LogOut size={18} />
           Logout

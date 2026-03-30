@@ -54,7 +54,7 @@ export default function TaskDetail({ task, onClose }: Props) {
       <div className="mb-6 flex items-center gap-2 flex-wrap">
         <Badge color={task.status} label={task.status} />
         <Badge color={task.priority} label={task.priority} />
-        <Badge color="#6B7280" label={task.task_type} />
+        <Badge color="blocked" label={task.task_type} />
         <span className="ml-auto text-[11px] font-mono text-text-muted bg-bg-elevated px-2 py-0.5 rounded-md border border-border/30">
           v{task.version}
         </span>
@@ -123,10 +123,10 @@ export default function TaskDetail({ task, onClose }: Props) {
 
       {/* Error message */}
       {task.error_message && (
-        <div className="mb-6 rounded-xl border border-amber-500/20 bg-amber-500/5 p-4">
+        <div className="mb-6 rounded-xl border border-warning/20 bg-warning/5 p-4">
           <div className="flex items-center gap-2 mb-2">
-            <AlertTriangle size={14} className="text-amber-500" />
-            <h3 className="text-sm font-semibold text-amber-400">Error</h3>
+            <AlertTriangle size={14} className="text-warning" />
+            <h3 className="text-sm font-semibold text-warning">Error</h3>
           </div>
           <p className="text-sm text-text-primary whitespace-pre-wrap font-mono leading-relaxed">{task.error_message}</p>
         </div>
@@ -134,10 +134,10 @@ export default function TaskDetail({ task, onClose }: Props) {
 
       {/* QA Result */}
       {task.qa_result && (
-        <div className="mb-6 rounded-xl border border-pink-500/20 bg-pink-500/5 p-4">
+        <div className="mb-6 rounded-xl border border-info/20 bg-info/5 p-4">
           <div className="flex items-center gap-2 mb-2">
-            <Shield size={14} className="text-pink-500" />
-            <h3 className="text-sm font-semibold text-pink-400">QA Result</h3>
+            <Shield size={14} className="text-info" />
+            <h3 className="text-sm font-semibold text-info">QA Result</h3>
           </div>
           <pre className="text-xs text-text-primary whitespace-pre-wrap font-mono bg-bg-primary rounded-lg p-3 border border-border/30 max-h-64 overflow-y-auto">
             {JSON.stringify(task.qa_result, null, 2)}

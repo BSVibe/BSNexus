@@ -46,7 +46,7 @@ export default function ChatInput({ onSend, disabled }: Props) {
         type="button"
         onClick={handleSubmit}
         disabled={disabled || !input.trim()}
-        className="absolute right-2 bottom-2 p-2 rounded-lg bg-accent hover:bg-accent-light text-white disabled:opacity-30 disabled:hover:bg-accent transition-colors"
+        className="absolute right-2 bottom-2 p-2 rounded-lg bg-accent hover:bg-accent-light text-gray-50 disabled:opacity-30 disabled:hover:bg-accent transition-colors"
       >
         <Send size={16} />
       </button>

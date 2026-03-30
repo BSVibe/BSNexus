@@ -87,7 +87,7 @@ export default function SessionList({ sessions, activeSessionId, onSelect, onNew
                 </span>
                 <Button
                   size="sm"
-                  className="!bg-red-600 hover:!bg-red-700 !text-xs !px-2 !py-0.5"
+                  className="!bg-error hover:!bg-error/80 !text-xs !px-2 !py-0.5"
                   onClick={handleBatchDelete}
                 >
                   Delete
@@ -133,7 +133,7 @@ export default function SessionList({ sessions, activeSessionId, onSelect, onNew
                   }`}
                 >
                   {isSelected && (
-                    <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                    <svg className="w-3 h-3 text-gray-50" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                     </svg>
                   )}
@@ -167,7 +167,7 @@ export default function SessionList({ sessions, activeSessionId, onSelect, onNew
                     e.stopPropagation()
                     onDelete(session.id)
                   }}
-                  className="absolute top-2 right-2 p-1 rounded-md text-text-tertiary hover:text-red-500 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-all"
+                  className="absolute top-2 right-2 p-1 rounded-md text-text-tertiary hover:text-error hover:bg-error/10 opacity-0 group-hover:opacity-100 transition-all"
                   title="Delete session"
                 >
                   <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

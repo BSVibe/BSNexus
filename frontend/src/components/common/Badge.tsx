@@ -5,15 +5,15 @@ const statusColorMap: Record<string, string> = {
   review: 'var(--status-review)',
   done: 'var(--status-done)',
   redesign: 'var(--status-redesign)',
-  // Priority colors
-  critical: '#EF4444',
-  high: '#F97316',
-  medium: '#3B82F6',
-  low: '#6B7280',
+  // Priority colors (mapped to BSVibe palette)
+  critical: 'var(--color-error)',
+  high: 'var(--status-waiting)',
+  medium: 'var(--status-ready)',
+  low: 'var(--status-blocked)',
   // Worker status
-  idle: '#22C55E',
-  busy: '#F59E0B',
-  offline: '#6B7280',
+  idle: 'var(--color-success)',
+  busy: 'var(--color-warning)',
+  offline: 'var(--status-blocked)',
 }
 
 interface BadgeProps {

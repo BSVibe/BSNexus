@@ -43,7 +43,7 @@ export default function LandingPage() {
     <div className="flex flex-col items-center justify-center min-h-screen bg-bg-primary relative overflow-hidden">
       {/* Background gradient glow */}
       <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] rounded-full pointer-events-none"
-        style={{ background: 'radial-gradient(circle, rgba(59,130,246,0.08) 0%, rgba(59,130,246,0.02) 40%, transparent 70%)' }}
+        style={{ background: 'radial-gradient(circle, color-mix(in srgb, var(--accent) 8%, transparent) 0%, color-mix(in srgb, var(--accent) 2%, transparent) 40%, transparent 70%)' }}
       />
 
       {/* Main card */}
@@ -52,16 +52,16 @@ export default function LandingPage() {
           {/* Logo + Title */}
           <div className="flex flex-col items-center mb-8">
             <div className="bg-accent w-14 h-14 rounded-xl flex items-center justify-center shadow-lg shadow-accent/20 mb-5">
-              <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <circle cx="14" cy="14" r="3" fill="white" />
-                <circle cx="6" cy="6" r="2" fill="white" opacity="0.7" />
-                <circle cx="22" cy="6" r="2" fill="white" opacity="0.7" />
-                <circle cx="6" cy="22" r="2" fill="white" opacity="0.7" />
-                <circle cx="22" cy="22" r="2" fill="white" opacity="0.7" />
-                <line x1="14" y1="14" x2="6" y2="6" stroke="white" strokeWidth="1.2" opacity="0.5" />
-                <line x1="14" y1="14" x2="22" y2="6" stroke="white" strokeWidth="1.2" opacity="0.5" />
-                <line x1="14" y1="14" x2="6" y2="22" stroke="white" strokeWidth="1.2" opacity="0.5" />
-                <line x1="14" y1="14" x2="22" y2="22" stroke="white" strokeWidth="1.2" opacity="0.5" />
+              <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-gray-50">
+                <circle cx="14" cy="14" r="3" fill="currentColor" />
+                <circle cx="6" cy="6" r="2" fill="currentColor" opacity="0.7" />
+                <circle cx="22" cy="6" r="2" fill="currentColor" opacity="0.7" />
+                <circle cx="6" cy="22" r="2" fill="currentColor" opacity="0.7" />
+                <circle cx="22" cy="22" r="2" fill="currentColor" opacity="0.7" />
+                <line x1="14" y1="14" x2="6" y2="6" stroke="currentColor" strokeWidth="1.2" opacity="0.5" />
+                <line x1="14" y1="14" x2="22" y2="6" stroke="currentColor" strokeWidth="1.2" opacity="0.5" />
+                <line x1="14" y1="14" x2="6" y2="22" stroke="currentColor" strokeWidth="1.2" opacity="0.5" />
+                <line x1="14" y1="14" x2="22" y2="22" stroke="currentColor" strokeWidth="1.2" opacity="0.5" />
               </svg>
             </div>
             <h1 className="text-4xl font-bold text-text-primary tracking-tight">BSNexus</h1>
@@ -88,14 +88,14 @@ export default function LandingPage() {
             {user ? (
               <button
                 onClick={() => navigate('/dashboard')}
-                className="w-full py-3 bg-accent text-white rounded-lg hover:bg-accent-light text-base font-semibold transition-all shadow-lg shadow-accent/25 hover:shadow-accent/40"
+                className="w-full py-3 bg-accent text-gray-50 rounded-lg hover:bg-accent-light text-base font-semibold transition-all shadow-lg shadow-accent/25 hover:shadow-accent/40"
               >
                 Go to Dashboard
               </button>
             ) : (
               <button
                 onClick={handleLogin}
-                className="w-full py-3 bg-accent text-white rounded-lg hover:bg-accent-light text-base font-semibold transition-all shadow-lg shadow-accent/25 hover:shadow-accent/40"
+                className="w-full py-3 bg-accent text-gray-50 rounded-lg hover:bg-accent-light text-base font-semibold transition-all shadow-lg shadow-accent/25 hover:shadow-accent/40"
               >
                 Sign in with BSVibe
               </button>

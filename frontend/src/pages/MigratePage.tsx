@@ -148,7 +148,7 @@ export default function MigratePage() {
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
               <label htmlFor="repo-path" className="block text-sm font-medium text-text-primary mb-1.5">
-                Project Path <span className="text-red-500">*</span>
+                Project Path <span className="text-error">*</span>
               </label>
               <div className="flex gap-2">
                 <input
@@ -220,7 +220,7 @@ export default function MigratePage() {
                       <div
                         key={phase}
                         className={`h-2 flex-1 rounded-full transition-colors ${
-                          isDone ? 'bg-green-500' : isCurrent ? 'bg-accent' : 'bg-bg-hover'
+                          isDone ? 'bg-success' : isCurrent ? 'bg-accent' : 'bg-bg-hover'
                         }`}
                       />
                     )
@@ -233,9 +233,9 @@ export default function MigratePage() {
               </div>
             ) : currentStep.phase === 'error' ? (
               <div className="space-y-3 py-4">
-                <div className="rounded-md border border-red-500/30 bg-red-500/10 p-3">
-                  <div className="text-sm font-medium text-red-400">Migration failed</div>
-                  <div className="text-xs text-red-300 mt-1">{currentStep.detail}</div>
+                <div className="rounded-md border border-error/30 bg-error/10 p-3">
+                  <div className="text-sm font-medium text-error">Migration failed</div>
+                  <div className="text-xs text-error/70 mt-1">{currentStep.detail}</div>
                 </div>
                 <div className="flex items-center gap-3">
                   <Button type="submit" disabled={!repoPath.trim()}>
@@ -278,7 +278,7 @@ export default function MigratePage() {
         }
       >
         <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-md bg-bg-hover text-sm font-mono text-text-primary">
-          {browseQuery.data?.has_git && <GitBranch size={14} className="text-green-500 shrink-0" />}
+          {browseQuery.data?.has_git && <GitBranch size={14} className="text-success shrink-0" />}
           <span className="truncate">{browsePath}</span>
         </div>
 
@@ -294,7 +294,7 @@ export default function MigratePage() {
           )}
           {browseQuery.isLoading && <div className="px-3 py-6 text-center text-sm text-text-muted">Loading...</div>}
           {browseQuery.isError && (
-            <div className="px-3 py-6 text-center text-sm text-red-500">
+            <div className="px-3 py-6 text-center text-sm text-error">
               {(browseQuery.error as Error & { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
                 'Failed to browse directory'}
             </div>

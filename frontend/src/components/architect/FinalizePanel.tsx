@@ -9,10 +9,10 @@ import { Badge, Button } from '../common'
 type PanelPhase = 'review' | 'loading' | 'complete' | 'error'
 
 const statusBadgeColors: Record<string, string> = {
-  design: '#8B5CF6',
-  active: '#22C55E',
-  paused: '#F59E0B',
-  completed: '#3B82F6',
+  design: 'var(--status-queued)',
+  active: 'var(--color-success)',
+  paused: 'var(--color-warning)',
+  completed: 'var(--status-ready)',
 }
 
 interface Props {
@@ -129,7 +129,7 @@ export default function FinalizePanel({ designSummary, onConfirm, onCancel, onGo
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-base font-semibold text-text-primary">{project.name}</h3>
-              <Badge color={statusBadgeColors[project.status] || '#8B5CF6'} label={project.status} />
+              <Badge color={statusBadgeColors[project.status] || 'var(--status-queued)'} label={project.status} />
             </div>
             <p className="text-sm text-text-secondary">{project.description}</p>
 
@@ -137,7 +137,7 @@ export default function FinalizePanel({ designSummary, onConfirm, onCancel, onGo
               <div key={ph.id} className="border-t border-border-subtle pt-3">
                 <div className="flex items-center gap-2 mb-1">
                   <span className="text-sm font-semibold text-text-primary">Phase {ph.order}: {ph.name}</span>
-                  <Badge color="#6B7280" label={ph.status} />
+                  <Badge color="blocked" label={ph.status} />
                 </div>
                 {ph.description && (
                   <p className="text-xs text-text-secondary">{ph.description}</p>
@@ -149,7 +149,7 @@ export default function FinalizePanel({ designSummary, onConfirm, onCancel, onGo
 
         {phase === 'error' && (
           <div className="py-8">
-            <div className="rounded-md bg-red-950/50 border border-red-800/50 px-4 py-3 text-sm text-red-300">
+            <div className="rounded-md bg-error-muted/50 border border-error/30 px-4 py-3 text-sm text-error">
               {error}
             </div>
           </div>

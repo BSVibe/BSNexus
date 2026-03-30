@@ -216,8 +216,8 @@ function ManualRedesignView({
 
           {/* Result */}
           {result && (
-            <div className="mb-6 rounded-lg border border-green-500 bg-green-500/10 p-4">
-              <h3 className="text-sm font-medium text-green-400 mb-2">Redesign Complete</h3>
+            <div className="mb-6 rounded-lg border border-success bg-success/10 p-4">
+              <h3 className="text-sm font-medium text-success mb-2">Redesign Complete</h3>
               <p className="text-sm text-text-primary mb-2">{result.reasoning}</p>
               <div className="flex gap-4 text-xs text-text-secondary">
                 <span>Kept: {result.tasks_kept}</span>
@@ -229,8 +229,8 @@ function ManualRedesignView({
 
           {/* Error message */}
           {error && (
-            <div className="mb-6 rounded-lg border border-red-500 bg-red-500/10 p-4">
-              <p className="text-sm text-red-400">{error}</p>
+            <div className="mb-6 rounded-lg border border-error bg-error/10 p-4">
+              <p className="text-sm text-error">{error}</p>
             </div>
           )}
 

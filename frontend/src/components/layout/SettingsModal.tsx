@@ -83,7 +83,7 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
     >
       <div className="space-y-6">
         {error && (
-          <p className="text-sm text-red-500">{error}</p>
+          <p className="text-sm text-error">{error}</p>
         )}
         {loading ? (
           <p className="text-sm text-text-muted py-4 text-center">Loading settings...</p>

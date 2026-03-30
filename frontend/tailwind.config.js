@@ -57,6 +57,21 @@ export default {
           rejected: 'var(--status-rejected)',
           blocked: 'var(--status-blocked)',
         },
+        error: {
+          DEFAULT: 'var(--color-error)',
+          muted: 'var(--color-error-muted)',
+        },
+        success: {
+          DEFAULT: 'var(--color-success)',
+          muted: 'var(--color-success-muted)',
+        },
+        warning: {
+          DEFAULT: 'var(--color-warning)',
+          muted: 'var(--color-warning-muted)',
+        },
+        info: {
+          DEFAULT: 'var(--color-info)',
+        },
       },
       borderRadius: {
         sm: 'var(--radius-sm)',

@@ -3,12 +3,12 @@ import { Badge } from '../common'
 import { Bug, Link2, Zap, TestTube, Wrench, RefreshCw, Sparkles } from 'lucide-react'
 
 const typeConfig: Record<string, { icon: typeof Bug; color: string }> = {
-  bug: { icon: Bug, color: '#EF4444' },
-  feature: { icon: Sparkles, color: '#3B82F6' },
-  improvement: { icon: Zap, color: '#8B5CF6' },
-  test: { icon: TestTube, color: '#10B981' },
-  chore: { icon: Wrench, color: '#6B7280' },
-  refactor: { icon: RefreshCw, color: '#F59E0B' },
+  bug: { icon: Bug, color: 'var(--color-error)' },
+  feature: { icon: Sparkles, color: 'var(--status-ready)' },
+  improvement: { icon: Zap, color: 'var(--status-queued)' },
+  test: { icon: TestTube, color: 'var(--status-in-progress)' },
+  chore: { icon: Wrench, color: 'var(--status-blocked)' },
+  refactor: { icon: RefreshCw, color: 'var(--status-waiting)' },
 }
 
 interface Props {
@@ -23,7 +23,7 @@ export default function TaskCard({ task, onClick }: Props) {
   const TypeIcon = typeInfo.icon
 
   const borderLeftColor = isBug
-    ? '#EF4444'
+    ? 'var(--color-error)'
     : isActive
       ? 'rgb(var(--color-accent))'
       : undefined
@@ -35,7 +35,7 @@ export default function TaskCard({ task, onClick }: Props) {
       style={borderLeftColor ? { borderLeftWidth: '2px', borderLeftColor } : undefined}
     >
       {/* Title */}
-      <h4 className="text-[13px] font-medium text-text-primary leading-snug line-clamp-2 mb-2 group-hover:text-white transition-colors">
+      <h4 className="text-[13px] font-medium text-text-primary leading-snug line-clamp-2 mb-2 group-hover:text-gray-50 transition-colors">
         {task.title}
       </h4>
 
@@ -62,7 +62,7 @@ export default function TaskCard({ task, onClick }: Props) {
           </span>
         )}
         {task.retry_count > 0 && (
-          <span className="inline-flex items-center gap-0.5 text-[11px] text-amber-500" title={`${task.retry_count} retries`}>
+          <span className="inline-flex items-center gap-0.5 text-[11px] text-warning" title={`${task.retry_count} retries`}>
             <RefreshCw size={10} />
             {task.retry_count}
           </span>

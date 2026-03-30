@@ -53,6 +53,15 @@
     --status-blocked: #6B7280;
     --status-redesign: #F59E0B;
 
+    /* Semantic UI colors (mapped from status palette) */
+    --color-error: #EF4444;
+    --color-error-muted: #7F1D1D;
+    --color-success: #22C55E;
+    --color-success-muted: #14532D;
+    --color-warning: #F59E0B;
+    --color-warning-muted: #78350F;
+    --color-info: #EC4899;
+
     /* Radius tokens */
     --radius-sm: 4px;
     --radius-md: 8px;

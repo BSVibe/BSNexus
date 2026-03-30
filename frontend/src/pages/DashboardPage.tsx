@@ -9,10 +9,10 @@ import Header from '../components/layout/Header'
 import { ListChecks, Bug, MessageSquare, FolderInput } from 'lucide-react'
 
 const statusBadgeColors: Record<string, string> = {
-  design: '#8B5CF6',
-  active: '#22C55E',
-  paused: '#F59E0B',
-  completed: '#3B82F6',
+  design: 'var(--status-queued)',
+  active: 'var(--color-success)',
+  paused: 'var(--color-warning)',
+  completed: 'var(--status-ready)',
 }
 
 export default function DashboardPage() {
@@ -109,7 +109,7 @@ export default function DashboardPage() {
       <>
         <Header title="Dashboard" />
         <div className="p-8">
-          <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-6 text-sm text-red-400 text-center">
+          <div className="rounded-xl border border-error/30 bg-error/5 p-6 text-sm text-error text-center">
             Failed to load projects. Please try again.
           </div>
         </div>
@@ -180,7 +180,7 @@ export default function DashboardPage() {
                     </span>
                     <Button
                       size="sm"
-                      className="!bg-red-600 hover:!bg-red-700"
+                      className="!bg-error hover:!bg-error/80"
                       onClick={() => setShowBatchDeleteModal(true)}
                     >
                       Delete
@@ -232,7 +232,7 @@ export default function DashboardPage() {
                       }`}
                     >
                       {isSelected && (
-                        <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                        <svg className="w-3.5 h-3.5 text-gray-50" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                           <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                         </svg>
                       )}
@@ -246,7 +246,7 @@ export default function DashboardPage() {
                         e.stopPropagation()
                         setDeleteTarget({ id: project.id, name: project.name })
                       }}
-                      className="absolute top-3 right-3 p-1.5 rounded-lg text-text-tertiary hover:text-red-500 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-all"
+                      className="absolute top-3 right-3 p-1.5 rounded-lg text-text-tertiary hover:text-error hover:bg-error/10 opacity-0 group-hover:opacity-100 transition-all"
                       title="Delete project"
                     >
                       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -292,7 +292,7 @@ export default function DashboardPage() {
                           <div className="mb-3">
                             <div className="flex items-center gap-2 mb-1.5">
                               <div className="flex-1 h-1.5 rounded-full bg-bg-hover overflow-hidden flex">
-                                <div className="h-full bg-green-500 rounded-l-full" style={{ width: `${pctDone}%` }} />
+                                <div className="h-full bg-success rounded-l-full" style={{ width: `${pctDone}%` }} />
                                 <div className="h-full bg-accent" style={{ width: `${pctInProgress}%` }} />
                               </div>
                               <span className="text-xs font-medium text-text-secondary">{pctDone}%</span>
@@ -300,7 +300,7 @@ export default function DashboardPage() {
                             <div className="flex items-center gap-3 text-xs text-text-muted">
                               <span>{total} tasks</span>
                               {summary.bug_count > 0 && (
-                                <span className="flex items-center gap-0.5 text-red-400">
+                                <span className="flex items-center gap-0.5 text-error">
                                   <Bug size={11} />
                                   {summary.bug_count}
                                 </span>
@@ -344,7 +344,7 @@ export default function DashboardPage() {
               size="sm"
               loading={deleteMutation.isPending}
               onClick={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}
-              className="!bg-red-600 hover:!bg-red-700"
+              className="!bg-error hover:!bg-error/80"
             >
               Delete
             </Button>
@@ -372,7 +372,7 @@ export default function DashboardPage() {
               size="sm"
               loading={batchDeleteMutation.isPending}
               onClick={() => batchDeleteMutation.mutate([...selectedIds])}
-              className="!bg-red-600 hover:!bg-red-700"
+              className="!bg-error hover:!bg-error/80"
             >
               Delete {selectedIds.size} Projects
             </Button>
