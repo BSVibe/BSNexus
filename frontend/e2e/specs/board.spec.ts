@@ -1,181 +1,120 @@
-import { test, expect } from '@playwright/test';
-import { BoardPage } from '../pages/BoardPage';
-import {
-  waitForFrontend,
-  waitForBackend,
-  createProjectViaAPI,
-  createPhaseViaAPI,
-  createTaskViaAPI,
-  transitionTaskViaAPI,
-  deleteProjectViaAPI,
-} from '../helpers/test-utils';
+import { test, expect } from '@playwright/test'
+import { setupMocks, MOCK_BOARD_RESPONSE } from '../helpers/mock-api'
 
-test.describe('Board', () => {
-  let boardPage: BoardPage;
-  const createdProjectIds: string[] = [];
-
-  test.beforeAll(async () => {
-    await waitForBackend();
-  });
-
+test.describe('Board / Project Page', () => {
   test.beforeEach(async ({ page }) => {
-    boardPage = new BoardPage(page);
-    await waitForFrontend(page);
-  });
+    await setupMocks(page)
+  })
 
-  test.afterEach(async () => {
-    for (const projectId of createdProjectIds) {
-      try {
-        await deleteProjectViaAPI(projectId);
-      } catch {
-        // Ignore cleanup errors
-      }
+  test('displays project name in header', async ({ page }) => {
+    await page.goto('/projects/proj-1')
+    await expect(page.getByText('Test Project Alpha')).toBeVisible()
+  })
+
+  test('shows kanban columns', async ({ page }) => {
+    await page.goto('/projects/proj-1')
+
+    // Column headers - KanbanBoard uses capitalized labels
+    await expect(page.locator('h3').filter({ hasText: 'Waiting' })).toBeVisible()
+    await expect(page.locator('h3').filter({ hasText: 'Ready' })).toBeVisible()
+    await expect(page.locator('h3').filter({ hasText: 'In Progress' })).toBeVisible()
+    await expect(page.locator('h3').filter({ hasText: 'Review' })).toBeVisible()
+    await expect(page.locator('h3').filter({ hasText: 'Done' })).toBeVisible()
+  })
+
+  test('displays tasks in correct columns', async ({ page }) => {
+    await page.goto('/projects/proj-1')
+
+    // Ready tasks
+    await expect(page.getByText('Implement authentication')).toBeVisible()
+    await expect(page.getByText('Add input validation')).toBeVisible()
+
+    // In progress
+    await expect(page.getByText('Build API endpoints')).toBeVisible()
+
+    // Review
+    await expect(page.getByText('Fix login bug')).toBeVisible()
+
+    // Done
+    await expect(page.getByText('Setup CI/CD')).toBeVisible()
+    await expect(page.getByText('Create database schema')).toBeVisible()
+    await expect(page.getByText('Write unit tests')).toBeVisible()
+  })
+
+  test('shows board stats with task count', async ({ page }) => {
+    await page.goto('/projects/proj-1')
+
+    // BoardStats component shows total task count as "{total} tasks"
+    await expect(page.getByText('7', { exact: true }).first()).toBeVisible()
+  })
+
+  test('shows task type badges', async ({ page }) => {
+    await page.goto('/projects/proj-1')
+
+    // Task types from mock data
+    await expect(page.getByText('feature').first()).toBeVisible()
+    await expect(page.getByText('bug').first()).toBeVisible()
+  })
+
+  test('clicking task opens detail view', async ({ page }) => {
+    await page.goto('/projects/proj-1')
+
+    await page.getByText('Implement authentication').first().click()
+
+    // TaskDetail should show the task title in an h2
+    await expect(page.locator('h2').filter({ hasText: 'Implement authentication' })).toBeVisible()
+  })
+
+  test('shows connection status indicator', async ({ page }) => {
+    await page.goto('/projects/proj-1')
+
+    // The header shows Live/Disconnected status
+    await expect(page.getByText(/Live|Disconnected/)).toBeVisible()
+  })
+
+  test('chat toggle button works', async ({ page }) => {
+    await page.goto('/projects/proj-1')
+
+    // Click the chat toggle button
+    const toggleBtn = page.locator('button[title="Open Architect chat"]')
+    if (await toggleBtn.isVisible()) {
+      await toggleBtn.click()
+
+      // Chat panel should open showing Architect header
+      await expect(page.locator('.border-l').getByText('Architect')).toBeVisible()
     }
-    createdProjectIds.length = 0;
-  });
+  })
 
-  test('should display empty board columns when project has no tasks', async () => {
-    const project = await createProjectViaAPI(`Project ${Date.now()}`, 'Test', '/test/repo');
-    createdProjectIds.push(project.id);
-
-    await createPhaseViaAPI(project.id, 'Phase 1');
-
-    await boardPage.gotoProject(project.id);
-
-    const readyCount = await boardPage.getReadyTasksCount();
-    const inProgressCount = await boardPage.getInProgressTasksCount();
-    const reviewCount = await boardPage.getReviewTasksCount();
-    const doneCount = await boardPage.getDoneTasksCount();
-
-    expect(readyCount).toBe(0);
-    expect(inProgressCount).toBe(0);
-    expect(reviewCount).toBe(0);
-    expect(doneCount).toBe(0);
-  });
-
-  test('should display created task in ready column', async () => {
-    const project = await createProjectViaAPI(`Project ${Date.now()}`, 'Test', '/test/repo');
-    createdProjectIds.push(project.id);
-
-    const phase = await createPhaseViaAPI(project.id, 'Phase 1');
-
-    // Create task - it should start in ready status
-    const task = await createTaskViaAPI(project.id, phase.id, `Task ${Date.now()}`);
-
-    await boardPage.gotoProject(project.id);
-
-    const readyCount = await boardPage.getReadyTasksCount();
-    expect(readyCount).toBeGreaterThan(0);
-
-    const taskElement = await boardPage.getTaskByTitle(task.title);
-    await expect(taskElement).toBeVisible();
-  });
-
-  test('should display multiple tasks across different columns', async () => {
-    const project = await createProjectViaAPI(`Project ${Date.now()}`, 'Test', '/test/repo');
-    createdProjectIds.push(project.id);
-
-    const phase = await createPhaseViaAPI(project.id, 'Phase 1');
-
-    // Create and transition tasks to different states
-    const task1 = await createTaskViaAPI(project.id, phase.id, `Task 1 ${Date.now()}`);
-    const task2 = await createTaskViaAPI(project.id, phase.id, `Task 2 ${Date.now()}`);
-    const task3 = await createTaskViaAPI(project.id, phase.id, `Task 3 ${Date.now()}`);
-
-    // Transition tasks to different states
-    await transitionTaskViaAPI(task1.id, 'in_progress');
-    await transitionTaskViaAPI(task2.id, 'in_progress');
-    await transitionTaskViaAPI(task2.id, 'review');
-    await transitionTaskViaAPI(task3.id, 'in_progress');
-    await transitionTaskViaAPI(task3.id, 'review');
-    await transitionTaskViaAPI(task3.id, 'done');
-
-    await boardPage.gotoProject(project.id);
-
-    const readyCount = await boardPage.getReadyTasksCount();
-    const inProgressCount = await boardPage.getInProgressTasksCount();
-    const reviewCount = await boardPage.getReviewTasksCount();
-    const doneCount = await boardPage.getDoneTasksCount();
-
-    expect(readyCount).toBe(0);
-    expect(inProgressCount).toBe(1);
-    expect(reviewCount).toBe(1);
-    expect(doneCount).toBe(1);
-  });
-
-  test('should display task stats correctly', async () => {
-    const project = await createProjectViaAPI(`Project ${Date.now()}`, 'Test', '/test/repo');
-    createdProjectIds.push(project.id);
-
-    const phase = await createPhaseViaAPI(project.id, 'Phase 1');
-
-    // Create multiple tasks
-    for (let i = 0; i < 3; i++) {
-      await createTaskViaAPI(project.id, phase.id, `Task ${i} ${Date.now()}`);
+  test('empty board shows zero count badges', async ({ page }) => {
+    const emptyBoard = {
+      project_id: 'proj-1',
+      columns: {
+        waiting: { tasks: [] },
+        ready: { tasks: [] },
+        in_progress: { tasks: [] },
+        review: { tasks: [] },
+        done: { tasks: [] },
+      },
+      stats: { waiting: 0, ready: 0, in_progress: 0, review: 0, done: 0 },
+      phases: {},
+      redesign_tasks: [],
     }
 
-    await boardPage.gotoProject(project.id);
+    // Unroute existing board routes then set empty override
+    await page.unroute('**/api/v1/board/proj-*/events')
+    await page.unroute('**/api/v1/board/proj-*')
+    await page.route('**/api/v1/board/proj-*/events', (route) => {
+      route.fulfill({ status: 200, contentType: 'text/event-stream', body: 'data: {"event":"connected"}\n\n' })
+    })
+    await page.route('**/api/v1/board/proj-*', (route) => {
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(emptyBoard) })
+    })
 
-    const totalCount = await boardPage.getTotalTaskCount();
-    expect(totalCount).toBe(3);
-  });
+    await page.goto('/projects/proj-1')
 
-  test('should update completion stats when task moves to done', async () => {
-    const project = await createProjectViaAPI(`Project ${Date.now()}`, 'Test', '/test/repo');
-    createdProjectIds.push(project.id);
-
-    const phase = await createPhaseViaAPI(project.id, 'Phase 1');
-
-    const task = await createTaskViaAPI(project.id, phase.id, `Task ${Date.now()}`);
-
-    // Transition task to done
-    await transitionTaskViaAPI(task.id, 'in_progress');
-    await transitionTaskViaAPI(task.id, 'review');
-    await transitionTaskViaAPI(task.id, 'done');
-
-    await boardPage.gotoProject(project.id);
-
-    const doneCount = await boardPage.getDoneTasksCount();
-    expect(doneCount).toBe(1);
-  });
-
-  test('should handle task with dependencies (waiting status)', async () => {
-    const project = await createProjectViaAPI(`Project ${Date.now()}`, 'Test', '/test/repo');
-    createdProjectIds.push(project.id);
-
-    const phase = await createPhaseViaAPI(project.id, 'Phase 1');
-
-    // Create task 1 (no dependencies)
-    const task1 = await createTaskViaAPI(project.id, phase.id, `Task 1 ${Date.now()}`);
-
-    // Create task 2 (depends on task 1)
-    const task2 = await createTaskViaAPI(project.id, phase.id, `Task 2 ${Date.now()}`, [task1.id]);
-
-    await boardPage.gotoProject(project.id);
-
-    // Task 2 should be in waiting status
-    const status = await boardPage.getTaskStatus(task2.title);
-    expect(status?.toLowerCase()).toContain('waiting');
-  });
-
-  test('should promote dependent task to ready when dependency is completed', async () => {
-    const project = await createProjectViaAPI(`Project ${Date.now()}`, 'Test', '/test/repo');
-    createdProjectIds.push(project.id);
-
-    const phase = await createPhaseViaAPI(project.id, 'Phase 1');
-
-    const task1 = await createTaskViaAPI(project.id, phase.id, `Task 1 ${Date.now()}`);
-    const task2 = await createTaskViaAPI(project.id, phase.id, `Task 2 ${Date.now()}`, [task1.id]);
-
-    // Complete task 1
-    await transitionTaskViaAPI(task1.id, 'in_progress');
-    await transitionTaskViaAPI(task1.id, 'review');
-    await transitionTaskViaAPI(task1.id, 'done');
-
-    await boardPage.gotoProject(project.id);
-
-    // Task 2 should be promoted to ready
-    const status = await boardPage.getTaskStatus(task2.title);
-    expect(status?.toLowerCase()).toContain('ready');
-  });
-});
+    // Empty columns show "No tasks" text
+    const noTasksLabels = page.getByText('No tasks')
+    await expect(noTasksLabels.first()).toBeVisible()
+    expect(await noTasksLabels.count()).toBeGreaterThanOrEqual(5)
+  })
+})

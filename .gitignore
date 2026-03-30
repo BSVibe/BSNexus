@@ -54,3 +54,5 @@ test/
 # Devcontainer local overrides (git worktree mount)
 docker-compose.override.yml
 .agent/
+frontend/.pw-browsers/
+frontend/core

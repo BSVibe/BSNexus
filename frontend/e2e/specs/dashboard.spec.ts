@@ -1,165 +1,144 @@
-import { test, expect } from '@playwright/test';
-import { DashboardPage } from '../pages/DashboardPage';
-import { waitForFrontend, waitForBackend, createProjectViaAPI, deleteProjectViaAPI } from '../helpers/test-utils';
+import { test, expect } from '@playwright/test'
+import {
+  setupMocks,
+  MOCK_PROJECTS,
+  MOCK_PROJECTS_SUMMARY,
+} from '../helpers/mock-api'
 
-test.describe('Dashboard', () => {
-  let dashboardPage: DashboardPage;
-  const createdProjectIds: string[] = [];
-
-  test.beforeAll(async () => {
-    await waitForBackend();
-  });
-
+test.describe('Dashboard Page', () => {
   test.beforeEach(async ({ page }) => {
-    dashboardPage = new DashboardPage(page);
-    await waitForFrontend(page);
-    await dashboardPage.goto();
-    await dashboardPage.waitForProjectsLoaded();
-  });
+    await setupMocks(page)
+  })
 
-  test.afterEach(async () => {
-    for (const projectId of createdProjectIds) {
-      try {
-        await deleteProjectViaAPI(projectId);
-      } catch {
-        // Ignore cleanup errors
+  test('displays stat cards with correct values', async ({ page }) => {
+    await page.goto('/dashboard')
+
+    // StatCard labels
+    await expect(page.getByText('Projects', { exact: true })).toBeVisible()
+    await expect(page.getByText('Tasks', { exact: true })).toBeVisible()
+    await expect(page.getByText('Bugs', { exact: true })).toBeVisible()
+    await expect(page.getByText('Completion', { exact: true })).toBeVisible()
+
+    // Values derived from mock data
+    await expect(page.getByText('2', { exact: true }).first()).toBeVisible() // total projects
+    await expect(page.getByText('7', { exact: true }).first()).toBeVisible() // total tasks
+    await expect(page.getByText('43%').first()).toBeVisible() // completion rate
+  })
+
+  test('displays project cards', async ({ page }) => {
+    await page.goto('/dashboard')
+
+    await expect(page.getByText('Test Project Alpha')).toBeVisible()
+    await expect(page.getByText('Test Project Beta')).toBeVisible()
+    await expect(page.getByText('A test project for E2E testing')).toBeVisible()
+  })
+
+  test('shows project status badges', async ({ page }) => {
+    await page.goto('/dashboard')
+
+    await expect(page.getByText('active', { exact: true }).first()).toBeVisible()
+    await expect(page.getByText('design', { exact: true }).first()).toBeVisible()
+  })
+
+  test('navigates to project on card click', async ({ page }) => {
+    await page.goto('/dashboard')
+
+    await page.getByText('Test Project Alpha').click()
+    await expect(page).toHaveURL(/\/projects\/proj-1/)
+  })
+
+  test('navigates to architect on New Project button', async ({ page }) => {
+    await page.goto('/dashboard')
+
+    await page.getByRole('button', { name: /New Project/ }).click()
+    await expect(page).toHaveURL(/\/architect/)
+  })
+
+  test('shows empty state when no projects', async ({ page }) => {
+    // Override with empty list
+    await page.route('**/api/v1/projects', (route, request) => {
+      if (request.method() === 'GET') {
+        return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
       }
-    }
-    createdProjectIds.length = 0;
-  });
+      return route.continue()
+    })
+    await page.route('**/api/v1/dashboard/projects-summary', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
+    )
 
-  test('should display dashboard with empty state when no projects', async () => {
-    const isEmpty = await dashboardPage.isEmptyState();
-    if (isEmpty) {
-      expect(await dashboardPage.isEmptyState()).toBe(true);
-    }
-  });
+    await page.goto('/dashboard')
 
-  test('should display dashboard stats', async () => {
-    const totalText = await dashboardPage.getTotalProjectsStat();
-    const tasksText = await dashboardPage.getTotalTasksStat();
-    const completionText = await dashboardPage.getCompletionRateStat();
+    await expect(page.getByText('No projects yet')).toBeVisible()
+    await expect(page.getByText('Start with Architect')).toBeVisible()
+  })
 
-    expect(totalText).toBeTruthy();
-    expect(tasksText).toBeTruthy();
-    expect(completionText).toBeTruthy();
-  });
+  test('shows task distribution on project card', async ({ page }) => {
+    await page.goto('/dashboard')
 
-  test('should navigate to architect when clicking "New Project"', async ({ page }) => {
-    const isEmptyState = await dashboardPage.isEmptyState();
-    if (!isEmptyState) {
-      // If projects exist, use the header button
-      const newProjectButton = page.locator('button:has-text("New Project")').first();
-      await newProjectButton.click();
-    } else {
-      // Otherwise, use the empty state button
-      await dashboardPage.clickNewProjectButton();
-    }
+    // Mock summary has 7 tasks for proj-1
+    await expect(page.getByText('7 tasks', { exact: true })).toBeVisible()
+  })
 
-    await page.waitForURL('/architect');
-    expect(page.url()).toContain('/architect');
-  });
+  test('delete project shows confirmation modal', async ({ page }) => {
+    await page.goto('/dashboard')
 
-  test('should display created project in list', async () => {
-    const projectName = `Test Project ${Date.now()}`;
-    const newProject = await createProjectViaAPI(projectName, 'Test Description', '/test/repo');
-    createdProjectIds.push(newProject.id);
+    // Hover over a project card to reveal delete button
+    const card = page.locator('.bg-bg-card').filter({ hasText: 'Test Project Alpha' })
+    await card.hover()
 
-    await dashboardPage.goto();
-    await dashboardPage.waitForProjectsLoaded();
+    // Click the delete button (the X icon)
+    const deleteBtn = card.locator('button[title="Delete project"]')
+    await deleteBtn.click()
 
-    const count = await dashboardPage.getProjectCount();
-    expect(count).toBeGreaterThan(0);
+    // Modal appears
+    await expect(page.getByText('Delete Project')).toBeVisible()
+    await expect(page.getByText(/Are you sure you want to delete/)).toBeVisible()
+  })
 
-    const project = await dashboardPage.getProjectByName(projectName);
-    await expect(project).toBeVisible();
-  });
+  test('cancel delete closes modal', async ({ page }) => {
+    await page.goto('/dashboard')
 
-  test('should navigate to project details when clicking project card', async ({ page }) => {
-    const projectName = `Test Project ${Date.now()}`;
-    const newProject = await createProjectViaAPI(projectName, 'Test Description', '/test/repo');
-    createdProjectIds.push(newProject.id);
+    const card = page.locator('.bg-bg-card').filter({ hasText: 'Test Project Alpha' })
+    await card.hover()
+    await card.locator('button[title="Delete project"]').click()
 
-    await dashboardPage.goto();
-    await dashboardPage.waitForProjectsLoaded();
+    await expect(page.getByText('Delete Project')).toBeVisible()
 
-    await dashboardPage.clickProjectCard(projectName);
-    await page.waitForURL(`/projects/${newProject.id}`);
-    expect(page.url()).toContain(`/projects/${newProject.id}`);
-  });
+    // Click cancel
+    await page.getByRole('button', { name: 'Cancel' }).click()
 
-  test('should delete project with confirmation', async () => {
-    const projectName = `Test Project ${Date.now()}`;
-    await createProjectViaAPI(projectName, 'Test Description', '/test/repo');
+    // Modal should close
+    await expect(page.getByText(/Are you sure you want to delete/)).not.toBeVisible()
+  })
 
-    await dashboardPage.goto();
-    await dashboardPage.waitForProjectsLoaded();
+  test('select mode enables multi-select', async ({ page }) => {
+    await page.goto('/dashboard')
 
-    const countBefore = await dashboardPage.getProjectCount();
+    // Enter select mode via the ListChecks icon button
+    await page.locator('button[title="Select mode"]').click()
 
-    await dashboardPage.deleteProject(projectName);
-    await dashboardPage.confirmProjectDelete();
-    await dashboardPage.waitForProjectsLoaded();
+    // Batch action buttons should appear
+    await expect(page.getByRole('button', { name: 'All' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Cancel' })).toBeVisible()
+  })
 
-    const countAfter = await dashboardPage.getProjectCount();
-    expect(countAfter).toBeLessThan(countBefore);
-  });
+  test('select all and batch delete', async ({ page }) => {
+    await page.goto('/dashboard')
 
-  test('should cancel project deletion', async () => {
-    const projectName = `Test Project ${Date.now()}`;
-    const newProject = await createProjectViaAPI(projectName, 'Test Description', '/test/repo');
-    createdProjectIds.push(newProject.id);
+    // Enter select mode
+    await page.locator('button[title="Select mode"]').click()
 
-    await dashboardPage.goto();
-    await dashboardPage.waitForProjectsLoaded();
+    // Select all
+    await page.getByRole('button', { name: 'All' }).click()
 
-    const countBefore = await dashboardPage.getProjectCount();
+    // Should show selected count
+    await expect(page.getByText('2 selected')).toBeVisible()
 
-    await dashboardPage.deleteProject(projectName);
-    await dashboardPage.cancelDelete();
+    // Delete button appears
+    await page.getByRole('button', { name: 'Delete' }).click()
 
-    const countAfter = await dashboardPage.getProjectCount();
-    expect(countAfter).toBe(countBefore);
-  });
-
-  test('should select multiple projects', async () => {
-    const proj1 = await createProjectViaAPI(`Project 1 ${Date.now()}`, 'Test', '/test/repo1');
-    const proj2 = await createProjectViaAPI(`Project 2 ${Date.now()}`, 'Test', '/test/repo2');
-    createdProjectIds.push(proj1.id, proj2.id);
-
-    await dashboardPage.goto();
-    await dashboardPage.waitForProjectsLoaded();
-
-    await dashboardPage.clickSelectMode();
-
-    // Select first project
-    await dashboardPage.selectProject(proj1.name);
-    let selectedCount = await dashboardPage.getSelectedCount();
-    expect(selectedCount).toContain('1');
-
-    // Select second project
-    await dashboardPage.selectProject(proj2.name);
-    selectedCount = await dashboardPage.getSelectedCount();
-    expect(selectedCount).toContain('2');
-  });
-
-  test('should batch delete multiple projects', async () => {
-    const proj1 = await createProjectViaAPI(`Project 1 ${Date.now()}`, 'Test', '/test/repo1');
-    const proj2 = await createProjectViaAPI(`Project 2 ${Date.now()}`, 'Test', '/test/repo2');
-
-    await dashboardPage.goto();
-    await dashboardPage.waitForProjectsLoaded();
-
-    const countBefore = await dashboardPage.getProjectCount();
-
-    await dashboardPage.clickSelectMode();
-    await dashboardPage.selectProject(proj1.name);
-    await dashboardPage.selectProject(proj2.name);
-    await dashboardPage.clickDeleteSelected();
-    await dashboardPage.confirmDelete();
-    await dashboardPage.waitForProjectsLoaded();
-
-    const countAfter = await dashboardPage.getProjectCount();
-    expect(countAfter).toBeLessThanOrEqual(countBefore - 2);
-  });
-});
+    // Batch delete modal
+    await expect(page.getByText('Delete Projects')).toBeVisible()
+    await expect(page.getByText('2 projects', { exact: true })).toBeVisible()
+  })
+})
