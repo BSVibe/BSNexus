@@ -15,9 +15,18 @@ export default function AuthCallbackPage() {
     const params = new URLSearchParams(hash)
     const accessToken = params.get("access_token")
     const refreshToken = params.get("refresh_token")
+    const returnedState = params.get("state")
 
     // Clean URL hash immediately
     window.history.replaceState(null, "", window.location.pathname)
+
+    // Validate CSRF state parameter
+    const savedState = sessionStorage.getItem("auth_state")
+    sessionStorage.removeItem("auth_state")
+    if (savedState && returnedState !== savedState) {
+      navigate("/", { replace: true })
+      return
+    }
 
     if (accessToken && refreshToken) {
       handleCallback(accessToken, refreshToken)

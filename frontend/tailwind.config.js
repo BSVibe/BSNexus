@@ -35,6 +35,7 @@ export default {
         accent: {
           DEFAULT: 'var(--accent)',
           light: 'var(--accent-light)',
+          hover: 'var(--accent-hover)',
           text: 'var(--accent-text)',
         },
         text: {

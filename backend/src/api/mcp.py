@@ -45,10 +45,6 @@ class MCPUpdateStatusRequest(BaseModel):
     status: schemas.TaskStatus
 
 
-class MCPTriggerExecutorRequest(BaseModel):
-    pass  # no body needed
-
-
 class MCPDependencyNode(BaseModel):
     task_id: uuid.UUID
     title: str

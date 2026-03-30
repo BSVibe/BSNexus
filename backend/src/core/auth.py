@@ -2,16 +2,11 @@
 
 import enum
 
-import structlog
-
 from bsvibe_auth import BSVibeUser, BsvibeAuthProvider
 from bsvibe_auth.fastapi import create_auth_dependency
 from fastapi import Depends, HTTPException, status
 
 from backend.src.config import settings
-
-logger = structlog.get_logger(__name__)
-
 
 class Role(str, enum.Enum):
     admin = "admin"
