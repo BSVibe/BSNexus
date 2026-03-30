@@ -1,0 +1,15 @@
+
+## TASK-001: Fix API integration issues (405/500 errors)
+- Fixed `tasksApi.list`: changed from `GET /api/v1/tasks?project_id=` (no backend endpoint) to `GET /api/v1/tasks/by-project/${projectId}` (matches backend)
+- Fixed `pmApi.addTask`: changed from `POST /api/v1/pm/${projectId}/tasks` (no backend endpoint) to `POST /api/v1/architect/add-task/${projectId}` (matches backend)
+- Verified all other frontend API calls match backend endpoints (auth, projects, board, dashboard, settings, architect, pm control)
+- pnpm build passes, 38 E2E tests pass
+- Committed: 189c0ec
+
+## TASK-002: Write comprehensive E2E tests for all pages
+- Verified existing E2E test suite: 38 tests across 5 spec files (auth, dashboard, architect, board, full-workflow)
+- All tests use page.route() mocking for API responses
+- Coverage: auth flows (5), dashboard (11), architect (7), board/project (9), navigation/workflow (6)
+- Tests verify: stat cards, project cards, kanban columns, task cards, session list, chat input, modals, navigation, empty states, batch operations
+- All 38 tests pass, 0 failures (exceeds 20+ requirement)
+- pnpm build passes
