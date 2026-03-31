@@ -47,7 +47,7 @@ test.describe('Board — Kanban Columns & Task Cards (via Project Page)', () => 
 
   test('in-progress task shows spinning sync icon', async ({ page }) => {
     const ipTask = page.locator('div').filter({ hasText: 'Build kanban board' }).first()
-    await expect(ipTask.locator('.material-symbols-outlined:has-text("sync")')).toBeVisible()
+    await expect(ipTask.locator('.material-symbols-outlined.animate-spin:has-text("sync")')).toBeVisible()
   })
 
   test('done tasks show check_circle icon', async ({ page }) => {

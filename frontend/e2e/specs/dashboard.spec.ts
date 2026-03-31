@@ -18,8 +18,8 @@ test.describe('Dashboard — Stat Cards & Project Grid', () => {
   })
 
   test('stat card shows correct total projects count', async ({ page }) => {
-    // 3 mock projects
-    const totalCard = page.locator('div').filter({ hasText: /^Total Projects/ }).first()
+    // 3 mock projects — locate the stat card containing "Total Projects" text
+    const totalCard = page.locator('.bg-stitch-surface-low').filter({ hasText: 'Total Projects' }).first()
     await expect(totalCard.locator('.text-3xl')).toHaveText('3')
   })
 
@@ -30,9 +30,11 @@ test.describe('Dashboard — Stat Cards & Project Grid', () => {
   })
 
   test('project cards are rendered in a grid', async ({ page }) => {
-    await expect(page.getByText('BSNexus')).toBeVisible()
-    await expect(page.getByText('BSVibe Auth')).toBeVisible()
-    await expect(page.getByText('Worker Agent')).toBeVisible()
+    // BSNexus appears in both sidebar and project card — scope to main content
+    const main = page.locator('main')
+    await expect(main.getByText('BSNexus').first()).toBeVisible()
+    await expect(main.getByText('BSVibe Auth')).toBeVisible()
+    await expect(main.getByText('Worker Agent')).toBeVisible()
   })
 
   test('project card shows status badge', async ({ page }) => {
@@ -85,8 +87,10 @@ test.describe('Dashboard — Stat Cards & Project Grid', () => {
   })
 
   test('projects section header shows count', async ({ page }) => {
-    await expect(page.getByText('Projects')).toBeVisible()
-    await expect(page.getByText('3')).toBeVisible()
+    // Use heading role to target the "Projects" section header specifically
+    const main = page.locator('main')
+    await expect(main.getByRole('heading', { name: 'Projects' })).toBeVisible()
+    await expect(main.getByText('3').first()).toBeVisible()
   })
 
   test('clicking project card navigates to project page', async ({ page }) => {

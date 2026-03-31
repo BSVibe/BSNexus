@@ -32,7 +32,7 @@ test.describe('Architect — Chat Interface & Sessions', () => {
 
   test('session list has "New" button with gradient styling and add icon', async ({ page }) => {
     await setupPage(page, '/architect')
-    const newBtn = page.getByRole('button', { name: 'New' })
+    const newBtn = page.getByRole('button', { name: 'add New' })
     await expect(newBtn).toBeVisible()
     await expect(newBtn.locator('span.material-symbols-outlined:has-text("add")')).toBeVisible()
   })

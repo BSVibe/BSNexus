@@ -20,6 +20,10 @@ export async function injectAuth(page: Page) {
     localStorage.setItem('bsnexus_access_token', 'mock-access-token-abc123')
     localStorage.setItem('bsnexus_refresh_token', 'mock-refresh-token-def456')
   })
+  // Mock auth/me so AuthProvider.initialize() resolves user from stored token
+  await page.route('**/api/v1/auth/me', (route) => {
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockUser) })
+  })
 }
 
 /** Mock all standard API routes used across the app. */
@@ -45,7 +49,7 @@ export async function mockAllApis(page: Page) {
   })
 
   // Projects summary (dashboard)
-  await page.route('**/api/v1/dashboard/projects/summary', (route) => {
+  await page.route('**/api/v1/dashboard/projects-summary', (route) => {
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockProjectsSummary) })
   })
 

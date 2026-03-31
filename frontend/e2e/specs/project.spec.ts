@@ -9,9 +9,8 @@ test.describe('Project — Detail Page & Board Integration', () => {
   test('shows fallback when no project selected', async ({ page }) => {
     await injectAuth(page)
     await mockAllApis(page)
-    await page.goto('/projects/')
-    // Regex match for the redirect or fallback text
-    await expect(page.getByText('Select a project from the Dashboard').or(page.locator('body'))).toBeVisible()
+    await page.goto('/projects/', { waitUntil: 'networkidle' })
+    await expect(page.getByText('Select a project from the Dashboard')).toBeVisible()
   })
 
   test('displays project name as large heading', async ({ page }) => {

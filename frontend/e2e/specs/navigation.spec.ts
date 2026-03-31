@@ -9,7 +9,7 @@ test.describe('Navigation — Sidebar & Active States', () => {
   test('sidebar displays BSNexus logo with architecture icon', async ({ page }) => {
     const sidebar = page.locator('aside').first()
     await expect(sidebar.getByText('BSNexus')).toBeVisible()
-    await expect(sidebar.locator('span.material-symbols-outlined:has-text("architecture")')).toBeVisible()
+    await expect(sidebar.locator('span.material-symbols-outlined:has-text("architecture")').first()).toBeVisible()
   })
 
   test('sidebar shows "Agent Orchestrator" subtitle', async ({ page }) => {
@@ -65,7 +65,7 @@ test.describe('Navigation — Sidebar & Active States', () => {
 
   test('sidebar shows user email username', async ({ page }) => {
     const sidebar = page.locator('aside').first()
-    await expect(sidebar.getByText('dev')).toBeVisible()
+    await expect(sidebar.getByText('dev', { exact: true })).toBeVisible()
   })
 
   test('sidebar shows logout button with logout icon', async ({ page }) => {
