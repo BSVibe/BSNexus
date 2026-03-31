@@ -1,8 +1,7 @@
 import type { Task, TaskStatus } from '../../types/task'
 import { tasksApi } from '../../api/tasks'
 import { useBoardStore } from '../../stores/boardStore'
-import { Modal, Badge, Button } from '../common'
-import { Clock, GitBranch, GitCommit, AlertTriangle, Layers, Link2, RefreshCw, Shield } from 'lucide-react'
+import { Modal, Button } from '../common'
 
 const allowedTransitions: Partial<Record<TaskStatus, { label: string; to: TaskStatus }[]>> = {}
 
@@ -30,7 +29,7 @@ export default function TaskDetail({ task, onClose }: Props) {
   }
 
   const phaseInfo = phases[task.phase_id]
-  const phaseLabel = phaseInfo ? `Phase ${phaseInfo.order} — ${phaseInfo.name}` : `Phase ${task.phase_id.slice(0, 8)}`
+  const phaseLabel = phaseInfo ? `Phase ${phaseInfo.order} - ${phaseInfo.name}` : `Phase ${task.phase_id.slice(0, 8)}`
   const showCommit = ['review', 'done'].includes(task.status) && task.commit_hash
 
   const footer = transitions.length > 0 ? (
@@ -42,134 +41,174 @@ export default function TaskDetail({ task, onClose }: Props) {
           variant="primary"
           size="md"
         >
-          {t.label} &rarr; {t.to}
+          {t.label}
         </Button>
       ))}
     </div>
   ) : undefined
 
   return (
-    <Modal open={true} onClose={onClose} title={task.title} footer={footer} width={600}>
-      {/* Status & metadata row */}
-      <div className="mb-6 flex items-center gap-2 flex-wrap">
-        <Badge color={task.status} label={task.status} />
-        <Badge color={task.priority} label={task.priority} />
-        <Badge color="blocked" label={task.task_type} />
-        <span className="ml-auto text-[11px] font-mono text-text-muted bg-bg-elevated px-2 py-0.5 rounded-md border border-border/30">
-          v{task.version}
-        </span>
-      </div>
-
-      {/* Description */}
-      {task.description && (
-        <div className="mb-6 rounded-xl bg-bg-elevated/60 border border-border/30 p-4">
-          <p className="text-sm text-text-primary whitespace-pre-wrap leading-relaxed">{task.description}</p>
-        </div>
-      )}
-
-      {/* Details grid */}
-      <div className="mb-6 grid grid-cols-2 gap-4">
-        <DetailItem icon={<Layers size={14} />} label="Phase" value={phaseLabel} />
-        {task.branch_name && (
-          <DetailItem icon={<GitBranch size={14} />} label="Branch" value={task.branch_name} mono />
-        )}
-        {showCommit && (
-          <DetailItem icon={<GitCommit size={14} />} label="Commit" value={task.commit_hash!.slice(0, 8)} mono />
-        )}
-        <DetailItem icon={<Clock size={14} />} label="Created" value={new Date(task.created_at).toLocaleString()} />
-        {task.started_at && (
-          <DetailItem icon={<Clock size={14} />} label="Started" value={new Date(task.started_at).toLocaleString()} />
-        )}
-        {task.completed_at && (
-          <DetailItem icon={<Clock size={14} />} label="Completed" value={new Date(task.completed_at).toLocaleString()} />
-        )}
-      </div>
-
-      {/* Dependencies */}
-      {task.depends_on.length > 0 && (
-        <Section icon={<Link2 size={14} />} title={`Dependencies (${task.depends_on.length})`}>
-          <div className="flex flex-wrap gap-2">
-            {task.depends_on.map((depId) => (
-              <span key={depId} className="rounded-lg bg-bg-elevated px-3 py-1.5 text-xs text-text-secondary font-mono border border-border/30">
-                {depId.slice(0, 8)}
+    <Modal open={true} onClose={onClose} title={task.title} footer={footer} width={900}>
+      <div className="flex flex-col lg:flex-row gap-8">
+        {/* Left panel (2/3) */}
+        <div className="lg:w-2/3 space-y-6">
+          {/* Status & action buttons */}
+          <div>
+            <div className="flex items-center gap-4 mb-2">
+              <span className="px-3 py-1 bg-stitch-secondary-container text-stitch-on-secondary-container rounded-full text-xs font-bold uppercase tracking-wider">
+                {task.status.replace('_', ' ')}
               </span>
-            ))}
-          </div>
-        </Section>
-      )}
-
-      {/* Retry info */}
-      {task.retry_count > 0 && (
-        <Section icon={<RefreshCw size={14} />} title={`Retries (${task.retry_count}/${task.max_retries})`}>
-          {task.qa_feedback_history && task.qa_feedback_history.length > 0 && (
-            <div className="space-y-2 max-h-48 overflow-y-auto">
-              {task.qa_feedback_history.map((entry, idx) => (
-                <div key={idx} className="rounded-lg bg-bg-primary border border-border/30 p-3 text-xs">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="font-semibold text-text-secondary">Attempt {String(entry.attempt)}</span>
-                    {entry.type && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-bg-hover text-text-muted">
-                        {String(entry.type)}
-                      </span>
-                    )}
-                  </div>
-                  <span className="text-text-primary">{String(entry.feedback || entry.error || 'No details')}</span>
-                </div>
-              ))}
+              <span className="text-text-secondary text-sm font-medium">Task ID: {task.id.slice(0, 12)}</span>
             </div>
+          </div>
+
+          {/* Description */}
+          {task.description && (
+            <section className="bg-stitch-surface-low p-6 rounded-lg">
+              <h2 className="text-xs font-bold uppercase tracking-[0.15em] text-text-secondary mb-4">Description</h2>
+              <div className="text-sm text-text-secondary leading-relaxed whitespace-pre-wrap">
+                {task.description}
+              </div>
+            </section>
           )}
-        </Section>
-      )}
 
-      {/* Error message */}
-      {task.error_message && (
-        <div className="mb-6 rounded-xl border border-warning/20 bg-warning/5 p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <AlertTriangle size={14} className="text-warning" />
-            <h3 className="text-sm font-semibold text-warning">Error</h3>
-          </div>
-          <p className="text-sm text-text-primary whitespace-pre-wrap font-mono leading-relaxed">{task.error_message}</p>
-        </div>
-      )}
+          {/* Error message */}
+          {task.error_message && (
+            <section className="bg-stitch-surface-low rounded-lg overflow-hidden">
+              <div className="px-6 py-4 flex justify-between items-center border-b border-stitch-outline-variant/10">
+                <h2 className="text-xs font-bold uppercase tracking-[0.15em] text-text-secondary">Error Log</h2>
+                <span className="text-[10px] font-mono text-stitch-error">ERROR</span>
+              </div>
+              <div className="p-6 bg-stitch-surface-lowest font-mono text-xs space-y-2 max-h-64 overflow-y-auto">
+                <div className="flex gap-4">
+                  <span className="text-text-muted">[ERROR]</span>
+                  <span className="text-stitch-error">{task.error_message}</span>
+                </div>
+              </div>
+            </section>
+          )}
 
-      {/* QA Result */}
-      {task.qa_result && (
-        <div className="mb-6 rounded-xl border border-info/20 bg-info/5 p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <Shield size={14} className="text-info" />
-            <h3 className="text-sm font-semibold text-info">QA Result</h3>
-          </div>
-          <pre className="text-xs text-text-primary whitespace-pre-wrap font-mono bg-bg-primary rounded-lg p-3 border border-border/30 max-h-64 overflow-y-auto">
-            {JSON.stringify(task.qa_result, null, 2)}
-          </pre>
+          {/* QA Result */}
+          {task.qa_result && (
+            <section className="bg-stitch-surface-low rounded-lg overflow-hidden">
+              <div className="px-6 py-4 border-b border-stitch-outline-variant/10">
+                <h2 className="text-xs font-bold uppercase tracking-[0.15em] text-text-secondary">QA Result</h2>
+              </div>
+              <div className="p-4 bg-stitch-surface-lowest font-mono text-[13px] leading-6 overflow-x-auto max-h-64 overflow-y-auto">
+                <pre className="text-text-primary whitespace-pre-wrap">
+                  {JSON.stringify(task.qa_result, null, 2)}
+                </pre>
+              </div>
+            </section>
+          )}
+
+          {/* Retry history */}
+          {task.retry_count > 0 && task.qa_feedback_history && task.qa_feedback_history.length > 0 && (
+            <section className="bg-stitch-surface-low rounded-lg overflow-hidden">
+              <div className="px-6 py-4 border-b border-stitch-outline-variant/10">
+                <h2 className="text-xs font-bold uppercase tracking-[0.15em] text-text-secondary">
+                  Retry History ({task.retry_count}/{task.max_retries})
+                </h2>
+              </div>
+              <div className="p-4 space-y-2 max-h-48 overflow-y-auto">
+                {task.qa_feedback_history.map((entry, idx) => (
+                  <div key={idx} className="bg-stitch-surface p-3 rounded-lg border-l-2 border-stitch-outline-variant/30">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-[10px] font-bold text-stitch-primary">Attempt {String(entry.attempt)}</span>
+                      {entry.type && (
+                        <span className="text-[10px] font-medium text-text-tertiary">{String(entry.type)}</span>
+                      )}
+                    </div>
+                    <p className="text-xs leading-relaxed text-text-primary">{String(entry.feedback || entry.error || 'No details')}</p>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
         </div>
-      )}
+
+        {/* Right panel (1/3) */}
+        <div className="lg:w-1/3 space-y-6">
+          {/* Task Properties */}
+          <section className="bg-stitch-surface-container p-6 rounded-lg shadow-xl">
+            <h2 className="text-xs font-bold uppercase tracking-[0.15em] text-text-secondary mb-6">Task Properties</h2>
+            <div className="space-y-6">
+              <PropertyRow label="Phase" value={phaseLabel} />
+              <PropertyRow label="Type">
+                <span className="px-2 py-0.5 bg-stitch-primary-container/20 text-stitch-primary border border-stitch-primary/20 rounded text-[11px] font-bold">
+                  {task.task_type}
+                </span>
+              </PropertyRow>
+              <PropertyRow label="Priority">
+                <div className="flex items-center gap-1.5 text-stitch-error">
+                  <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>priority_high</span>
+                  <span className="text-sm font-bold">{task.priority}</span>
+                </div>
+              </PropertyRow>
+              <PropertyRow label="Version">
+                <span className="font-mono text-xs">v{task.version}</span>
+              </PropertyRow>
+              {task.branch_name && (
+                <PropertyRow label="Branch">
+                  <span className="font-mono text-xs">{task.branch_name}</span>
+                </PropertyRow>
+              )}
+              {showCommit && (
+                <PropertyRow label="Commit">
+                  <span className="font-mono text-xs">{task.commit_hash!.slice(0, 8)}</span>
+                </PropertyRow>
+              )}
+
+              <div className="pt-4 border-t border-stitch-outline-variant/10 space-y-2">
+                <div className="flex justify-between text-[11px]">
+                  <span className="text-text-secondary">Created</span>
+                  <span className="text-text-primary">{new Date(task.created_at).toLocaleString()}</span>
+                </div>
+                {task.started_at && (
+                  <div className="flex justify-between text-[11px]">
+                    <span className="text-text-secondary">Started</span>
+                    <span className="text-text-primary">{new Date(task.started_at).toLocaleString()}</span>
+                  </div>
+                )}
+                {task.completed_at && (
+                  <div className="flex justify-between text-[11px]">
+                    <span className="text-text-secondary">Completed</span>
+                    <span className="text-text-primary">{new Date(task.completed_at).toLocaleString()}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </section>
+
+          {/* Dependencies */}
+          {task.depends_on.length > 0 && (
+            <section className="space-y-4">
+              <h2 className="text-xs font-bold uppercase tracking-[0.15em] text-text-secondary">
+                Dependencies ({task.depends_on.length})
+              </h2>
+              <div className="space-y-2">
+                {task.depends_on.map((depId) => (
+                  <div key={depId} className="p-3 bg-stitch-surface-low rounded-lg hover:bg-stitch-surface-container transition-colors cursor-pointer group">
+                    <p className="text-xs font-semibold text-white group-hover:text-stitch-primary transition-colors font-mono">
+                      {depId.slice(0, 12)}
+                    </p>
+                    <p className="text-[10px] text-text-secondary mt-1">Dependency</p>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+        </div>
+      </div>
     </Modal>
   )
 }
 
-function Section({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
+function PropertyRow({ label, value, children }: { label: string; value?: string; children?: React.ReactNode }) {
   return (
-    <div className="mb-6">
-      <div className="flex items-center gap-2 mb-3">
-        <span className="text-text-tertiary">{icon}</span>
-        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-text-tertiary">
-          {title}
-        </h3>
-      </div>
-      {children}
-    </div>
-  )
-}
-
-function DetailItem({ icon, label, value, mono }: { icon: React.ReactNode; label: string; value: string; mono?: boolean }) {
-  return (
-    <div className="flex items-start gap-2.5 p-2.5 rounded-lg bg-bg-elevated/40 border border-border/20">
-      <span className="text-text-tertiary mt-0.5 shrink-0">{icon}</span>
-      <div className="min-w-0">
-        <span className="text-[11px] text-text-muted block">{label}</span>
-        <p className={`text-sm text-text-primary truncate ${mono ? 'font-mono text-xs' : ''}`}>{value}</p>
-      </div>
+    <div className="flex items-center justify-between">
+      <span className="text-sm text-text-secondary">{label}</span>
+      {value ? <span className="text-sm font-semibold text-white">{value}</span> : children}
     </div>
   )
 }

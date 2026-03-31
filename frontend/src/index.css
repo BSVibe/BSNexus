@@ -4,44 +4,31 @@
 
 @layer base {
   :root {
-    /* BSVibe Design System — Blue Accent (BSNexus) */
+    /* Neural Architect Design System (Stitch) */
 
-    /* Semantic color tokens (RGB triplets for Tailwind opacity) */
-    --color-accent: 59 130 246;
-    --color-accent-hover: 96 165 250;
-    --color-accent-text: 96 165 250;
-    --color-bg-base: 10 11 15;
-    --color-bg-surface: 17 18 24;
-    --color-bg-elevated: 24 25 38;
-    --color-bg-hover: 30 32 51;
-    --color-bg-input: 24 25 38;
-    --color-text-primary: 242 243 247;
-    --color-text-secondary: 129 135 168;
-    --color-text-tertiary: 90 95 125;
-    --color-text-muted: 61 65 96;
-    --color-border: 42 45 66;
-    --color-border-subtle: 30 32 51;
+    /* Background tokens */
+    --bg-primary: #121317;
+    --bg-surface: #1a1b20;
+    --bg-card: #1f1f24;
+    --bg-elevated: #292a2e;
+    --bg-hover: #343439;
+    --bg-input: #0d0e12;
 
-    /* Legacy CSS variable mapping (used by existing components) */
-    --bg-primary: #0a0b0f;
-    --bg-surface: #111218;
-    --bg-card: #111218;
-    --bg-elevated: #181926;
-    --bg-hover: #1e2033;
-    --bg-input: #181926;
+    /* Accent / Primary */
+    --accent: #4d8eff;
+    --accent-light: #adc6ff;
+    --accent-hover: #adc6ff;
+    --accent-text: #adc6ff;
 
-    --accent: #3b82f6;
-    --accent-light: #60a5fa;
-    --accent-hover: #60a5fa;
-    --accent-text: #60a5fa;
+    /* Text tokens */
+    --text-primary: #e3e2e8;
+    --text-secondary: #c2c6d6;
+    --text-tertiary: #8c909f;
+    --text-muted: #424754;
 
-    --text-primary: #f2f3f7;
-    --text-secondary: #8187a8;
-    --text-tertiary: #5a5f7d;
-    --text-muted: #3d4160;
-
-    --border: #2a2d42;
-    --border-subtle: #1e2033;
+    /* Border tokens */
+    --border: #424754;
+    --border-subtle: #343439;
 
     /* Status colors */
     --status-waiting: #F59E0B;
@@ -54,14 +41,37 @@
     --status-blocked: #6B7280;
     --status-redesign: #F59E0B;
 
-    /* Semantic UI colors (mapped from status palette) */
-    --color-error: #EF4444;
-    --color-error-muted: #7F1D1D;
+    /* Semantic UI colors */
+    --color-error: #ffb4ab;
+    --color-error-muted: #93000a;
     --color-success: #22C55E;
     --color-success-muted: #14532D;
-    --color-warning: #F59E0B;
-    --color-warning-muted: #78350F;
-    --color-info: #EC4899;
+    --color-warning: #ffb786;
+    --color-warning-muted: #723600;
+    --color-info: #b1c6f9;
+
+    /* Stitch Material tokens */
+    --stitch-surface: #121317;
+    --stitch-surface-container-low: #1a1b20;
+    --stitch-surface-container: #1f1f24;
+    --stitch-surface-container-high: #292a2e;
+    --stitch-surface-container-highest: #343439;
+    --stitch-surface-container-lowest: #0d0e12;
+    --stitch-primary: #adc6ff;
+    --stitch-primary-container: #4d8eff;
+    --stitch-on-primary: #002e6a;
+    --stitch-on-primary-container: #00285d;
+    --stitch-on-surface: #e3e2e8;
+    --stitch-on-surface-variant: #c2c6d6;
+    --stitch-outline: #8c909f;
+    --stitch-outline-variant: #424754;
+    --stitch-secondary: #b1c6f9;
+    --stitch-secondary-container: #304671;
+    --stitch-on-secondary-container: #9fb5e7;
+    --stitch-tertiary: #ffb786;
+    --stitch-tertiary-container: #df7412;
+    --stitch-error: #ffb4ab;
+    --stitch-error-container: #93000a;
 
     /* Radius tokens */
     --radius-sm: 4px;
@@ -70,14 +80,13 @@
     --radius-xl: 16px;
   }
 
-  /* Dark-first: body always uses base dark background */
   html {
     color-scheme: dark;
   }
 
   body {
-    background-color: rgb(var(--color-bg-base));
-    color: rgb(var(--color-text-primary));
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
     font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, -apple-system, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -87,22 +96,28 @@
     font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
   }
 
-  /* Scrollbar styling for dark theme */
+  .material-symbols-outlined {
+    font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+    vertical-align: middle;
+    font-size: 20px;
+  }
+
+  /* Scrollbar styling */
   ::-webkit-scrollbar {
     width: 6px;
     height: 6px;
   }
 
   ::-webkit-scrollbar-track {
-    background: transparent;
+    background: var(--bg-primary);
   }
 
   ::-webkit-scrollbar-thumb {
-    background: rgb(var(--color-border));
-    border-radius: 3px;
+    background: var(--stitch-surface-container-highest);
+    border-radius: 10px;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: rgb(var(--color-text-tertiary));
+    background: var(--stitch-outline-variant);
   }
 }

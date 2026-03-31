@@ -1,6 +1,5 @@
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
-import { Cpu, LayoutGrid, Network } from 'lucide-react'
 
 const BSVIBE_AUTH_URL = import.meta.env.VITE_BSVIBE_AUTH_URL || 'https://auth.bsvibe.dev'
 
@@ -19,19 +18,19 @@ function handleLogin() {
 
 const features = [
   {
-    icon: Cpu,
+    icon: 'psychology',
     title: 'Project Architect',
-    description: 'AI가 대화를 통해 프로젝트를 설계하고 태스크를 분해합니다.',
+    description: 'AI designs projects through conversation and decomposes them into tasks.',
   },
   {
-    icon: LayoutGrid,
+    icon: 'view_kanban',
     title: 'Task Kanban',
-    description: '실시간 칸반 보드로 태스크 상태를 추적하고 관리합니다.',
+    description: 'Real-time kanban board to track and manage task states.',
   },
   {
-    icon: Network,
+    icon: 'hub',
     title: 'Distributed Workers',
-    description: '분산 Worker 노드가 자동으로 코드를 작성하고 실행합니다.',
+    description: 'Distributed worker nodes automatically write and execute code.',
   },
 ]
 
@@ -40,31 +39,23 @@ export default function LandingPage() {
   const navigate = useNavigate()
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-bg-primary relative overflow-hidden">
+    <div className="flex flex-col items-center justify-center min-h-screen bg-stitch-surface relative overflow-hidden">
       {/* Background gradient glow */}
       <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] rounded-full pointer-events-none"
-        style={{ background: 'radial-gradient(circle, color-mix(in srgb, var(--accent) 8%, transparent) 0%, color-mix(in srgb, var(--accent) 2%, transparent) 40%, transparent 70%)' }}
+        style={{ background: 'radial-gradient(circle, rgba(77,142,255,0.08) 0%, rgba(77,142,255,0.02) 40%, transparent 70%)' }}
       />
 
       {/* Main card */}
       <div className="relative z-10 w-full max-w-xl mx-auto px-6">
-        <div className="bg-bg-card border border-border rounded-xl p-10 shadow-2xl shadow-black/40">
+        <div className="bg-stitch-surface-container border border-stitch-outline-variant/10 rounded-xl p-10 shadow-2xl shadow-black/40">
           {/* Logo + Title */}
           <div className="flex flex-col items-center mb-8">
-            <div className="bg-accent w-14 h-14 rounded-xl flex items-center justify-center shadow-lg shadow-accent/20 mb-5">
-              <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-gray-50">
-                <circle cx="14" cy="14" r="3" fill="currentColor" />
-                <circle cx="6" cy="6" r="2" fill="currentColor" opacity="0.7" />
-                <circle cx="22" cy="6" r="2" fill="currentColor" opacity="0.7" />
-                <circle cx="6" cy="22" r="2" fill="currentColor" opacity="0.7" />
-                <circle cx="22" cy="22" r="2" fill="currentColor" opacity="0.7" />
-                <line x1="14" y1="14" x2="6" y2="6" stroke="currentColor" strokeWidth="1.2" opacity="0.5" />
-                <line x1="14" y1="14" x2="22" y2="6" stroke="currentColor" strokeWidth="1.2" opacity="0.5" />
-                <line x1="14" y1="14" x2="6" y2="22" stroke="currentColor" strokeWidth="1.2" opacity="0.5" />
-                <line x1="14" y1="14" x2="22" y2="22" stroke="currentColor" strokeWidth="1.2" opacity="0.5" />
-              </svg>
+            <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-stitch-primary to-stitch-primary-container flex items-center justify-center shadow-lg shadow-stitch-primary/20 mb-5">
+              <span className="material-symbols-outlined text-stitch-on-primary-container text-3xl" style={{ fontVariationSettings: "'FILL' 1" }}>
+                architecture
+              </span>
             </div>
-            <h1 className="text-4xl font-bold text-text-primary tracking-tight">BSNexus</h1>
+            <h1 className="text-4xl font-extrabold text-white tracking-[-0.04em]">BSNexus</h1>
             <p className="text-text-secondary mt-2 text-center text-base">
               Orchestrate AI agents, from design to deployment.
             </p>
@@ -73,11 +64,11 @@ export default function LandingPage() {
           {/* Features */}
           <div className="grid grid-cols-3 gap-4 mb-8">
             {features.map((f) => (
-              <div key={f.title} className="flex flex-col items-center text-center p-3 rounded-lg bg-bg-elevated/50">
-                <div className="w-10 h-10 rounded-lg bg-accent/10 flex items-center justify-center mb-2">
-                  <f.icon className="w-5 h-5 text-accent-text" />
+              <div key={f.title} className="flex flex-col items-center text-center p-3 rounded-lg bg-stitch-surface-low">
+                <div className="w-10 h-10 rounded-lg bg-stitch-primary/10 flex items-center justify-center mb-2">
+                  <span className="material-symbols-outlined text-stitch-primary" style={{ fontSize: '20px' }}>{f.icon}</span>
                 </div>
-                <span className="text-sm font-medium text-text-primary mb-1">{f.title}</span>
+                <span className="text-sm font-medium text-white mb-1">{f.title}</span>
                 <span className="text-xs text-text-tertiary leading-relaxed">{f.description}</span>
               </div>
             ))}
@@ -88,14 +79,14 @@ export default function LandingPage() {
             {user ? (
               <button
                 onClick={() => navigate('/dashboard')}
-                className="w-full py-3 bg-accent text-gray-50 rounded-lg hover:bg-accent-light text-base font-semibold transition-all shadow-lg shadow-accent/25 hover:shadow-accent/40"
+                className="w-full py-3 bg-gradient-to-r from-stitch-primary to-stitch-primary-container text-stitch-on-primary-container rounded-lg text-base font-bold transition-all shadow-lg shadow-stitch-primary/25 hover:opacity-90"
               >
                 Go to Dashboard
               </button>
             ) : (
               <button
                 onClick={handleLogin}
-                className="w-full py-3 bg-accent text-gray-50 rounded-lg hover:bg-accent-light text-base font-semibold transition-all shadow-lg shadow-accent/25 hover:shadow-accent/40"
+                className="w-full py-3 bg-gradient-to-r from-stitch-primary to-stitch-primary-container text-stitch-on-primary-container rounded-lg text-base font-bold transition-all shadow-lg shadow-stitch-primary/25 hover:opacity-90"
               >
                 Sign in with BSVibe
               </button>

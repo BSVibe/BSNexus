@@ -11,7 +11,6 @@ import SessionList from '../components/architect/SessionList'
 import NewSessionModal from '../components/architect/NewSessionModal'
 import FinalizePanel from '../components/architect/FinalizePanel'
 import Header from '../components/layout/Header'
-import { Bot, Sparkles } from 'lucide-react'
 
 function stripDesignContext(content: string): string {
   return content.replace(/<design_context>[\s\S]*?<\/design_context>/g, '').trim()
@@ -45,37 +44,29 @@ export default function ArchitectPage() {
   const [designSummary, setDesignSummary] = useState('')
   const [finalizedProjectId, setFinalizedProjectId] = useState<string | null>(null)
 
-  // Find the active session object for name display
   const activeSession = sessions.find((s) => s.id === sessionId) || null
 
-  // Session loaded = connected
   useEffect(() => {
     setConnected(!!sessionId)
   }, [sessionId, setConnected])
 
-  // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // Cleanup abort controller on unmount
   useEffect(() => {
     return () => {
       abortRef.current?.abort()
     }
   }, [])
 
-  // Load sessions list on mount
   useEffect(() => {
     architectApi.listSessions().then((list) => {
       setSessions(list)
-    }).catch(() => {
-      // Failed to load sessions
-    })
+    }).catch(() => {})
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Auto-open new session modal when navigated from dashboard
   useEffect(() => {
     const state = location.state as { openNewSession?: boolean } | null
     if (state?.openNewSession) {
@@ -85,7 +76,6 @@ export default function ArchitectPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.state])
 
-  // Load session from URL param
   useEffect(() => {
     if (paramSessionId && paramSessionId !== sessionId) {
       loadSession(paramSessionId)
@@ -245,7 +235,7 @@ export default function ArchitectPage() {
   }
 
   const isConnected = !!sessionId
-  const headerTitle = activeSession?.name || 'Architect'
+  const headerTitle = activeSession?.name || 'AI Architect Conversation'
 
   if (!sessionId) {
     return (
@@ -260,26 +250,26 @@ export default function ArchitectPage() {
             onDelete={handleDeleteSession}
             onBatchDelete={handleBatchDeleteSessions}
           />
-          <div className="flex-1 flex items-center justify-center bg-bg-primary">
+          <div className="flex-1 flex items-center justify-center bg-stitch-surface">
             <div className="text-center space-y-5 max-w-sm">
               <div className="relative mx-auto w-20 h-20">
-                <div className="absolute inset-0 bg-accent/10 rounded-2xl" />
+                <div className="absolute inset-0 bg-stitch-primary/10 rounded-2xl" />
                 <div className="absolute inset-0 flex items-center justify-center">
-                  <Bot size={32} className="text-accent" />
+                  <span className="material-symbols-outlined text-stitch-primary text-4xl" style={{ fontVariationSettings: "'FILL' 1" }}>psychology</span>
                 </div>
               </div>
               <div>
-                <h2 className="text-text-primary text-lg font-semibold mb-2">BSNexus Architect</h2>
-                <p className="text-text-tertiary text-sm leading-relaxed">
+                <h2 className="text-white text-lg font-semibold mb-2">BSNexus Architect</h2>
+                <p className="text-text-secondary text-sm leading-relaxed">
                   Select a session from the sidebar or create a new one to start designing your project.
                 </p>
               </div>
               <div className="flex items-center justify-center gap-4 text-[11px] text-text-muted">
                 <span className="flex items-center gap-1.5">
-                  <Sparkles size={12} />
+                  <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>auto_awesome</span>
                   AI-powered design
                 </span>
-                <span className="w-1 h-1 rounded-full bg-border" />
+                <span className="w-1 h-1 rounded-full bg-stitch-outline-variant" />
                 <span>Auto-decomposition</span>
               </div>
             </div>
@@ -299,11 +289,22 @@ export default function ArchitectPage() {
       <Header
         title={headerTitle}
         action={
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-bg-elevated border border-border/30">
-              <span className={`inline-block w-2 h-2 rounded-full ${isConnected ? 'bg-success' : 'bg-error'}`} />
-              <span className="text-xs text-text-secondary">{isConnected ? 'Connected' : 'Disconnected'}</span>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium tracking-wide text-stitch-primary">
+                Session: {activeSession?.name || sessionId.slice(0, 8)}
+              </span>
             </div>
+            <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-stitch-surface-container border border-stitch-outline-variant/20">
+              <span className={`inline-block w-2 h-2 rounded-full ${isConnected ? 'bg-stitch-primary' : 'bg-stitch-error'}`} />
+              <span className="text-[11px] text-text-secondary">{isConnected ? 'Connected' : 'Disconnected'}</span>
+            </div>
+            <button className="p-2 text-text-secondary hover:text-white transition-all">
+              <span className="material-symbols-outlined">account_tree</span>
+            </button>
+            <button className="p-2 text-text-secondary hover:text-white transition-all">
+              <span className="material-symbols-outlined">more_vert</span>
+            </button>
           </div>
         }
       />
@@ -316,39 +317,43 @@ export default function ArchitectPage() {
           onDelete={handleDeleteSession}
           onBatchDelete={handleBatchDeleteSessions}
         />
-        <div className="flex-1 flex flex-col bg-bg-primary">
+        <div className="flex-1 flex flex-col bg-stitch-surface">
           {/* Messages area */}
-          <div className="flex-1 overflow-y-auto px-6 py-6 space-y-4">
-            {messages.length === 0 ? (
-              <div className="flex-1 flex items-center justify-center h-full">
-                <div className="text-center space-y-4">
-                  <div className="bg-accent/10 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto">
-                    <Bot size={28} className="text-accent" />
-                  </div>
-                  <div>
-                    <p className="text-lg font-semibold text-text-primary">BSNexus Architect</p>
-                    <p className="text-sm text-text-tertiary mt-1">Describe the project you'd like to build.</p>
+          <div className="flex-1 overflow-y-auto">
+            <div className="max-w-4xl mx-auto w-full p-8 space-y-10">
+              {messages.length === 0 ? (
+                <div className="flex-1 flex items-center justify-center h-full">
+                  <div className="text-center space-y-4">
+                    <div className="w-16 h-16 rounded-2xl bg-stitch-primary/20 flex items-center justify-center mx-auto">
+                      <span className="material-symbols-outlined text-stitch-primary text-3xl" style={{ fontVariationSettings: "'FILL' 1" }}>bolt</span>
+                    </div>
+                    <div>
+                      <p className="text-lg font-semibold text-white">BSNexus Architect</p>
+                      <p className="text-sm text-text-secondary mt-1">Describe the project you'd like to build.</p>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ) : (
-              messages.map((msg) => (
-                <ChatMessage key={msg.id} message={msg} />
-              ))
-            )}
-            <div ref={messagesEndRef} />
+              ) : (
+                messages.map((msg) => (
+                  <ChatMessage key={msg.id} message={msg} />
+                ))
+              )}
+              <div ref={messagesEndRef} />
+            </div>
           </div>
 
-          {/* Input area */}
+          {/* Input area (Stitch bottom input bar) */}
           {!showFinalizePanel && (
-            <div className="px-6 pb-6 pt-2">
-              <ChatInput
-                onSend={handleSend}
-                disabled={isStreaming || !isConnected}
-              />
-              <p className="text-[11px] text-text-muted text-center mt-2">
-                Enter to send, Shift+Enter for newline
-              </p>
+            <div className="p-6 bg-gradient-to-t from-stitch-surface via-stitch-surface to-transparent">
+              <div className="max-w-4xl mx-auto">
+                <ChatInput
+                  onSend={handleSend}
+                  disabled={isStreaming || !isConnected}
+                />
+                <p className="text-center text-[10px] text-text-tertiary mt-3 opacity-50 tracking-wide uppercase">
+                  AI can hallucinate. Verify critical components before deployment.
+                </p>
+              </div>
             </div>
           )}
         </div>

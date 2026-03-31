@@ -48,6 +48,30 @@ export default {
           DEFAULT: 'var(--border)',
           subtle: 'var(--border-subtle)',
         },
+        // Stitch Material Design 3 tokens
+        stitch: {
+          surface: 'var(--stitch-surface)',
+          'surface-low': 'var(--stitch-surface-container-low)',
+          'surface-container': 'var(--stitch-surface-container)',
+          'surface-high': 'var(--stitch-surface-container-high)',
+          'surface-highest': 'var(--stitch-surface-container-highest)',
+          'surface-lowest': 'var(--stitch-surface-container-lowest)',
+          primary: 'var(--stitch-primary)',
+          'primary-container': 'var(--stitch-primary-container)',
+          'on-primary': 'var(--stitch-on-primary)',
+          'on-primary-container': 'var(--stitch-on-primary-container)',
+          'on-surface': 'var(--stitch-on-surface)',
+          'on-surface-variant': 'var(--stitch-on-surface-variant)',
+          outline: 'var(--stitch-outline)',
+          'outline-variant': 'var(--stitch-outline-variant)',
+          secondary: 'var(--stitch-secondary)',
+          'secondary-container': 'var(--stitch-secondary-container)',
+          'on-secondary-container': 'var(--stitch-on-secondary-container)',
+          tertiary: 'var(--stitch-tertiary)',
+          'tertiary-container': 'var(--stitch-tertiary-container)',
+          error: 'var(--stitch-error)',
+          'error-container': 'var(--stitch-error-container)',
+        },
         status: {
           waiting: 'var(--status-waiting)',
           ready: 'var(--status-ready)',
@@ -85,9 +109,13 @@ export default {
           '0%': { transform: 'translateX(100%)', opacity: '0' },
           '100%': { transform: 'translateX(0)', opacity: '1' },
         },
+        'cursor-blink': {
+          '50%': { opacity: '0' },
+        },
       },
       animation: {
         'slide-in-right': 'slide-in-right 0.2s ease-out',
+        'cursor-blink': 'cursor-blink 1s step-end infinite',
       },
       typography: {
         DEFAULT: {

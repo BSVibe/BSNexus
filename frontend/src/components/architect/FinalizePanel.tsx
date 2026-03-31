@@ -58,9 +58,9 @@ export default function FinalizePanel({ designSummary, onConfirm, onCancel, onGo
   }
 
   return (
-    <div className="w-[480px] border-l border-border bg-bg-surface flex flex-col h-full shrink-0">
+    <div className="w-[480px] border-l border-stitch-outline-variant/10 bg-stitch-surface-low flex flex-col h-full shrink-0">
       {/* Header */}
-      <div className="px-6 py-4 border-b border-border-subtle">
+      <div className="px-6 py-4 border-b border-stitch-outline-variant/10">
         <h2 className="text-lg font-semibold text-text-primary">
           {phase === 'complete' ? 'Project Created' : 'Design Review'}
         </h2>

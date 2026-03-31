@@ -17,58 +17,52 @@ export default function BoardStats({ projectName }: Props) {
   const { total, done, completionRate } = getBoardStats()
 
   return (
-    <div className="bg-bg-surface/60 rounded-xl border border-border/40 p-4 mb-4">
-      <div className="flex items-center justify-between flex-wrap gap-4">
-        {/* Left: project name + task count */}
-        <div className="flex items-center gap-4">
-          {projectName && (
-            <h3 className="text-base font-semibold text-text-primary tracking-tight">{projectName}</h3>
-          )}
-          <span className="text-sm text-text-secondary">
-            <span className="font-semibold text-text-primary">{total}</span> tasks
-          </span>
+    <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+      <div className="bg-stitch-surface-low p-5 rounded-xl flex flex-col justify-between h-32 border border-stitch-outline-variant/10">
+        <span className="text-xs uppercase tracking-widest text-text-secondary font-bold">Completion</span>
+        <div className="flex items-end justify-between">
+          <span className="text-3xl font-extrabold tracking-tighter text-stitch-primary">{Math.round(completionRate)}%</span>
+          <span className="material-symbols-outlined text-stitch-primary/40 text-4xl">bolt</span>
         </div>
-
-        {/* Right: progress + status pills */}
-        <div className="flex items-center gap-5">
-          {/* Progress bar */}
-          <div className="flex items-center gap-2.5">
-            <div className="w-28 h-1.5 bg-bg-elevated rounded-full overflow-hidden">
+      </div>
+      <div className="bg-stitch-surface-low p-5 rounded-xl flex flex-col justify-between h-32 border border-stitch-outline-variant/10">
+        <span className="text-xs uppercase tracking-widest text-text-secondary font-bold">Total Tasks</span>
+        <div className="flex items-end justify-between">
+          <span className="text-3xl font-extrabold tracking-tighter">{total}</span>
+          <span className="text-xs text-stitch-primary font-bold">{done} done</span>
+        </div>
+      </div>
+      <div className="bg-stitch-surface-low p-5 rounded-xl flex flex-col justify-between h-32 border border-stitch-outline-variant/10">
+        <span className="text-xs uppercase tracking-widest text-text-secondary font-bold">Status Breakdown</span>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {Object.entries(stats).map(([status, count]) => {
+            const meta = statusMeta[status]
+            if (!meta || count === 0) return null
+            return (
               <div
-                className="h-full rounded-full transition-all duration-700 ease-out"
+                key={status}
+                className="flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-md"
                 style={{
-                  width: `${completionRate}%`,
-                  background: 'linear-gradient(90deg, var(--status-in-progress), var(--status-done))',
+                  backgroundColor: `color-mix(in srgb, ${meta.color} 10%, transparent)`,
+                  color: meta.color,
                 }}
-              />
-            </div>
-            <span className="text-xs font-medium text-text-secondary tabular-nums">
-              {done}/{total}
-              <span className="text-text-muted ml-1">({Math.round(completionRate)}%)</span>
-            </span>
+                title={meta.label}
+              >
+                <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: meta.color }} />
+                {count}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+      <div className="bg-stitch-surface-low p-5 rounded-xl flex flex-col justify-between h-32 border border-stitch-outline-variant/10">
+        <span className="text-xs uppercase tracking-widest text-text-secondary font-bold">Project Status</span>
+        <div className="flex items-end justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded-full bg-stitch-primary animate-pulse" />
+            <span className="text-xl font-bold">{projectName || 'Active'}</span>
           </div>
-
-          {/* Status breakdown pills */}
-          <div className="flex items-center gap-1.5">
-            {Object.entries(stats).map(([status, count]) => {
-              const meta = statusMeta[status]
-              if (!meta || count === 0) return null
-              return (
-                <div
-                  key={status}
-                  className="flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-md"
-                  style={{
-                    backgroundColor: `color-mix(in srgb, ${meta.color} 10%, transparent)`,
-                    color: meta.color,
-                  }}
-                  title={meta.label}
-                >
-                  <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: meta.color }} />
-                  {count}
-                </div>
-              )
-            })}
-          </div>
+          <span className="material-symbols-outlined text-text-secondary">cloud_done</span>
         </div>
       </div>
     </div>

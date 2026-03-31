@@ -2,7 +2,6 @@ import ReactMarkdown from 'react-markdown'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import type { ChatMessage as ChatMessageType } from '../../stores/architectStore'
-import { Bot, User } from 'lucide-react'
 
 interface Props {
   message: ChatMessageType
@@ -27,80 +26,80 @@ function sanitizeContent(content: string): string {
 export default function ChatMessage({ message }: Props) {
   const isAssistant = message.role === 'assistant'
 
-  return (
-    <div className={`flex gap-3 ${isAssistant ? 'justify-start' : 'justify-end'}`}>
-      {isAssistant && (
-        <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center shrink-0 mt-1">
-          <Bot size={16} className="text-accent" />
+  if (!isAssistant) {
+    // User message (Stitch style: right-aligned, dark bg, rounded)
+    return (
+      <div className="flex justify-end w-full">
+        <div className="max-w-[80%] bg-[#262626] rounded-2xl rounded-tr-none px-5 py-4 shadow-lg">
+          <p className="text-sm leading-relaxed text-text-primary whitespace-pre-wrap">{message.content}</p>
+          {message.createdAt && (
+            <div className="text-[11px] mt-2 text-text-muted">{formatTime(message.createdAt)}</div>
+          )}
         </div>
-      )}
-      <div
-        className={`max-w-[75%] rounded-xl px-4 py-3 ${
-          isAssistant
-            ? 'bg-bg-elevated border border-border/40'
-            : 'bg-accent/15 border border-accent/20'
-        }`}
-      >
-        {isAssistant ? (
-          <div className="prose prose-sm max-w-none [&_p]:text-text-primary [&_p]:leading-relaxed [&_li]:text-text-primary [&_strong]:text-text-primary">
-            <ReactMarkdown
-              components={{
-                code({ className, children, ...props }) {
-                  const match = /language-(\w+)/.exec(className || '')
-                  const codeStr = String(children).replace(/\n$/, '')
-                  if (match) {
-                    return (
-                      <div className="rounded-lg overflow-hidden my-3 border border-border/30">
-                        <div className="bg-bg-hover px-3 py-1.5 text-[11px] font-mono text-text-tertiary border-b border-border/30">
-                          {match[1]}
-                        </div>
-                        <SyntaxHighlighter
-                          style={oneDark}
-                          language={match[1]}
-                          PreTag="div"
-                          customStyle={{
-                            margin: 0,
-                            borderRadius: 0,
-                            background: 'var(--bg-primary)',
-                            fontSize: '13px',
-                          }}
-                        >
-                          {codeStr}
-                        </SyntaxHighlighter>
-                      </div>
-                    )
-                  }
-                  return (
-                    <code
-                      className={`${className} bg-bg-hover text-accent-light px-1.5 py-0.5 rounded-md text-[13px] font-mono`}
-                      {...props}
-                    >
-                      {children}
-                    </code>
-                  )
-                },
-              }}
-            >
-              {sanitizeContent(message.content)}
-            </ReactMarkdown>
-            {message.isStreaming && (
-              <span className="inline-block w-1.5 h-4 bg-accent rounded-sm animate-pulse ml-0.5" />
-            )}
-          </div>
-        ) : (
-          <p className="text-sm text-text-primary whitespace-pre-wrap leading-relaxed">{message.content}</p>
-        )}
-        {message.createdAt && (
-          <div className={`text-[11px] mt-2 ${isAssistant ? 'text-text-muted' : 'text-text-tertiary'}`}>
-            {formatTime(message.createdAt)}
-          </div>
-        )}
       </div>
-      {!isAssistant && (
-        <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center shrink-0 mt-1">
-          <User size={16} className="text-accent" />
+    )
+  }
+
+  // AI message (Stitch style: left-aligned, bordered, with icon header)
+  return (
+    <div className="flex justify-start w-full">
+      <div className="max-w-[90%] bg-[#171717] border border-stitch-primary/10 rounded-2xl rounded-tl-none px-6 py-6 shadow-xl space-y-4">
+        <div className="flex items-center space-x-3 mb-2">
+          <div className="w-6 h-6 rounded bg-stitch-primary/20 flex items-center justify-center">
+            <span className="material-symbols-outlined text-stitch-primary" style={{ fontSize: '14px', fontVariationSettings: "'FILL' 1" }}>bolt</span>
+          </div>
+          <span className="text-xs font-bold tracking-widest text-stitch-primary uppercase">Architect</span>
+          {message.createdAt && (
+            <span className="text-[10px] text-text-muted ml-auto">{formatTime(message.createdAt)}</span>
+          )}
         </div>
-      )}
+        <div className="text-sm leading-relaxed text-text-secondary prose prose-sm max-w-none [&_p]:text-text-secondary [&_p]:leading-relaxed [&_li]:text-text-secondary [&_strong]:text-white [&_h1]:text-white [&_h2]:text-white [&_h3]:text-white [&_h4]:text-white">
+          <ReactMarkdown
+            components={{
+              code({ className, children, ...props }) {
+                const match = /language-(\w+)/.exec(className || '')
+                const codeStr = String(children).replace(/\n$/, '')
+                if (match) {
+                  return (
+                    <div className="bg-[#1f1f1f] rounded-lg overflow-hidden my-3 border border-stitch-outline-variant/10">
+                      <div className="flex items-center justify-between px-4 py-2 border-b border-stitch-outline-variant/20">
+                        <span className="text-text-muted text-[10px] uppercase tracking-widest">{match[1]}</span>
+                        <span className="material-symbols-outlined text-text-muted" style={{ fontSize: '14px' }}>content_copy</span>
+                      </div>
+                      <SyntaxHighlighter
+                        style={oneDark}
+                        language={match[1]}
+                        PreTag="div"
+                        customStyle={{
+                          margin: 0,
+                          borderRadius: 0,
+                          background: '#1f1f1f',
+                          fontSize: '13px',
+                        }}
+                      >
+                        {codeStr}
+                      </SyntaxHighlighter>
+                    </div>
+                  )
+                }
+                return (
+                  <code
+                    className={`${className} bg-stitch-surface-container text-stitch-primary px-1.5 py-0.5 rounded-md text-[13px] font-mono`}
+                    {...props}
+                  >
+                    {children}
+                  </code>
+                )
+              },
+            }}
+          >
+            {sanitizeContent(message.content)}
+          </ReactMarkdown>
+          {message.isStreaming && (
+            <span className="inline-block w-0.5 h-[1.2em] bg-stitch-primary ml-0.5 align-middle animate-cursor-blink" />
+          )}
+        </div>
+      </div>
     </div>
   )
 }

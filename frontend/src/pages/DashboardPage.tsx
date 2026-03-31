@@ -6,7 +6,6 @@ import type { ProjectDashboardSummary } from '../types/project'
 import { Link, useNavigate } from 'react-router-dom'
 import { Badge, Button, Modal, StatCard } from '../components/common'
 import Header from '../components/layout/Header'
-import { ListChecks, Bug, MessageSquare, FolderInput } from 'lucide-react'
 
 const statusBadgeColors: Record<string, string> = {
   design: 'var(--status-queued)',
@@ -98,7 +97,7 @@ export default function DashboardPage() {
       <>
         <Header title="Dashboard" />
         <div className="p-8 flex items-center justify-center h-64">
-          <div className="animate-spin rounded-full h-8 w-8 border-2 border-accent border-t-transparent" />
+          <div className="animate-spin rounded-full h-8 w-8 border-2 border-stitch-primary border-t-transparent" />
         </div>
       </>
     )
@@ -109,7 +108,7 @@ export default function DashboardPage() {
       <>
         <Header title="Dashboard" />
         <div className="p-8">
-          <div className="rounded-xl border border-error/30 bg-error/5 p-6 text-sm text-error text-center">
+          <div className="rounded-xl border border-stitch-error/30 bg-stitch-error-container/10 p-6 text-sm text-stitch-error text-center">
             Failed to load projects. Please try again.
           </div>
         </div>
@@ -121,52 +120,44 @@ export default function DashboardPage() {
     <>
       <Header title="Dashboard" action={
         <div className="flex items-center gap-2">
-          <Button size="sm" variant="secondary" onClick={() => navigate('/migrate')}>
-            <FolderInput size={14} className="mr-1.5" />
+          <button
+            onClick={() => navigate('/migrate')}
+            className="bg-stitch-surface-highest text-text-primary px-4 py-1.5 rounded-md text-sm font-semibold hover:opacity-80 transition-opacity flex items-center gap-2"
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>folder_open</span>
             Import
-          </Button>
-          <Button size="sm" onClick={() => navigate('/architect', { state: { openNewSession: true } })}>New Project</Button>
+          </button>
+          <button
+            onClick={() => navigate('/architect', { state: { openNewSession: true } })}
+            className="bg-gradient-to-r from-stitch-primary to-stitch-primary-container text-stitch-on-primary-container px-4 py-1.5 rounded-md text-sm font-bold shadow-lg shadow-stitch-primary/20 hover:opacity-90 transition-opacity"
+          >
+            New Project
+          </button>
         </div>
       } />
-      <div className="p-8 max-w-7xl mx-auto">
-        {/* Stat Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-          <StatCard
-            label="Projects"
-            value={stats.totalProjects}
-            subtext={`${stats.activeProjects} active, ${stats.completedProjects} completed`}
-          />
-          <StatCard
-            label="Tasks"
-            value={stats.totalTasks}
-            subtext={`${stats.doneTasks} done`}
-          />
-          <StatCard
-            label="Bugs"
-            value={stats.totalBugs}
-            subtext="auto-detected"
-          />
-          <StatCard
-            label="Completion"
-            value={stats.completionRate}
-            subtext={`${stats.doneTasks} of ${stats.totalTasks} tasks`}
-          />
+      <div className="flex-1 overflow-auto p-8">
+        {/* Stat Cards (Bento-style) */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10">
+          <StatCard label="Total Projects" value={stats.totalProjects} icon="folder_open" />
+          <StatCard label="Active Tasks" value={stats.totalTasks} subtext={`${stats.doneTasks} done`} />
+          <StatCard label="Bugs Detected" value={stats.totalBugs} icon="bug_report" />
+          <StatCard label="Completion Rate" value={stats.completionRate} icon="bolt" />
         </div>
 
         {/* Project List Header with Batch Actions */}
         {(projects?.length ?? 0) > 0 && (
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
-              <h2 className="text-lg font-bold text-text-primary tracking-tight">
-                Projects <span className="text-text-muted font-normal text-sm ml-1">({projects?.length})</span>
+              <h2 className="text-xs font-bold uppercase tracking-[0.05em] text-text-secondary">
+                Projects <span className="ml-2 text-[10px] opacity-50">{projects?.length}</span>
               </h2>
               {!selectMode && (
                 <button
                   onClick={() => setSelectMode(true)}
-                  className="p-1.5 rounded-md text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors"
+                  className="p-1.5 rounded-md text-text-tertiary hover:text-text-primary hover:bg-stitch-surface-container transition-colors"
                   title="Select mode"
                 >
-                  <ListChecks size={16} />
+                  <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>checklist</span>
                 </button>
               )}
             </div>
@@ -175,12 +166,12 @@ export default function DashboardPage() {
                 <Button variant="secondary" size="sm" onClick={selectAll}>All</Button>
                 {selectedIds.size > 0 && (
                   <>
-                    <span className="text-xs text-text-secondary bg-bg-elevated px-2.5 py-1 rounded-full border border-border/50">
+                    <span className="text-xs text-text-secondary bg-stitch-surface-container px-2.5 py-1 rounded-full border border-stitch-outline-variant/20">
                       {selectedIds.size} selected
                     </span>
                     <Button
                       size="sm"
-                      className="!bg-error hover:!bg-error/80"
+                      className="!bg-stitch-error-container hover:!bg-stitch-error-container/80 !text-stitch-error"
                       onClick={() => setShowBatchDeleteModal(true)}
                     >
                       Delete
@@ -195,15 +186,18 @@ export default function DashboardPage() {
 
         {/* Project List */}
         {projects?.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-border p-16 text-center">
-            <div className="bg-accent/10 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4">
-              <span className="text-accent text-2xl font-bold">+</span>
+          <div className="rounded-xl border border-dashed border-stitch-outline-variant/30 p-16 text-center">
+            <div className="w-16 h-16 rounded-2xl bg-stitch-primary/10 flex items-center justify-center mx-auto mb-4">
+              <span className="material-symbols-outlined text-stitch-primary text-3xl">add</span>
             </div>
             <p className="text-text-secondary mb-2 font-medium">No projects yet</p>
-            <p className="text-sm text-text-muted mb-6">Start by creating one with the Architect.</p>
-            <Button onClick={() => navigate('/architect', { state: { openNewSession: true } })}>
+            <p className="text-sm text-text-tertiary mb-6">Start by creating one with the Architect.</p>
+            <button
+              onClick={() => navigate('/architect', { state: { openNewSession: true } })}
+              className="bg-gradient-to-r from-stitch-primary to-stitch-primary-container text-stitch-on-primary-container px-6 py-2.5 rounded-md text-sm font-bold shadow-lg shadow-stitch-primary/20"
+            >
               Start with Architect
-            </Button>
+            </button>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -216,10 +210,12 @@ export default function DashboardPage() {
                 <div
                   key={project.id}
                   onClick={selectMode ? () => toggleSelect(project.id) : undefined}
-                  className={`relative rounded-xl border bg-bg-card p-5 transition-all group ${
+                  className={`relative bg-stitch-surface-container p-5 rounded-lg transition-all group border ${
                     selectMode ? 'cursor-pointer' : ''
                   } ${
-                    isSelected ? 'border-accent ring-1 ring-accent/30' : 'border-border/40 hover:border-accent/30 hover:shadow-lg hover:shadow-black/20'
+                    isSelected
+                      ? 'border-stitch-primary ring-1 ring-stitch-primary/30'
+                      : 'border-stitch-outline-variant/10 hover:border-stitch-primary/20 hover:bg-stitch-surface-high'
                   }`}
                 >
                   {/* Checkbox (select mode only) */}
@@ -227,14 +223,12 @@ export default function DashboardPage() {
                     <div
                       className={`absolute top-3 left-3 w-5 h-5 rounded border flex items-center justify-center transition-colors ${
                         isSelected
-                          ? 'border-accent bg-accent'
-                          : 'border-border-subtle'
+                          ? 'border-stitch-primary bg-stitch-primary'
+                          : 'border-stitch-outline-variant'
                       }`}
                     >
                       {isSelected && (
-                        <svg className="w-3.5 h-3.5 text-gray-50" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                        </svg>
+                        <span className="material-symbols-outlined text-stitch-on-primary" style={{ fontSize: '14px' }}>check</span>
                       )}
                     </div>
                   )}
@@ -246,21 +240,19 @@ export default function DashboardPage() {
                         e.stopPropagation()
                         setDeleteTarget({ id: project.id, name: project.name })
                       }}
-                      className="absolute top-3 right-3 p-1.5 rounded-lg text-text-tertiary hover:text-error hover:bg-error/10 opacity-0 group-hover:opacity-100 transition-all"
+                      className="absolute top-3 right-3 p-1.5 rounded-lg text-text-tertiary hover:text-stitch-error hover:bg-stitch-error-container/10 opacity-0 group-hover:opacity-100 transition-all"
                       title="Delete project"
                     >
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                      </svg>
+                      <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>close</span>
                     </button>
                   )}
                   {selectMode ? (
                     <div className="pl-4">
                       <div className="flex items-start justify-between mb-3">
-                        <h3 className="text-base font-semibold text-text-primary">{project.name}</h3>
+                        <h3 className="text-sm font-semibold text-white">{project.name}</h3>
                         <Badge color={badgeColor} label={project.status} />
                       </div>
-                      <p className="text-sm text-text-secondary mt-1 mb-4 line-clamp-2">{project.description}</p>
+                      <p className="text-xs text-text-secondary mt-1 mb-4 line-clamp-2">{project.description}</p>
                       <div className="flex items-center justify-between text-xs text-text-tertiary">
                         <span>{phaseCount} phase{phaseCount !== 1 ? 's' : ''}</span>
                         <span>{new Date(project.updated_at).toLocaleDateString()}</span>
@@ -272,10 +264,12 @@ export default function DashboardPage() {
                       className="block cursor-pointer"
                     >
                       <div className="flex items-start justify-between mb-3 pr-6">
-                        <h3 className="text-base font-semibold text-text-primary">{project.name}</h3>
-                        <Badge color={badgeColor} label={project.status} />
+                        <h4 className="text-sm font-semibold text-white leading-snug">{project.name}</h4>
+                        <span className="px-2 py-0.5 rounded-full bg-stitch-secondary-container text-stitch-on-secondary-container text-[10px] font-bold">
+                          {project.status}
+                        </span>
                       </div>
-                      <p className="text-sm text-text-secondary mt-1 mb-4 line-clamp-2 leading-relaxed">{project.description}</p>
+                      <p className="text-xs text-text-secondary mt-1 mb-4 line-clamp-2 leading-relaxed">{project.description}</p>
 
                       {/* Task distribution bar */}
                       {(() => {
@@ -291,23 +285,23 @@ export default function DashboardPage() {
                         return (
                           <div className="mb-3">
                             <div className="flex items-center gap-2 mb-1.5">
-                              <div className="flex-1 h-1.5 rounded-full bg-bg-hover overflow-hidden flex">
-                                <div className="h-full bg-success rounded-l-full" style={{ width: `${pctDone}%` }} />
-                                <div className="h-full bg-accent" style={{ width: `${pctInProgress}%` }} />
+                              <div className="flex-1 h-1.5 rounded-full bg-stitch-surface-lowest overflow-hidden flex">
+                                <div className="h-full bg-stitch-primary rounded-l-full" style={{ width: `${pctDone}%` }} />
+                                <div className="h-full bg-stitch-secondary" style={{ width: `${pctInProgress}%` }} />
                               </div>
                               <span className="text-xs font-medium text-text-secondary">{pctDone}%</span>
                             </div>
-                            <div className="flex items-center gap-3 text-xs text-text-muted">
+                            <div className="flex items-center gap-3 text-xs text-text-tertiary">
                               <span>{total} tasks</span>
                               {summary.bug_count > 0 && (
-                                <span className="flex items-center gap-0.5 text-error">
-                                  <Bug size={11} />
+                                <span className="flex items-center gap-0.5 text-stitch-error">
+                                  <span className="material-symbols-outlined" style={{ fontSize: '12px' }}>bug_report</span>
                                   {summary.bug_count}
                                 </span>
                               )}
                               {summary.has_architect_session && (
-                                <span className="flex items-center gap-0.5 text-accent">
-                                  <MessageSquare size={11} />
+                                <span className="flex items-center gap-0.5 text-stitch-primary">
+                                  <span className="material-symbols-outlined" style={{ fontSize: '12px' }}>architecture</span>
                                   Architect
                                 </span>
                               )}
@@ -316,9 +310,12 @@ export default function DashboardPage() {
                         )
                       })()}
 
-                      <div className="flex items-center justify-between text-xs text-text-muted pt-2 border-t border-border/50">
+                      <div className="flex items-center justify-between text-xs text-text-tertiary pt-2 border-t border-stitch-outline-variant/10">
                         <span>{phaseCount} phase{phaseCount !== 1 ? 's' : ''}</span>
-                        <span>{new Date(project.updated_at).toLocaleDateString()}</span>
+                        <span className="flex items-center gap-1">
+                          <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>event</span>
+                          {new Date(project.updated_at).toLocaleDateString()}
+                        </span>
                       </div>
                     </Link>
                   )}
@@ -344,7 +341,7 @@ export default function DashboardPage() {
               size="sm"
               loading={deleteMutation.isPending}
               onClick={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}
-              className="!bg-error hover:!bg-error/80"
+              className="!bg-stitch-error-container hover:!bg-stitch-error-container/80 !text-stitch-error"
             >
               Delete
             </Button>
@@ -352,7 +349,7 @@ export default function DashboardPage() {
         }
       >
         <p className="text-text-secondary text-sm">
-          Are you sure you want to delete <strong className="text-text-primary">{deleteTarget?.name}</strong>?
+          Are you sure you want to delete <strong className="text-white">{deleteTarget?.name}</strong>?
           This will permanently remove the project and all its phases, tasks, and history.
         </p>
       </Modal>
@@ -372,7 +369,7 @@ export default function DashboardPage() {
               size="sm"
               loading={batchDeleteMutation.isPending}
               onClick={() => batchDeleteMutation.mutate([...selectedIds])}
-              className="!bg-error hover:!bg-error/80"
+              className="!bg-stitch-error-container hover:!bg-stitch-error-container/80 !text-stitch-error"
             >
               Delete {selectedIds.size} Projects
             </Button>
@@ -380,7 +377,7 @@ export default function DashboardPage() {
         }
       >
         <p className="text-text-secondary text-sm">
-          Are you sure you want to delete <strong className="text-text-primary">{selectedIds.size} projects</strong>?
+          Are you sure you want to delete <strong className="text-white">{selectedIds.size} projects</strong>?
           This will permanently remove all selected projects and their phases, tasks, and history.
         </p>
       </Modal>

@@ -1,12 +1,11 @@
 import { useState } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Bot, Settings, LogOut } from 'lucide-react'
 import { SettingsModal } from './SettingsModal'
 import { useAuthStore } from '../../stores/authStore'
 
 const navItems = [
-  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { to: '/architect', label: 'New Project', icon: Bot },
+  { to: '/dashboard', label: 'Projects', icon: 'folder_open' },
+  { to: '/architect', label: 'Architect', icon: 'architecture' },
 ]
 
 export default function Sidebar() {
@@ -27,21 +26,23 @@ export default function Sidebar() {
   }
 
   return (
-    <aside className="w-[200px] bg-bg-surface border-r border-border h-screen flex flex-col">
+    <aside className="w-64 bg-stitch-surface-low h-screen flex flex-col py-6 px-4 shrink-0">
       {/* Logo area */}
-      <div className="p-4 mb-2">
-        <div className="flex items-center gap-3">
-          <div className="bg-accent w-8 h-8 rounded-lg flex items-center justify-center shadow-md shadow-accent/20">
-            <span className="text-gray-50 text-sm font-bold">B</span>
-          </div>
-          <span className="text-text-primary text-sm font-bold tracking-tight">BSNexus</span>
+      <div className="mb-10 px-2 flex items-center gap-3">
+        <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-stitch-primary to-stitch-primary-container flex items-center justify-center">
+          <span className="material-symbols-outlined text-stitch-on-primary-container" style={{ fontVariationSettings: "'FILL' 1" }}>
+            architecture
+          </span>
+        </div>
+        <div>
+          <h1 className="text-xl font-bold tracking-[-0.04em] text-accent-text">BSNexus</h1>
+          <p className="text-[10px] uppercase tracking-widest text-text-secondary font-bold">Agent Orchestrator</p>
         </div>
       </div>
 
       {/* Navigation */}
-      <nav className="flex flex-col gap-1 px-3">
+      <nav className="flex-1 space-y-1">
         {navItems.map((item) => {
-          const Icon = item.icon
           const active = isActive(item.to)
 
           return (
@@ -49,41 +50,51 @@ export default function Sidebar() {
               key={item.to}
               to={item.to}
               end={item.to === '/dashboard'}
-              className={`flex items-center gap-3 px-3 py-2.5 text-sm font-medium transition-all rounded-lg ${
+              className={`flex items-center gap-3 px-3 py-2.5 text-sm tracking-tight transition-colors rounded-lg ${
                 active
-                  ? 'bg-accent/15 text-accent-text shadow-sm'
-                  : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary'
+                  ? 'text-accent-text font-semibold bg-stitch-surface-container'
+                  : 'text-text-secondary font-medium hover:text-accent-text hover:bg-stitch-surface-container'
               }`}
             >
-              <Icon size={18} />
+              <span
+                className="material-symbols-outlined"
+                style={active ? { fontVariationSettings: "'FILL' 1" } : undefined}
+              >
+                {item.icon}
+              </span>
               {item.label}
             </NavLink>
           )
         })}
-      </nav>
 
-      {/* Bottom section */}
-      <div className="mt-auto px-3 pb-4 flex flex-col gap-0.5">
-        {user?.email && (
-          <div className="px-3 py-2 text-xs text-text-tertiary truncate" title={user.email}>
-            {user.email}
-          </div>
-        )}
         <button
           type="button"
           onClick={() => setSettingsOpen(true)}
-          className="flex items-center gap-3 px-3 py-2.5 text-sm text-text-secondary hover:bg-bg-hover hover:text-text-primary rounded-lg cursor-pointer transition-colors w-full"
+          className="flex items-center gap-3 px-3 py-2.5 text-sm text-text-secondary font-medium hover:text-accent-text hover:bg-stitch-surface-container rounded-lg cursor-pointer transition-colors w-full"
         >
-          <Settings size={18} />
+          <span className="material-symbols-outlined">settings</span>
           Settings
         </button>
+      </nav>
+
+      {/* Bottom section: user profile */}
+      <div className="mt-auto p-3 bg-stitch-surface-container rounded-xl flex items-center gap-3">
+        <div className="w-10 h-10 rounded-full bg-stitch-surface-highest flex items-center justify-center shrink-0">
+          <span className="material-symbols-outlined text-text-secondary" style={{ fontSize: '20px' }}>person</span>
+        </div>
+        <div className="overflow-hidden flex-1 min-w-0">
+          <p className="text-sm font-bold truncate text-text-primary">
+            {user?.email?.split('@')[0] || 'User'}
+          </p>
+          <p className="text-xs text-text-secondary truncate">{user?.email || ''}</p>
+        </div>
         <button
           type="button"
           onClick={handleLogout}
-          className="flex items-center gap-3 px-3 py-2.5 text-sm text-error hover:bg-error/10 rounded-lg cursor-pointer transition-colors w-full"
+          className="text-text-tertiary hover:text-stitch-error transition-colors shrink-0"
+          title="Logout"
         >
-          <LogOut size={18} />
-          Logout
+          <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>logout</span>
         </button>
       </div>
 
