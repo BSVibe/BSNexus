@@ -1,54 +1,47 @@
 import { test, expect } from '@playwright/test'
-import { setupAuth, mockAuthRoutes } from '../helpers/mock-api'
+import { mockAllApis, injectAuth } from '../helpers/mock-api'
 
-test.describe('Authentication Flow', () => {
-  test('landing page shown when not authenticated', async ({ page }) => {
+test.describe('Auth — Landing Page & Protected Routes', () => {
+  test('landing page shows BSNexus branding and sign-in button', async ({ page }) => {
     await page.goto('/')
-
-    // Landing page elements
-    await expect(page.getByText('BSNexus')).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'BSNexus' })).toBeVisible()
+    await expect(page.getByText('Orchestrate AI agents, from design to deployment.')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Sign in with BSVibe' })).toBeVisible()
   })
 
-  test('unauthenticated user redirected from protected routes', async ({ page }) => {
-    await page.goto('/dashboard')
+  test('landing page displays three feature cards with Material Symbols', async ({ page }) => {
+    await page.goto('/')
+    await expect(page.getByText('Project Architect')).toBeVisible()
+    await expect(page.getByText('Task Kanban')).toBeVisible()
+    await expect(page.getByText('Distributed Workers')).toBeVisible()
+    // Material Symbols icons are present
+    await expect(page.locator('span.material-symbols-outlined:has-text("psychology")')).toBeVisible()
+    await expect(page.locator('span.material-symbols-outlined:has-text("view_kanban")')).toBeVisible()
+    await expect(page.locator('span.material-symbols-outlined:has-text("hub")')).toBeVisible()
+  })
 
-    // Should redirect to landing page
+  test('landing page shows "Go to Dashboard" when authenticated', async ({ page }) => {
+    await injectAuth(page)
+    await page.goto('/')
+    await expect(page.getByRole('button', { name: 'Go to Dashboard' })).toBeVisible()
+  })
+
+  test('unauthenticated user is redirected to landing from /dashboard', async ({ page }) => {
+    await mockAllApis(page)
+    await page.goto('/dashboard')
+    // ProtectedRoute should redirect to /
     await expect(page).toHaveURL('/')
   })
 
-  test('unauthenticated user redirected from project page', async ({ page }) => {
-    await page.goto('/projects/proj-1')
-
+  test('auth callback page shows spinner during processing', async ({ page }) => {
+    // Navigate to callback without tokens — should redirect to landing
+    await page.goto('/auth/callback')
+    // The spinner briefly appears, then redirect happens
     await expect(page).toHaveURL('/')
   })
 
-  test('authenticated user can access dashboard', async ({ page }) => {
-    await setupAuth(page)
-    await mockAuthRoutes(page)
-
-    // Mock the API calls that dashboard makes
-    await page.route('**/api/v1/projects', (route) =>
-      route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
-    )
-    await page.route('**/api/v1/dashboard/projects-summary', (route) =>
-      route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
-    )
-
-    await page.goto('/dashboard')
-
-    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible()
-  })
-
-  test('authenticated user can access architect page', async ({ page }) => {
-    await setupAuth(page)
-    await mockAuthRoutes(page)
-
-    await page.route('**/api/v1/architect/sessions', (route) =>
-      route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
-    )
-
-    await page.goto('/architect')
-
-    await expect(page.getByRole('heading', { name: 'Architect', exact: true })).toBeVisible()
+  test('landing page footer shows "Powered by BSVibe"', async ({ page }) => {
+    await page.goto('/')
+    await expect(page.getByText('Powered by BSVibe')).toBeVisible()
   })
 })

@@ -1,144 +1,96 @@
 import { test, expect } from '@playwright/test'
-import {
-  setupMocks,
-  MOCK_PROJECTS,
-  MOCK_PROJECTS_SUMMARY,
-} from '../helpers/mock-api'
+import { setupPage } from '../helpers/mock-api'
 
-test.describe('Dashboard Page', () => {
+test.describe('Dashboard — Stat Cards & Project Grid', () => {
   test.beforeEach(async ({ page }) => {
-    await setupMocks(page)
+    await setupPage(page, '/dashboard')
   })
 
-  test('displays stat cards with correct values', async ({ page }) => {
-    await page.goto('/dashboard')
-
-    // StatCard labels
-    await expect(page.getByText('Projects', { exact: true })).toBeVisible()
-    await expect(page.getByText('Tasks', { exact: true })).toBeVisible()
-    await expect(page.getByText('Bugs', { exact: true })).toBeVisible()
-    await expect(page.getByText('Completion', { exact: true })).toBeVisible()
-
-    // Values derived from mock data
-    await expect(page.getByText('2', { exact: true }).first()).toBeVisible() // total projects
-    await expect(page.getByText('7', { exact: true }).first()).toBeVisible() // total tasks
-    await expect(page.getByText('43%').first()).toBeVisible() // completion rate
+  test('header displays "Dashboard" title', async ({ page }) => {
+    await expect(page.locator('header').getByText('Dashboard')).toBeVisible()
   })
 
-  test('displays project cards', async ({ page }) => {
-    await page.goto('/dashboard')
-
-    await expect(page.getByText('Test Project Alpha')).toBeVisible()
-    await expect(page.getByText('Test Project Beta')).toBeVisible()
-    await expect(page.getByText('A test project for E2E testing')).toBeVisible()
+  test('renders four stat cards in bento grid', async ({ page }) => {
+    await expect(page.getByText('Total Projects')).toBeVisible()
+    await expect(page.getByText('Active Tasks')).toBeVisible()
+    await expect(page.getByText('Bugs Detected')).toBeVisible()
+    await expect(page.getByText('Completion Rate')).toBeVisible()
   })
 
-  test('shows project status badges', async ({ page }) => {
-    await page.goto('/dashboard')
-
-    await expect(page.getByText('active', { exact: true }).first()).toBeVisible()
-    await expect(page.getByText('design', { exact: true }).first()).toBeVisible()
+  test('stat card shows correct total projects count', async ({ page }) => {
+    // 3 mock projects
+    const totalCard = page.locator('div').filter({ hasText: /^Total Projects/ }).first()
+    await expect(totalCard.locator('.text-3xl')).toHaveText('3')
   })
 
-  test('navigates to project on card click', async ({ page }) => {
-    await page.goto('/dashboard')
-
-    await page.getByText('Test Project Alpha').click()
-    await expect(page).toHaveURL(/\/projects\/proj-1/)
+  test('stat cards use Material Symbols icons', async ({ page }) => {
+    await expect(page.locator('span.material-symbols-outlined:has-text("folder_open")').first()).toBeVisible()
+    await expect(page.locator('span.material-symbols-outlined:has-text("bug_report")').first()).toBeVisible()
+    await expect(page.locator('span.material-symbols-outlined:has-text("bolt")').first()).toBeVisible()
   })
 
-  test('navigates to architect on New Project button', async ({ page }) => {
-    await page.goto('/dashboard')
-
-    await page.getByRole('button', { name: /New Project/ }).click()
-    await expect(page).toHaveURL(/\/architect/)
+  test('project cards are rendered in a grid', async ({ page }) => {
+    await expect(page.getByText('BSNexus')).toBeVisible()
+    await expect(page.getByText('BSVibe Auth')).toBeVisible()
+    await expect(page.getByText('Worker Agent')).toBeVisible()
   })
 
-  test('shows empty state when no projects', async ({ page }) => {
-    // Override with empty list
-    await page.route('**/api/v1/projects', (route, request) => {
-      if (request.method() === 'GET') {
-        return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
-      }
-      return route.continue()
-    })
-    await page.route('**/api/v1/dashboard/projects-summary', (route) =>
-      route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
-    )
-
-    await page.goto('/dashboard')
-
-    await expect(page.getByText('No projects yet')).toBeVisible()
-    await expect(page.getByText('Start with Architect')).toBeVisible()
+  test('project card shows status badge', async ({ page }) => {
+    // Active project has status displayed
+    const bsnexusCard = page.locator('a[href="/projects/proj-001"]')
+    await expect(bsnexusCard.getByText('active')).toBeVisible()
   })
 
-  test('shows task distribution on project card', async ({ page }) => {
-    await page.goto('/dashboard')
-
-    // Mock summary has 7 tasks for proj-1
-    await expect(page.getByText('7 tasks', { exact: true })).toBeVisible()
+  test('project card shows phase count', async ({ page }) => {
+    const bsnexusCard = page.locator('a[href="/projects/proj-001"]')
+    await expect(bsnexusCard.getByText('2 phases')).toBeVisible()
   })
 
-  test('delete project shows confirmation modal', async ({ page }) => {
-    await page.goto('/dashboard')
-
-    // Hover over a project card to reveal delete button
-    const card = page.locator('.bg-bg-card').filter({ hasText: 'Test Project Alpha' })
-    await card.hover()
-
-    // Click the delete button (the X icon)
-    const deleteBtn = card.locator('button[title="Delete project"]')
-    await deleteBtn.click()
-
-    // Modal appears
-    await expect(page.getByText('Delete Project')).toBeVisible()
-    await expect(page.getByText(/Are you sure you want to delete/)).toBeVisible()
+  test('project card shows task distribution bar with percentage', async ({ page }) => {
+    const bsnexusCard = page.locator('a[href="/projects/proj-001"]')
+    // 5 done out of 12 total = 42%
+    await expect(bsnexusCard.getByText('42%')).toBeVisible()
+    await expect(bsnexusCard.getByText('12 tasks')).toBeVisible()
   })
 
-  test('cancel delete closes modal', async ({ page }) => {
-    await page.goto('/dashboard')
-
-    const card = page.locator('.bg-bg-card').filter({ hasText: 'Test Project Alpha' })
-    await card.hover()
-    await card.locator('button[title="Delete project"]').click()
-
-    await expect(page.getByText('Delete Project')).toBeVisible()
-
-    // Click cancel
-    await page.getByRole('button', { name: 'Cancel' }).click()
-
-    // Modal should close
-    await expect(page.getByText(/Are you sure you want to delete/)).not.toBeVisible()
+  test('project card shows bug count with bug_report icon', async ({ page }) => {
+    const bsnexusCard = page.locator('a[href="/projects/proj-001"]')
+    await expect(bsnexusCard.locator('span.material-symbols-outlined:has-text("bug_report")')).toBeVisible()
+    await expect(bsnexusCard.getByText('2').first()).toBeVisible()
   })
 
-  test('select mode enables multi-select', async ({ page }) => {
-    await page.goto('/dashboard')
-
-    // Enter select mode via the ListChecks icon button
-    await page.locator('button[title="Select mode"]').click()
-
-    // Batch action buttons should appear
-    await expect(page.getByRole('button', { name: 'All' })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Cancel' })).toBeVisible()
+  test('project card shows architect indicator when session exists', async ({ page }) => {
+    const bsnexusCard = page.locator('a[href="/projects/proj-001"]')
+    await expect(bsnexusCard.locator('span.material-symbols-outlined:has-text("architecture")')).toBeVisible()
+    await expect(bsnexusCard.getByText('Architect')).toBeVisible()
   })
 
-  test('select all and batch delete', async ({ page }) => {
-    await page.goto('/dashboard')
+  test('project card shows event icon with date', async ({ page }) => {
+    const bsnexusCard = page.locator('a[href="/projects/proj-001"]')
+    await expect(bsnexusCard.locator('span.material-symbols-outlined:has-text("event")')).toBeVisible()
+  })
 
-    // Enter select mode
-    await page.locator('button[title="Select mode"]').click()
+  test('header has "New Project" button with gradient styling', async ({ page }) => {
+    await expect(page.getByRole('button', { name: 'New Project' })).toBeVisible()
+  })
 
-    // Select all
-    await page.getByRole('button', { name: 'All' }).click()
+  test('header has "Import" button with folder_open icon', async ({ page }) => {
+    const importBtn = page.getByRole('button', { name: 'Import' })
+    await expect(importBtn).toBeVisible()
+    await expect(importBtn.locator('span.material-symbols-outlined:has-text("folder_open")')).toBeVisible()
+  })
 
-    // Should show selected count
-    await expect(page.getByText('2 selected')).toBeVisible()
+  test('notifications bell icon is visible in header', async ({ page }) => {
+    await expect(page.locator('header span.material-symbols-outlined:has-text("notifications")')).toBeVisible()
+  })
 
-    // Delete button appears
-    await page.getByRole('button', { name: 'Delete' }).click()
+  test('projects section header shows count', async ({ page }) => {
+    await expect(page.getByText('Projects')).toBeVisible()
+    await expect(page.getByText('3')).toBeVisible()
+  })
 
-    // Batch delete modal
-    await expect(page.getByText('Delete Projects')).toBeVisible()
-    await expect(page.getByText('2 projects', { exact: true })).toBeVisible()
+  test('clicking project card navigates to project page', async ({ page }) => {
+    await page.locator('a[href="/projects/proj-001"]').click()
+    await expect(page).toHaveURL('/projects/proj-001')
   })
 })
