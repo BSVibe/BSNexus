@@ -342,7 +342,7 @@ export default function ArchitectPage() {
             </div>
           </div>
 
-          {/* Input area (Stitch bottom input bar) */}
+          {/* Input area */}
           {!showFinalizePanel && (
             <div className="p-6 bg-gradient-to-t from-stitch-surface via-stitch-surface to-transparent">
               <div className="max-w-4xl mx-auto">

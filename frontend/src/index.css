@@ -4,7 +4,7 @@
 
 @layer base {
   :root {
-    /* Neural Architect Design System (Stitch) */
+    /* BSNexus Design Tokens */
 
     /* Background tokens */
     --bg-primary: #121317;
@@ -50,7 +50,7 @@
     --color-warning-muted: #723600;
     --color-info: #b1c6f9;
 
-    /* Stitch Material tokens */
+    /* Material surface tokens */
     --stitch-surface: #121317;
     --stitch-surface-container-low: #1a1b20;
     --stitch-surface-container: #1f1f24;

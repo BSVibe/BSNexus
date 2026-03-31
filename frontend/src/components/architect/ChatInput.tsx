@@ -54,7 +54,7 @@ export default function ChatInput({ onSend, disabled }: Props) {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Orchestrate your next move..."
+          placeholder="Describe your project idea..."
           disabled={disabled}
           rows={1}
           className="w-full bg-transparent border-none focus:ring-0 text-sm py-3 px-2 resize-none max-h-48 placeholder:text-text-muted text-text-primary"

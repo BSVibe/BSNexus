@@ -27,7 +27,7 @@ export default function ChatMessage({ message }: Props) {
   const isAssistant = message.role === 'assistant'
 
   if (!isAssistant) {
-    // User message (Stitch style: right-aligned, dark bg, rounded)
+    // User message: right-aligned, dark bg, rounded
     return (
       <div className="flex justify-end w-full">
         <div className="max-w-[80%] bg-[#262626] rounded-2xl rounded-tr-none px-5 py-4 shadow-lg">
@@ -40,7 +40,7 @@ export default function ChatMessage({ message }: Props) {
     )
   }
 
-  // AI message (Stitch style: left-aligned, bordered, with icon header)
+  // AI message: left-aligned, bordered, with icon header
   return (
     <div className="flex justify-start w-full">
       <div className="max-w-[90%] bg-[#171717] border border-stitch-primary/10 rounded-2xl rounded-tl-none px-6 py-6 shadow-xl space-y-4">

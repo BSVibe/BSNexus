@@ -238,7 +238,7 @@ function ProjectContent({ projectId }: { projectId: string }) {
           </div>
         </div>
 
-        {/* Right panel: Architect Chat (Stitch Drawer style) */}
+        {/* Right panel: Architect Chat drawer */}
         {chatOpen && (
           <aside className="w-80 h-full bg-stitch-surface-low border-l border-stitch-outline-variant/10 flex flex-col shrink-0">
             <div className="py-6 px-5">
