@@ -199,7 +199,7 @@ function ProjectContent({ projectId }: { projectId: string }) {
         <div className="flex-1 flex flex-col overflow-hidden">
           <div className="px-8 pt-6">
             {/* Project header */}
-            <div className="flex items-end justify-between gap-6 mb-6">
+            <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-8">
               <div>
                 <div className="flex items-center gap-3 mb-2">
                   <h2 className="text-4xl font-extrabold tracking-[-0.04em] text-white">{project?.name || 'Project'}</h2>
@@ -208,7 +208,7 @@ function ProjectContent({ projectId }: { projectId: string }) {
                   </span>
                 </div>
                 {project?.description && (
-                  <p className="text-text-secondary max-w-2xl">{project.description}</p>
+                  <p className="text-text-secondary max-w-2xl leading-relaxed">{project.description}</p>
                 )}
               </div>
               <div className="flex items-center gap-3">

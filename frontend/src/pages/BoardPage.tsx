@@ -88,7 +88,7 @@ function BoardContent({ projectId }: { projectId: string }) {
       {isRedesigning ? (
         <RedesignView tasks={redesignTasks as Task[]} onDone={handleRedesignDone} />
       ) : (
-        <div className="p-6">
+        <div className="flex-1 flex flex-col overflow-hidden p-8">
           {/* PM Control */}
           <div className="mb-4">
             <PMControl projectId={projectId} />
@@ -98,7 +98,9 @@ function BoardContent({ projectId }: { projectId: string }) {
           <BoardStats projectName={project?.name} />
 
           {/* Kanban board */}
-          <KanbanBoard columns={columns} onTaskClick={(task: Task) => setSelectedTask(task)} />
+          <div className="flex-1 overflow-x-auto overflow-y-hidden">
+            <KanbanBoard columns={columns} onTaskClick={(task: Task) => setSelectedTask(task)} />
+          </div>
 
           {/* Task detail modal */}
           {selectedTask && <TaskDetail task={selectedTask as Task} onClose={() => setSelectedTask(null)} />}

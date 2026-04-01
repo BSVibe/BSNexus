@@ -135,7 +135,7 @@ export default function DashboardPage() {
           </button>
         </div>
       } />
-      <div className="flex-1 overflow-auto p-8">
+      <div className="flex-1 overflow-auto p-8 max-w-[1600px] mx-auto w-full">
         {/* Stat Cards (Bento-style) */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10">
           <StatCard label="Total Projects" value={stats.totalProjects} icon="folder_open" />

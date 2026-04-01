@@ -17,7 +17,7 @@ export default function BoardStats({ projectName }: Props) {
   const { total, done, completionRate } = getBoardStats()
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+    <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10">
       <div className="bg-stitch-surface-low p-5 rounded-xl flex flex-col justify-between h-32 border border-stitch-outline-variant/10">
         <span className="text-xs uppercase tracking-widest text-text-secondary font-bold">Completion</span>
         <div className="flex items-end justify-between">
