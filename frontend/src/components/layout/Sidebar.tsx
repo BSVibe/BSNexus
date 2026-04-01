@@ -51,9 +51,9 @@ export default function Sidebar() {
               key={item.to}
               to={item.to}
               end={item.to === '/dashboard'}
-              className={`flex items-center gap-3 px-3 py-2.5 text-sm tracking-tight transition-colors rounded-lg ${
+              className={`flex items-center gap-3 px-3 py-2.5 text-sm tracking-tight transition-all duration-200 rounded-lg ${
                 active
-                  ? 'text-accent-text font-semibold bg-stitch-surface-container'
+                  ? 'text-stitch-primary font-semibold bg-stitch-surface-highest shadow-[0_0_15px_rgba(133,173,255,0.1)]'
                   : 'text-text-secondary font-medium hover:text-accent-text hover:bg-stitch-surface-container'
               }`}
             >
