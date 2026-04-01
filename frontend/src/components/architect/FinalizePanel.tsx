@@ -97,7 +97,7 @@ export default function FinalizePanel({ designSummary, onConfirm, onCancel, onGo
               </ReactMarkdown>
             </div>
 
-            <div className="border-t border-border-subtle pt-4">
+            <div className="border-t border-stitch-outline-variant/10 pt-4">
               <label className="block text-sm font-medium text-text-primary mb-1">
                 Repository Path
               </label>
@@ -109,7 +109,7 @@ export default function FinalizePanel({ designSummary, onConfirm, onCancel, onGo
                 value={repoPath}
                 onChange={(e) => setRepoPath(e.target.value)}
                 placeholder="/home/user/projects/my-project"
-                className="w-full rounded-md border border-border bg-bg-input px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent"
+                className="w-full rounded-md border border-stitch-outline-variant/20 bg-stitch-surface-low px-3 py-2 text-sm text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-2 focus:ring-stitch-primary"
               />
             </div>
           </>
@@ -117,7 +117,7 @@ export default function FinalizePanel({ designSummary, onConfirm, onCancel, onGo
 
         {phase === 'loading' && (
           <div className="flex flex-col items-center justify-center py-16 gap-4">
-            <svg className="animate-spin h-8 w-8 text-accent" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <svg className="animate-spin h-8 w-8 text-stitch-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
             </svg>
@@ -134,7 +134,7 @@ export default function FinalizePanel({ designSummary, onConfirm, onCancel, onGo
             <p className="text-sm text-text-secondary">{project.description}</p>
 
             {project.phases.map((ph) => (
-              <div key={ph.id} className="border-t border-border-subtle pt-3">
+              <div key={ph.id} className="border-t border-stitch-outline-variant/10 pt-3">
                 <div className="flex items-center gap-2 mb-1">
                   <span className="text-sm font-semibold text-text-primary">Phase {ph.order}: {ph.name}</span>
                   <Badge color="blocked" label={ph.status} />
@@ -149,7 +149,7 @@ export default function FinalizePanel({ designSummary, onConfirm, onCancel, onGo
 
         {phase === 'error' && (
           <div className="py-8">
-            <div className="rounded-md bg-error-muted/50 border border-error/30 px-4 py-3 text-sm text-error">
+            <div className="rounded-md bg-stitch-error-container/10 border border-stitch-error/30 px-4 py-3 text-sm text-stitch-error">
               {error}
             </div>
           </div>
@@ -157,7 +157,7 @@ export default function FinalizePanel({ designSummary, onConfirm, onCancel, onGo
       </div>
 
       {/* Footer */}
-      <div className="px-6 py-4 border-t border-border-subtle flex justify-end gap-3">
+      <div className="px-6 py-4 border-t border-stitch-outline-variant/10 flex justify-end gap-3">
         {phase === 'review' && (
           <>
             <Button variant="secondary" onClick={onCancel}>Cancel</Button>

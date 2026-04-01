@@ -83,10 +83,10 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
     >
       <div className="space-y-6">
         {error && (
-          <p className="text-sm text-error">{error}</p>
+          <p className="text-sm text-stitch-error">{error}</p>
         )}
         {loading ? (
-          <p className="text-sm text-text-muted py-4 text-center">Loading settings...</p>
+          <p className="text-sm text-text-tertiary py-4 text-center">Loading settings...</p>
         ) : (
           <div>
             <h3 className="text-sm font-medium text-text-primary mb-4">LLM Configuration</h3>
@@ -101,10 +101,10 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
                     setSettings(s => ({ ...s, api_key: e.target.value }))
                   }}
                   placeholder="sk-..."
-                  className="w-full px-3 py-2 bg-bg-input border border-border rounded-md text-text-primary text-sm placeholder:text-text-muted focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+                  className="w-full px-3 py-2 bg-stitch-surface-low border border-stitch-outline-variant/20 rounded-md text-text-primary text-sm placeholder:text-text-tertiary focus:outline-none focus:border-stitch-primary focus:ring-1 focus:ring-stitch-primary"
                 />
                 {settings.api_key && !apiKeyTouched && (
-                  <p className="mt-1 text-xs text-text-muted">Saved (masked). Enter a new key to change it.</p>
+                  <p className="mt-1 text-xs text-text-tertiary">Saved (masked). Enter a new key to change it.</p>
                 )}
               </div>
               <div>
@@ -114,7 +114,7 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
                   value={settings.model}
                   onChange={e => setSettings(s => ({ ...s, model: e.target.value }))}
                   placeholder="anthropic/claude-sonnet-4-20250514"
-                  className="w-full px-3 py-2 bg-bg-input border border-border rounded-md text-text-primary text-sm placeholder:text-text-muted focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+                  className="w-full px-3 py-2 bg-stitch-surface-low border border-stitch-outline-variant/20 rounded-md text-text-primary text-sm placeholder:text-text-tertiary focus:outline-none focus:border-stitch-primary focus:ring-1 focus:ring-stitch-primary"
                 />
               </div>
               <div>
@@ -124,7 +124,7 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
                   value={settings.base_url}
                   onChange={e => setSettings(s => ({ ...s, base_url: e.target.value }))}
                   placeholder="https://your-litellm-proxy.com"
-                  className="w-full px-3 py-2 bg-bg-input border border-border rounded-md text-text-primary text-sm placeholder:text-text-muted focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+                  className="w-full px-3 py-2 bg-stitch-surface-low border border-stitch-outline-variant/20 rounded-md text-text-primary text-sm placeholder:text-text-tertiary focus:outline-none focus:border-stitch-primary focus:ring-1 focus:ring-stitch-primary"
                 />
               </div>
             </div>

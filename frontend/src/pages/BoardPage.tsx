@@ -20,14 +20,14 @@ export default function BoardPage() {
       <>
         <Header title="Board" />
         <div className="p-8">
-          <div className="rounded-xl border border-dashed border-border/40 p-16 text-center">
+          <div className="rounded-xl border border-dashed border-stitch-outline-variant/30 p-16 text-center">
             <p className="text-text-secondary mb-4">
               Select a project from the Dashboard to view its board.
             </p>
             <button
               type="button"
               onClick={() => navigate('/')}
-              className="text-sm text-accent hover:text-accent-hover hover:underline transition-colors"
+              className="text-sm text-stitch-primary hover:underline transition-colors"
             >
               Go to Dashboard
             </button>
@@ -62,7 +62,7 @@ function BoardContent({ projectId }: { projectId: string }) {
       <>
         <Header title="Board" />
         <div className="flex items-center justify-center h-64">
-          <div className="animate-spin rounded-full h-8 w-8 border-2 border-accent border-t-transparent" />
+          <div className="animate-spin rounded-full h-8 w-8 border-2 border-stitch-primary border-t-transparent" />
         </div>
       </>
     )
@@ -74,7 +74,7 @@ function BoardContent({ projectId }: { projectId: string }) {
         title={project?.name || 'Board'}
         action={
           <div className="flex items-center gap-2.5">
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-bg-elevated border border-border/30">
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-stitch-surface-container border border-stitch-outline-variant/20">
               <span
                 className="inline-block w-1.5 h-1.5 rounded-full"
                 style={{ backgroundColor: isConnected ? 'var(--status-done)' : 'var(--status-redesign)' }}
@@ -86,7 +86,7 @@ function BoardContent({ projectId }: { projectId: string }) {
       />
 
       {isRedesigning ? (
-        <RedesignView tasks={redesignTasks} onDone={handleRedesignDone} />
+        <RedesignView tasks={redesignTasks as Task[]} onDone={handleRedesignDone} />
       ) : (
         <div className="p-6">
           {/* PM Control */}
@@ -101,7 +101,7 @@ function BoardContent({ projectId }: { projectId: string }) {
           <KanbanBoard columns={columns} onTaskClick={(task: Task) => setSelectedTask(task)} />
 
           {/* Task detail modal */}
-          {selectedTask && <TaskDetail task={selectedTask} onClose={() => setSelectedTask(null)} />}
+          {selectedTask && <TaskDetail task={selectedTask as Task} onClose={() => setSelectedTask(null)} />}
         </div>
       )}
     </>

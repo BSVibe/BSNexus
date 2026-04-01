@@ -36,7 +36,7 @@ export default function Sidebar() {
         </div>
         <div>
           <h1 className="text-xl font-bold tracking-[-0.04em] text-accent-text">BSNexus</h1>
-          <p className="text-[10px] uppercase tracking-widest text-text-secondary font-bold">AI Dev Platform</p>
+          <p className="text-[10px] uppercase tracking-widest text-text-secondary font-bold">Agent Orchestrator</p>
         </div>
       </div>
 

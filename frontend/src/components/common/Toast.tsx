@@ -8,9 +8,9 @@ const iconMap: Record<ToastType['type'], string> = {
 }
 
 const colorMap: Record<ToastType['type'], string> = {
-  error: 'bg-error',
-  success: 'bg-success',
-  info: 'bg-accent',
+  error: 'bg-stitch-error',
+  success: 'bg-stitch-primary',
+  info: 'bg-stitch-secondary',
 }
 
 export function ToastContainer() {
