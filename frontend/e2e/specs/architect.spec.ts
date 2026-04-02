@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { setupPage, injectAuth, mockAllApis } from '../helpers/mock-api'
+import { setupPage } from '../helpers/mock-api'
 
 test.describe('Architect — Chat Interface & Sessions', () => {
   test('shows empty state with BSNexus Architect branding', async ({ page }) => {
