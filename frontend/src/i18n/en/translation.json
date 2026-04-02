@@ -1,0 +1,46 @@
+{
+  "nav": {
+    "dashboard": "Dashboard",
+    "projects": "Projects",
+    "architect": "Architect",
+    "board": "Board",
+    "settings": "Settings",
+    "logout": "Logout"
+  },
+  "common": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "create": "Create",
+    "search": "Search",
+    "loading": "Loading...",
+    "error": "An error occurred",
+    "noData": "No data available",
+    "confirm": "Confirm"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "activeProjects": "Active Projects",
+    "completedTasks": "Completed Tasks",
+    "totalAgents": "Total Agents"
+  },
+  "architect": {
+    "title": "Architect",
+    "placeholder": "Type your message...",
+    "send": "Send",
+    "thinking": "Thinking..."
+  },
+  "board": {
+    "title": "Board",
+    "backlog": "Backlog",
+    "inProgress": "In Progress",
+    "review": "Review",
+    "done": "Done"
+  },
+  "help": {
+    "button": "Help",
+    "close": "Close",
+    "viewDocs": "View Docs"
+  }
+}
