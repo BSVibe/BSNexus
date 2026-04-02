@@ -123,7 +123,7 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
                   type="text"
                   value={settings.base_url}
                   onChange={e => setSettings(s => ({ ...s, base_url: e.target.value }))}
-                  placeholder="https://your-litellm-proxy.com"
+                  placeholder="https://your-api.example.com"
                   className="w-full px-3 py-2 bg-stitch-surface-low border border-stitch-outline-variant/20 rounded-md text-text-primary text-sm placeholder:text-text-tertiary focus:outline-none focus:border-stitch-primary focus:ring-1 focus:ring-stitch-primary"
                 />
               </div>
