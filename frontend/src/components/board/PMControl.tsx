@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { pmApi } from '../../api/pm'
-import { Button, Badge } from '../common'
+import { Badge } from '../common'
 
 interface Props {
   projectId: string
@@ -55,9 +55,9 @@ export default function PMControl({ projectId }: Props) {
   const isRunning = status?.running ?? false
 
   return (
-    <div className="rounded-lg border border-border bg-bg-surface p-4">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-text-primary">PM Control</h3>
+    <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2">
+        <span className="text-xs font-bold uppercase tracking-widest text-text-secondary">PM</span>
         {isRunning ? (
           <Badge color="in_progress" label="Running" />
         ) : (
@@ -65,47 +65,40 @@ export default function PMControl({ projectId }: Props) {
         )}
       </div>
 
-      <div className="flex gap-2 mb-3">
+      <div className="flex gap-2">
         {isRunning ? (
-          <Button
-            variant="secondary"
+          <button
             onClick={() => pauseMutation.mutate()}
             disabled={pauseMutation.isPending}
-            size="sm"
-            className="flex-1"
+            className="bg-stitch-surface-highest text-text-primary px-3 py-1.5 rounded-md text-xs font-semibold hover:opacity-80 transition-opacity disabled:opacity-50 flex items-center gap-1.5"
           >
+            <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>pause</span>
             Pause
-          </Button>
+          </button>
         ) : (
-          <Button
-            variant="secondary"
+          <button
             onClick={() => startMutation.mutate()}
             disabled={startMutation.isPending}
-            size="sm"
-            className="flex-1"
+            className="bg-stitch-surface-highest text-text-primary px-3 py-1.5 rounded-md text-xs font-semibold hover:opacity-80 transition-opacity disabled:opacity-50 flex items-center gap-1.5"
           >
+            <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>play_arrow</span>
             Start
-          </Button>
+          </button>
         )}
-        <Button
-          variant="primary"
+        <button
           onClick={() => queueMutation.mutate()}
           disabled={queueMutation.isPending}
-          size="sm"
-          className="flex-1"
+          className="bg-gradient-to-r from-stitch-primary to-stitch-primary-container text-stitch-on-primary-container px-3 py-1.5 rounded-md text-xs font-bold shadow-lg shadow-stitch-primary/20 hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center gap-1.5"
         >
+          <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>queue</span>
           Queue Next
-        </Button>
+        </button>
       </div>
 
       {logs.length > 0 && (
-        <div className="border-t border-border-subtle pt-2">
-          <p className="text-xs font-medium text-text-secondary mb-1">Recent activity</p>
-          <div className="bg-bg-elevated rounded-md p-3 space-y-0.5">
-            {logs.map((log, i) => (
-              <p key={i} className="text-xs text-text-secondary">{log}</p>
-            ))}
-          </div>
+        <div className="flex items-center gap-2 text-[10px] text-text-tertiary">
+          <span className="material-symbols-outlined" style={{ fontSize: '12px' }}>info</span>
+          {logs[0]}
         </div>
       )}
     </div>

@@ -1,14 +1,6 @@
 import type { Task } from '../../types/task'
 import TaskCard from './TaskCard'
 
-const columnStatusColors: Record<string, string> = {
-  waiting: 'var(--status-waiting)',
-  ready: 'var(--status-ready)',
-  in_progress: 'var(--status-in-progress)',
-  review: 'var(--status-review)',
-  done: 'var(--status-done)',
-}
-
 interface Props {
   title: string
   status: string
@@ -17,26 +9,28 @@ interface Props {
 }
 
 export default function KanbanColumn({ title, status, tasks, onTaskClick }: Props) {
-  const statusColor = columnStatusColors[status] || columnStatusColors.waiting
+  const isDone = status === 'done'
 
   return (
-    <div className="flex-shrink-0 w-72 bg-bg-surface rounded-lg">
-      <div
-        className="mb-3 flex items-center justify-between rounded-t-lg border-l-4 bg-bg-elevated px-3 py-2"
-        style={{ borderLeftColor: statusColor }}
-      >
-        <h3 className="text-sm font-semibold text-text-primary">{title}</h3>
-        <span className="text-xs text-text-tertiary">
-          {tasks.length}
-        </span>
+    <div className={`w-80 flex flex-col ${isDone ? 'opacity-60' : ''}`}>
+      <div className="flex items-center justify-between mb-4 px-1">
+        <h3 className="text-xs font-bold uppercase tracking-[0.05em] text-text-secondary">
+          {title} <span className="ml-2 text-[10px] opacity-50">{tasks.length}</span>
+        </h3>
+        {status === 'waiting' && (
+          <button className="text-text-secondary hover:text-white">
+            <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>add</span>
+          </button>
+        )}
       </div>
-      <div className="space-y-2 max-h-[calc(100vh-16rem)] overflow-y-auto px-2 pb-2">
+      <div className="flex-1 space-y-4 overflow-y-auto pr-2">
         {tasks.map((task) => (
-          <TaskCard key={task.id} task={task} onClick={() => onTaskClick?.(task)} />
+          <TaskCard key={task.id} task={task} onClick={() => onTaskClick?.(task)} isDone={isDone} />
         ))}
         {tasks.length === 0 && (
-          <div className="rounded-lg border border-dashed border-border p-4 text-center text-xs text-text-muted">
-            No tasks
+          <div className="flex flex-col items-center justify-center py-10 text-text-muted">
+            <span className="material-symbols-outlined mb-2 opacity-40" style={{ fontSize: '24px' }}>inbox</span>
+            <span className="text-xs">No tasks</span>
           </div>
         )}
       </div>

@@ -1,4 +1,5 @@
 """Integration tests for state machine transitions via the API."""
+
 from __future__ import annotations
 
 import uuid as uuid_mod
@@ -38,9 +39,7 @@ async def _create_project_and_phase(client: AsyncClient, db_session: AsyncSessio
     phase_id = phase_resp.json()["id"]
 
     # Activate the phase so tasks can start as ready
-    await db_session.execute(
-        update(Phase).where(Phase.id == uuid_mod.UUID(phase_id)).values(status=PhaseStatus.active)
-    )
+    await db_session.execute(update(Phase).where(Phase.id == uuid_mod.UUID(phase_id)).values(status=PhaseStatus.active))
     await db_session.flush()
 
     return project_id, phase_id
@@ -131,9 +130,7 @@ async def test_optimistic_locking_conflict(client: AsyncClient, db_session: Asyn
     # Verify update with wrong version also returns 409
     # First create a waiting task (updatable status)
     dep_task = await _create_task(client, project_id, phase_id, "Dep For Update")
-    updatable_task = await _create_task(
-        client, project_id, phase_id, "Updatable Task", depends_on=[dep_task["id"]]
-    )
+    updatable_task = await _create_task(client, project_id, phase_id, "Updatable Task", depends_on=[dep_task["id"]])
     assert updatable_task["status"] == "waiting"
 
     response = await client.patch(

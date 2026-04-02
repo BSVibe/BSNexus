@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid as uuid_mod
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 from httpx import AsyncClient
 from sqlalchemy import select, update
@@ -12,8 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.src.models import (
     Phase,
     PhaseStatus,
-    Project,
-    ProjectStatus,
     SuggestionStatus,
     Task,
     TaskSuggestion,
@@ -50,9 +48,7 @@ async def _create_phase(client: AsyncClient, project_id: str) -> dict:
 
 
 async def _activate_phase(db_session: AsyncSession, phase_id: str) -> None:
-    await db_session.execute(
-        update(Phase).where(Phase.id == uuid_mod.UUID(phase_id)).values(status=PhaseStatus.active)
-    )
+    await db_session.execute(update(Phase).where(Phase.id == uuid_mod.UUID(phase_id)).values(status=PhaseStatus.active))
     await db_session.flush()
 
 
@@ -171,9 +167,7 @@ class TestPlannerFullWorkflow:
         assert len(resp.json()) == 0
 
         # 7. Verify a Task was actually created in the DB
-        result = await db_session.execute(
-            select(Task).where(Task.project_id == uuid_mod.UUID(project_id))
-        )
+        result = await db_session.execute(select(Task).where(Task.project_id == uuid_mod.UUID(project_id)))
         tasks = result.scalars().all()
         assert len(tasks) == 1
         assert tasks[0].title == "Add authentication"

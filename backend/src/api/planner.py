@@ -32,9 +32,7 @@ async def _get_suggestion_or_404(
     suggestion_id: uuid.UUID,
     db: AsyncSession,
 ) -> models.TaskSuggestion:
-    result = await db.execute(
-        select(models.TaskSuggestion).where(models.TaskSuggestion.id == suggestion_id)
-    )
+    result = await db.execute(select(models.TaskSuggestion).where(models.TaskSuggestion.id == suggestion_id))
     suggestion = result.scalar_one_or_none()
     if suggestion is None:
         raise HTTPException(status_code=404, detail="Suggestion not found")
@@ -289,9 +287,7 @@ async def generate_plan(
 ) -> list[schemas.TaskSuggestionResponse]:
     """Trigger daily plan generation for a project."""
     # Verify project exists
-    result = await db.execute(
-        select(models.Project).where(models.Project.id == body.project_id)
-    )
+    result = await db.execute(select(models.Project).where(models.Project.id == body.project_id))
     project = result.scalar_one_or_none()
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")

@@ -103,20 +103,24 @@ class TestSecurityReport:
         report = SecurityReport(scan_timestamp=pytest.importorskip("datetime").datetime.now())
         from backend.src.core.security_auditor import SecurityFinding
 
-        report.add_finding(SecurityFinding(
-            category=FindingCategory.configuration,
-            severity=SeverityLevel.critical,
-            title="Test",
-            description="Test",
-            recommendation="Fix it",
-        ))
-        report.add_finding(SecurityFinding(
-            category=FindingCategory.configuration,
-            severity=SeverityLevel.low,
-            title="Test 2",
-            description="Test 2",
-            recommendation="Fix it",
-        ))
+        report.add_finding(
+            SecurityFinding(
+                category=FindingCategory.configuration,
+                severity=SeverityLevel.critical,
+                title="Test",
+                description="Test",
+                recommendation="Fix it",
+            )
+        )
+        report.add_finding(
+            SecurityFinding(
+                category=FindingCategory.configuration,
+                severity=SeverityLevel.low,
+                title="Test 2",
+                description="Test 2",
+                recommendation="Fix it",
+            )
+        )
 
         summary = report.build_summary()
         assert summary["critical"] == 1
@@ -129,26 +133,30 @@ class TestSecurityReport:
         report = SecurityReport(scan_timestamp=pytest.importorskip("datetime").datetime.now())
         assert report.has_critical is False
 
-        report.add_finding(SecurityFinding(
-            category=FindingCategory.configuration,
-            severity=SeverityLevel.critical,
-            title="Test",
-            description="Test",
-            recommendation="Fix",
-        ))
+        report.add_finding(
+            SecurityFinding(
+                category=FindingCategory.configuration,
+                severity=SeverityLevel.critical,
+                title="Test",
+                description="Test",
+                recommendation="Fix",
+            )
+        )
         assert report.has_critical is True
 
     def test_to_dict(self):
         from backend.src.core.security_auditor import SecurityFinding
 
         report = SecurityReport(scan_timestamp=pytest.importorskip("datetime").datetime.now())
-        report.add_finding(SecurityFinding(
-            category=FindingCategory.authentication,
-            severity=SeverityLevel.medium,
-            title="Auth issue",
-            description="Desc",
-            recommendation="Fix",
-        ))
+        report.add_finding(
+            SecurityFinding(
+                category=FindingCategory.authentication,
+                severity=SeverityLevel.medium,
+                title="Auth issue",
+                description="Desc",
+                recommendation="Fix",
+            )
+        )
         d = report.to_dict()
         assert "scan_timestamp" in d
         assert "findings" in d

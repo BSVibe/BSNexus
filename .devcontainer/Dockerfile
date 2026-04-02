@@ -9,6 +9,12 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     build-essential git procps sudo curl zsh gh postgresql-client \
     iptables ipset iproute2 dnsutils vim locales nodejs npm \
+    # Playwright Chromium system dependencies
+    libglib2.0-0t64 libnss3 libnspr4 libdbus-1-3 libatk1.0-0t64 \
+    libatk-bridge2.0-0t64 libcups2t64 libxcb1 libxkbcommon0 \
+    libatspi2.0-0t64 libx11-6 libxcomposite1 libxdamage1 libxext6 \
+    libxfixes3 libxrandr2 libgbm1 libdrm2 libcairo2 libpango-1.0-0 \
+    libpangocairo-1.0-0 libasound2t64 \
     && break || { echo "Retry $i..."; sleep 5; apt-get update; }; \
     done && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
@@ -72,6 +78,8 @@ COPY scripts/init-firewall.sh /usr/local/bin/
 USER root
 RUN chmod +x /usr/local/bin/init-firewall.sh && \
     echo "$USERNAME ALL=(root) NOPASSWD: /usr/local/bin/init-firewall.sh" > /etc/sudoers.d/firewall && \
-    chmod 0440 /etc/sudoers.d/firewall
+    chmod 0440 /etc/sudoers.d/firewall && \
+    echo "$USERNAME ALL=(root) NOPASSWD: /usr/bin/apt-get" > /etc/sudoers.d/apt && \
+    chmod 0440 /etc/sudoers.d/apt
 
 USER $USERNAME

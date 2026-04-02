@@ -114,10 +114,12 @@ class LocalMarkdownProvider:
         for md_file in sorted(docs_dir.glob("*.md")):
             content = await asyncio.to_thread(md_file.read_text, encoding="utf-8")
             if query_lower in content.lower():
-                results.append({
-                    "file": md_file.name,
-                    "content": content,
-                })
+                results.append(
+                    {
+                        "file": md_file.name,
+                        "content": content,
+                    }
+                )
                 if len(results) >= limit:
                     break
 

@@ -599,5 +599,3 @@ class ComplianceReportResponse(BaseModel):
     overall_status: str
     summary: dict[str, int]
     checks: list[dict]
-
-

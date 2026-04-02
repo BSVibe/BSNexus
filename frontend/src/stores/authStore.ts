@@ -2,6 +2,8 @@ import { create } from 'zustand'
 import axios from 'axios'
 
 const BASE = import.meta.env.VITE_API_URL || ''
+const TOKEN_KEY = 'bsnexus_access_token'
+const REFRESH_KEY = 'bsnexus_refresh_token'
 
 interface AuthUser {
   id: string
@@ -22,6 +24,33 @@ interface AuthState {
   clear: () => void
 }
 
+function persistTokens(access: string | null, refresh: string | null) {
+  if (access) {
+    localStorage.setItem(TOKEN_KEY, access)
+  } else {
+    localStorage.removeItem(TOKEN_KEY)
+  }
+  if (refresh) {
+    localStorage.setItem(REFRESH_KEY, refresh)
+  } else {
+    localStorage.removeItem(REFRESH_KEY)
+  }
+}
+
+function loadTokens(): { access: string | null; refresh: string | null } {
+  return {
+    access: localStorage.getItem(TOKEN_KEY),
+    refresh: localStorage.getItem(REFRESH_KEY),
+  }
+}
+
+async function fetchUser(accessToken: string): Promise<AuthUser> {
+  const { data } = await axios.get(`${BASE}/api/v1/auth/me`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  return data
+}
+
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   accessToken: null,
@@ -29,12 +58,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   isLoading: true,
 
   handleCallback: async (accessToken: string, refreshToken: string) => {
-    set({ accessToken, refreshToken })
+    persistTokens(accessToken, refreshToken)
+    set({ accessToken, refreshToken, isLoading: false })
 
-    const { data: user } = await axios.get(`${BASE}/api/v1/auth/me`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    })
-    set({ user })
+    try {
+      const user = await fetchUser(accessToken)
+      set({ user })
+    } catch {
+      // User fetch is best-effort — tokens are already stored
+    }
   },
 
   signOut: async () => {
@@ -48,6 +80,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     } catch {
       // best-effort
     }
+    persistTokens(null, null)
     set({ user: null, accessToken: null, refreshToken: null })
   },
 
@@ -56,6 +89,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (!rt) return false
     try {
       const { data } = await axios.post(`${BASE}/api/v1/auth/refresh`, { refresh_token: rt })
+      persistTokens(data.access_token, data.refresh_token)
       set({ accessToken: data.access_token, refreshToken: data.refresh_token })
       return true
     } catch {
@@ -64,10 +98,26 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   initialize: async () => {
-    set({ isLoading: false })
+    const { access, refresh } = loadTokens()
+    if (!access) {
+      set({ isLoading: false })
+      return
+    }
+
+    set({ accessToken: access, refreshToken: refresh })
+
+    try {
+      const user = await fetchUser(access)
+      set({ user, isLoading: false })
+    } catch {
+      // fetchUser failed — keep tokens (server may be unreachable or JWT config differs)
+      // User will still be "authenticated" based on stored token
+      set({ isLoading: false })
+    }
   },
 
   clear: () => {
+    persistTokens(null, null)
     set({ user: null, accessToken: null, refreshToken: null })
   },
 }))

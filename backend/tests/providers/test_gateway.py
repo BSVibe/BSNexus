@@ -27,9 +27,9 @@ class TestGatewayProviderProtocol:
 
     def test_protocol_is_runtime_checkable(self) -> None:
         """GatewayProvider should be runtime_checkable."""
-        assert hasattr(GatewayProvider, "__protocol_attrs__") or hasattr(
-            GatewayProvider, "__abstractmethods__"
-        ), "GatewayProvider must be a Protocol"
+        assert hasattr(GatewayProvider, "__protocol_attrs__") or hasattr(GatewayProvider, "__abstractmethods__"), (
+            "GatewayProvider must be a Protocol"
+        )
 
     def test_compliant_class_is_instance(self) -> None:
         """A class with the right methods satisfies the protocol structurally."""
@@ -121,13 +121,15 @@ class TestBSGatewayProvider:
 
     async def test_chat_completion_success(self, provider: BSGatewayProvider, mock_client: AsyncMock) -> None:
         """Should POST to BSGateway and return parsed result."""
-        mock_client.post = AsyncMock(return_value=_mock_response(
-            json_data={
-                "choices": [{"message": {"content": "Hello from gateway"}}],
-                "model": "gpt-4o",
-                "usage": {"prompt_tokens": 5, "completion_tokens": 10},
-            }
-        ))
+        mock_client.post = AsyncMock(
+            return_value=_mock_response(
+                json_data={
+                    "choices": [{"message": {"content": "Hello from gateway"}}],
+                    "model": "gpt-4o",
+                    "usage": {"prompt_tokens": 5, "completion_tokens": 10},
+                }
+            )
+        )
 
         result = await provider.chat_completion(
             messages=[{"role": "user", "content": "Hi"}],
@@ -148,9 +150,11 @@ class TestBSGatewayProvider:
 
     async def test_chat_completion_with_no_metadata(self, provider: BSGatewayProvider, mock_client: AsyncMock) -> None:
         """Should work without task_metadata (no X-BSNexus headers)."""
-        mock_client.post = AsyncMock(return_value=_mock_response(
-            json_data={"choices": [{"message": {"content": "response"}}]},
-        ))
+        mock_client.post = AsyncMock(
+            return_value=_mock_response(
+                json_data={"choices": [{"message": {"content": "response"}}]},
+            )
+        )
 
         result = await provider.chat_completion(
             messages=[{"role": "user", "content": "Hi"}],
@@ -166,10 +170,12 @@ class TestBSGatewayProvider:
         """Should raise on HTTP errors from BSGateway."""
         error_resp = MagicMock()
         error_resp.status_code = 500
-        mock_client.post = AsyncMock(return_value=_mock_response(
-            status_code=500,
-            raise_error=httpx.HTTPStatusError("Internal Server Error", request=MagicMock(), response=error_resp),
-        ))
+        mock_client.post = AsyncMock(
+            return_value=_mock_response(
+                status_code=500,
+                raise_error=httpx.HTTPStatusError("Internal Server Error", request=MagicMock(), response=error_resp),
+            )
+        )
 
         with pytest.raises(httpx.HTTPStatusError):
             await provider.chat_completion(
@@ -179,9 +185,11 @@ class TestBSGatewayProvider:
 
     async def test_api_key_sent_as_bearer(self, provider: BSGatewayProvider, mock_client: AsyncMock) -> None:
         """API key should be sent as Bearer token in Authorization header."""
-        mock_client.post = AsyncMock(return_value=_mock_response(
-            json_data={"choices": [{"message": {"content": "ok"}}]},
-        ))
+        mock_client.post = AsyncMock(
+            return_value=_mock_response(
+                json_data={"choices": [{"message": {"content": "ok"}}]},
+            )
+        )
 
         await provider.chat_completion(
             messages=[{"role": "user", "content": "Hi"}],
@@ -194,9 +202,11 @@ class TestBSGatewayProvider:
 
     async def test_model_hint_sent_in_body(self, provider: BSGatewayProvider, mock_client: AsyncMock) -> None:
         """model_hint should be sent in the request body."""
-        mock_client.post = AsyncMock(return_value=_mock_response(
-            json_data={"choices": [{"message": {"content": "ok"}}]},
-        ))
+        mock_client.post = AsyncMock(
+            return_value=_mock_response(
+                json_data={"choices": [{"message": {"content": "ok"}}]},
+            )
+        )
 
         await provider.chat_completion(
             messages=[{"role": "user", "content": "Hi"}],

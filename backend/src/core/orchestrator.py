@@ -46,23 +46,56 @@ class PMOrchestrator:
         self.state_machine = state_machine
         self._running = False
 
+    _MAX_RETRIES = 5
+    _BASE_BACKOFF = 2.0  # seconds
+
     async def start(self, project_id: uuid.UUID, db_session_factory: SessionFactory) -> None:
-        """Start orchestration for a project."""
-        logger.info("Orchestrator starting for project %s", project_id)
+        """Start orchestration for a project with exponential backoff on crash."""
         self._running = True
-        await self._promote_waiting_tasks(project_id, db_session_factory)
-        await self._recover_orphaned_redesign_tasks(project_id, db_session_factory)
-        logger.info("Orchestrator entering main loops for project %s", project_id)
-        try:
-            await asyncio.gather(
-                self._execution_loop(project_id, db_session_factory),
-                self._escalation_loop(project_id, db_session_factory),
-            )
-        except Exception:
-            logger.exception("Orchestrator main loops crashed for project %s", project_id)
-            raise
-        finally:
-            logger.info("Orchestrator stopped for project %s", project_id)
+        attempt = 0
+
+        while self._running and attempt <= self._MAX_RETRIES:
+            try:
+                logger.info(
+                    "Orchestrator starting for project %s (attempt %d/%d)",
+                    project_id,
+                    attempt + 1,
+                    self._MAX_RETRIES + 1,
+                )
+                await self._promote_waiting_tasks(project_id, db_session_factory)
+                await self._recover_orphaned_redesign_tasks(project_id, db_session_factory)
+                logger.info("Orchestrator entering main loops for project %s", project_id)
+
+                await asyncio.gather(
+                    self._execution_loop(project_id, db_session_factory),
+                    self._escalation_loop(project_id, db_session_factory),
+                )
+                # Clean exit (e.g. _running set to False)
+                break
+
+            except Exception:
+                attempt += 1
+                if attempt > self._MAX_RETRIES or not self._running:
+                    logger.exception(
+                        "Orchestrator permanently failed for project %s after %d attempts",
+                        project_id,
+                        attempt,
+                    )
+                    raise
+
+                delay = self._BASE_BACKOFF * (2 ** (attempt - 1))
+                logger.warning(
+                    "Orchestrator crashed for project %s, retrying in %.1fs (attempt %d/%d)",
+                    project_id,
+                    delay,
+                    attempt,
+                    self._MAX_RETRIES,
+                    exc_info=True,
+                )
+                await asyncio.sleep(delay)
+
+            finally:
+                logger.info("Orchestrator stopped for project %s", project_id)
 
     async def _promote_waiting_tasks(self, project_id: uuid.UUID, db_session_factory: SessionFactory) -> None:
         """Promote WAITING tasks in the active phase whose dependencies are all met to READY."""

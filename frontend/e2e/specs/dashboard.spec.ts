@@ -1,165 +1,100 @@
-import { test, expect } from '@playwright/test';
-import { DashboardPage } from '../pages/DashboardPage';
-import { waitForFrontend, waitForBackend, createProjectViaAPI, deleteProjectViaAPI } from '../helpers/test-utils';
+import { test, expect } from '@playwright/test'
+import { setupPage } from '../helpers/mock-api'
 
-test.describe('Dashboard', () => {
-  let dashboardPage: DashboardPage;
-  const createdProjectIds: string[] = [];
-
-  test.beforeAll(async () => {
-    await waitForBackend();
-  });
-
+test.describe('Dashboard — Stat Cards & Project Grid', () => {
   test.beforeEach(async ({ page }) => {
-    dashboardPage = new DashboardPage(page);
-    await waitForFrontend(page);
-    await dashboardPage.goto();
-    await dashboardPage.waitForProjectsLoaded();
-  });
+    await setupPage(page, '/dashboard')
+  })
 
-  test.afterEach(async () => {
-    for (const projectId of createdProjectIds) {
-      try {
-        await deleteProjectViaAPI(projectId);
-      } catch {
-        // Ignore cleanup errors
-      }
-    }
-    createdProjectIds.length = 0;
-  });
+  test('header displays "Dashboard" title', async ({ page }) => {
+    await expect(page.locator('header').getByText('Dashboard')).toBeVisible()
+  })
 
-  test('should display dashboard with empty state when no projects', async () => {
-    const isEmpty = await dashboardPage.isEmptyState();
-    if (isEmpty) {
-      expect(await dashboardPage.isEmptyState()).toBe(true);
-    }
-  });
+  test('renders four stat cards in bento grid', async ({ page }) => {
+    await expect(page.getByText('Total Projects')).toBeVisible()
+    await expect(page.getByText('Active Tasks')).toBeVisible()
+    await expect(page.getByText('Bugs Detected')).toBeVisible()
+    await expect(page.getByText('Completion Rate')).toBeVisible()
+  })
 
-  test('should display dashboard stats', async () => {
-    const totalText = await dashboardPage.getTotalProjectsStat();
-    const tasksText = await dashboardPage.getTotalTasksStat();
-    const completionText = await dashboardPage.getCompletionRateStat();
+  test('stat card shows correct total projects count', async ({ page }) => {
+    // 3 mock projects — locate the stat card containing "Total Projects" text
+    const totalCard = page.locator('.bg-stitch-surface-low').filter({ hasText: 'Total Projects' }).first()
+    await expect(totalCard.locator('.text-3xl')).toHaveText('3')
+  })
 
-    expect(totalText).toBeTruthy();
-    expect(tasksText).toBeTruthy();
-    expect(completionText).toBeTruthy();
-  });
+  test('stat cards use Material Symbols icons', async ({ page }) => {
+    await expect(page.locator('span.material-symbols-outlined:has-text("folder_open")').first()).toBeVisible()
+    await expect(page.locator('span.material-symbols-outlined:has-text("bug_report")').first()).toBeVisible()
+    await expect(page.locator('span.material-symbols-outlined:has-text("bolt")').first()).toBeVisible()
+  })
 
-  test('should navigate to architect when clicking "New Project"', async ({ page }) => {
-    const isEmptyState = await dashboardPage.isEmptyState();
-    if (!isEmptyState) {
-      // If projects exist, use the header button
-      const newProjectButton = page.locator('button:has-text("New Project")').first();
-      await newProjectButton.click();
-    } else {
-      // Otherwise, use the empty state button
-      await dashboardPage.clickNewProjectButton();
-    }
+  test('project cards are rendered in a grid', async ({ page }) => {
+    // BSNexus appears in both sidebar and project card — scope to main content
+    const main = page.locator('main')
+    await expect(main.getByText('BSNexus').first()).toBeVisible()
+    await expect(main.getByText('BSVibe Auth')).toBeVisible()
+    await expect(main.getByText('Worker Agent')).toBeVisible()
+  })
 
-    await page.waitForURL('/architect');
-    expect(page.url()).toContain('/architect');
-  });
+  test('project card shows status badge', async ({ page }) => {
+    // Active project has status displayed
+    const bsnexusCard = page.locator('a[href="/projects/proj-001"]')
+    await expect(bsnexusCard.getByText('active')).toBeVisible()
+  })
 
-  test('should display created project in list', async () => {
-    const projectName = `Test Project ${Date.now()}`;
-    const newProject = await createProjectViaAPI(projectName, 'Test Description', '/test/repo');
-    createdProjectIds.push(newProject.id);
+  test('project card shows phase count', async ({ page }) => {
+    const bsnexusCard = page.locator('a[href="/projects/proj-001"]')
+    await expect(bsnexusCard.getByText('2 phases')).toBeVisible()
+  })
 
-    await dashboardPage.goto();
-    await dashboardPage.waitForProjectsLoaded();
+  test('project card shows task distribution bar with percentage', async ({ page }) => {
+    const bsnexusCard = page.locator('a[href="/projects/proj-001"]')
+    // 5 done out of 12 total = 42%
+    await expect(bsnexusCard.getByText('42%')).toBeVisible()
+    await expect(bsnexusCard.getByText('12 tasks')).toBeVisible()
+  })
 
-    const count = await dashboardPage.getProjectCount();
-    expect(count).toBeGreaterThan(0);
+  test('project card shows bug count with bug_report icon', async ({ page }) => {
+    const bsnexusCard = page.locator('a[href="/projects/proj-001"]')
+    await expect(bsnexusCard.locator('span.material-symbols-outlined:has-text("bug_report")')).toBeVisible()
+    await expect(bsnexusCard.getByText('2').first()).toBeVisible()
+  })
 
-    const project = await dashboardPage.getProjectByName(projectName);
-    await expect(project).toBeVisible();
-  });
+  test('project card shows architect indicator when session exists', async ({ page }) => {
+    const bsnexusCard = page.locator('a[href="/projects/proj-001"]')
+    await expect(bsnexusCard.locator('span.material-symbols-outlined:has-text("architecture")')).toBeVisible()
+    await expect(bsnexusCard.getByText('Architect')).toBeVisible()
+  })
 
-  test('should navigate to project details when clicking project card', async ({ page }) => {
-    const projectName = `Test Project ${Date.now()}`;
-    const newProject = await createProjectViaAPI(projectName, 'Test Description', '/test/repo');
-    createdProjectIds.push(newProject.id);
+  test('project card shows event icon with date', async ({ page }) => {
+    const bsnexusCard = page.locator('a[href="/projects/proj-001"]')
+    await expect(bsnexusCard.locator('span.material-symbols-outlined:has-text("event")')).toBeVisible()
+  })
 
-    await dashboardPage.goto();
-    await dashboardPage.waitForProjectsLoaded();
+  test('header has "New Project" button with gradient styling', async ({ page }) => {
+    await expect(page.getByRole('button', { name: 'New Project' })).toBeVisible()
+  })
 
-    await dashboardPage.clickProjectCard(projectName);
-    await page.waitForURL(`/projects/${newProject.id}`);
-    expect(page.url()).toContain(`/projects/${newProject.id}`);
-  });
+  test('header has "Import" button with folder_open icon', async ({ page }) => {
+    const importBtn = page.getByRole('button', { name: 'Import' })
+    await expect(importBtn).toBeVisible()
+    await expect(importBtn.locator('span.material-symbols-outlined:has-text("folder_open")')).toBeVisible()
+  })
 
-  test('should delete project with confirmation', async () => {
-    const projectName = `Test Project ${Date.now()}`;
-    await createProjectViaAPI(projectName, 'Test Description', '/test/repo');
+  test('notifications bell icon is visible in header', async ({ page }) => {
+    await expect(page.locator('header span.material-symbols-outlined:has-text("notifications")')).toBeVisible()
+  })
 
-    await dashboardPage.goto();
-    await dashboardPage.waitForProjectsLoaded();
+  test('projects section header shows count', async ({ page }) => {
+    // Use heading role to target the "Projects" section header specifically
+    const main = page.locator('main')
+    await expect(main.getByRole('heading', { name: 'Projects' })).toBeVisible()
+    await expect(main.getByText('3').first()).toBeVisible()
+  })
 
-    const countBefore = await dashboardPage.getProjectCount();
-
-    await dashboardPage.deleteProject(projectName);
-    await dashboardPage.confirmProjectDelete();
-    await dashboardPage.waitForProjectsLoaded();
-
-    const countAfter = await dashboardPage.getProjectCount();
-    expect(countAfter).toBeLessThan(countBefore);
-  });
-
-  test('should cancel project deletion', async () => {
-    const projectName = `Test Project ${Date.now()}`;
-    const newProject = await createProjectViaAPI(projectName, 'Test Description', '/test/repo');
-    createdProjectIds.push(newProject.id);
-
-    await dashboardPage.goto();
-    await dashboardPage.waitForProjectsLoaded();
-
-    const countBefore = await dashboardPage.getProjectCount();
-
-    await dashboardPage.deleteProject(projectName);
-    await dashboardPage.cancelDelete();
-
-    const countAfter = await dashboardPage.getProjectCount();
-    expect(countAfter).toBe(countBefore);
-  });
-
-  test('should select multiple projects', async () => {
-    const proj1 = await createProjectViaAPI(`Project 1 ${Date.now()}`, 'Test', '/test/repo1');
-    const proj2 = await createProjectViaAPI(`Project 2 ${Date.now()}`, 'Test', '/test/repo2');
-    createdProjectIds.push(proj1.id, proj2.id);
-
-    await dashboardPage.goto();
-    await dashboardPage.waitForProjectsLoaded();
-
-    await dashboardPage.clickSelectMode();
-
-    // Select first project
-    await dashboardPage.selectProject(proj1.name);
-    let selectedCount = await dashboardPage.getSelectedCount();
-    expect(selectedCount).toContain('1');
-
-    // Select second project
-    await dashboardPage.selectProject(proj2.name);
-    selectedCount = await dashboardPage.getSelectedCount();
-    expect(selectedCount).toContain('2');
-  });
-
-  test('should batch delete multiple projects', async () => {
-    const proj1 = await createProjectViaAPI(`Project 1 ${Date.now()}`, 'Test', '/test/repo1');
-    const proj2 = await createProjectViaAPI(`Project 2 ${Date.now()}`, 'Test', '/test/repo2');
-
-    await dashboardPage.goto();
-    await dashboardPage.waitForProjectsLoaded();
-
-    const countBefore = await dashboardPage.getProjectCount();
-
-    await dashboardPage.clickSelectMode();
-    await dashboardPage.selectProject(proj1.name);
-    await dashboardPage.selectProject(proj2.name);
-    await dashboardPage.clickDeleteSelected();
-    await dashboardPage.confirmDelete();
-    await dashboardPage.waitForProjectsLoaded();
-
-    const countAfter = await dashboardPage.getProjectCount();
-    expect(countAfter).toBeLessThanOrEqual(countBefore - 2);
-  });
-});
+  test('clicking project card navigates to project page', async ({ page }) => {
+    await page.locator('a[href="/projects/proj-001"]').click()
+    await expect(page).toHaveURL('/projects/proj-001')
+  })
+})

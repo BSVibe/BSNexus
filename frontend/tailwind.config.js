@@ -4,10 +4,26 @@ export default {
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
   ],
-  darkMode: 'class',
   theme: {
     extend: {
+      fontFamily: {
+        sans: ['"Plus Jakarta Sans"', 'ui-sans-serif', 'system-ui', '-apple-system', 'sans-serif'],
+        mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'Consolas', 'monospace'],
+      },
       colors: {
+        gray: {
+          50: '#f2f3f7',
+          100: '#e4e6ee',
+          300: '#a8adc6',
+          400: '#8187a8',
+          500: '#5a5f7d',
+          600: '#3d4160',
+          700: '#2a2d42',
+          800: '#1e2033',
+          850: '#181926',
+          900: '#111218',
+          950: '#0a0b0f',
+        },
         bg: {
           primary: 'var(--bg-primary)',
           surface: 'var(--bg-surface)',
@@ -19,6 +35,7 @@ export default {
         accent: {
           DEFAULT: 'var(--accent)',
           light: 'var(--accent-light)',
+          hover: 'var(--accent-hover)',
           text: 'var(--accent-text)',
         },
         text: {
@@ -31,6 +48,30 @@ export default {
           DEFAULT: 'var(--border)',
           subtle: 'var(--border-subtle)',
         },
+        // Stitch Material Design 3 tokens
+        stitch: {
+          surface: 'var(--stitch-surface)',
+          'surface-low': 'var(--stitch-surface-container-low)',
+          'surface-container': 'var(--stitch-surface-container)',
+          'surface-high': 'var(--stitch-surface-container-high)',
+          'surface-highest': 'var(--stitch-surface-container-highest)',
+          'surface-lowest': 'var(--stitch-surface-container-lowest)',
+          primary: 'var(--stitch-primary)',
+          'primary-container': 'var(--stitch-primary-container)',
+          'on-primary': 'var(--stitch-on-primary)',
+          'on-primary-container': 'var(--stitch-on-primary-container)',
+          'on-surface': 'var(--stitch-on-surface)',
+          'on-surface-variant': 'var(--stitch-on-surface-variant)',
+          outline: 'var(--stitch-outline)',
+          'outline-variant': 'var(--stitch-outline-variant)',
+          secondary: 'var(--stitch-secondary)',
+          'secondary-container': 'var(--stitch-secondary-container)',
+          'on-secondary-container': 'var(--stitch-on-secondary-container)',
+          tertiary: 'var(--stitch-tertiary)',
+          'tertiary-container': 'var(--stitch-tertiary-container)',
+          error: 'var(--stitch-error)',
+          'error-container': 'var(--stitch-error-container)',
+        },
         status: {
           waiting: 'var(--status-waiting)',
           ready: 'var(--status-ready)',
@@ -40,6 +81,21 @@ export default {
           done: 'var(--status-done)',
           rejected: 'var(--status-rejected)',
           blocked: 'var(--status-blocked)',
+        },
+        error: {
+          DEFAULT: 'var(--color-error)',
+          muted: 'var(--color-error-muted)',
+        },
+        success: {
+          DEFAULT: 'var(--color-success)',
+          muted: 'var(--color-success-muted)',
+        },
+        warning: {
+          DEFAULT: 'var(--color-warning)',
+          muted: 'var(--color-warning-muted)',
+        },
+        info: {
+          DEFAULT: 'var(--color-info)',
         },
       },
       borderRadius: {
@@ -53,9 +109,13 @@ export default {
           '0%': { transform: 'translateX(100%)', opacity: '0' },
           '100%': { transform: 'translateX(0)', opacity: '1' },
         },
+        'cursor-blink': {
+          '50%': { opacity: '0' },
+        },
       },
       animation: {
         'slide-in-right': 'slide-in-right 0.2s ease-out',
+        'cursor-blink': 'cursor-blink 1s step-end infinite',
       },
       typography: {
         DEFAULT: {

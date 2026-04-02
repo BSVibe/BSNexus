@@ -37,10 +37,7 @@ class TestStripActionMarkers:
         assert strip_action_markers(text) == "Before  after"
 
     def test_strips_multiple_blocks(self) -> None:
-        text = (
-            'A [CREATE_TASK]{"title":"t1"}[/CREATE_TASK] '
-            'B [MODIFY_TASK]{"task_id":"x"}[/MODIFY_TASK] C'
-        )
+        text = 'A [CREATE_TASK]{"title":"t1"}[/CREATE_TASK] B [MODIFY_TASK]{"task_id":"x"}[/MODIFY_TASK] C'
         result = strip_action_markers(text)
         assert "[CREATE_TASK]" not in result
         assert "[MODIFY_TASK]" not in result
@@ -98,14 +95,16 @@ async def test_execute_create_task(db_session) -> None:
     db_session.add(session)
     await db_session.flush()
 
-    task_json = json.dumps({
-        "title": "New Feature",
-        "description": "Build something",
-        "priority": "high",
-        "task_type": "bug",
-        "worker_prompt": "Do the work",
-        "qa_prompt": "Check the work",
-    })
+    task_json = json.dumps(
+        {
+            "title": "New Feature",
+            "description": "Build something",
+            "priority": "high",
+            "task_type": "bug",
+            "worker_prompt": "Do the work",
+            "qa_prompt": "Check the work",
+        }
+    )
     text = f"Here is a task: [CREATE_TASK]{task_json}[/CREATE_TASK]"
 
     actions = await ArchitectService(db_session).execute_action_markers(text, session)
@@ -117,6 +116,7 @@ async def test_execute_create_task(db_session) -> None:
 
     # Verify task was created in DB
     from sqlalchemy import select
+
     result = await db_session.execute(select(Task).where(Task.project_id == project.id))
     tasks = list(result.scalars().all())
     assert len(tasks) == 1
@@ -154,20 +154,35 @@ async def test_execute_create_task_invalid_json(db_session) -> None:
     """Invalid JSON in CREATE_TASK marker is silently skipped."""
     now = datetime.now(timezone.utc)
     project = Project(
-        id=uuid.uuid4(), name="P", description="d", repo_path="/t",
-        status=ProjectStatus.active, created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        name="P",
+        description="d",
+        repo_path="/t",
+        status=ProjectStatus.active,
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(project)
     phase = Phase(
-        id=uuid.uuid4(), project_id=project.id, name="Ph", order=1,
-        status=PhaseStatus.active, branch_name="b", created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        project_id=project.id,
+        name="Ph",
+        order=1,
+        status=PhaseStatus.active,
+        branch_name="b",
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(phase)
     await db_session.flush()
 
     session = DesignSession(
-        id=uuid.uuid4(), status=DesignSessionStatus.project_bound,
-        project_id=project.id, llm_config={}, created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        status=DesignSessionStatus.project_bound,
+        project_id=project.id,
+        llm_config={},
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(session)
     await db_session.flush()
@@ -182,37 +197,60 @@ async def test_execute_modify_task(db_session) -> None:
     """MODIFY_TASK marker updates an existing task."""
     now = datetime.now(timezone.utc)
     project = Project(
-        id=uuid.uuid4(), name="P", description="d", repo_path="/t",
-        status=ProjectStatus.active, created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        name="P",
+        description="d",
+        repo_path="/t",
+        status=ProjectStatus.active,
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(project)
     phase = Phase(
-        id=uuid.uuid4(), project_id=project.id, name="Ph", order=1,
-        status=PhaseStatus.active, branch_name="b", created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        project_id=project.id,
+        name="Ph",
+        order=1,
+        status=PhaseStatus.active,
+        branch_name="b",
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(phase)
 
     task = Task(
-        id=uuid.uuid4(), project_id=project.id, phase_id=phase.id,
-        title="Original Title", status=TaskStatus.ready, priority=TaskPriority.medium,
-        task_type=TaskType.feature, source=TaskSource.architect,
-        created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        project_id=project.id,
+        phase_id=phase.id,
+        title="Original Title",
+        status=TaskStatus.ready,
+        priority=TaskPriority.medium,
+        task_type=TaskType.feature,
+        source=TaskSource.architect,
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(task)
     await db_session.flush()
 
     session = DesignSession(
-        id=uuid.uuid4(), status=DesignSessionStatus.project_bound,
-        project_id=project.id, llm_config={}, created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        status=DesignSessionStatus.project_bound,
+        project_id=project.id,
+        llm_config={},
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(session)
     await db_session.flush()
 
-    modify_json = json.dumps({
-        "task_id": str(task.id),
-        "title": "Updated Title",
-        "priority": "critical",
-    })
+    modify_json = json.dumps(
+        {
+            "task_id": str(task.id),
+            "title": "Updated Title",
+            "priority": "critical",
+        }
+    )
     text = f"[MODIFY_TASK]{modify_json}[/MODIFY_TASK]"
 
     actions = await ArchitectService(db_session).execute_action_markers(text, session)
@@ -222,6 +260,7 @@ async def test_execute_modify_task(db_session) -> None:
 
     # Re-fetch task from DB since _execute_action_markers uses TaskRepository
     from sqlalchemy import select
+
     result = await db_session.execute(select(Task).where(Task.id == task.id))
     updated_task = result.scalar_one()
     assert updated_task.title == "Updated Title"
@@ -233,28 +272,49 @@ async def test_execute_modify_task_rejects_in_progress(db_session) -> None:
     """MODIFY_TASK skips tasks that are in_progress."""
     now = datetime.now(timezone.utc)
     project = Project(
-        id=uuid.uuid4(), name="P", description="d", repo_path="/t",
-        status=ProjectStatus.active, created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        name="P",
+        description="d",
+        repo_path="/t",
+        status=ProjectStatus.active,
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(project)
     phase = Phase(
-        id=uuid.uuid4(), project_id=project.id, name="Ph", order=1,
-        status=PhaseStatus.active, branch_name="b", created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        project_id=project.id,
+        name="Ph",
+        order=1,
+        status=PhaseStatus.active,
+        branch_name="b",
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(phase)
 
     task = Task(
-        id=uuid.uuid4(), project_id=project.id, phase_id=phase.id,
-        title="In Progress Task", status=TaskStatus.in_progress,
-        priority=TaskPriority.medium, task_type=TaskType.feature,
-        source=TaskSource.architect, created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        project_id=project.id,
+        phase_id=phase.id,
+        title="In Progress Task",
+        status=TaskStatus.in_progress,
+        priority=TaskPriority.medium,
+        task_type=TaskType.feature,
+        source=TaskSource.architect,
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(task)
     await db_session.flush()
 
     session = DesignSession(
-        id=uuid.uuid4(), status=DesignSessionStatus.project_bound,
-        project_id=project.id, llm_config={}, created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        status=DesignSessionStatus.project_bound,
+        project_id=project.id,
+        llm_config={},
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(session)
     await db_session.flush()
@@ -274,18 +334,33 @@ async def test_execute_create_task_no_active_phase(db_session) -> None:
     """CREATE_TASK does nothing when project has no active phase."""
     now = datetime.now(timezone.utc)
     project = Project(
-        id=uuid.uuid4(), name="P", description="d", repo_path="/t",
-        status=ProjectStatus.active, created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        name="P",
+        description="d",
+        repo_path="/t",
+        status=ProjectStatus.active,
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(project)
     phase = Phase(
-        id=uuid.uuid4(), project_id=project.id, name="Ph", order=1,
-        status=PhaseStatus.pending, branch_name="b", created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        project_id=project.id,
+        name="Ph",
+        order=1,
+        status=PhaseStatus.pending,
+        branch_name="b",
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(phase)
     session = DesignSession(
-        id=uuid.uuid4(), status=DesignSessionStatus.project_bound,
-        project_id=project.id, llm_config={}, created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        status=DesignSessionStatus.project_bound,
+        project_id=project.id,
+        llm_config={},
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(session)
     await db_session.flush()
@@ -301,32 +376,50 @@ async def test_execute_create_task_invalid_priority_defaults(db_session) -> None
     """CREATE_TASK with invalid priority/task_type falls back to defaults."""
     now = datetime.now(timezone.utc)
     project = Project(
-        id=uuid.uuid4(), name="P", description="d", repo_path="/t",
-        status=ProjectStatus.active, created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        name="P",
+        description="d",
+        repo_path="/t",
+        status=ProjectStatus.active,
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(project)
     phase = Phase(
-        id=uuid.uuid4(), project_id=project.id, name="Ph", order=1,
-        status=PhaseStatus.active, branch_name="b", created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        project_id=project.id,
+        name="Ph",
+        order=1,
+        status=PhaseStatus.active,
+        branch_name="b",
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(phase)
     session = DesignSession(
-        id=uuid.uuid4(), status=DesignSessionStatus.project_bound,
-        project_id=project.id, llm_config={}, created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        status=DesignSessionStatus.project_bound,
+        project_id=project.id,
+        llm_config={},
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(session)
     await db_session.flush()
 
-    task_json = json.dumps({
-        "title": "Fallback Test",
-        "priority": "nonexistent",
-        "task_type": "bogus",
-    })
+    task_json = json.dumps(
+        {
+            "title": "Fallback Test",
+            "priority": "nonexistent",
+            "task_type": "bogus",
+        }
+    )
     text = f"[CREATE_TASK]{task_json}[/CREATE_TASK]"
     actions = await ArchitectService(db_session).execute_action_markers(text, session)
     assert len(actions) == 1
 
     from sqlalchemy import select
+
     result = await db_session.execute(select(Task).where(Task.project_id == project.id))
     task = result.scalar_one()
     assert task.priority == TaskPriority.medium
@@ -338,13 +431,22 @@ async def test_execute_modify_task_invalid_task_id(db_session) -> None:
     """MODIFY_TASK with invalid UUID task_id is silently skipped."""
     now = datetime.now(timezone.utc)
     project = Project(
-        id=uuid.uuid4(), name="P", description="d", repo_path="/t",
-        status=ProjectStatus.active, created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        name="P",
+        description="d",
+        repo_path="/t",
+        status=ProjectStatus.active,
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(project)
     session = DesignSession(
-        id=uuid.uuid4(), status=DesignSessionStatus.project_bound,
-        project_id=project.id, llm_config={}, created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        status=DesignSessionStatus.project_bound,
+        project_id=project.id,
+        llm_config={},
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(session)
     await db_session.flush()
@@ -360,13 +462,22 @@ async def test_execute_modify_task_nonexistent_task(db_session) -> None:
     """MODIFY_TASK with valid UUID but nonexistent task is skipped."""
     now = datetime.now(timezone.utc)
     project = Project(
-        id=uuid.uuid4(), name="P", description="d", repo_path="/t",
-        status=ProjectStatus.active, created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        name="P",
+        description="d",
+        repo_path="/t",
+        status=ProjectStatus.active,
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(project)
     session = DesignSession(
-        id=uuid.uuid4(), status=DesignSessionStatus.project_bound,
-        project_id=project.id, llm_config={}, created_at=now, updated_at=now,
+        id=uuid.uuid4(),
+        status=DesignSessionStatus.project_bound,
+        project_id=project.id,
+        llm_config={},
+        created_at=now,
+        updated_at=now,
     )
     db_session.add(session)
     await db_session.flush()

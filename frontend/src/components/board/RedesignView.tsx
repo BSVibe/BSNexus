@@ -38,14 +38,14 @@ export default function RedesignView({ tasks, onDone }: Props) {
   return <ManualRedesignView tasks={manualTasks} autoTasks={autoTasks} onDone={onDone} />
 }
 
-// ── Auto-Redesign Loading Screen ──────────────────────────────────
+// -- Auto-Redesign Loading Screen --
 
 function AutoRedesignLoading({ tasks }: { tasks: Task[] }) {
   return (
-    <div className="flex flex-col items-center justify-center h-[calc(100vh-8rem)] bg-bg-primary">
+    <div className="flex flex-col items-center justify-center h-[calc(100vh-8rem)] bg-stitch-surface">
       {/* Spinner */}
       <div className="mb-8">
-        <div className="w-16 h-16 border-4 border-border rounded-full animate-spin" style={{ borderTopColor: 'var(--accent)' }} />
+        <div className="w-16 h-16 border-4 border-stitch-outline-variant/20 rounded-full animate-spin border-t-stitch-primary" />
       </div>
 
       {/* Message */}
@@ -61,9 +61,9 @@ function AutoRedesignLoading({ tasks }: { tasks: Task[] }) {
         {tasks.map((task) => (
           <div
             key={task.id}
-            className="flex items-center gap-3 rounded-lg bg-bg-elevated p-3"
+            className="flex items-center gap-3 rounded-lg bg-stitch-surface-container p-3"
           >
-            <div className="w-4 h-4 border-2 border-border rounded-full animate-spin flex-shrink-0" style={{ borderTopColor: 'var(--accent)' }} />
+            <div className="w-4 h-4 border-2 border-stitch-outline-variant/20 rounded-full animate-spin flex-shrink-0 border-t-stitch-primary" />
             <span className="text-sm text-text-primary truncate">{task.title}</span>
             <Badge color="redesign" label={`${task.retry_count}/${task.max_retries}`} size="sm" />
           </div>
@@ -73,7 +73,7 @@ function AutoRedesignLoading({ tasks }: { tasks: Task[] }) {
   )
 }
 
-// ── Manual Redesign View (fallback when auto-redesign limit exceeded) ──
+// -- Manual Redesign View (fallback when auto-redesign limit exceeded) --
 
 function ManualRedesignView({
   tasks,
@@ -109,10 +109,10 @@ function ManualRedesignView({
   }
 
   return (
-    <div className="flex h-[calc(100vh-8rem)] bg-bg-primary">
+    <div className="flex h-[calc(100vh-8rem)] bg-stitch-surface">
       {/* Left panel: task list */}
-      <div className="w-80 border-r border-border overflow-y-auto">
-        <div className="p-4 border-b border-border">
+      <div className="w-80 border-r border-stitch-outline-variant/10 overflow-y-auto">
+        <div className="p-4 border-b border-stitch-outline-variant/10">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold text-text-primary">Phase Redesign</h2>
             <span className="text-xs text-text-tertiary">{tasks.length} failed task(s)</span>
@@ -124,13 +124,13 @@ function ManualRedesignView({
 
         {/* Auto-processing tasks (if any still pending) */}
         {autoTasks.length > 0 && (
-          <div className="p-4 border-b border-border">
+          <div className="p-4 border-b border-stitch-outline-variant/10">
             <p className="text-xs text-text-secondary mb-2">
               Auto-redesigning {autoTasks.length} other task(s)...
             </p>
             {autoTasks.map((task) => (
               <div key={task.id} className="flex items-center gap-2 py-1">
-                <div className="w-3 h-3 border-2 border-border rounded-full animate-spin flex-shrink-0" style={{ borderTopColor: 'var(--accent)' }} />
+                <div className="w-3 h-3 border-2 border-stitch-outline-variant/20 rounded-full animate-spin flex-shrink-0 border-t-stitch-primary" />
                 <span className="text-xs text-text-tertiary truncate">{task.title}</span>
               </div>
             ))}
@@ -142,7 +142,7 @@ function ManualRedesignView({
           {tasks.map((task) => (
             <div
               key={task.id}
-              className="w-full text-left rounded-lg p-3 bg-bg-elevated border border-border"
+              className="w-full text-left rounded-lg p-3 bg-stitch-surface-container border border-stitch-outline-variant/10"
             >
               <div className="flex items-center justify-between mb-1">
                 <span className="text-sm font-medium text-text-primary truncate">{task.title}</span>
@@ -203,7 +203,7 @@ function ManualRedesignView({
                   </span>
                   <div className="mt-1 space-y-1.5 max-h-48 overflow-y-auto">
                     {task.qa_feedback_history.map((entry, idx) => (
-                      <div key={idx} className="rounded bg-bg-primary/50 p-2 text-xs">
+                      <div key={idx} className="rounded bg-stitch-surface-low p-2 text-xs">
                         <span className="font-medium text-text-secondary">Attempt {entry.attempt ?? '?'}:</span>{' '}
                         <span className="text-text-primary">{entry.feedback || entry.error || 'No details'}</span>
                       </div>
@@ -216,8 +216,8 @@ function ManualRedesignView({
 
           {/* Result */}
           {result && (
-            <div className="mb-6 rounded-lg border border-green-500 bg-green-500/10 p-4">
-              <h3 className="text-sm font-medium text-green-400 mb-2">Redesign Complete</h3>
+            <div className="mb-6 rounded-lg border border-stitch-primary bg-stitch-primary/10 p-4">
+              <h3 className="text-sm font-medium text-stitch-primary mb-2">Redesign Complete</h3>
               <p className="text-sm text-text-primary mb-2">{result.reasoning}</p>
               <div className="flex gap-4 text-xs text-text-secondary">
                 <span>Kept: {result.tasks_kept}</span>
@@ -229,8 +229,8 @@ function ManualRedesignView({
 
           {/* Error message */}
           {error && (
-            <div className="mb-6 rounded-lg border border-red-500 bg-red-500/10 p-4">
-              <p className="text-sm text-red-400">{error}</p>
+            <div className="mb-6 rounded-lg border border-stitch-error bg-stitch-error-container/10 p-4">
+              <p className="text-sm text-stitch-error">{error}</p>
             </div>
           )}
 

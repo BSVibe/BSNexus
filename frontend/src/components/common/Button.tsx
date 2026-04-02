@@ -13,10 +13,10 @@ const sizeClasses = {
 }
 
 const variantClasses = {
-  primary: 'bg-accent text-white hover:bg-accent-light',
-  secondary: 'bg-bg-elevated text-text-secondary hover:bg-bg-hover',
-  ghost: 'bg-transparent text-text-secondary hover:bg-bg-hover',
-  icon: 'bg-transparent text-text-tertiary hover:bg-bg-hover p-2',
+  primary: 'bg-gradient-to-r from-stitch-primary to-stitch-primary-container text-stitch-on-primary-container font-bold shadow-lg shadow-stitch-primary/20 hover:opacity-90',
+  secondary: 'bg-stitch-surface-highest text-text-primary hover:bg-stitch-surface-high hover:opacity-80',
+  ghost: 'bg-transparent text-text-secondary hover:bg-stitch-surface-container',
+  icon: 'bg-transparent text-text-tertiary hover:bg-stitch-surface-container p-2',
 }
 
 const Button = forwardRef<HTMLButtonElement, ButtonProps>(
@@ -28,7 +28,7 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
     return (
       <button
         ref={ref}
-        className={`inline-flex items-center justify-center rounded-md font-medium transition-colors
+        className={`inline-flex items-center justify-center rounded-md font-semibold transition-all
           disabled:opacity-50 disabled:cursor-not-allowed
           ${variantClass} ${sizeClass} ${className}`}
         disabled={disabled || loading}

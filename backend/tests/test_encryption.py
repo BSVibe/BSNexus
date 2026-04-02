@@ -52,6 +52,7 @@ class TestEncryptDecrypt:
         encrypted = enc.encrypt_value("secret")
         # Tamper with the ciphertext
         import base64
+
         raw = bytearray(base64.urlsafe_b64decode(encrypted))
         raw[20] ^= 0xFF  # Flip a byte
         tampered = base64.urlsafe_b64encode(bytes(raw)).decode()
@@ -66,6 +67,7 @@ class TestEncryptDecrypt:
     def test_too_short_data_fails(self):
         enc = EncryptionManager("test-key-for-encryption-testing-32chars")
         import base64
+
         short = base64.urlsafe_b64encode(b"short").decode()
         with pytest.raises(ValueError, match="too short"):
             enc.decrypt_value(short)

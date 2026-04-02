@@ -26,7 +26,7 @@ function App() {
                 <Route path="/dashboard" element={<DashboardPage />} />
                 <Route path="/architect/:sessionId?" element={<ArchitectPage />} />
                 <Route path="/migrate" element={<MigratePage />} />
-                <Route path="/projects/:projectId" element={<ProjectPage />} />
+                <Route path="/projects/:projectId?" element={<ProjectPage />} />
               </Route>
             </Route>
           </Routes>

@@ -8,9 +8,9 @@ const iconMap: Record<ToastType['type'], string> = {
 }
 
 const colorMap: Record<ToastType['type'], string> = {
-  error: 'bg-red-600',
-  success: 'bg-green-600',
-  info: 'bg-blue-600',
+  error: 'bg-stitch-error',
+  success: 'bg-stitch-primary',
+  info: 'bg-stitch-secondary',
 }
 
 export function ToastContainer() {
@@ -23,7 +23,7 @@ export function ToastContainer() {
       {toasts.map((toast) => (
         <div
           key={toast.id}
-          className={`${colorMap[toast.type]} text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 min-w-[280px] max-w-[420px] animate-slide-in-right`}
+          className={`${colorMap[toast.type]} text-gray-50 px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 min-w-[280px] max-w-[420px] animate-slide-in-right`}
         >
           <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" d={iconMap[toast.type]} />
@@ -31,7 +31,7 @@ export function ToastContainer() {
           <span className="text-sm flex-1">{toast.message}</span>
           <button
             onClick={() => removeToast(toast.id)}
-            className="text-white/70 hover:text-white flex-shrink-0"
+            className="text-gray-50/70 hover:text-gray-50 flex-shrink-0"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />

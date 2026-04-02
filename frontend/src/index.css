@@ -4,60 +4,120 @@
 
 @layer base {
   :root {
-    /* Light mode (default) */
-    --bg-primary: #FFFFFF;
-    --bg-surface: #F8F8F8;
-    --bg-card: #FFFFFF;
-    --bg-elevated: #F0F0F0;
-    --bg-hover: #E8E8E8;
-    --bg-input: #FFFFFF;
+    /* BSNexus Design Tokens */
 
-    --accent: #6B2D3C;
-    --accent-light: #8B3D4C;
-    --accent-text: #6B2D3C;
+    /* Background tokens */
+    --bg-primary: #121317;
+    --bg-surface: #1a1b20;
+    --bg-card: #1f1f24;
+    --bg-elevated: #292a2e;
+    --bg-hover: #343439;
+    --bg-input: #0d0e12;
 
-    --text-primary: #111111;
-    --text-secondary: #555555;
-    --text-tertiary: #888888;
-    --text-muted: #BBBBBB;
+    /* Accent / Primary */
+    --accent: #4d8eff;
+    --accent-light: #adc6ff;
+    --accent-hover: #adc6ff;
+    --accent-text: #adc6ff;
 
-    --border: rgba(0, 0, 0, 0.08);
-    --border-subtle: rgba(0, 0, 0, 0.03);
+    /* Text tokens */
+    --text-primary: #e3e2e8;
+    --text-secondary: #c2c6d6;
+    --text-tertiary: #8c909f;
+    --text-muted: #424754;
 
-    /* Status colors (theme-independent) */
+    /* Border tokens */
+    --border: #424754;
+    --border-subtle: #343439;
+
+    /* Status colors */
     --status-waiting: #F59E0B;
     --status-ready: #3B82F6;
+    --status-queued: #8B5CF6;
     --status-in-progress: #10B981;
     --status-review: #EC4899;
     --status-done: #22C55E;
+    --status-rejected: #EF4444;
+    --status-blocked: #6B7280;
     --status-redesign: #F59E0B;
 
+    /* Semantic UI colors */
+    --color-error: #ffb4ab;
+    --color-error-muted: #93000a;
+    --color-success: #22C55E;
+    --color-success-muted: #14532D;
+    --color-warning: #ffb786;
+    --color-warning-muted: #723600;
+    --color-info: #b1c6f9;
+
+    /* Material surface tokens */
+    --stitch-surface: #121317;
+    --stitch-surface-container-low: #1a1b20;
+    --stitch-surface-container: #1f1f24;
+    --stitch-surface-container-high: #292a2e;
+    --stitch-surface-container-highest: #343439;
+    --stitch-surface-container-lowest: #0d0e12;
+    --stitch-primary: #adc6ff;
+    --stitch-primary-container: #4d8eff;
+    --stitch-on-primary: #002e6a;
+    --stitch-on-primary-container: #00285d;
+    --stitch-on-surface: #e3e2e8;
+    --stitch-on-surface-variant: #c2c6d6;
+    --stitch-outline: #8c909f;
+    --stitch-outline-variant: #424754;
+    --stitch-secondary: #b1c6f9;
+    --stitch-secondary-container: #304671;
+    --stitch-on-secondary-container: #9fb5e7;
+    --stitch-tertiary: #ffb786;
+    --stitch-tertiary-container: #df7412;
+    --stitch-error: #ffb4ab;
+    --stitch-error-container: #93000a;
+
     /* Radius tokens */
-    --radius-sm: 6px;
+    --radius-sm: 4px;
     --radius-md: 8px;
     --radius-lg: 12px;
     --radius-xl: 16px;
   }
 
-  .dark {
-    --bg-primary: #0A0A0A;
-    --bg-surface: #141414;
-    --bg-card: #1A1A1A;
-    --bg-elevated: #222222;
-    --bg-hover: #2A2A2A;
-    --bg-input: #1E1E1E;
-
-    --accent: #6B2D3C;
-    --accent-light: #8B3D4C;
-    --accent-text: #D4A0AC;
-
-    --text-primary: #FFFFFF;
-    --text-secondary: #999999;
-    --text-tertiary: #666666;
-    --text-muted: #444444;
-
-    --border: rgba(255, 255, 255, 0.094);
-    --border-subtle: rgba(255, 255, 255, 0.063);
+  html {
+    color-scheme: dark;
   }
 
+  body {
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  code, pre, .font-mono {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+  }
+
+  .material-symbols-outlined {
+    font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+    vertical-align: middle;
+    font-size: 20px;
+  }
+
+  /* Scrollbar styling */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: var(--bg-primary);
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--stitch-surface-container-highest);
+    border-radius: 10px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--stitch-outline-variant);
+  }
 }

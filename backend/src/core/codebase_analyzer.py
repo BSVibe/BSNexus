@@ -7,41 +7,111 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 # Directories to always skip
-_SKIP_DIRS = frozenset({
-    ".git", "node_modules", ".venv", "venv", "__pycache__", ".mypy_cache",
-    ".pytest_cache", ".ruff_cache", ".tox", ".eggs", "dist", "build",
-    ".next", ".nuxt", ".output", "target", "vendor", ".cargo",
-    "coverage", ".coverage", "htmlcov", ".terraform", ".serverless",
-})
+_SKIP_DIRS = frozenset(
+    {
+        ".git",
+        "node_modules",
+        ".venv",
+        "venv",
+        "__pycache__",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".tox",
+        ".eggs",
+        "dist",
+        "build",
+        ".next",
+        ".nuxt",
+        ".output",
+        "target",
+        "vendor",
+        ".cargo",
+        "coverage",
+        ".coverage",
+        "htmlcov",
+        ".terraform",
+        ".serverless",
+    }
+)
 
 # Config files to auto-detect and read
-_CONFIG_FILES = frozenset({
-    "package.json", "pyproject.toml", "Cargo.toml", "go.mod", "go.sum",
-    "pom.xml", "build.gradle", "Gemfile", "Makefile", "CMakeLists.txt",
-    "docker-compose.yml", "docker-compose.yaml", "Dockerfile",
-    ".env.example", "tsconfig.json", "vite.config.ts", "vite.config.js",
-    "next.config.js", "next.config.mjs", "webpack.config.js",
-    "tailwind.config.js", "tailwind.config.ts",
-})
+_CONFIG_FILES = frozenset(
+    {
+        "package.json",
+        "pyproject.toml",
+        "Cargo.toml",
+        "go.mod",
+        "go.sum",
+        "pom.xml",
+        "build.gradle",
+        "Gemfile",
+        "Makefile",
+        "CMakeLists.txt",
+        "docker-compose.yml",
+        "docker-compose.yaml",
+        "Dockerfile",
+        ".env.example",
+        "tsconfig.json",
+        "vite.config.ts",
+        "vite.config.js",
+        "next.config.js",
+        "next.config.mjs",
+        "webpack.config.js",
+        "tailwind.config.js",
+        "tailwind.config.ts",
+    }
+)
 
 # Entry point files to prioritize reading
-_ENTRY_POINTS = frozenset({
-    "main.py", "app.py", "server.py", "index.ts", "index.js",
-    "main.ts", "main.js", "main.go", "main.rs", "lib.rs",
-    "manage.py", "wsgi.py", "asgi.py",
-})
+_ENTRY_POINTS = frozenset(
+    {
+        "main.py",
+        "app.py",
+        "server.py",
+        "index.ts",
+        "index.js",
+        "main.ts",
+        "main.js",
+        "main.go",
+        "main.rs",
+        "lib.rs",
+        "manage.py",
+        "wsgi.py",
+        "asgi.py",
+    }
+)
 
 # Language detection by extension
 _LANG_EXTENSIONS: dict[str, str] = {
-    ".py": "Python", ".ts": "TypeScript", ".tsx": "TypeScript (React)",
-    ".js": "JavaScript", ".jsx": "JavaScript (React)",
-    ".go": "Go", ".rs": "Rust", ".java": "Java", ".kt": "Kotlin",
-    ".rb": "Ruby", ".php": "PHP", ".cs": "C#", ".cpp": "C++",
-    ".c": "C", ".swift": "Swift", ".dart": "Dart",
-    ".vue": "Vue", ".svelte": "Svelte",
-    ".sql": "SQL", ".sh": "Shell", ".yaml": "YAML", ".yml": "YAML",
-    ".toml": "TOML", ".json": "JSON", ".md": "Markdown",
-    ".html": "HTML", ".css": "CSS", ".scss": "SCSS",
+    ".py": "Python",
+    ".ts": "TypeScript",
+    ".tsx": "TypeScript (React)",
+    ".js": "JavaScript",
+    ".jsx": "JavaScript (React)",
+    ".go": "Go",
+    ".rs": "Rust",
+    ".java": "Java",
+    ".kt": "Kotlin",
+    ".rb": "Ruby",
+    ".php": "PHP",
+    ".cs": "C#",
+    ".cpp": "C++",
+    ".c": "C",
+    ".swift": "Swift",
+    ".dart": "Dart",
+    ".vue": "Vue",
+    ".svelte": "Svelte",
+    ".sql": "SQL",
+    ".sh": "Shell",
+    ".yaml": "YAML",
+    ".yml": "YAML",
+    ".toml": "TOML",
+    ".json": "JSON",
+    ".md": "Markdown",
+    ".html": "HTML",
+    ".css": "CSS",
+    ".scss": "SCSS",
 }
 
 
@@ -162,9 +232,26 @@ def _detect_language(path: Path) -> str | None:
 def _is_source_file(path: Path) -> bool:
     """Check if a file is a source code file (not binary, not generated)."""
     source_extensions = {
-        ".py", ".ts", ".tsx", ".js", ".jsx", ".go", ".rs", ".java", ".kt",
-        ".rb", ".php", ".cs", ".cpp", ".c", ".h", ".hpp", ".swift", ".dart",
-        ".vue", ".svelte",
+        ".py",
+        ".ts",
+        ".tsx",
+        ".js",
+        ".jsx",
+        ".go",
+        ".rs",
+        ".java",
+        ".kt",
+        ".rb",
+        ".php",
+        ".cs",
+        ".cpp",
+        ".c",
+        ".h",
+        ".hpp",
+        ".swift",
+        ".dart",
+        ".vue",
+        ".svelte",
     }
     return path.suffix.lower() in source_extensions
 

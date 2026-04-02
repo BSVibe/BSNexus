@@ -12,6 +12,7 @@ from backend.src.api import (
     auth,
     board,
     dashboard,
+    mcp,
     planner,
     pm,
     projects,
@@ -19,7 +20,7 @@ from backend.src.api import (
     settings,
     tasks,
 )
-from backend.src.config import settings as app_settings
+from backend.src.config import Settings, settings as app_settings
 from backend.src.core.rate_limiter import RateLimitMiddleware
 from backend.src.core.security_headers import SecurityHeadersMiddleware
 from backend.src.queue.background import start_background_consumer
@@ -73,10 +74,24 @@ def _setup_logging() -> None:
 _setup_logging()
 
 
+_DEV_SIGNING_KEY = Settings.model_fields["prompt_signing_key"].default
+_DEV_ENCRYPTION_KEY = Settings.model_fields["encryption_key"].default
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage server lifecycle: startup and shutdown."""
-    # Startup
+    # Startup — security gate
+    if not app_settings.debug and app_settings.prompt_signing_key == _DEV_SIGNING_KEY:
+        raise RuntimeError(
+            "FATAL: prompt_signing_key is still the dev default. "
+            "Set a secure PROMPT_SIGNING_KEY env var for production."
+        )
+    if not app_settings.debug and app_settings.encryption_key == _DEV_ENCRYPTION_KEY:
+        raise RuntimeError(
+            "FATAL: encryption_key is still the dev default. Set a secure ENCRYPTION_KEY env var for production."
+        )
+
     await init_db()
     redis = await get_redis()
     stream_manager = RedisStreamManager(redis)
@@ -162,3 +177,4 @@ app.include_router(dashboard.router)
 app.include_router(settings.router)
 app.include_router(security.router)
 app.include_router(planner.router)
+app.include_router(mcp.router)

@@ -1,16 +1,12 @@
-"""JWT-based authentication via bsvibe-auth (Supabase)."""
+"""JWT-based authentication via bsvibe-auth."""
 
 import enum
 
-import httpx
-from jwt import PyJWK
-
-from bsvibe_auth import BSVibeUser, SupabaseAuthProvider
+from bsvibe_auth import BSVibeUser, BsvibeAuthProvider
 from bsvibe_auth.fastapi import create_auth_dependency
 from fastapi import Depends, HTTPException, status
 
 from backend.src.config import settings
-
 
 class Role(str, enum.Enum):
     admin = "admin"
@@ -94,55 +90,8 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
 }
 
 
-class _DevMockUser(BSVibeUser):
-    """Mock user for local development when no Supabase is configured."""
-
-    def __init__(self) -> None:
-        super().__init__(
-            id="dev-user-00000000",
-            email="dev@localhost",
-            role="authenticated",
-            app_metadata={"role": "admin"},
-            user_metadata={},
-        )
-
-
-def _build_auth_provider() -> SupabaseAuthProvider:
-    """Build SupabaseAuthProvider with the correct key/algorithm.
-
-    Supabase projects may use HS256 (HMAC + jwt_secret) or ES256 (ECDSA + JWKS).
-    When supabase_url is set, fetch the JWKS to detect the algorithm automatically.
-    """
-    if settings.supabase_url:
-        try:
-            jwks_url = f"{settings.supabase_url}/auth/v1/.well-known/jwks.json"
-            resp = httpx.get(jwks_url, timeout=5.0)
-            resp.raise_for_status()
-            jwks_data = resp.json()
-            keys = jwks_data.get("keys", [])
-            if keys:
-                jwk_obj = PyJWK(keys[0])
-                alg = keys[0].get("alg", "ES256")
-                return SupabaseAuthProvider(
-                    jwt_secret=jwk_obj.key,
-                    algorithms=[alg],
-                )
-        except Exception:
-            pass  # Fall through to HS256
-
-    return SupabaseAuthProvider(jwt_secret=settings.supabase_jwt_secret)
-
-
-# Supabase auth provider + FastAPI dependency
-# In dev mode (no supabase_url and debug=True), use a mock user
-if settings.debug and not settings.supabase_url:
-
-    async def get_current_user() -> BSVibeUser:
-        return _DevMockUser()
-
-else:
-    auth_provider = _build_auth_provider()
-    get_current_user = create_auth_dependency(auth_provider)
+auth_provider = BsvibeAuthProvider(auth_url=settings.bsvibe_auth_url)
+get_current_user = create_auth_dependency(auth_provider)
 
 
 def require_permission(permission: Permission):

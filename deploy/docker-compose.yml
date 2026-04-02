@@ -86,9 +86,6 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-bsnexus}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-bsnexus}
       REDIS_URL: redis://redis:6379
-      SUPABASE_JWT_SECRET: ${SUPABASE_JWT_SECRET:-}
-      SUPABASE_URL: ${SUPABASE_URL:-}
-      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
       BSVIBE_AUTH_URL: ${BSVIBE_AUTH_URL:-https://auth.bsvibe.dev}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3100}
       PROMPT_SIGNING_KEY: ${PROMPT_SIGNING_KEY:-}

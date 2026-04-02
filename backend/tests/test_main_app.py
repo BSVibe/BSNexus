@@ -1,4 +1,5 @@
 """Tests for main.py app endpoints and infrastructure functions."""
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -79,8 +80,8 @@ async def test_init_db_is_noop() -> None:
 # -- CORS tests ----------------------------------------------------------------
 
 
-async def test_cors_preflight(client: AsyncClient) -> None:
-    """OPTIONS request returns CORS headers."""
+async def test_cors_preflight_blocked_by_default(client: AsyncClient) -> None:
+    """OPTIONS request is blocked when no origins are configured (secure default)."""
     response = await client.options(
         "/health",
         headers={
@@ -88,18 +89,18 @@ async def test_cors_preflight(client: AsyncClient) -> None:
             "Access-Control-Request-Method": "GET",
         },
     )
-    assert response.status_code == 200
-    assert "access-control-allow-origin" in response.headers
+    # With empty allow_origins, CORSMiddleware returns 400 for preflight
+    assert response.status_code == 400
 
 
-async def test_cors_origin_reflected(client: AsyncClient) -> None:
-    """GET with Origin header returns Access-Control-Allow-Origin."""
+async def test_cors_origin_not_reflected_by_default(client: AsyncClient) -> None:
+    """GET with Origin header does NOT reflect it when origins list is empty."""
     response = await client.get(
         "/health",
         headers={"Origin": "http://localhost:3000"},
     )
     assert response.status_code == 200
-    assert "access-control-allow-origin" in response.headers
+    assert "access-control-allow-origin" not in response.headers
 
 
 # -- Router registration tests ------------------------------------------------
@@ -144,12 +145,17 @@ async def test_lifespan_startup_and_shutdown() -> None:
     mock_stream_manager = AsyncMock()
 
     with (
+        patch("backend.src.main.app_settings") as mock_settings,
         patch("backend.src.main.init_db", new_callable=AsyncMock) as mock_init_db,
         patch("backend.src.main.get_redis", new_callable=AsyncMock, return_value=mock_redis),
         patch("backend.src.main.RedisStreamManager", return_value=mock_stream_manager),
         patch("backend.src.main.start_background_consumer", new_callable=AsyncMock),
         patch("backend.src.main.close_redis", new_callable=AsyncMock) as mock_close_redis,
     ):
+        # Bypass signing key validation (debug mode)
+        mock_settings.debug = True
+        mock_settings.prompt_signing_key = "dev-signing-key-change-in-production"
+
         async with lifespan(mock_app):
             mock_init_db.assert_awaited_once()
             assert mock_app.state.redis == mock_redis
@@ -157,6 +163,38 @@ async def test_lifespan_startup_and_shutdown() -> None:
             mock_stream_manager.initialize_streams.assert_awaited_once()
 
         mock_close_redis.assert_awaited_once()
+
+
+async def test_lifespan_rejects_dev_signing_key_in_production() -> None:
+    """Lifespan raises RuntimeError when prompt_signing_key is the dev default in non-debug mode."""
+    from backend.src.main import lifespan
+
+    mock_app = MagicMock()
+
+    with patch("backend.src.main.app_settings") as mock_settings:
+        mock_settings.debug = False
+        mock_settings.prompt_signing_key = "dev-signing-key-change-in-production"
+        mock_settings.encryption_key = "real-key"
+
+        with pytest.raises(RuntimeError, match="prompt_signing_key"):
+            async with lifespan(mock_app):
+                pass
+
+
+async def test_lifespan_rejects_dev_encryption_key_in_production() -> None:
+    """Lifespan raises RuntimeError when encryption_key is the dev default in non-debug mode."""
+    from backend.src.main import lifespan
+
+    mock_app = MagicMock()
+
+    with patch("backend.src.main.app_settings") as mock_settings:
+        mock_settings.debug = False
+        mock_settings.prompt_signing_key = "real-key"
+        mock_settings.encryption_key = "dev-encryption-key-change-in-production"
+
+        with pytest.raises(RuntimeError, match="encryption_key"):
+            async with lifespan(mock_app):
+                pass
 
 
 # -- _setup_logging with file handlers ----------------------------------------

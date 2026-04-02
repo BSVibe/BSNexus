@@ -6,14 +6,14 @@ const statusColorMap: Record<string, string> = {
   done: 'var(--status-done)',
   redesign: 'var(--status-redesign)',
   // Priority colors
-  critical: '#EF4444',
-  high: '#F97316',
-  medium: '#3B82F6',
-  low: '#6B7280',
+  critical: 'var(--color-error)',
+  high: 'var(--status-waiting)',
+  medium: 'var(--status-ready)',
+  low: 'var(--status-blocked)',
   // Worker status
-  idle: '#22C55E',
-  busy: '#F59E0B',
-  offline: '#6B7280',
+  idle: 'var(--color-success)',
+  busy: 'var(--color-warning)',
+  offline: 'var(--status-blocked)',
 }
 
 interface BadgeProps {
@@ -22,21 +22,20 @@ interface BadgeProps {
   size?: 'sm' | 'md'
 }
 
-const sizeClasses = {
-  sm: { dot: 'w-1.5 h-1.5', text: 'text-xs', gap: 'gap-1.5', px: 'px-2 py-0.5' },
-  md: { dot: 'w-2 h-2', text: 'text-sm', gap: 'gap-2', px: 'px-2.5 py-1' },
-}
-
 export function Badge({ color, label, size = 'sm' }: BadgeProps) {
   const resolvedColor = statusColorMap[color] || color
-  const s = sizeClasses[size]
+  const isSm = size === 'sm'
 
   return (
-    <span className={`inline-flex items-center ${s.gap} ${s.px} rounded-full bg-bg-elevated ${s.text} text-text-secondary`}>
-      <span
-        className={`${s.dot} rounded-full shrink-0`}
-        style={{ backgroundColor: resolvedColor }}
-      />
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full font-bold ${
+        isSm ? 'px-2 py-0.5 text-[10px]' : 'px-2.5 py-1 text-xs'
+      }`}
+      style={{
+        backgroundColor: `color-mix(in srgb, ${resolvedColor} 15%, transparent)`,
+        color: resolvedColor,
+      }}
+    >
       {label}
     </span>
   )

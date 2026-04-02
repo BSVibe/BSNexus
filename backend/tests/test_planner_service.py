@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import select
@@ -40,11 +40,15 @@ def mock_gateway() -> AsyncMock:
 @pytest.fixture
 def mock_knowledge() -> AsyncMock:
     knowledge = AsyncMock()
-    knowledge.search.side_effect = lambda query, **kwargs: [
-        {"file": "sot.md", "content": "# Project SOT\nThis is a web app with React frontend and FastAPI backend."},
-    ] if "SOT" in query else [
-        {"file": "sop.md", "content": "# SOP\nUse TDD for all features."},
-    ]
+    knowledge.search.side_effect = lambda query, **kwargs: (
+        [
+            {"file": "sot.md", "content": "# Project SOT\nThis is a web app with React frontend and FastAPI backend."},
+        ]
+        if "SOT" in query
+        else [
+            {"file": "sop.md", "content": "# SOP\nUse TDD for all features."},
+        ]
+    )
     return knowledge
 
 

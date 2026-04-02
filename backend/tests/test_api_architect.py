@@ -50,9 +50,7 @@ async def create_session_via_api(client: AsyncClient, db_session=None) -> dict:
     if db_session is not None:
         from sqlalchemy import select
 
-        result = await db_session.execute(
-            select(Setting).where(Setting.key == "llm_api_key")
-        )
+        result = await db_session.execute(select(Setting).where(Setting.key == "llm_api_key"))
         if result.scalar_one_or_none() is None:
             await insert_global_llm_settings(db_session)
 
@@ -143,9 +141,7 @@ async def test_list_sessions_filter_by_status(client: AsyncClient, db_session):
     session2.status = DesignSessionStatus.project_bound
     await db_session.commit()
 
-    response = await client.get(
-        "/api/v1/architect/sessions", params={"status": "active"}
-    )
+    response = await client.get("/api/v1/architect/sessions", params={"status": "active"})
     assert response.status_code == 200
     data = response.json()
     assert all(s["status"] == "active" for s in data)
@@ -153,9 +149,7 @@ async def test_list_sessions_filter_by_status(client: AsyncClient, db_session):
 
 async def test_list_sessions_invalid_status(client: AsyncClient, db_session):
     """GET /api/architect/sessions?status=invalid returns 400."""
-    response = await client.get(
-        "/api/v1/architect/sessions", params={"status": "invalid"}
-    )
+    response = await client.get("/api/v1/architect/sessions", params={"status": "invalid"})
     assert response.status_code == 400
     assert "Invalid status" in response.json()["detail"]
 
@@ -493,7 +487,6 @@ async def test_finalize_design_success(client: AsyncClient, db_session):
 
 async def test_finalize_creates_project(client: AsyncClient, db_session):
     """POST /api/architect/sessions/{id}/finalize creates project successfully."""
-    from sqlalchemy import select
 
     # Create session
     await insert_global_llm_settings(db_session)
@@ -549,9 +542,7 @@ async def test_finalize_session_not_found(client: AsyncClient, db_session):
     assert response.status_code == 404
 
 
-async def test_finalize_already_project_bound_returns_existing_project(
-    client: AsyncClient, db_session
-):
+async def test_finalize_already_project_bound_returns_existing_project(client: AsyncClient, db_session):
     """POST /api/architect/sessions/{id}/finalize on already project_bound session returns existing project."""
     session = await create_session_in_db(db_session)
     project, _phase = await create_project_with_phase(db_session)
@@ -646,9 +637,7 @@ async def test_add_task_success(client: AsyncClient, db_session):
     assert data["title"] == "New Feature Task"
     assert data["description"] == "Implement a new feature"
     assert data["priority"] == "medium"
-    assert data["worker_prompt"] == {
-        "prompt": "Implement the new feature following these steps..."
-    }
+    assert data["worker_prompt"] == {"prompt": "Implement the new feature following these steps..."}
     assert data["qa_prompt"] == {"prompt": "Verify the feature works correctly..."}
 
 
@@ -943,9 +932,7 @@ class TestBuildMessageHistoryDirect:
 
         session.messages = [msg2, msg1]  # intentionally reversed to test sorting
 
-        with patch(
-            "backend.src.core.architect_service.get_prompt", return_value="System prompt"
-        ):
+        with patch("backend.src.core.architect_service.get_prompt", return_value="System prompt"):
             result = build_message_history(session)
         assert len(result) == 3
         # First should be system prompt, then sorted messages
@@ -958,9 +945,7 @@ class TestBuildMessageHistoryDirect:
 
         session = MagicMock()
         session.messages = []
-        with patch(
-            "backend.src.core.architect_service.get_prompt", return_value="System prompt"
-        ):
+        with patch("backend.src.core.architect_service.get_prompt", return_value="System prompt"):
             result = build_message_history(session)
         assert len(result) == 1
         assert result[0] == {"role": "system", "content": "System prompt"}
@@ -975,9 +960,7 @@ class TestBuildMessageHistoryDirect:
         msg.created_at = datetime.now(timezone.utc)
         msg.message_type = MessageType.chat
         session.messages = [msg]
-        with patch(
-            "backend.src.core.architect_service.get_prompt", return_value="System prompt"
-        ):
+        with patch("backend.src.core.architect_service.get_prompt", return_value="System prompt"):
             result = build_message_history(session)
         assert result[0]["role"] == "system"
         assert result[1]["role"] == "user"
@@ -1003,9 +986,7 @@ class TestBuildMessageHistoryDirect:
 
         session.messages = [chat_msg, internal_msg]
 
-        with patch(
-            "backend.src.core.architect_service.get_prompt", return_value="System prompt"
-        ):
+        with patch("backend.src.core.architect_service.get_prompt", return_value="System prompt"):
             result = build_message_history(session)
         # Only system + chat_msg, internal excluded
         assert len(result) == 2
@@ -1071,9 +1052,7 @@ class TestCreateSessionDirect:
         from backend.src import schemas
         from backend.src.api.architect import create_session
 
-        await insert_global_llm_settings(
-            db_session, api_key="sk-direct", model="gpt-4o", base_url="https://api.test"
-        )
+        await insert_global_llm_settings(db_session, api_key="sk-direct", model="gpt-4o", base_url="https://api.test")
         body = schemas.CreateSessionRequest()
         result = await create_session(body=body, db=db_session)
         assert result.status == schemas.DesignSessionStatus.active
@@ -1138,12 +1117,8 @@ class TestInternalMessageFiltering:
 
         session = await create_session_in_db(db_session)
         repo = DesignSessionRepository(db_session)
-        await repo.add_message(
-            session.id, MessageRole.user, "Hello", message_type=MessageType.chat
-        )
-        await repo.add_message(
-            session.id, MessageRole.assistant, "Hi there", message_type=MessageType.chat
-        )
+        await repo.add_message(session.id, MessageRole.user, "Hello", message_type=MessageType.chat)
+        await repo.add_message(session.id, MessageRole.assistant, "Hi there", message_type=MessageType.chat)
         await repo.add_message(
             session.id,
             MessageRole.user,
@@ -1171,9 +1146,7 @@ class TestInternalMessageFiltering:
 
         session = await create_session_in_db(db_session)
         repo = DesignSessionRepository(db_session)
-        await repo.add_message(
-            session.id, MessageRole.user, "Hello", message_type=MessageType.chat
-        )
+        await repo.add_message(session.id, MessageRole.user, "Hello", message_type=MessageType.chat)
         await repo.add_message(
             session.id,
             MessageRole.assistant,
@@ -1303,9 +1276,7 @@ class TestSendMessageStreamDirect:
             instance = MockClient.return_value
             instance.stream_chat = mock_stream_chat
 
-            result = await send_message_stream(
-                session_id=session.id, body=body, db=db_session
-            )
+            result = await send_message_stream(session_id=session.id, body=body, db=db_session)
 
         # EventSourceResponse is returned
         from sse_starlette.sse import EventSourceResponse
@@ -1353,9 +1324,7 @@ class TestSendMessageStreamDirect:
             instance = MockClient.return_value
             instance.stream_chat = mock_stream_chat
 
-            sse_response = await send_message_stream(
-                session_id=session.id, body=body, db=db_session
-            )
+            sse_response = await send_message_stream(session_id=session.id, body=body, db=db_session)
 
             # Iterate the generator to collect events
             async for event in sse_response.body_iterator:
@@ -1381,9 +1350,7 @@ class TestSendMessageStreamDirect:
             instance = MockClient.return_value
             instance.stream_chat = mock_stream_chat_error
 
-            sse_response = await send_message_stream(
-                session_id=session.id, body=body, db=db_session
-            )
+            sse_response = await send_message_stream(session_id=session.id, body=body, db=db_session)
 
             events = []
             async for event in sse_response.body_iterator:
@@ -1410,9 +1377,7 @@ class TestFinalizeDesignDirect:
             instance = MockClient.return_value
             instance.structured_output = AsyncMock(return_value=MOCK_FINALIZE_RESPONSE)
 
-            result = await finalize_design(
-                session_id=session.id, body=body, db=db_session
-            )
+            result = await finalize_design(session_id=session.id, body=body, db=db_session)
 
         assert result.name == "My Project"
         assert result.description == "A test project"
@@ -1427,27 +1392,21 @@ class TestFinalizeDesignDirect:
         session = await create_session_in_db(db_session)
         body = schemas.FinalizeRequest(
             repo_path="/test/repo",
-            pm_llm_config=schemas.LLMConfigInput(
-                api_key="sk-pm", model="gpt-4o", base_url="https://pm.api"
-            ),
+            pm_llm_config=schemas.LLMConfigInput(api_key="sk-pm", model="gpt-4o", base_url="https://pm.api"),
         )
 
         with patch("backend.src.api.architect.LLMClient") as MockClient:
             instance = MockClient.return_value
             instance.structured_output = AsyncMock(return_value=MOCK_FINALIZE_RESPONSE)
 
-            result = await finalize_design(
-                session_id=session.id, body=body, db=db_session
-            )
+            result = await finalize_design(session_id=session.id, body=body, db=db_session)
 
         assert result.llm_config is not None
         assert result.llm_config["pm"]["api_key"] == "sk-pm"  # too short to mask (<8 chars)
         assert result.llm_config["pm"]["model"] == "gpt-4o"
         assert result.llm_config["pm"]["base_url"] == "https://pm.api"
 
-    async def test_finalize_project_bound_session_returns_existing_project(
-        self, db_session
-    ):
+    async def test_finalize_project_bound_session_returns_existing_project(self, db_session):
         from backend.src import schemas
         from backend.src.api.architect import finalize_design
 
@@ -1518,13 +1477,9 @@ class TestFinalizeDesignDirect:
 
         with patch("backend.src.api.architect.LLMClient") as MockClient:
             instance = MockClient.return_value
-            instance.structured_output = AsyncMock(
-                return_value=response_with_bad_priority
-            )
+            instance.structured_output = AsyncMock(return_value=response_with_bad_priority)
 
-            result = await finalize_design(
-                session_id=session.id, body=body, db=db_session
-            )
+            result = await finalize_design(session_id=session.id, body=body, db=db_session)
 
         assert result.name == "Bad Priority Project"
         assert len(result.phases) == 1
@@ -1544,9 +1499,7 @@ class TestFinalizeDesignDirect:
             instance = MockClient.return_value
             instance.structured_output = AsyncMock(return_value=MOCK_FINALIZE_RESPONSE)
 
-            result = await finalize_design(
-                session_id=session.id, body=body, db=db_session
-            )
+            result = await finalize_design(session_id=session.id, body=body, db=db_session)
 
         assert result.llm_config is not None
         assert result.llm_config["pm"]["api_key"] == "sk-****...only"
@@ -1572,9 +1525,7 @@ class TestFinalizeDesignDirect:
             instance.structured_output = AsyncMock(return_value=empty_response)
 
             with pytest.raises(HTTPException) as exc_info:
-                await finalize_design(
-                    session_id=session.id, body=body, db=db_session
-                )
+                await finalize_design(session_id=session.id, body=body, db=db_session)
             assert exc_info.value.status_code == 400
             assert "at least one phase" in exc_info.value.detail
 
@@ -1611,9 +1562,7 @@ class TestFinalizeDesignDirect:
             instance = MockClient.return_value
             instance.structured_output = AsyncMock(return_value=response_with_bad_dep)
 
-            result = await finalize_design(
-                session_id=session.id, body=body, db=db_session
-            )
+            result = await finalize_design(session_id=session.id, body=body, db=db_session)
 
         assert result.name == "Bad Dep Project"
         assert len(result.phases) == 1
@@ -1655,9 +1604,7 @@ class TestFinalizeDesignDirect:
                 captured_messages = messages
                 return MOCK_FINALIZE_RESPONSE
 
-            instance.structured_output = AsyncMock(
-                side_effect=capture_structured_output
-            )
+            instance.structured_output = AsyncMock(side_effect=capture_structured_output)
 
             await finalize_design(session_id=session.id, body=body, db=db_session)
 
@@ -1669,9 +1616,7 @@ class TestFinalizeDesignDirect:
         assert "Project: Test SaaS" in captured_messages[1]["content"]
         assert "Stack: FastAPI + React" in captured_messages[1]["content"]
 
-    async def test_finalize_falls_back_to_full_history_without_design_context(
-        self, db_session
-    ):
+    async def test_finalize_falls_back_to_full_history_without_design_context(self, db_session):
         """finalize_design uses full conversation history when no design_context."""
         from backend.src import schemas
         from backend.src.api.architect import finalize_design
@@ -1708,9 +1653,7 @@ class TestFinalizeDesignDirect:
                 captured_messages = messages
                 return MOCK_FINALIZE_RESPONSE
 
-            instance.structured_output = AsyncMock(
-                side_effect=capture_structured_output
-            )
+            instance.structured_output = AsyncMock(side_effect=capture_structured_output)
 
             await finalize_design(session_id=session.id, body=body, db=db_session)
 
@@ -1745,9 +1688,7 @@ class TestFinalizeDesignDirect:
             instance = MockClient.return_value
             instance.structured_output = AsyncMock(return_value=minimal_response)
 
-            result = await finalize_design(
-                session_id=session.id, body=body, db=db_session
-            )
+            result = await finalize_design(session_id=session.id, body=body, db=db_session)
 
         assert result.name == "Untitled Project"
         assert result.description == ""
@@ -1787,9 +1728,7 @@ class TestAddTaskDirect:
         body = schemas.AddTaskRequest(
             phase_id=phase.id,
             request_text="Add a feature",
-            llm_config=schemas.LLMConfigInput(
-                api_key="sk-override", model="gpt-4o", base_url="https://override.api"
-            ),
+            llm_config=schemas.LLMConfigInput(api_key="sk-override", model="gpt-4o", base_url="https://override.api"),
         )
 
         with patch("backend.src.api.architect.LLMClient") as MockClient:
@@ -2108,13 +2047,13 @@ class TestRedesignPhaseDirect:
                 id=uuid.uuid4(),
                 project_id=project.id,
                 phase_id=phase.id,
-                title=f"Redesign Task {i+1}",
-                description=f"Failed task {i+1}",
+                title=f"Redesign Task {i + 1}",
+                description=f"Failed task {i + 1}",
                 status=TaskStatus.redesign,
                 priority=TaskPriority.high,
-                worker_prompt={"prompt": f"Do thing {i+1}"},
-                qa_prompt={"prompt": f"Check thing {i+1}"},
-                error_message=f"Error in task {i+1}",
+                worker_prompt={"prompt": f"Do thing {i + 1}"},
+                qa_prompt={"prompt": f"Check thing {i + 1}"},
+                error_message=f"Error in task {i + 1}",
                 retry_count=3,
                 max_retries=3,
                 qa_feedback_history=[{"round": 1, "feedback": "bad"}],
@@ -2129,8 +2068,8 @@ class TestRedesignPhaseDirect:
                 id=uuid.uuid4(),
                 project_id=project.id,
                 phase_id=phase.id,
-                title=f"Done Task {i+1}",
-                description=f"Completed task {i+1}",
+                title=f"Done Task {i + 1}",
+                description=f"Completed task {i + 1}",
                 status=TaskStatus.done,
                 priority=TaskPriority.medium,
                 branch_name=phase.branch_name,
@@ -2147,7 +2086,9 @@ class TestRedesignPhaseDirect:
         from backend.src.api.architect import redesign_phase
 
         project, phase, redesign_tasks, _ = await self._make_phase_with_tasks(
-            db_session, redesign_count=2, done_count=1,
+            db_session,
+            redesign_count=2,
+            done_count=1,
         )
         kept_task = redesign_tasks[0]
         _ = redesign_tasks[1]  # deleted_task — used only for setup

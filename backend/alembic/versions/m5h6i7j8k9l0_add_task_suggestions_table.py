@@ -5,6 +5,7 @@ Revises: l4g5h6i7j8k9
 Create Date: 2026-03-28 10:00:00.000000
 
 """
+
 from typing import Sequence, Union
 
 import sqlalchemy as sa
@@ -24,13 +25,16 @@ def upgrade() -> None:
     # op.create_table, that listener fires CREATE TYPE without checkfirst,
     # even if the migration column uses create_type=False (different instance).
     # Raw SQL bypasses this entirely.
-    op.execute(sa.text(
-        "DO $$ BEGIN "
-        "CREATE TYPE suggestionstatus AS ENUM ('pending', 'approved', 'rejected', 'modified'); "
-        "EXCEPTION WHEN duplicate_object THEN NULL; "
-        "END $$"
-    ))
-    op.execute(sa.text("""
+    op.execute(
+        sa.text(
+            "DO $$ BEGIN "
+            "CREATE TYPE suggestionstatus AS ENUM ('pending', 'approved', 'rejected', 'modified'); "
+            "EXCEPTION WHEN duplicate_object THEN NULL; "
+            "END $$"
+        )
+    )
+    op.execute(
+        sa.text("""
         CREATE TABLE task_suggestions (
             id UUID NOT NULL PRIMARY KEY,
             project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -45,10 +49,9 @@ def upgrade() -> None:
             created_at TIMESTAMPTZ DEFAULT now(),
             updated_at TIMESTAMPTZ DEFAULT now()
         )
-    """))
-    op.execute(sa.text(
-        "CREATE INDEX ix_task_suggestions_project_status ON task_suggestions (project_id, status)"
-    ))
+    """)
+    )
+    op.execute(sa.text("CREATE INDEX ix_task_suggestions_project_status ON task_suggestions (project_id, status)"))
 
 
 def downgrade() -> None:

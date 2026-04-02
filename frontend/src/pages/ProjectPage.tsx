@@ -17,7 +17,6 @@ import ChatMessage from '../components/architect/ChatMessage'
 import ChatInput from '../components/architect/ChatInput'
 import Header from '../components/layout/Header'
 import type { Task } from '../types/task'
-import { MessageSquare, PanelRightClose, PanelRightOpen } from 'lucide-react'
 
 export default function ProjectPage() {
   const { projectId } = useParams<{ projectId: string }>()
@@ -28,9 +27,9 @@ export default function ProjectPage() {
       <>
         <Header title="Project" />
         <div className="p-8">
-          <div className="rounded-lg border border-dashed border-border p-12 text-center">
+          <div className="rounded-lg border border-dashed border-stitch-outline-variant/30 p-12 text-center">
             <p className="text-text-secondary mb-4">Select a project from the Dashboard.</p>
-            <button type="button" onClick={() => navigate('/')} className="text-sm text-accent hover:underline">
+            <button type="button" onClick={() => navigate('/')} className="text-sm text-stitch-primary hover:underline">
               Go to Dashboard
             </button>
           </div>
@@ -91,7 +90,6 @@ function ProjectContent({ projectId }: { projectId: string }) {
         setMessages(chatMessages)
       })
       .catch(() => {
-        // No session found - that's ok
         setSessionId(null)
         setConnected(false)
         clearMessages()
@@ -140,11 +138,9 @@ function ProjectContent({ projectId }: { projectId: string }) {
       },
       onDone: () => {
         setStreaming(false)
-        // Refresh board after architect actions
         queryClient.invalidateQueries({ queryKey: ['board', projectId] })
       },
       onFinalizeReady: () => {
-        // In project-bound mode, finalize_ready shouldn't appear
         setStreaming(false)
       },
       onError: (message) => {
@@ -167,7 +163,7 @@ function ProjectContent({ projectId }: { projectId: string }) {
       <>
         <Header title="Project" />
         <div className="flex items-center justify-center h-64">
-          <div className="text-text-secondary">Loading project...</div>
+          <div className="animate-spin rounded-full h-8 w-8 border-2 border-stitch-primary border-t-transparent" />
         </div>
       </>
     )
@@ -178,21 +174,21 @@ function ProjectContent({ projectId }: { projectId: string }) {
       <Header
         title={project?.name || 'Project'}
         action={
-          <div className="flex items-center gap-2">
-            <span
-              className="inline-block w-2 h-2 rounded-full"
-              style={{ backgroundColor: isConnected ? 'var(--status-done)' : 'var(--status-redesign)' }}
-            />
-            <span className="text-xs text-text-tertiary">
-              {isConnected ? 'Live' : 'Disconnected'}
-            </span>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-stitch-surface-container border border-stitch-outline-variant/20">
+              <span
+                className="inline-block w-2 h-2 rounded-full"
+                style={{ backgroundColor: isConnected ? 'var(--status-done)' : 'var(--status-redesign)' }}
+              />
+              <span className="text-[11px] font-medium text-text-secondary">{isConnected ? 'Live' : 'Offline'}</span>
+            </div>
             <button
               type="button"
               onClick={() => setChatOpen(!chatOpen)}
-              className="ml-2 p-1.5 rounded-md hover:bg-bg-hover text-text-secondary"
+              className="p-2 rounded-md hover:bg-stitch-surface-container text-text-secondary transition-colors"
               title={chatOpen ? 'Close chat' : 'Open Architect chat'}
             >
-              {chatOpen ? <PanelRightClose size={18} /> : <PanelRightOpen size={18} />}
+              <span className="material-symbols-outlined">{chatOpen ? 'right_panel_close' : 'right_panel_open'}</span>
             </button>
           </div>
         }
@@ -201,13 +197,28 @@ function ProjectContent({ projectId }: { projectId: string }) {
       <div className="flex h-[calc(100vh-64px)] overflow-hidden">
         {/* Main content: Board */}
         <div className="flex-1 flex flex-col overflow-hidden">
-          <div className="px-4 pt-3 pb-2 flex items-center gap-4">
-            <BoardStats />
-            <PMControl projectId={projectId} />
+          <div className="px-8 pt-6">
+            {/* Project header */}
+            <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-8">
+              <div>
+                <div className="flex items-center gap-3 mb-2">
+                  <h2 className="text-4xl font-extrabold tracking-[-0.04em] text-white">{project?.name || 'Project'}</h2>
+                  <span className="px-3 py-1 rounded-full bg-stitch-secondary-container text-stitch-on-secondary-container text-xs font-bold uppercase tracking-widest">
+                    {project?.status || 'Active'}
+                  </span>
+                </div>
+                {project?.description && (
+                  <p className="text-text-secondary max-w-2xl leading-relaxed">{project.description}</p>
+                )}
+              </div>
+              <div className="flex items-center gap-3">
+                <PMControl projectId={projectId} />
+              </div>
+            </div>
           </div>
 
           {isRedesigning && (
-            <div className="px-4 pb-2">
+            <div className="px-8 pb-3">
               <RedesignView
                 tasks={redesignTasks as Task[]}
                 onDone={handleRedesignDone}
@@ -215,7 +226,11 @@ function ProjectContent({ projectId }: { projectId: string }) {
             </div>
           )}
 
-          <div className="flex-1 overflow-auto px-4 pb-4">
+          <div className="px-8 pb-4">
+            <BoardStats projectName={project?.name} />
+          </div>
+
+          <div className="flex-1 overflow-auto px-8 pb-6">
             <KanbanBoard
               columns={columns}
               onTaskClick={(task: Task) => setSelectedTask(task)}
@@ -223,25 +238,30 @@ function ProjectContent({ projectId }: { projectId: string }) {
           </div>
         </div>
 
-        {/* Right panel: Architect Chat */}
+        {/* Right panel: Architect Chat drawer */}
         {chatOpen && (
-          <div className="w-[400px] border-l border-border bg-bg-surface flex flex-col shrink-0">
-            <div className="px-4 py-3 border-b border-border-subtle flex items-center gap-2">
-              <MessageSquare size={16} className="text-accent" />
-              <h3 className="text-sm font-semibold text-text-primary">Architect</h3>
+          <aside className="w-80 h-full bg-stitch-surface-low border-l border-stitch-outline-variant/10 flex flex-col shrink-0">
+            <div className="py-6 px-5">
+              <h2 className="text-sm font-bold uppercase tracking-widest text-text-secondary mb-1">Architect Chat</h2>
               {sessionId && (
-                <span className="ml-auto text-xs text-text-muted">project-bound</span>
+                <span className="text-[10px] text-stitch-primary font-bold">project-bound</span>
               )}
             </div>
 
-            <div className="flex-1 overflow-y-auto p-3 space-y-2">
+            <div className="flex-1 overflow-y-auto px-5 space-y-4">
               {!sessionId ? (
-                <div className="flex items-center justify-center h-full">
-                  <p className="text-sm text-text-muted">No architect session for this project.</p>
+                <div className="flex flex-col items-center justify-center h-full gap-3">
+                  <div className="w-12 h-12 rounded-xl bg-stitch-surface-container flex items-center justify-center">
+                    <span className="material-symbols-outlined text-text-muted">chat</span>
+                  </div>
+                  <p className="text-sm text-text-tertiary">No architect session for this project.</p>
                 </div>
               ) : messages.length === 0 ? (
-                <div className="flex items-center justify-center h-full">
-                  <p className="text-sm text-text-muted">Start a conversation with the Architect.</p>
+                <div className="flex flex-col items-center justify-center h-full gap-3">
+                  <div className="w-12 h-12 rounded-xl bg-stitch-primary/10 flex items-center justify-center">
+                    <span className="material-symbols-outlined text-stitch-primary" style={{ fontVariationSettings: "'FILL' 1" }}>bolt</span>
+                  </div>
+                  <p className="text-sm text-text-secondary">Start a conversation with the Architect.</p>
                 </div>
               ) : (
                 messages.map((msg) => (
@@ -252,11 +272,11 @@ function ProjectContent({ projectId }: { projectId: string }) {
             </div>
 
             {sessionId && (
-              <div className="p-3 border-t border-border-subtle">
+              <div className="p-4 border-t border-stitch-outline-variant/10">
                 <ChatInput onSend={handleSend} disabled={isStreaming || !sessionId} />
               </div>
             )}
-          </div>
+          </aside>
         )}
       </div>
 

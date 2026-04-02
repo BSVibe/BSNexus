@@ -7,7 +7,6 @@ import { Button, Modal } from '../components/common'
 import Header from '../components/layout/Header'
 import { useAuthStore } from '../stores/authStore'
 import { useToastStore } from '../stores/toastStore'
-import { FolderOpen, FolderUp, GitBranch, Folder } from 'lucide-react'
 
 type MigratePhase = 'idle' | 'analyze' | 'llm' | 'save' | 'done' | 'error'
 
@@ -139,7 +138,7 @@ export default function MigratePage() {
     <>
       <Header title="Import Existing Project" />
       <div className="p-8 max-w-2xl mx-auto">
-        <div className="rounded-lg border border-border bg-bg-card p-8">
+        <div className="rounded-xl border border-stitch-outline-variant/10 bg-stitch-surface-container p-8">
           <p className="text-sm text-text-secondary mb-6">
             Provide a path to an existing project folder. BSNexus will analyze the codebase
             and create a project management structure with phases and tasks for future work.
@@ -148,7 +147,7 @@ export default function MigratePage() {
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
               <label htmlFor="repo-path" className="block text-sm font-medium text-text-primary mb-1.5">
-                Project Path <span className="text-red-500">*</span>
+                Project Path <span className="text-stitch-error">*</span>
               </label>
               <div className="flex gap-2">
                 <input
@@ -158,18 +157,18 @@ export default function MigratePage() {
                   onChange={(e) => setRepoPath(e.target.value)}
                   placeholder="/path/to/your/project"
                   disabled={isProcessing}
-                  className="flex-1 rounded-md border border-border bg-bg-input px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50"
+                  className="flex-1 rounded-md border border-stitch-outline-variant/20 bg-stitch-surface-low px-3 py-2 text-sm text-text-primary placeholder:text-text-tertiary focus:border-stitch-primary focus:outline-none focus:ring-1 focus:ring-stitch-primary disabled:opacity-50"
                   autoFocus
                 />
                 <Button type="button" variant="secondary" disabled={isProcessing} onClick={openBrowser}>
-                  <FolderOpen size={16} />
+                  <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>folder_open</span>
                 </Button>
               </div>
             </div>
 
             <div>
               <label htmlFor="project-name" className="block text-sm font-medium text-text-primary mb-1.5">
-                Project Name <span className="text-text-muted">(optional, auto-detected from folder)</span>
+                Project Name <span className="text-text-tertiary">(optional, auto-detected from folder)</span>
               </label>
               <input
                 id="project-name"
@@ -178,7 +177,7 @@ export default function MigratePage() {
                 onChange={(e) => setProjectName(e.target.value)}
                 placeholder="My Project"
                 disabled={isProcessing}
-                className="w-full rounded-md border border-border bg-bg-input px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50"
+                className="w-full rounded-md border border-stitch-outline-variant/20 bg-stitch-surface-low px-3 py-2 text-sm text-text-primary placeholder:text-text-tertiary focus:border-stitch-primary focus:outline-none focus:ring-1 focus:ring-stitch-primary disabled:opacity-50"
               />
             </div>
 
@@ -186,25 +185,25 @@ export default function MigratePage() {
               <div className="space-y-3 py-4">
                 {/* Step indicators */}
                 <div className="flex items-center gap-3">
-                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-stitch-primary border-t-transparent" />
                   <div>
                     <div className="text-sm font-medium text-text-primary">
                       {phaseLabels[currentStep.phase] || currentStep.phase}
                     </div>
-                    <div className="text-xs text-text-muted">{currentStep.detail}</div>
+                    <div className="text-xs text-text-tertiary">{currentStep.detail}</div>
                   </div>
                 </div>
 
                 {/* Progress bar for LLM phase */}
                 {currentStep.phase === 'llm' && llmProgress > 0 && (
                   <div className="flex items-center gap-2">
-                    <div className="flex-1 h-1.5 rounded-full bg-bg-hover overflow-hidden">
+                    <div className="flex-1 h-1.5 rounded-full bg-stitch-surface-lowest overflow-hidden">
                       <div
-                        className="h-full bg-accent transition-all duration-300"
+                        className="h-full bg-stitch-primary transition-all duration-300"
                         style={{ width: `${Math.min((llmProgress / ESTIMATED_LLM_OUTPUT_CHARS) * 100, 95)}%` }}
                       />
                     </div>
-                    <span className="text-xs text-text-muted">{(llmProgress / 1000).toFixed(1)}k chars</span>
+                    <span className="text-xs text-text-tertiary">{(llmProgress / 1000).toFixed(1)}k chars</span>
                   </div>
                 )}
 
@@ -220,7 +219,7 @@ export default function MigratePage() {
                       <div
                         key={phase}
                         className={`h-2 flex-1 rounded-full transition-colors ${
-                          isDone ? 'bg-green-500' : isCurrent ? 'bg-accent' : 'bg-bg-hover'
+                          isDone ? 'bg-stitch-primary' : isCurrent ? 'bg-stitch-secondary' : 'bg-stitch-surface-lowest'
                         }`}
                       />
                     )
@@ -233,9 +232,9 @@ export default function MigratePage() {
               </div>
             ) : currentStep.phase === 'error' ? (
               <div className="space-y-3 py-4">
-                <div className="rounded-md border border-red-200 bg-red-50 p-3">
-                  <div className="text-sm font-medium text-red-700">Migration failed</div>
-                  <div className="text-xs text-red-600 mt-1">{currentStep.detail}</div>
+                <div className="rounded-md border border-stitch-error/30 bg-stitch-error-container/10 p-3">
+                  <div className="text-sm font-medium text-stitch-error">Migration failed</div>
+                  <div className="text-xs text-stitch-error/70 mt-1">{currentStep.detail}</div>
                 </div>
                 <div className="flex items-center gap-3">
                   <Button type="submit" disabled={!repoPath.trim()}>
@@ -277,38 +276,40 @@ export default function MigratePage() {
           </>
         }
       >
-        <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-md bg-bg-hover text-sm font-mono text-text-primary">
-          {browseQuery.data?.has_git && <GitBranch size={14} className="text-green-500 shrink-0" />}
+        <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-md bg-stitch-surface-low text-sm font-mono text-text-primary">
+          {browseQuery.data?.has_git && (
+            <span className="material-symbols-outlined text-stitch-primary shrink-0" style={{ fontSize: '14px' }}>commit</span>
+          )}
           <span className="truncate">{browsePath}</span>
         </div>
 
-        <div className="border border-border rounded-md max-h-80 overflow-y-auto">
+        <div className="border border-stitch-outline-variant/10 rounded-md max-h-80 overflow-y-auto">
           {browseQuery.data?.parent && (
             <button
               onClick={() => setBrowsePath(browseQuery.data!.parent!)}
-              className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-text-secondary hover:bg-bg-hover transition-colors border-b border-border"
+              className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-text-secondary hover:bg-stitch-surface-container transition-colors border-b border-stitch-outline-variant/10"
             >
-              <FolderUp size={16} className="text-text-muted shrink-0" />
+              <span className="material-symbols-outlined text-text-tertiary shrink-0" style={{ fontSize: '16px' }}>drive_folder_upload</span>
               <span>..</span>
             </button>
           )}
-          {browseQuery.isLoading && <div className="px-3 py-6 text-center text-sm text-text-muted">Loading...</div>}
+          {browseQuery.isLoading && <div className="px-3 py-6 text-center text-sm text-text-tertiary">Loading...</div>}
           {browseQuery.isError && (
-            <div className="px-3 py-6 text-center text-sm text-red-500">
+            <div className="px-3 py-6 text-center text-sm text-stitch-error">
               {(browseQuery.error as Error & { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
                 'Failed to browse directory'}
             </div>
           )}
           {browseQuery.data?.directories.length === 0 && !browseQuery.isLoading && (
-            <div className="px-3 py-6 text-center text-sm text-text-muted">No subdirectories</div>
+            <div className="px-3 py-6 text-center text-sm text-text-tertiary">No subdirectories</div>
           )}
           {browseQuery.data?.directories.map((dir) => (
             <button
               key={dir.path}
               onClick={() => setBrowsePath(dir.path)}
-              className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-text-primary hover:bg-bg-hover transition-colors border-b border-border last:border-b-0"
+              className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-text-primary hover:bg-stitch-surface-container transition-colors border-b border-stitch-outline-variant/10 last:border-b-0"
             >
-              <Folder size={16} className="text-accent shrink-0" />
+              <span className="material-symbols-outlined text-stitch-primary shrink-0" style={{ fontSize: '16px' }}>folder</span>
               <span className="truncate text-left">{dir.name}</span>
             </button>
           ))}

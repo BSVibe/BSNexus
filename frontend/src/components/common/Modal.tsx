@@ -32,21 +32,19 @@ export function Modal({ open, onClose, title, children, footer, width = 520 }: M
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       <div
-        className="relative bg-bg-card rounded-xl shadow-xl"
+        className="relative bg-stitch-surface-container rounded-xl shadow-2xl border border-stitch-outline-variant/10"
         style={{ width, maxWidth: '90vw', maxHeight: '85vh' }}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border-subtle">
-          <h2 className="text-lg font-semibold text-text-primary">{title}</h2>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-stitch-outline-variant/10">
+          <h2 className="text-lg font-bold text-white">{title}</h2>
           <button
             onClick={onClose}
-            className="text-text-tertiary hover:text-text-primary hover:bg-bg-hover rounded-md p-1 transition-colors"
+            className="text-text-tertiary hover:text-white hover:bg-stitch-surface-high rounded-md p-1 transition-colors"
           >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
+            <span className="material-symbols-outlined" style={{ fontSize: '20px' }}>close</span>
           </button>
         </div>
         {/* Body */}
@@ -55,7 +53,7 @@ export function Modal({ open, onClose, title, children, footer, width = 520 }: M
         </div>
         {/* Footer */}
         {footer && (
-          <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-border-subtle">
+          <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-stitch-outline-variant/10">
             {footer}
           </div>
         )}

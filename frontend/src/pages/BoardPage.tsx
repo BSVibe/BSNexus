@@ -15,20 +15,19 @@ export default function BoardPage() {
   const { projectId } = useParams<{ projectId: string }>()
   const navigate = useNavigate()
 
-  // If no projectId is provided, show a "select project" state
   if (!projectId) {
     return (
       <>
         <Header title="Board" />
         <div className="p-8">
-          <div className="rounded-lg border border-dashed border-border p-12 text-center">
+          <div className="rounded-xl border border-dashed border-stitch-outline-variant/30 p-16 text-center">
             <p className="text-text-secondary mb-4">
               Select a project from the Dashboard to view its board.
             </p>
             <button
               type="button"
               onClick={() => navigate('/')}
-              className="text-sm text-accent hover:underline"
+              className="text-sm text-stitch-primary hover:underline transition-colors"
             >
               Go to Dashboard
             </button>
@@ -63,7 +62,7 @@ function BoardContent({ projectId }: { projectId: string }) {
       <>
         <Header title="Board" />
         <div className="flex items-center justify-center h-64">
-          <div className="text-text-secondary">Loading board...</div>
+          <div className="animate-spin rounded-full h-8 w-8 border-2 border-stitch-primary border-t-transparent" />
         </div>
       </>
     )
@@ -74,20 +73,22 @@ function BoardContent({ projectId }: { projectId: string }) {
       <Header
         title={project?.name || 'Board'}
         action={
-          <div className="flex items-center gap-2">
-            <span
-              className="inline-block w-2 h-2 rounded-full"
-              style={{ backgroundColor: isConnected ? 'var(--status-done)' : 'var(--status-redesign)' }}
-            />
-            <span className="text-xs text-text-secondary">{isConnected ? 'Live' : 'Offline'}</span>
+          <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-stitch-surface-container border border-stitch-outline-variant/20">
+              <span
+                className="inline-block w-1.5 h-1.5 rounded-full"
+                style={{ backgroundColor: isConnected ? 'var(--status-done)' : 'var(--status-redesign)' }}
+              />
+              <span className="text-[11px] font-medium text-text-secondary">{isConnected ? 'Live' : 'Offline'}</span>
+            </div>
           </div>
         }
       />
 
       {isRedesigning ? (
-        <RedesignView tasks={redesignTasks} onDone={handleRedesignDone} />
+        <RedesignView tasks={redesignTasks as Task[]} onDone={handleRedesignDone} />
       ) : (
-        <div className="p-8">
+        <div className="flex-1 flex flex-col overflow-hidden p-8">
           {/* PM Control */}
           <div className="mb-4">
             <PMControl projectId={projectId} />
@@ -97,10 +98,12 @@ function BoardContent({ projectId }: { projectId: string }) {
           <BoardStats projectName={project?.name} />
 
           {/* Kanban board */}
-          <KanbanBoard columns={columns} onTaskClick={(task: Task) => setSelectedTask(task)} />
+          <div className="flex-1 overflow-x-auto overflow-y-hidden">
+            <KanbanBoard columns={columns} onTaskClick={(task: Task) => setSelectedTask(task)} />
+          </div>
 
           {/* Task detail modal */}
-          {selectedTask && <TaskDetail task={selectedTask} onClose={() => setSelectedTask(null)} />}
+          {selectedTask && <TaskDetail task={selectedTask as Task} onClose={() => setSelectedTask(null)} />}
         </div>
       )}
     </>

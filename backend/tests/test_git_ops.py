@@ -25,6 +25,7 @@ def _make_proc(stdout: bytes = b"", stderr: bytes = b"", returncode: int = 0) ->
 # _is_git_repo
 # ---------------------------------------------------------------------------
 
+
 class TestIsGitRepo:
     @pytest.mark.asyncio
     async def test_returns_true_for_valid_repo(self, git_ops: GitOps) -> None:
@@ -47,6 +48,7 @@ class TestIsGitRepo:
 # ---------------------------------------------------------------------------
 # _run
 # ---------------------------------------------------------------------------
+
 
 class TestRun:
     @pytest.mark.asyncio
@@ -83,12 +85,15 @@ class TestRun:
 # ensure_repo
 # ---------------------------------------------------------------------------
 
+
 class TestEnsureRepo:
     @pytest.mark.asyncio
     async def test_existing_repo_with_main_branch(self, git_ops: GitOps) -> None:
         """If repo exists and main branch exists, do nothing extra."""
-        with patch.object(git_ops, "_is_git_repo", return_value=True), \
-             patch.object(git_ops, "_run", return_value="") as mock_run:
+        with (
+            patch.object(git_ops, "_is_git_repo", return_value=True),
+            patch.object(git_ops, "_run", return_value="") as mock_run,
+        ):
             await git_ops.ensure_repo()
             # Should only call rev-parse to verify main
             mock_run.assert_awaited_once_with("rev-parse", "--verify", "main")
@@ -104,8 +109,10 @@ class TestEnsureRepo:
                 raise RuntimeError("not found")
             return ""
 
-        with patch.object(git_ops, "_is_git_repo", return_value=True), \
-             patch.object(git_ops, "_run", side_effect=fake_run):
+        with (
+            patch.object(git_ops, "_is_git_repo", return_value=True),
+            patch.object(git_ops, "_run", side_effect=fake_run),
+        ):
             await git_ops.ensure_repo()
 
         assert ("rev-parse", "--verify", "main") in call_log
@@ -121,9 +128,11 @@ class TestEnsureRepo:
             call_log.append(args)
             return ""
 
-        with patch.object(git_ops, "_is_git_repo", return_value=False), \
-             patch.object(git_ops, "_run", side_effect=fake_run), \
-             patch("backend.src.core.git_ops.Path") as mock_path_cls:
+        with (
+            patch.object(git_ops, "_is_git_repo", return_value=False),
+            patch.object(git_ops, "_run", side_effect=fake_run),
+            patch("backend.src.core.git_ops.Path") as mock_path_cls,
+        ):
             mock_path_inst = MagicMock()
             mock_path_cls.return_value = mock_path_inst
             await git_ops.ensure_repo()
@@ -139,6 +148,7 @@ class TestEnsureRepo:
 # ---------------------------------------------------------------------------
 # ensure_branch
 # ---------------------------------------------------------------------------
+
 
 class TestEnsureBranch:
     @pytest.mark.asyncio
@@ -194,6 +204,7 @@ class TestEnsureBranch:
 # commit_task
 # ---------------------------------------------------------------------------
 
+
 class TestCommitTask:
     @pytest.mark.asyncio
     async def test_has_changes_commits_and_returns_hash(self, git_ops: GitOps) -> None:
@@ -207,8 +218,10 @@ class TestCommitTask:
                 return "abc123def456\n"
             return ""
 
-        with patch.object(git_ops, "ensure_branch", new_callable=AsyncMock), \
-             patch.object(git_ops, "_run", side_effect=fake_run):
+        with (
+            patch.object(git_ops, "ensure_branch", new_callable=AsyncMock),
+            patch.object(git_ops, "_run", side_effect=fake_run),
+        ):
             result = await git_ops.commit_task("42", "implement feature", "feature-branch")
 
         assert result == "abc123def456"
@@ -223,8 +236,10 @@ class TestCommitTask:
             call_log.append(args)
             return ""
 
-        with patch.object(git_ops, "ensure_branch", new_callable=AsyncMock), \
-             patch.object(git_ops, "_run", side_effect=fake_run):
+        with (
+            patch.object(git_ops, "ensure_branch", new_callable=AsyncMock),
+            patch.object(git_ops, "_run", side_effect=fake_run),
+        ):
             result = await git_ops.commit_task("42", "implement feature", "feature-branch")
 
         assert result == ""
@@ -236,8 +251,10 @@ class TestCommitTask:
         async def fake_run(*args: str) -> str:
             return ""
 
-        with patch.object(git_ops, "ensure_branch", new_callable=AsyncMock) as mock_branch, \
-             patch.object(git_ops, "_run", side_effect=fake_run):
+        with (
+            patch.object(git_ops, "ensure_branch", new_callable=AsyncMock) as mock_branch,
+            patch.object(git_ops, "_run", side_effect=fake_run),
+        ):
             await git_ops.commit_task("1", "title", "my-branch")
 
         mock_branch.assert_awaited_once_with("my-branch")
@@ -246,6 +263,7 @@ class TestCommitTask:
 # ---------------------------------------------------------------------------
 # get_status
 # ---------------------------------------------------------------------------
+
 
 class TestGetStatus:
     @pytest.mark.asyncio
@@ -267,6 +285,7 @@ class TestGetStatus:
 # revert_task
 # ---------------------------------------------------------------------------
 
+
 class TestRevertTask:
     @pytest.mark.asyncio
     async def test_with_commit_hash_calls_revert(self, git_ops: GitOps) -> None:
@@ -276,8 +295,10 @@ class TestRevertTask:
             call_log.append(args)
             return ""
 
-        with patch.object(git_ops, "ensure_branch", new_callable=AsyncMock) as mock_branch, \
-             patch.object(git_ops, "_run", side_effect=fake_run):
+        with (
+            patch.object(git_ops, "ensure_branch", new_callable=AsyncMock) as mock_branch,
+            patch.object(git_ops, "_run", side_effect=fake_run),
+        ):
             await git_ops.revert_task("abc123", "feature-branch")
 
         mock_branch.assert_awaited_once_with("feature-branch")
@@ -285,8 +306,10 @@ class TestRevertTask:
 
     @pytest.mark.asyncio
     async def test_empty_hash_is_noop(self, git_ops: GitOps) -> None:
-        with patch.object(git_ops, "ensure_branch", new_callable=AsyncMock) as mock_branch, \
-             patch.object(git_ops, "_run", new_callable=AsyncMock) as mock_run:
+        with (
+            patch.object(git_ops, "ensure_branch", new_callable=AsyncMock) as mock_branch,
+            patch.object(git_ops, "_run", new_callable=AsyncMock) as mock_run,
+        ):
             await git_ops.revert_task("", "feature-branch")
 
         mock_branch.assert_not_awaited()
@@ -294,8 +317,10 @@ class TestRevertTask:
 
     @pytest.mark.asyncio
     async def test_none_hash_is_noop(self, git_ops: GitOps) -> None:
-        with patch.object(git_ops, "ensure_branch", new_callable=AsyncMock) as mock_branch, \
-             patch.object(git_ops, "_run", new_callable=AsyncMock) as mock_run:
+        with (
+            patch.object(git_ops, "ensure_branch", new_callable=AsyncMock) as mock_branch,
+            patch.object(git_ops, "_run", new_callable=AsyncMock) as mock_run,
+        ):
             await git_ops.revert_task("", "branch")
 
         mock_branch.assert_not_awaited()
@@ -305,6 +330,7 @@ class TestRevertTask:
 # ---------------------------------------------------------------------------
 # __init__
 # ---------------------------------------------------------------------------
+
 
 class TestInit:
     def test_stores_repo_path(self) -> None:

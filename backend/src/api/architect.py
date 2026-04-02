@@ -163,6 +163,8 @@ async def _create_phases_and_tasks(
                 task.status = models.TaskStatus.ready
 
     return all_tasks
+
+
 _MAX_MARKER_LEN = max(len(m) for m in _STREAM_MARKERS)
 
 
@@ -717,7 +719,10 @@ async def migrate_project_stream(
             return
 
         # ── Phase 2: Claude Code CLI analyzes codebase ─────────────────
-        yield {"event": "step", "data": json.dumps({"phase": "llm", "detail": "Claude Code is analyzing the codebase..."})}
+        yield {
+            "event": "step",
+            "data": json.dumps({"phase": "llm", "detail": "Claude Code is analyzing the codebase..."}),
+        }
 
         prompt = get_prompt("migrate", "analyze_cli")
         if body.name:

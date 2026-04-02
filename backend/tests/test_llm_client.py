@@ -239,12 +239,14 @@ class TestLLMClientStructuredOutput:
     @staticmethod
     def _make_stream(text: str):
         """Create an async generator that yields streaming chunks for the given text."""
+
         async def stream():
             for char in text:
                 chunk = MagicMock()
                 chunk.choices = [MagicMock()]
                 chunk.choices[0].delta.content = char
                 yield chunk
+
         return stream()
 
     async def test_structured_output_returns_parsed_json(self, client: LLMClient) -> None:
@@ -290,6 +292,7 @@ class TestLLMClientStructuredOutput:
 
     async def test_structured_output_raises_on_mid_stream_error(self, client: LLMClient) -> None:
         """structured_output() should raise LLMError without retry on mid-stream errors."""
+
         async def broken_stream():
             chunk = MagicMock()
             chunk.choices = [MagicMock()]
@@ -615,6 +618,7 @@ class TestStructuredOutputRetry:
                 chunk.choices = [MagicMock()]
                 chunk.choices[0].delta.content = char
                 yield chunk
+
         return stream()
 
     @patch("backend.src.core.llm_client.asyncio.sleep", new_callable=AsyncMock)

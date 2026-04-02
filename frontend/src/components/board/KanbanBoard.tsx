@@ -17,7 +17,7 @@ interface Props {
 
 export default function KanbanBoard({ columns, onTaskClick }: Props) {
   return (
-    <div className="flex gap-4 overflow-x-auto pb-4">
+    <div className="flex gap-8 h-[calc(100vh-320px)] min-w-max pb-4">
       {columnOrder.map((status) => (
         <KanbanColumn
           key={status}

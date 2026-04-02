@@ -32,20 +32,26 @@ async def test_audit_logs_endpoint(client: AsyncClient):
 
 
 async def test_audit_logs_with_filters(client: AsyncClient):
-    resp = await client.get("/api/v1/security/audit/logs", params={
-        "action": "auth.login",
-        "severity": "info",
-        "limit": 10,
-        "offset": 0,
-    })
+    resp = await client.get(
+        "/api/v1/security/audit/logs",
+        params={
+            "action": "auth.login",
+            "severity": "info",
+            "limit": 10,
+            "offset": 0,
+        },
+    )
     assert resp.status_code == 200
 
 
 async def test_audit_logs_with_actor_id_filter(client: AsyncClient):
     """Exercise the actor_id filter branch."""
-    resp = await client.get("/api/v1/security/audit/logs", params={
-        "actor_id": "user-123",
-    })
+    resp = await client.get(
+        "/api/v1/security/audit/logs",
+        params={
+            "actor_id": "user-123",
+        },
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert "total" in data
@@ -105,8 +111,13 @@ async def test_list_audit_logs_with_data(db_session: AsyncSession) -> None:
     await db_session.commit()
 
     result = await list_audit_logs(
-        action=None, severity=None, actor_id=None,
-        limit=50, offset=0, _auth=_make_mock_user(), db=db_session,
+        action=None,
+        severity=None,
+        actor_id=None,
+        limit=50,
+        offset=0,
+        _auth=_make_mock_user(),
+        db=db_session,
     )
     assert result.total >= 1
     assert len(result.items) >= 1
