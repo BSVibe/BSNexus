@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useSyncExternalStore } from 'react'
 
 interface HelpContent {
   title: string
@@ -44,21 +44,17 @@ interface HelpPanelProps {
   onClose: () => void
 }
 
+function subscribeToPathname(callback: () => void) {
+  window.addEventListener('popstate', callback)
+  return () => window.removeEventListener('popstate', callback)
+}
+
+function getPathname() {
+  return window.location.pathname
+}
+
 export default function HelpPanel({ isOpen, onClose }: HelpPanelProps) {
-  const [pathname, setPathname] = useState(window.location.pathname)
-
-  useEffect(() => {
-    const handlePopState = () => setPathname(window.location.pathname)
-    window.addEventListener('popstate', handlePopState)
-    return () => window.removeEventListener('popstate', handlePopState)
-  }, [])
-
-  useEffect(() => {
-    if (isOpen) {
-      setPathname(window.location.pathname)
-    }
-  }, [isOpen])
-
+  const pathname = useSyncExternalStore(subscribeToPathname, getPathname)
   const content = getHelpContent(pathname)
 
   return (
