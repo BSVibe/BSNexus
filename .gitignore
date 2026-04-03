@@ -56,3 +56,4 @@ docker-compose.override.yml
 .agent/
 frontend/.pw-browsers/
 frontend/core
+.env.production
