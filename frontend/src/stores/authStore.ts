@@ -1,7 +1,6 @@
 import { create } from 'zustand'
 import axios from 'axios'
-
-const BASE = import.meta.env.VITE_API_URL || ''
+import { API_BASE_URL } from '../api/client'
 const TOKEN_KEY = 'bsnexus_access_token'
 const REFRESH_KEY = 'bsnexus_refresh_token'
 
@@ -45,7 +44,7 @@ function loadTokens(): { access: string | null; refresh: string | null } {
 }
 
 async function fetchUser(accessToken: string): Promise<AuthUser> {
-  const { data } = await axios.get(`${BASE}/api/v1/auth/me`, {
+  const { data } = await axios.get(`${API_BASE_URL}/api/v1/auth/me`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
   return data
@@ -73,7 +72,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const token = get().accessToken
     try {
       if (token) {
-        await axios.post(`${BASE}/api/v1/auth/logout`, null, {
+        await axios.post(`${API_BASE_URL}/api/v1/auth/logout`, null, {
           headers: { Authorization: `Bearer ${token}` },
         })
       }
@@ -88,7 +87,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const rt = get().refreshToken
     if (!rt) return false
     try {
-      const { data } = await axios.post(`${BASE}/api/v1/auth/refresh`, { refresh_token: rt })
+      const { data } = await axios.post(`${API_BASE_URL}/api/v1/auth/refresh`, { refresh_token: rt })
       persistTokens(data.access_token, data.refresh_token)
       set({ accessToken: data.access_token, refreshToken: data.refresh_token })
       return true

@@ -1,4 +1,4 @@
-import apiClient from './client'
+import apiClient, { API_BASE_URL } from './client'
 import { parseSSEStream } from '../utils/sse'
 import type { DesignSession, CreateSessionRequest, DesignMessageResponse, FinalizeRequest, MigrateRequest, BrowseResult } from '../types/architect'
 import type { Project } from '../types/project'
@@ -42,8 +42,7 @@ export const architectApi = {
 
   streamMessage: (sessionId: string, content: string, callbacks: StreamCallbacks): AbortController => {
     const controller = new AbortController()
-    const baseUrl = import.meta.env.VITE_API_URL || ''
-    const url = `${baseUrl}/api/v1/architect/sessions/${sessionId}/message/stream`
+    const url = `${API_BASE_URL}/api/v1/architect/sessions/${sessionId}/message/stream`
 
     fetch(url, {
       method: 'POST',

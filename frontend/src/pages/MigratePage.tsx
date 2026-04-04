@@ -2,6 +2,7 @@ import { useState, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { architectApi } from '../api/architect'
+import { API_BASE_URL } from '../api/client'
 import { parseSSEStream } from '../utils/sse'
 import { Button, Modal } from '../components/common'
 import Header from '../components/layout/Header'
@@ -68,7 +69,6 @@ export default function MigratePage() {
     setCurrentStep({ phase: 'analyze', detail: 'Starting...' })
     setLlmProgress(0)
 
-    const baseUrl = import.meta.env.VITE_API_URL || ''
     const body: Record<string, string> = { repo_path: repoPath.trim() }
     if (projectName.trim()) body.name = projectName.trim()
 
@@ -76,7 +76,7 @@ export default function MigratePage() {
     const token = useAuthStore.getState().accessToken
     if (token) headers['Authorization'] = `Bearer ${token}`
 
-    fetch(`${baseUrl}/api/v1/architect/migrate/stream`, {
+    fetch(`${API_BASE_URL}/api/v1/architect/migrate/stream`, {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
