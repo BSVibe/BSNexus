@@ -20,15 +20,15 @@ jobs:
           git fetch origin main --quiet
           git merge origin/main --ff-only
 
-      - name: Run migrations
-        run: |
-          cd ~/Works/BSNexus/main/backend
-          [ -f alembic.ini ] && uv run alembic upgrade head || true
-
       - name: Build and deploy
         run: |
           cd ~/Works/BSNexus/main
           docker compose -p ${{ env.PROJECT_NAME }} -f ${{ env.COMPOSE_FILE }} up -d --build
+
+      - name: Run migrations
+        run: |
+          cd ~/Works/BSNexus/main
+          docker compose -p ${{ env.PROJECT_NAME }} -f ${{ env.COMPOSE_FILE }} run --rm --no-deps app python -m alembic upgrade head
 
       - name: Health check
         run: |
