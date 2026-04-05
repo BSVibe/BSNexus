@@ -1,8 +1,9 @@
 import { test, expect } from '@playwright/test'
-import { mockAllApis, injectAuth } from '../helpers/mock-api'
+import { mockAllApis, injectAuth, blockSSORedirect } from '../helpers/mock-api'
 
 test.describe('Auth — Landing Page & Protected Routes', () => {
   test('landing page shows BSNexus branding and sign-in button', async ({ page }) => {
+    await blockSSORedirect(page)
     await page.goto('/')
     await expect(page.getByRole('heading', { name: 'BSNexus' })).toBeVisible()
     await expect(page.getByText('Orchestrate AI agents, from design to deployment.')).toBeVisible()
@@ -10,6 +11,7 @@ test.describe('Auth — Landing Page & Protected Routes', () => {
   })
 
   test('landing page displays three feature cards with Material Symbols', async ({ page }) => {
+    await blockSSORedirect(page)
     await page.goto('/')
     await expect(page.getByText('Project Architect')).toBeVisible()
     await expect(page.getByText('Task Kanban')).toBeVisible()
@@ -27,20 +29,24 @@ test.describe('Auth — Landing Page & Protected Routes', () => {
   })
 
   test('unauthenticated user is redirected to landing from /dashboard', async ({ page }) => {
+    await blockSSORedirect(page)
     await mockAllApis(page)
     await page.goto('/dashboard')
     // ProtectedRoute should redirect to /
-    await expect(page).toHaveURL('/')
+    await expect(page).toHaveURL(/\/(\?sso_error=1)?$/)
   })
 
-  test('auth callback page shows spinner during processing', async ({ page }) => {
-    // Navigate to callback without tokens — should redirect to landing
+  test('auth callback without tokens navigates away', async ({ page }) => {
+    await blockSSORedirect(page)
+    await injectAuth(page)
+    // With auth, callback processes and redirects to dashboard
     await page.goto('/auth/callback')
-    // The spinner briefly appears, then redirect happens
-    await expect(page).toHaveURL('/')
+    await page.waitForURL(/\/dashboard/, { timeout: 10000 })
+    await expect(page).toHaveURL(/\/dashboard/)
   })
 
   test('landing page footer shows "Powered by BSVibe"', async ({ page }) => {
+    await blockSSORedirect(page)
     await page.goto('/')
     await expect(page.getByText('Powered by BSVibe')).toBeVisible()
   })

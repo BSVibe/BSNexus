@@ -18,6 +18,24 @@ import {
   mockGoals,
 } from './fixtures'
 
+/**
+ * Block SSO silent-check redirect so unauthenticated pages don't navigate away.
+ * The BSVibeAuth SDK redirects to auth.bsvibe.dev/api/silent-check when no
+ * local session exists. We intercept this and redirect back with ?sso_error=1
+ * so checkSession() returns null instead of 'redirect'.
+ */
+export async function blockSSORedirect(page: Page) {
+  await page.route('**/api/silent-check*', (route) => {
+    const url = new URL(route.request().url())
+    const redirectUri = url.searchParams.get('redirect_uri') || 'http://localhost:3000/'
+    const separator = redirectUri.includes('?') ? '&' : '?'
+    return route.fulfill({
+      status: 302,
+      headers: { location: `${redirectUri}${separator}sso_error=1` },
+    })
+  })
+}
+
 /** Inject auth tokens into localStorage so ProtectedRoute lets us through.
  *
  * BSVibeAuth SDK stores user as JSON under 'bsvibe_user' key.
