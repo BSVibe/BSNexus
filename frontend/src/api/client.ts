@@ -12,7 +12,7 @@ const apiClient = axios.create({
 })
 
 apiClient.interceptors.request.use((config) => {
-  const token = useAuthStore.getState().accessToken
+  const token = useAuthStore.getState().getToken()
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
   }
@@ -25,12 +25,8 @@ apiClient.interceptors.response.use(
     const originalRequest = error.config
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true
-      const refreshed = await useAuthStore.getState().refresh()
-      if (refreshed) {
-        originalRequest.headers.Authorization = `Bearer ${useAuthStore.getState().accessToken}`
-        return apiClient(originalRequest)
-      }
-      useAuthStore.getState().clear()
+      // Token expired — clear session and let user re-authenticate
+      useAuthStore.getState().signOut()
     }
     return Promise.reject(error)
   },

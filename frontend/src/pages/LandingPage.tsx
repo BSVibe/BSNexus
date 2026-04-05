@@ -1,21 +1,6 @@
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 
-const BSVIBE_AUTH_URL = import.meta.env.VITE_BSVIBE_AUTH_URL || 'https://auth.bsvibe.dev'
-
-function generateSecureState(): string {
-  const buffer = new Uint8Array(32)
-  crypto.getRandomValues(buffer)
-  return Array.from(buffer, (b) => b.toString(16).padStart(2, '0')).join('')
-}
-
-function handleLogin() {
-  const callbackUrl = `${window.location.origin}/auth/callback`
-  const state = generateSecureState()
-  sessionStorage.setItem('auth_state', state)
-  window.location.href = `${BSVIBE_AUTH_URL}/login?redirect_uri=${encodeURIComponent(callbackUrl)}&state=${encodeURIComponent(state)}`
-}
-
 const features = [
   {
     icon: 'psychology',
@@ -36,6 +21,8 @@ const features = [
 
 export default function LandingPage() {
   const user = useAuthStore((s) => s.user)
+  const login = useAuthStore((s) => s.login)
+  const signup = useAuthStore((s) => s.signup)
   const navigate = useNavigate()
 
   return (
@@ -84,12 +71,23 @@ export default function LandingPage() {
                 Go to Dashboard
               </button>
             ) : (
-              <button
-                onClick={handleLogin}
-                className="w-full py-3 bg-gradient-to-r from-stitch-primary to-stitch-primary-container text-stitch-on-primary-container rounded-lg text-base font-bold transition-all shadow-lg shadow-stitch-primary/25 hover:opacity-90"
-              >
-                Sign in with BSVibe
-              </button>
+              <>
+                <button
+                  onClick={login}
+                  className="w-full py-3 bg-gradient-to-r from-stitch-primary to-stitch-primary-container text-stitch-on-primary-container rounded-lg text-base font-bold transition-all shadow-lg shadow-stitch-primary/25 hover:opacity-90"
+                >
+                  Sign in with BSVibe
+                </button>
+                <p className="text-center text-sm text-text-secondary mt-4">
+                  Don't have an account?{' '}
+                  <button
+                    onClick={signup}
+                    className="text-stitch-primary hover:text-stitch-primary-container font-medium transition-colors"
+                  >
+                    Sign up
+                  </button>
+                </p>
+              </>
             )}
           </div>
         </div>
