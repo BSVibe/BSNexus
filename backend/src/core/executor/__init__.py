@@ -7,10 +7,15 @@ from backend.src.core.executor.base import (
     ReviewResult,
 )
 from backend.src.core.executor.bsgateway import BSGatewayExecutor
+from backend.src.core.executor.bsgateway import INFO as _bg_info
 from backend.src.core.executor.claude_api import ClaudeAPIExecutor
+from backend.src.core.executor.claude_api import INFO as _ca_info
 from backend.src.core.executor.claude_code import ClaudeCodeExecutor
+from backend.src.core.executor.claude_code import INFO as _cc_info
 from backend.src.core.executor.codex import CodexExecutor
+from backend.src.core.executor.codex import INFO as _cx_info
 from backend.src.core.executor.generic_llm import GenericLLMExecutor
+from backend.src.core.executor.generic_llm import INFO as _gl_info
 from backend.src.core.executor.registry import ExecutorRegistry
 
 __all__ = [
@@ -36,12 +41,6 @@ def _register_if_missing(name: str, factory: type, info: ExecutorInfo) -> None:
     if name not in _registry.list_available():
         _registry.register(name, factory, info=info)
 
-
-from backend.src.core.executor.claude_code import INFO as _cc_info
-from backend.src.core.executor.claude_api import INFO as _ca_info
-from backend.src.core.executor.bsgateway import INFO as _bg_info
-from backend.src.core.executor.generic_llm import INFO as _gl_info
-from backend.src.core.executor.codex import INFO as _cx_info
 
 _register_if_missing("claude_code", ClaudeCodeExecutor, _cc_info)
 _register_if_missing("claude_api", ClaudeAPIExecutor, _ca_info)

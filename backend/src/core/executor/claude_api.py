@@ -5,7 +5,6 @@ No CLI subprocess needed. Suitable for SaaS where users don't have local Claude 
 
 from __future__ import annotations
 
-import json
 import structlog
 from typing import Any
 

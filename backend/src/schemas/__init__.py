@@ -1,6 +1,6 @@
 """BSNexus Pydantic schemas — re-exports everything for backward compatibility."""
 
-from backend.src.schemas._legacy import (
+from backend.src.schemas._legacy import (  # noqa: F401
     AddTaskRequest,
     AddTaskResponse,
     AuditLogListResponse,
@@ -60,6 +60,6 @@ from backend.src.schemas._legacy import (
 )
 
 # New schemas
-from backend.src.schemas.agent import AgentCreate, AgentOrgChartResponse, AgentResponse, AgentUpdate
-from backend.src.schemas.budget import AgentBudgetSummary, CostRecordCreate, CostRecordResponse
-from backend.src.schemas.goal import GoalAncestryResponse, GoalCreate, GoalResponse, GoalUpdate
+from backend.src.schemas.agent import AgentCreate, AgentOrgChartResponse, AgentResponse, AgentUpdate  # noqa: F401
+from backend.src.schemas.budget import AgentBudgetSummary, CostRecordCreate, CostRecordResponse  # noqa: F401
+from backend.src.schemas.goal import GoalAncestryResponse, GoalCreate, GoalResponse, GoalUpdate  # noqa: F401

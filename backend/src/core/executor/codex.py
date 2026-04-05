@@ -7,7 +7,6 @@ from typing import Any
 
 from litellm import acompletion
 
-from backend.src.config import settings
 from backend.src.core.executor.base import (
     ExecutionResult,
     ExecutorCapability,
