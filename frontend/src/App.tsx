@@ -9,6 +9,7 @@ import DashboardPage from './pages/DashboardPage'
 import ArchitectPage from './pages/ArchitectPage'
 import ProjectPage from './pages/ProjectPage'
 import MigratePage from './pages/MigratePage'
+import AgentsPage from './pages/AgentsPage'
 import AuthCallbackPage from './pages/AuthCallbackPage'
 
 const queryClient = new QueryClient()
@@ -27,6 +28,7 @@ function App() {
                 <Route path="/architect/:sessionId?" element={<ArchitectPage />} />
                 <Route path="/migrate" element={<MigratePage />} />
                 <Route path="/projects/:projectId?" element={<ProjectPage />} />
+                <Route path="/agents" element={<AgentsPage />} />
               </Route>
             </Route>
           </Routes>
