@@ -12,6 +12,10 @@ import {
   mockBoardResponse,
   mockSessions,
   mockUser,
+  mockAgents,
+  mockOrgChart,
+  mockWorkers,
+  mockGoals,
 } from './fixtures'
 
 /** Inject auth tokens into localStorage so ProtectedRoute lets us through. */
@@ -120,6 +124,45 @@ export async function mockAllApis(page: Page) {
         messages: [],
       }),
     })
+  })
+
+  // Agents org chart
+  await page.route('**/api/v1/agents/org-chart', (route) => {
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockOrgChart) })
+  })
+
+  // Agents list
+  await page.route('**/api/v1/agents', (route) => {
+    if (route.request().method() === 'GET') {
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockAgents) })
+    }
+    // POST — create agent
+    return route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({ ...mockAgents[0], id: 'agent-new', name: 'New Agent' }),
+    })
+  })
+
+  // Single agent
+  await page.route('**/api/v1/agents/agent-*', (route) => {
+    const url = route.request().url()
+    const id = url.split('/').pop()
+    const agent = mockAgents.find((a) => a.id === id)
+    if (agent) {
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(agent) })
+    }
+    return route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ detail: 'Not found' }) })
+  })
+
+  // Workers
+  await page.route('**/api/v1/workers', (route) => {
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockWorkers) })
+  })
+
+  // Goals
+  await page.route('**/api/v1/goals', (route) => {
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockGoals) })
   })
 
   // PM control

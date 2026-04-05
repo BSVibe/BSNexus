@@ -23,6 +23,13 @@ test.describe('Navigation — Sidebar & Active States', () => {
     await expect(projectsLink.locator('span.material-symbols-outlined:has-text("folder_open")')).toBeVisible()
   })
 
+  test('sidebar has Agents nav item with groups icon', async ({ page }) => {
+    const sidebar = page.locator('aside').first()
+    const agentsLink = sidebar.getByRole('link', { name: 'Agents' })
+    await expect(agentsLink).toBeVisible()
+    await expect(agentsLink.locator('span.material-symbols-outlined:has-text("groups")')).toBeVisible()
+  })
+
   test('sidebar has Architect nav item with architecture icon', async ({ page }) => {
     const sidebar = page.locator('aside').first()
     const architectLink = sidebar.getByRole('link', { name: 'Architect' })

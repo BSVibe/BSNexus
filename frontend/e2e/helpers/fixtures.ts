@@ -194,6 +194,133 @@ export const mockBoardResponse = {
   redesign_tasks: [],
 }
 
+export const mockAgents = [
+  {
+    id: 'agent-001',
+    tenant_id: '00000000-0000-0000-0000-000000000000',
+    name: 'Alex',
+    role: 'cto',
+    title: 'Chief Technology Officer',
+    job_description: 'Leads technical architecture and engineering decisions',
+    executor_type: 'bsgateway',
+    executor_config: {},
+    system_prompt: 'You are a senior technical leader.',
+    skills: ['architecture-design', 'code-review'],
+    capabilities: ['coding', 'analysis'],
+    parent_agent_id: null,
+    heartbeat_interval_seconds: 14400,
+    heartbeat_enabled: true,
+    last_heartbeat_at: '2026-04-05T10:00:00Z',
+    monthly_budget_cents: 6000,
+    current_month_spent_cents: 1200,
+    status: 'online',
+    is_active: true,
+    created_at: '2026-04-01T00:00:00Z',
+    updated_at: '2026-04-05T10:00:00Z',
+  },
+  {
+    id: 'agent-002',
+    tenant_id: '00000000-0000-0000-0000-000000000000',
+    name: 'Dev-1',
+    role: 'engineer',
+    title: 'Senior Engineer',
+    job_description: null,
+    executor_type: 'claude_code',
+    executor_config: {},
+    system_prompt: null,
+    skills: ['git-ops'],
+    capabilities: ['coding'],
+    parent_agent_id: 'agent-001',
+    heartbeat_interval_seconds: null,
+    heartbeat_enabled: false,
+    last_heartbeat_at: null,
+    monthly_budget_cents: 30000,
+    current_month_spent_cents: 4500,
+    status: 'busy',
+    is_active: true,
+    created_at: '2026-04-01T00:00:00Z',
+    updated_at: '2026-04-05T12:00:00Z',
+  },
+  {
+    id: 'agent-003',
+    tenant_id: '00000000-0000-0000-0000-000000000000',
+    name: 'Writer-Bot',
+    role: 'content writer',
+    title: null,
+    job_description: 'Writes blog posts and documentation',
+    executor_type: 'generic_llm',
+    executor_config: {},
+    system_prompt: null,
+    skills: [],
+    capabilities: ['writing'],
+    parent_agent_id: null,
+    heartbeat_interval_seconds: 28800,
+    heartbeat_enabled: true,
+    last_heartbeat_at: '2026-04-05T08:00:00Z',
+    monthly_budget_cents: 10000,
+    current_month_spent_cents: 200,
+    status: 'online',
+    is_active: true,
+    created_at: '2026-04-02T00:00:00Z',
+    updated_at: '2026-04-05T08:00:00Z',
+  },
+]
+
+export const mockOrgChart = [
+  {
+    agent: mockAgents[0],
+    children: [
+      {
+        agent: mockAgents[1],
+        children: [],
+      },
+    ],
+  },
+  {
+    agent: mockAgents[2],
+    children: [],
+  },
+]
+
+export const mockWorkers = [
+  {
+    id: 'worker-001',
+    name: 'Mac Mini Runner',
+    labels: ['macos', 'gpu'],
+    status: 'online',
+    last_heartbeat: '2026-04-05T12:00:00Z',
+    capabilities: ['claude_code'],
+    created_at: '2026-04-01T00:00:00Z',
+  },
+]
+
+export const mockGoals = [
+  {
+    id: 'goal-001',
+    tenant_id: '00000000-0000-0000-0000-000000000000',
+    parent_goal_id: null,
+    level: 'mission',
+    title: 'Build the leading AI-native development ecosystem',
+    description: null,
+    project_id: null,
+    agent_id: null,
+    created_at: '2026-04-01T00:00:00Z',
+    updated_at: '2026-04-01T00:00:00Z',
+  },
+  {
+    id: 'goal-002',
+    tenant_id: '00000000-0000-0000-0000-000000000000',
+    parent_goal_id: 'goal-001',
+    level: 'department',
+    title: 'Ship BSNexus v2.0',
+    description: 'Complete Company OS evolution',
+    project_id: null,
+    agent_id: 'agent-001',
+    created_at: '2026-04-01T00:00:00Z',
+    updated_at: '2026-04-01T00:00:00Z',
+  },
+]
+
 export const mockSessions = [
   {
     id: 'session-001',
