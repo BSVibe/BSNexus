@@ -9,7 +9,15 @@ import structlog
 from backend.src.config import settings
 from backend.src.prompts.loader import get_prompt
 
-from .base import ExecutionResult, ReviewResult
+from .base import ExecutionResult, ExecutorCapability, ExecutorInfo, ReviewResult
+
+INFO = ExecutorInfo(
+    name="claude_code",
+    capabilities=[ExecutorCapability.coding],
+    requires_local=True,
+    requires_workspace=True,
+    description="Claude Code CLI — local subprocess execution",
+)
 
 logger = structlog.get_logger(__name__)
 
