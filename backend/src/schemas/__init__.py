@@ -61,3 +61,5 @@ from backend.src.schemas._legacy import (
 
 # New schemas
 from backend.src.schemas.agent import AgentCreate, AgentOrgChartResponse, AgentResponse, AgentUpdate
+from backend.src.schemas.budget import AgentBudgetSummary, CostRecordCreate, CostRecordResponse
+from backend.src.schemas.goal import GoalAncestryResponse, GoalCreate, GoalResponse, GoalUpdate

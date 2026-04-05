@@ -13,6 +13,7 @@ from backend.src.api import (
     auth,
     board,
     dashboard,
+    goals,
     mcp,
     planner,
     pm,
@@ -170,6 +171,7 @@ async def health_deps():
 # API routers
 app.include_router(agents.router)
 app.include_router(auth.router)
+app.include_router(goals.router)
 app.include_router(tasks.router)
 app.include_router(projects.router)
 app.include_router(pm.router)
