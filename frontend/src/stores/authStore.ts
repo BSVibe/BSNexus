@@ -26,7 +26,7 @@ interface AuthState {
   signOut: () => void
   login: () => void
   signup: () => void
-  initialize: () => Promise<void>
+  initialize: () => void
   getToken: () => string | null
 }
 
@@ -81,7 +81,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     auth.redirectToSignup()
   },
 
-  initialize: async () => {
+  initialize: () => {
     // 1. Check local session first
     const localUser = auth.getUser()
     if (localUser) {
@@ -97,15 +97,16 @@ export const useAuthStore = create<AuthState>((set) => ({
       return
     }
 
-    // 2. Silent SSO check
-    const ssoUser = await auth.checkSession()
-    if (ssoUser) {
+    // 2. Silent SSO check (redirect-based)
+    const result = auth.checkSession()
+    if (result === 'redirect') return // page is navigating away
+    if (result) {
       set({
-        user: userFromBSVibeUser(ssoUser),
-        accessToken: ssoUser.accessToken,
+        user: userFromBSVibeUser(result),
+        accessToken: result.accessToken,
         isLoading: false,
       })
-      enrichUser(ssoUser.accessToken).then((enriched) => {
+      enrichUser(result.accessToken).then((enriched) => {
         if (enriched) set({ user: enriched })
       })
       return
