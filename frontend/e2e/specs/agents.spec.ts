@@ -48,32 +48,39 @@ test.describe('Agents Page — Org Chart & Agent Management', () => {
   })
 
   test('clicking agent card opens detail sidebar', async ({ page }) => {
-    await page.getByText('Alex').click()
+    // Click the Alex card (first button with that text)
+    await page.locator('button:has-text("Alex")').first().click()
 
-    // Detail sidebar should appear
-    await expect(page.getByText('Chief Technology Officer')).toBeVisible()
-    await expect(page.getByText('BSGateway')).toBeVisible()
+    // Detail sidebar (fixed right panel) should appear with agent details
+    const sidebar = page.getByTestId('agent-detail-sidebar')
+    await expect(sidebar).toBeVisible()
+    await expect(sidebar.getByText('Alex')).toBeVisible()
+    await expect(sidebar.getByText('cto')).toBeVisible()
   })
 
   test('detail sidebar shows capabilities', async ({ page }) => {
-    await page.getByText('Alex').click()
+    await page.locator('button:has-text("Alex")').first().click()
 
-    await expect(page.getByText('coding')).toBeVisible()
-    await expect(page.getByText('analysis')).toBeVisible()
+    const sidebar = page.getByTestId('agent-detail-sidebar')
+    await expect(sidebar.getByText('coding')).toBeVisible()
+    await expect(sidebar.getByText('analysis')).toBeVisible()
   })
 
   test('detail sidebar shows heartbeat info', async ({ page }) => {
-    await page.getByText('Alex').click()
+    await page.locator('button:has-text("Alex")').first().click()
 
-    await expect(page.getByText(/4h/)).toBeVisible()
+    const sidebar = page.getByTestId('agent-detail-sidebar')
+    await expect(sidebar.getByText(/4h/)).toBeVisible()
   })
 
   test('detail sidebar close button works', async ({ page }) => {
-    await page.getByText('Alex').click()
-    await expect(page.getByText('Chief Technology Officer')).toBeVisible()
+    await page.locator('button:has-text("Alex")').first().click()
 
-    await page.getByRole('button', { name: '✕' }).click()
-    await expect(page.getByText('Chief Technology Officer')).not.toBeVisible()
+    const sidebar = page.getByTestId('agent-detail-sidebar')
+    await expect(sidebar).toBeVisible()
+
+    await sidebar.getByRole('button', { name: '✕' }).click()
+    await expect(sidebar).not.toBeVisible()
   })
 })
 

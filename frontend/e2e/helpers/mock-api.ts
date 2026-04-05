@@ -18,13 +18,26 @@ import {
   mockGoals,
 } from './fixtures'
 
-/** Inject auth tokens into localStorage so ProtectedRoute lets us through. */
+/** Inject auth tokens into localStorage so ProtectedRoute lets us through.
+ *
+ * BSVibeAuth SDK stores user as JSON under 'bsvibe_user' key.
+ * The user object must match BSVibeUser interface:
+ *   { id, email, tenantId, role, accessToken, refreshToken, expiresAt }
+ */
 export async function injectAuth(page: Page) {
   await page.addInitScript(() => {
-    localStorage.setItem('bsnexus_access_token', 'mock-access-token-abc123')
-    localStorage.setItem('bsnexus_refresh_token', 'mock-refresh-token-def456')
+    const bsvibeUser = {
+      id: 'user-001',
+      email: 'dev@bsvibe.dev',
+      tenantId: 'tenant-001',
+      role: 'authenticated',
+      accessToken: 'mock-access-token-abc123',
+      refreshToken: 'mock-refresh-token-def456',
+      expiresAt: Math.floor(Date.now() / 1000) + 3600, // 1 hour from now
+    }
+    localStorage.setItem('bsvibe_user', JSON.stringify(bsvibeUser))
   })
-  // Mock auth/me so AuthProvider.initialize() resolves user from stored token
+  // Mock auth/me so enrichUser() resolves
   await page.route('**/api/v1/auth/me', (route) => {
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockUser) })
   })
@@ -131,7 +144,10 @@ export async function mockAllApis(page: Page) {
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockOrgChart) })
   })
 
-  // Agents list
+  // Agents list (glob must match query params like ?active_only=true)
+  await page.route('**/api/v1/agents?*', (route) => {
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockAgents) })
+  })
   await page.route('**/api/v1/agents', (route) => {
     if (route.request().method() === 'GET') {
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockAgents) })
@@ -161,6 +177,9 @@ export async function mockAllApis(page: Page) {
   })
 
   // Goals
+  await page.route('**/api/v1/goals?*', (route) => {
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockGoals) })
+  })
   await page.route('**/api/v1/goals', (route) => {
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockGoals) })
   })

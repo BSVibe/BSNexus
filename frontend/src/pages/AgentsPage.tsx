@@ -121,7 +121,7 @@ export default function AgentsPage() {
 
       {/* Agent Detail Sidebar */}
       {selectedAgent && (
-        <div className="fixed right-0 top-0 w-96 h-full bg-[#18191e] border-l border-[#424754]/20 p-6 overflow-y-auto z-50">
+        <div data-testid="agent-detail-sidebar" className="fixed right-0 top-0 w-96 h-full bg-[#18191e] border-l border-[#424754]/20 p-6 overflow-y-auto z-50">
           <div className="flex justify-between items-center mb-6">
             <h3 className="text-lg font-bold">{selectedAgent.name}</h3>
             <button onClick={() => selectAgent(null)} className="text-[#abaab0] hover:text-[#faf8fe]">
