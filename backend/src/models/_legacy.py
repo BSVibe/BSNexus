@@ -113,6 +113,7 @@ class Project(Base):
     design_doc_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     repo_path: Mapped[str] = mapped_column(String(500), nullable=False)
     status: Mapped[ProjectStatus] = mapped_column(Enum(ProjectStatus), nullable=False, default=ProjectStatus.design)
+    max_concurrent_tasks: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     llm_config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -170,8 +171,16 @@ class Task(Base):
     branch_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     commit_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     qa_result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    agent_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("agents.id", ondelete="SET NULL"), nullable=True
+    )
+    goal_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("goals.id", ondelete="SET NULL"), nullable=True
+    )
     executor_type: Mapped[str] = mapped_column(String(50), nullable=False, default="coding", server_default="coding")
     executor_metadata: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict, server_default="{}")
+    output_type: Mapped[str | None] = mapped_column(String(50), nullable=True)  # "code_diff", "document", "report"
+    output_data: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     output_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -259,6 +268,9 @@ class DesignSession(Base):
     name: Mapped[str | None] = mapped_column(String(255), nullable=True, default=None)
     status: Mapped[DesignSessionStatus] = mapped_column(
         Enum(DesignSessionStatus), nullable=False, default=DesignSessionStatus.active
+    )
+    agent_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("agents.id", ondelete="SET NULL"), nullable=True
     )
     llm_config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
