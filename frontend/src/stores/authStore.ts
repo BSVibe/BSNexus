@@ -1,8 +1,15 @@
 import { create } from 'zustand'
 import axios from 'axios'
+import { BSVibeAuth } from '../lib/bsvibe-auth'
+import type { BSVibeUser } from '../lib/bsvibe-auth'
 import { API_BASE_URL } from '../api/client'
-const TOKEN_KEY = 'bsnexus_access_token'
-const REFRESH_KEY = 'bsnexus_refresh_token'
+
+const BSVIBE_AUTH_URL = import.meta.env.VITE_BSVIBE_AUTH_URL || 'https://auth.bsvibe.dev'
+
+const auth = new BSVibeAuth({
+  authUrl: BSVIBE_AUTH_URL,
+  callbackPath: '/auth/callback',
+})
 
 interface AuthUser {
   id: string
@@ -14,109 +21,100 @@ interface AuthUser {
 interface AuthState {
   user: AuthUser | null
   accessToken: string | null
-  refreshToken: string | null
   isLoading: boolean
-  handleCallback: (accessToken: string, refreshToken: string) => Promise<void>
-  signOut: () => Promise<void>
-  refresh: () => Promise<boolean>
+  handleCallback: () => void
+  signOut: () => void
+  login: () => void
+  signup: () => void
   initialize: () => Promise<void>
-  clear: () => void
+  getToken: () => string | null
 }
 
-function persistTokens(access: string | null, refresh: string | null) {
-  if (access) {
-    localStorage.setItem(TOKEN_KEY, access)
-  } else {
-    localStorage.removeItem(TOKEN_KEY)
-  }
-  if (refresh) {
-    localStorage.setItem(REFRESH_KEY, refresh)
-  } else {
-    localStorage.removeItem(REFRESH_KEY)
-  }
-}
-
-function loadTokens(): { access: string | null; refresh: string | null } {
+function userFromBSVibeUser(bsUser: BSVibeUser): AuthUser {
   return {
-    access: localStorage.getItem(TOKEN_KEY),
-    refresh: localStorage.getItem(REFRESH_KEY),
+    id: bsUser.id,
+    email: bsUser.email,
+    role: bsUser.role,
+    app_metadata: { tenant_id: bsUser.tenantId },
   }
 }
 
-async function fetchUser(accessToken: string): Promise<AuthUser> {
-  const { data } = await axios.get(`${API_BASE_URL}/api/v1/auth/me`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  })
-  return data
+async function enrichUser(accessToken: string): Promise<AuthUser | null> {
+  try {
+    const { data } = await axios.get(`${API_BASE_URL}/api/v1/auth/me`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+    return data
+  } catch {
+    return null
+  }
 }
 
-export const useAuthStore = create<AuthState>((set, get) => ({
+export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   accessToken: null,
-  refreshToken: null,
   isLoading: true,
 
-  handleCallback: async (accessToken: string, refreshToken: string) => {
-    persistTokens(accessToken, refreshToken)
-    set({ accessToken, refreshToken, isLoading: false })
+  handleCallback: () => {
+    const bsUser = auth.handleCallback()
+    if (!bsUser) return
 
-    try {
-      const user = await fetchUser(accessToken)
-      set({ user })
-    } catch {
-      // User fetch is best-effort — tokens are already stored
-    }
+    const user = userFromBSVibeUser(bsUser)
+    set({ user, accessToken: bsUser.accessToken, isLoading: false })
+
+    // Best-effort enrichment from backend
+    enrichUser(bsUser.accessToken).then((enriched) => {
+      if (enriched) set({ user: enriched })
+    })
   },
 
-  signOut: async () => {
-    const token = get().accessToken
-    try {
-      if (token) {
-        await axios.post(`${API_BASE_URL}/api/v1/auth/logout`, null, {
-          headers: { Authorization: `Bearer ${token}` },
-        })
-      }
-    } catch {
-      // best-effort
-    }
-    persistTokens(null, null)
-    set({ user: null, accessToken: null, refreshToken: null })
+  signOut: () => {
+    set({ user: null, accessToken: null })
+    auth.logout()
   },
 
-  refresh: async () => {
-    const rt = get().refreshToken
-    if (!rt) return false
-    try {
-      const { data } = await axios.post(`${API_BASE_URL}/api/v1/auth/refresh`, { refresh_token: rt })
-      persistTokens(data.access_token, data.refresh_token)
-      set({ accessToken: data.access_token, refreshToken: data.refresh_token })
-      return true
-    } catch {
-      return false
-    }
+  login: () => {
+    auth.redirectToLogin()
+  },
+
+  signup: () => {
+    auth.redirectToSignup()
   },
 
   initialize: async () => {
-    const { access, refresh } = loadTokens()
-    if (!access) {
-      set({ isLoading: false })
+    // 1. Check local session first
+    const localUser = auth.getUser()
+    if (localUser) {
+      set({
+        user: userFromBSVibeUser(localUser),
+        accessToken: localUser.accessToken,
+        isLoading: false,
+      })
+      // Best-effort enrichment
+      enrichUser(localUser.accessToken).then((enriched) => {
+        if (enriched) set({ user: enriched })
+      })
       return
     }
 
-    set({ accessToken: access, refreshToken: refresh })
-
-    try {
-      const user = await fetchUser(access)
-      set({ user, isLoading: false })
-    } catch {
-      // fetchUser failed — keep tokens (server may be unreachable or JWT config differs)
-      // User will still be "authenticated" based on stored token
-      set({ isLoading: false })
+    // 2. Silent SSO check
+    const ssoUser = await auth.checkSession()
+    if (ssoUser) {
+      set({
+        user: userFromBSVibeUser(ssoUser),
+        accessToken: ssoUser.accessToken,
+        isLoading: false,
+      })
+      enrichUser(ssoUser.accessToken).then((enriched) => {
+        if (enriched) set({ user: enriched })
+      })
+      return
     }
+
+    set({ isLoading: false })
   },
 
-  clear: () => {
-    persistTokens(null, null)
-    set({ user: null, accessToken: null, refreshToken: null })
+  getToken: () => {
+    return auth.getToken()
   },
 }))
