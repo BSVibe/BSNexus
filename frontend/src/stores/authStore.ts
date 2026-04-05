@@ -50,7 +50,7 @@ async function enrichUser(accessToken: string): Promise<AuthUser | null> {
   }
 }
 
-export const useAuthStore = create<AuthState>((set, get) => ({
+export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   accessToken: null,
   isLoading: true,
