@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useAgentStore } from '../stores/agentStore'
-import type { AgentOrgChartNode } from '../types/agent'
+import type { Agent, AgentCreate, AgentOrgChartNode, ExecutorType } from '../types/agent'
 
 const STATUS_COLORS: Record<string, string> = {
   online: 'bg-green-500',
@@ -17,7 +17,15 @@ const EXECUTOR_LABELS: Record<string, string> = {
   generic_llm: 'Generic LLM',
 }
 
-function OrgChartNode({ node, depth = 0 }: { node: AgentOrgChartNode; depth?: number }) {
+const EXECUTOR_OPTIONS: { value: ExecutorType; label: string }[] = [
+  { value: 'claude_api', label: 'Claude API' },
+  { value: 'claude_code', label: 'Claude Code' },
+  { value: 'bsgateway', label: 'BSGateway' },
+  { value: 'codex', label: 'Codex' },
+  { value: 'generic_llm', label: 'Generic LLM' },
+]
+
+function OrgChartNode({ node }: { node: AgentOrgChartNode }) {
   const { selectAgent } = useAgentStore()
   const agent = node.agent
   const budgetPct =
@@ -65,7 +73,7 @@ function OrgChartNode({ node, depth = 0 }: { node: AgentOrgChartNode; depth?: nu
           <div className="w-px h-6 bg-[#424754]/30" />
           <div className="flex gap-6">
             {node.children.map((child) => (
-              <OrgChartNode key={child.agent.id} node={child} depth={depth + 1} />
+              <OrgChartNode key={child.agent.id} node={child} />
             ))}
           </div>
         </>
@@ -74,17 +82,155 @@ function OrgChartNode({ node, depth = 0 }: { node: AgentOrgChartNode; depth?: nu
   )
 }
 
+function HireAgentModal({ onClose, agents }: { onClose: () => void; agents: Agent[] }) {
+  const { createAgent, fetchOrgChart, fetchAgents } = useAgentStore()
+  const [form, setForm] = useState<AgentCreate>({
+    name: '',
+    role: '',
+    title: '',
+    executor_type: 'claude_api',
+    capabilities: ['general'],
+    job_description: '',
+  })
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+
+  const handleSubmit = async () => {
+    if (!form.name.trim() || !form.role.trim()) {
+      setError('Name and Role are required')
+      return
+    }
+    setSubmitting(true)
+    setError('')
+    try {
+      await createAgent(form)
+      await fetchOrgChart()
+      await fetchAgents()
+      onClose()
+    } catch (e) {
+      setError((e as Error).message || 'Failed to create agent')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={onClose}>
+      <div
+        className="bg-[#18191e] rounded-xl w-full max-w-lg p-6 border border-[#424754]/20"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex justify-between items-center mb-6">
+          <h3 className="text-lg font-bold text-[#faf8fe]">Hire New Agent</h3>
+          <button onClick={onClose} className="text-[#abaab0] hover:text-[#faf8fe]">✕</button>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-xs uppercase tracking-widest text-[#abaab0] mb-1">Name *</label>
+            <input
+              type="text"
+              value={form.name}
+              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+              placeholder="e.g. Alex, Bot-1"
+              className="w-full px-3 py-2 bg-[#0d0e12] border border-[#424754]/30 rounded-lg text-sm text-[#faf8fe] focus:border-[#85adff] focus:outline-none"
+            />
+          </div>
+          <div>
+            <label className="block text-xs uppercase tracking-widest text-[#abaab0] mb-1">Role *</label>
+            <input
+              type="text"
+              value={form.role}
+              onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}
+              placeholder="e.g. engineer, marketer, cto"
+              className="w-full px-3 py-2 bg-[#0d0e12] border border-[#424754]/30 rounded-lg text-sm text-[#faf8fe] focus:border-[#85adff] focus:outline-none"
+            />
+          </div>
+          <div>
+            <label className="block text-xs uppercase tracking-widest text-[#abaab0] mb-1">Title</label>
+            <input
+              type="text"
+              value={form.title || ''}
+              onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+              placeholder="e.g. Senior Engineer"
+              className="w-full px-3 py-2 bg-[#0d0e12] border border-[#424754]/30 rounded-lg text-sm text-[#faf8fe] focus:border-[#85adff] focus:outline-none"
+            />
+          </div>
+          <div>
+            <label className="block text-xs uppercase tracking-widest text-[#abaab0] mb-1">Executor</label>
+            <select
+              value={form.executor_type}
+              onChange={(e) => setForm((f) => ({ ...f, executor_type: e.target.value as ExecutorType }))}
+              className="w-full px-3 py-2 bg-[#0d0e12] border border-[#424754]/30 rounded-lg text-sm text-[#faf8fe] focus:border-[#85adff] focus:outline-none"
+            >
+              {EXECUTOR_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs uppercase tracking-widest text-[#abaab0] mb-1">Report To</label>
+            <select
+              value={form.parent_agent_id || ''}
+              onChange={(e) => setForm((f) => ({ ...f, parent_agent_id: e.target.value || undefined }))}
+              className="w-full px-3 py-2 bg-[#0d0e12] border border-[#424754]/30 rounded-lg text-sm text-[#faf8fe] focus:border-[#85adff] focus:outline-none"
+            >
+              <option value="">None (top-level)</option>
+              {agents.map((a) => (
+                <option key={a.id} value={a.id}>{a.name} ({a.role})</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs uppercase tracking-widest text-[#abaab0] mb-1">Job Description</label>
+            <textarea
+              value={form.job_description || ''}
+              onChange={(e) => setForm((f) => ({ ...f, job_description: e.target.value }))}
+              placeholder="Describe what this agent does..."
+              rows={3}
+              className="w-full px-3 py-2 bg-[#0d0e12] border border-[#424754]/30 rounded-lg text-sm text-[#faf8fe] focus:border-[#85adff] focus:outline-none resize-none"
+            />
+          </div>
+
+          {error && <p className="text-sm text-red-400">{error}</p>}
+
+          <div className="flex gap-3 pt-2">
+            <button onClick={onClose} className="flex-1 px-4 py-2 rounded-lg bg-[#343439] text-[#abaab0] text-sm hover:bg-[#424754] transition-colors">
+              Cancel
+            </button>
+            <button
+              onClick={handleSubmit}
+              disabled={submitting}
+              className="flex-1 px-4 py-2 rounded-lg bg-gradient-to-r from-[#85adff] to-[#5391ff] text-[#002150] font-bold text-sm hover:opacity-90 transition-all disabled:opacity-50"
+            >
+              {submitting ? 'Creating...' : 'Hire Agent'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function AgentsPage() {
-  const { orgChart, fetchOrgChart, loading, selectedAgent, selectAgent, agents, fetchAgents } = useAgentStore()
-  const [_showCreateModal, setShowCreateModal] = useState(false)
+  const { orgChart, fetchOrgChart, loading, selectedAgent, selectAgent, agents, fetchAgents, deleteAgent } = useAgentStore()
+  const [showCreateModal, setShowCreateModal] = useState(false)
 
   useEffect(() => {
     fetchOrgChart()
     fetchAgents()
   }, [fetchOrgChart, fetchAgents])
 
+  const handleDelete = async (id: string) => {
+    if (!confirm('Remove this agent?')) return
+    await deleteAgent(id)
+    selectAgent(null)
+    await fetchOrgChart()
+    await fetchAgents()
+  }
+
   return (
-    <div className="min-h-screen bg-[#0d0e12] text-[#faf8fe]">
+    <div className="min-h-screen text-[#faf8fe]">
       {/* Header */}
       <div className="flex justify-between items-center mb-8">
         <div>
@@ -124,9 +270,7 @@ export default function AgentsPage() {
         <div data-testid="agent-detail-sidebar" className="fixed right-0 top-0 w-96 h-full bg-[#18191e] border-l border-[#424754]/20 p-6 overflow-y-auto z-50">
           <div className="flex justify-between items-center mb-6">
             <h3 className="text-lg font-bold">{selectedAgent.name}</h3>
-            <button onClick={() => selectAgent(null)} className="text-[#abaab0] hover:text-[#faf8fe]">
-              ✕
-            </button>
+            <button onClick={() => selectAgent(null)} className="text-[#abaab0] hover:text-[#faf8fe]">✕</button>
           </div>
           <div className="space-y-4">
             <div>
@@ -147,9 +291,7 @@ export default function AgentsPage() {
               <label className="text-[10px] uppercase tracking-widest text-[#abaab0]">Capabilities</label>
               <div className="flex flex-wrap gap-1 mt-1">
                 {selectedAgent.capabilities.map((cap) => (
-                  <span key={cap} className="text-xs px-2 py-0.5 rounded-full bg-[#304671] text-[#b1c6f9]">
-                    {cap}
-                  </span>
+                  <span key={cap} className="text-xs px-2 py-0.5 rounded-full bg-[#304671] text-[#b1c6f9]">{cap}</span>
                 ))}
               </div>
             </div>
@@ -165,9 +307,28 @@ export default function AgentsPage() {
                 <p className="text-sm text-[#abaab0] whitespace-pre-wrap">{selectedAgent.job_description}</p>
               </div>
             )}
+            {selectedAgent.monthly_budget_cents != null && (
+              <div>
+                <label className="text-[10px] uppercase tracking-widest text-[#abaab0]">Budget</label>
+                <p className="text-sm">
+                  ${(selectedAgent.current_month_spent_cents / 100).toFixed(2)} / ${(selectedAgent.monthly_budget_cents / 100).toFixed(2)}
+                </p>
+              </div>
+            )}
+            <div className="pt-4 border-t border-[#424754]/20">
+              <button
+                onClick={() => handleDelete(selectedAgent.id)}
+                className="w-full px-4 py-2 rounded-lg bg-red-500/10 text-red-400 text-sm hover:bg-red-500/20 transition-colors"
+              >
+                Remove Agent
+              </button>
+            </div>
           </div>
         </div>
       )}
+
+      {/* Create Modal */}
+      {showCreateModal && <HireAgentModal onClose={() => setShowCreateModal(false)} agents={agents} />}
     </div>
   )
 }
