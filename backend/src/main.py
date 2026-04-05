@@ -21,6 +21,7 @@ from backend.src.api import (
     security,
     settings,
     tasks,
+    workers,
 )
 from backend.src.config import Settings, settings as app_settings
 from backend.src.core.rate_limiter import RateLimitMiddleware
@@ -181,4 +182,5 @@ app.include_router(dashboard.router)
 app.include_router(settings.router)
 app.include_router(security.router)
 app.include_router(planner.router)
+app.include_router(workers.router)
 app.include_router(mcp.router)
