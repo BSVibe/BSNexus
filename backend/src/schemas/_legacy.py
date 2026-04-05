@@ -524,12 +524,14 @@ class GlobalSettingsResponse(BaseModel):
     llm_api_key: Optional[str] = None
     llm_model: Optional[str] = None
     llm_base_url: Optional[str] = None
+    default_executor_type: str = "claude_api"
 
 
 class GlobalSettingsUpdate(BaseModel):
     llm_api_key: Optional[str] = None
     llm_model: Optional[str] = None
     llm_base_url: Optional[str] = None
+    default_executor_type: Optional[str] = None
 
     @field_validator("llm_base_url")
     @classmethod

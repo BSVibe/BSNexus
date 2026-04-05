@@ -4,6 +4,7 @@ export interface GlobalSettings {
   llm_api_key: string | null
   llm_model: string | null
   llm_base_url: string | null
+  default_executor_type: string
 }
 
 export const settingsApi = {
