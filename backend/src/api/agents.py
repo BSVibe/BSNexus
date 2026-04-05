@@ -1,0 +1,124 @@
+"""Agent CRUD API — manage AI agents with dynamic roles and org chart hierarchy."""
+
+from __future__ import annotations
+
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from backend.src.models import Agent
+from backend.src.repositories.agent_repository import AgentRepository
+from backend.src.schemas.agent import AgentCreate, AgentOrgChartResponse, AgentResponse, AgentUpdate
+from backend.src.storage.database import get_db
+
+router = APIRouter(prefix="/api/v1/agents", tags=["agents"])
+
+# Placeholder tenant_id until multi-tenancy middleware is wired (Step 5)
+_DEFAULT_TENANT_ID = uuid.UUID("00000000-0000-0000-0000-000000000000")
+
+
+def _agent_to_response(agent: Agent) -> AgentResponse:
+    return AgentResponse.model_validate(agent)
+
+
+@router.post("", response_model=AgentResponse, status_code=201)
+async def create_agent(body: AgentCreate, db: AsyncSession = Depends(get_db)) -> AgentResponse:
+    repo = AgentRepository(db)
+    agent = Agent(
+        tenant_id=_DEFAULT_TENANT_ID,
+        name=body.name,
+        role=body.role,
+        title=body.title,
+        job_description=body.job_description,
+        executor_type=body.executor_type,
+        executor_config=body.executor_config,
+        system_prompt=body.system_prompt,
+        skills=body.skills,
+        capabilities=body.capabilities,
+        parent_agent_id=body.parent_agent_id,
+        heartbeat_interval_seconds=body.heartbeat_interval_seconds,
+        heartbeat_enabled=body.heartbeat_enabled,
+        monthly_budget_cents=body.monthly_budget_cents,
+    )
+    await repo.add(agent)
+    await repo.commit()
+    await repo.refresh(agent)
+    return _agent_to_response(agent)
+
+
+@router.get("", response_model=list[AgentResponse])
+async def list_agents(
+    active_only: bool = True,
+    limit: int = 100,
+    offset: int = 0,
+    db: AsyncSession = Depends(get_db),
+) -> list[AgentResponse]:
+    repo = AgentRepository(db)
+    agents = await repo.list_by_tenant(_DEFAULT_TENANT_ID, active_only=active_only, limit=limit, offset=offset)
+    return [_agent_to_response(a) for a in agents]
+
+
+@router.get("/org-chart", response_model=list[AgentOrgChartResponse])
+async def get_org_chart(db: AsyncSession = Depends(get_db)) -> list[AgentOrgChartResponse]:
+    """Return org chart as a tree of root agents with nested children."""
+    repo = AgentRepository(db)
+    all_agents = await repo.list_by_tenant(_DEFAULT_TENANT_ID, active_only=True, limit=500)
+
+    # Build tree
+    by_parent: dict[uuid.UUID | None, list[Agent]] = {}
+    for agent in all_agents:
+        by_parent.setdefault(agent.parent_agent_id, []).append(agent)
+
+    def _build_tree(parent_id: uuid.UUID | None) -> list[AgentOrgChartResponse]:
+        children = by_parent.get(parent_id, [])
+        return [
+            AgentOrgChartResponse(
+                agent=_agent_to_response(child),
+                children=_build_tree(child.id),
+            )
+            for child in children
+        ]
+
+    return _build_tree(None)
+
+
+@router.get("/{agent_id}", response_model=AgentResponse)
+async def get_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> AgentResponse:
+    repo = AgentRepository(db)
+    agent = await repo.get_by_id(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    return _agent_to_response(agent)
+
+
+@router.patch("/{agent_id}", response_model=AgentResponse)
+async def update_agent(
+    agent_id: uuid.UUID,
+    body: AgentUpdate,
+    db: AsyncSession = Depends(get_db),
+) -> AgentResponse:
+    repo = AgentRepository(db)
+    agent = await repo.get_by_id(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    update_data = body.model_dump(exclude_unset=True)
+    if not update_data:
+        return _agent_to_response(agent)
+
+    updated = await repo.update_fields(agent_id, **update_data)
+    await repo.commit()
+    if not updated:
+        raise HTTPException(status_code=404, detail="Agent not found after update")
+    return _agent_to_response(updated)
+
+
+@router.delete("/{agent_id}", status_code=204)
+async def delete_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> None:
+    repo = AgentRepository(db)
+    agent = await repo.get_by_id(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    await repo.delete(agent)
+    await repo.commit()

@@ -84,17 +84,52 @@ class LocalTaskRunner:
         except (json.JSONDecodeError, TypeError):
             return raw
 
+    @staticmethod
+    def _get_bound_agent(task: Task) -> object | None:
+        """Get bound agent from task, if explicitly set (not from Mock auto-attr)."""
+        try:
+            agent = task._bound_agent  # type: ignore[attr-defined]
+        except AttributeError:
+            return None
+        # Guard against MagicMock creating attributes automatically
+        from backend.src.models.agent import Agent
+
+        return agent if isinstance(agent, Agent) else None
+
+    def _resolve_agent_context(self, task: Task) -> dict:
+        """Extract executor config from bound agent if present."""
+        agent = self._get_bound_agent(task)
+        if agent is None:
+            return {}
+        ctx: dict = {}
+        if agent.executor_config:
+            ctx.update(agent.executor_config)
+        if agent.system_prompt:
+            ctx["agent_system_prompt"] = agent.system_prompt
+        return ctx
+
     async def execute_task(self, task: Task, repo_path: str) -> TaskExecutionResult:
         """Execute a task: git setup, run executor, return result."""
         task_id = str(task.id)
         branch_name = task.branch_name or ""
         title = task.title or ""
-        executor_type = getattr(task, "executor_type", self._default_executor_name) or self._default_executor_name
+
+        # Agent → Executor resolution chain
+        agent = self._get_bound_agent(task)
+        if agent and agent.executor_type:
+            executor_type = agent.executor_type
+        else:
+            executor_type = getattr(task, "executor_type", self._default_executor_name) or self._default_executor_name
 
         logger.info(">>> TASK START task_id=%s title='%s' executor_type=%s", task_id, title, executor_type)
 
         executor = self._resolve_executor(executor_type)
         prompt = self._extract_prompt(task.worker_prompt)
+
+        # Inject agent system prompt if bound
+        agent_ctx = self._resolve_agent_context(task)
+        if agent_ctx.get("agent_system_prompt"):
+            prompt = f"[Agent Context]\n{agent_ctx['agent_system_prompt']}\n\n[Task]\n{prompt}"
 
         # Inject retry feedback from previous failed attempt
         last_feedback_entry = task.qa_feedback_history[-1] if task.qa_feedback_history else None
@@ -121,7 +156,8 @@ class LocalTaskRunner:
                     await git_ops.ensure_branch(branch_name)
                     logger.info("    git: checked out branch %s", branch_name)
 
-            context: dict = {"task_id": task_id}
+            context: dict = {**agent_ctx, "task_id": task_id}
+            context.pop("agent_system_prompt", None)
             if repo_path:
                 context["workspace_dir"] = repo_path
 
