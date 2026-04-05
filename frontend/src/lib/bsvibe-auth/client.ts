@@ -7,6 +7,9 @@ import {
   isTokenExpired,
   saveState,
   getAndClearState,
+  markSSOChecked,
+  wasSSOChecked,
+  clearSSOChecked,
 } from './session';
 
 function generateState(): string {
@@ -80,11 +83,17 @@ export class BSVibeAuth {
     // 3. Check if SSO already failed
     const searchParams = new URLSearchParams(window.location.search);
     if (searchParams.get('sso_error')) {
-      // Clean up the error param from URL
+      // Clean up the error param from URL and mark SSO as checked
+      markSSOChecked();
       searchParams.delete('sso_error');
       const cleanSearch = searchParams.toString();
       const cleanUrl = window.location.pathname + (cleanSearch ? `?${cleanSearch}` : '');
       history.replaceState(null, '', cleanUrl);
+      return null;
+    }
+
+    // 3b. SSO already checked this session (prevents infinite redirect in StrictMode)
+    if (wasSSOChecked()) {
       return null;
     }
 
@@ -115,6 +124,7 @@ export class BSVibeAuth {
     try {
       const user = parseToken(accessToken, refreshToken);
       saveSession(user);
+      clearSSOChecked(); // Reset so next session can SSO check again
       history.replaceState(null, '', window.location.pathname + window.location.search);
       return user;
     } catch {
