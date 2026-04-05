@@ -91,10 +91,10 @@ class LocalTaskRunner:
             agent = task._bound_agent  # type: ignore[attr-defined]
         except AttributeError:
             return None
-        # Guard against MagicMock creating attributes automatically
-        from backend.src.models.agent import Agent
-
-        return agent if isinstance(agent, Agent) else None
+        # Duck-type check: real Agent or test stand-in must have executor_type as str
+        if hasattr(agent, "executor_type") and isinstance(getattr(agent, "executor_type", None), str):
+            return agent
+        return None
 
     def _resolve_agent_context(self, task: Task) -> dict:
         """Extract executor config from bound agent if present."""
