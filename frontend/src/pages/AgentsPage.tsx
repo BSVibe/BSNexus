@@ -414,8 +414,7 @@ function TemplateSelector({ onApplied }: { onApplied: () => void }) {
       <div key={i}>
         <div className="flex items-center gap-1" style={{ paddingLeft: indent * 16 }}>
           {indent > 0 && <span className="text-text-tertiary text-xs">└</span>}
-          <span className="text-xs text-text-primary">{a.name}</span>
-          <span className="text-[10px] text-text-tertiary">({a.role})</span>
+          <span className="text-xs text-text-primary truncate">{a.name}</span>
         </div>
         {a.children && renderTree(a.children, indent + 1)}
       </div>
