@@ -250,7 +250,7 @@ export default function SettingsPage() {
         {formType === '_worker' && !editTarget ? (
           <div className="space-y-4">
             <p className="text-sm text-text-secondary">
-              Run coding tasks on your machine. Supports Claude Code, Codex, and OpenCode — auto-detects which CLI is installed.
+              Run coding tasks on your machine. Supports Claude Code {'>'} Codex {'>'} OpenCode (auto-detected).
             </p>
             <div className="bg-stitch-surface-lowest rounded-lg p-4 space-y-3">
               <div>
@@ -265,7 +265,6 @@ export default function SettingsPage() {
                   bsnexus-worker register{'\n'}cd my-project && bsnexus-worker run
                 </code>
                 <p className="text-[10px] text-text-tertiary mt-1.5">
-                  Auto-detects installed CLI (priority: claude_code {'>'} codex {'>'} opencode).
                   To use a specific executor:
                 </p>
                 <div className="space-y-1 mt-1">
