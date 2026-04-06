@@ -493,7 +493,7 @@ export default function AgentsPage() {
   }
 
   return (
-    <>
+    <div className="flex flex-col h-full min-h-0 overflow-hidden">
       <Header
         title="Agent Organization"
         action={
@@ -515,14 +515,14 @@ export default function AgentsPage() {
           </div>
         }
       />
-      <div className="p-8">
-      <p className="text-sm text-text-secondary mb-6">
+      <div className="flex-1 flex flex-col p-4 pb-0 overflow-hidden">
+      <p className="text-xs text-text-secondary mb-2 px-2">
         {agents.length} agents · {agents.filter((a) => a.status === 'online').length} online
       </p>
 
-      {/* Org Chart */}
+      {/* Org Chart — fills remaining height */}
       {loading ? (
-        <div className="flex items-center justify-center h-64 text-text-secondary">Loading org chart...</div>
+        <div className="flex items-center justify-center flex-1 text-text-secondary">Loading org chart...</div>
       ) : orgChart.length === 0 ? (
         <TemplateSelector onApplied={() => { fetchOrgChart(); fetchAgents() }} />
       ) : (
@@ -560,6 +560,6 @@ export default function AgentsPage() {
         </div>
       )}
       </div>
-    </>
+    </div>
   )
 }

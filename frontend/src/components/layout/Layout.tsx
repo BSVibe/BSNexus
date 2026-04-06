@@ -19,7 +19,7 @@ export default function Layout() {
             <path d="M4 6h16M4 12h16M4 18h16" />
           </svg>
         </button>
-        <div className="flex-1 overflow-auto">
+        <div className="flex-1 flex flex-col overflow-auto">
           <Outlet />
         </div>
       </main>

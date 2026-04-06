@@ -173,7 +173,7 @@ export default function OrgChart({ orgChart }: OrgChartProps) {
   }, [nodes])
 
   return (
-    <div className="w-full h-[600px] bg-stitch-surface rounded-xl border border-stitch-outline-variant/10">
+    <div className="w-full flex-1 bg-stitch-surface rounded-xl border border-stitch-outline-variant/10">
       <ReactFlow
         nodes={nodes}
         edges={edges}
