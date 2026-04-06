@@ -260,21 +260,7 @@ export default function SettingsPage() {
                 </code>
               </div>
               <div>
-                <p className="text-[10px] uppercase tracking-widest text-text-tertiary font-bold mb-1">2. Install a coding CLI (pick one)</p>
-                <div className="space-y-1">
-                  <code className="block text-xs text-text-secondary bg-stitch-surface rounded px-3 py-1.5 font-mono">
-                    npm i -g @anthropic-ai/claude-code  <span className="text-text-tertiary"># Claude Code</span>
-                  </code>
-                  <code className="block text-xs text-text-secondary bg-stitch-surface rounded px-3 py-1.5 font-mono">
-                    npm i -g @openai/codex              <span className="text-text-tertiary"># Codex</span>
-                  </code>
-                  <code className="block text-xs text-text-secondary bg-stitch-surface rounded px-3 py-1.5 font-mono">
-                    go install github.com/opencode-ai/opencode@latest <span className="text-text-tertiary"># OpenCode</span>
-                  </code>
-                </div>
-              </div>
-              <div>
-                <p className="text-[10px] uppercase tracking-widest text-text-tertiary font-bold mb-1">3. Register & run</p>
+                <p className="text-[10px] uppercase tracking-widest text-text-tertiary font-bold mb-1">2. Register & run</p>
                 <code className="block text-xs text-stitch-primary bg-stitch-surface rounded px-3 py-2 font-mono select-all">
                   bsnexus-worker register{'\n'}cd my-project && bsnexus-worker run
                 </code>
@@ -296,7 +282,7 @@ export default function SettingsPage() {
               </div>
             </div>
             <p className="text-[10px] text-text-tertiary">
-              Worker auto-detects installed CLI. Override with <code className="font-mono">--executor codex</code>.
+              Requires Python 3.11+ and a coding CLI (Claude Code, Codex, or OpenCode).
             </p>
           </div>
         ) : (
