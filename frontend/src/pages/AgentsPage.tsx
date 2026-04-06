@@ -17,7 +17,6 @@ const EXECUTOR_LABELS: Record<string, string> = {
 
 const EXECUTOR_OPTIONS: { value: ExecutorType; label: string }[] = [
   { value: 'claude_api', label: 'LLM API' },
-  { value: 'claude_code', label: 'Claude Code' },
   { value: 'bsgateway', label: 'BSGateway' },
 ]
 

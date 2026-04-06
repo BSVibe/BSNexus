@@ -4,13 +4,13 @@ import { Button, Modal } from '../components/common'
 import { executorConfigsApi } from '../api/executorConfigs'
 import type { ExecutorConfig, ExecutorConfigCreate } from '../types/executor'
 import Header from '../components/layout/Header'
+import { API_BASE_URL } from '../api/client'
 
 const INPUT_CLASS =
   'w-full px-3 py-2 bg-stitch-surface-low border border-stitch-outline-variant/20 rounded-md text-text-primary text-sm placeholder:text-text-tertiary focus:outline-none focus:border-stitch-primary focus:ring-1 focus:ring-stitch-primary'
 
 const EXECUTOR_TYPES = [
   { value: 'claude_api', label: 'LLM API', description: 'Any LLM via LiteLLM (Claude, GPT, Gemini, open-source). For both coding and non-coding tasks.' },
-  { value: 'claude_code', label: 'Claude Code', description: 'Claude Code CLI — runs on local machine or self-hosted worker' },
   { value: 'bsgateway', label: 'BSGateway', description: 'BSGateway proxy with automatic cost-optimized model routing' },
 ] as const
 
@@ -29,12 +29,6 @@ const EXECUTOR_FIELDS: Record<string, ConfigField[]> = {
     { key: 'base_url', label: 'Base URL (optional)', type: 'text', placeholder: 'https://api.anthropic.com' },
     { key: 'temperature', label: 'Temperature', type: 'text', placeholder: '0.0 for coding, 0.7 for writing' },
     { key: 'max_tokens', label: 'Max Tokens', type: 'text', placeholder: '4096' },
-  ],
-  claude_code: [
-    { key: 'execution_mode', label: 'Execution Mode', type: 'select', options: [{ value: 'self_hosted', label: 'Self-hosted (user machine)' }, { value: 'tenant', label: 'Tenant (server-side)' }] },
-    { key: 'workspace_dir', label: 'Workspace Directory', type: 'text', placeholder: '/workspace' },
-    { key: 'timeout_seconds', label: 'Timeout (seconds)', type: 'text', placeholder: '3600' },
-    { key: 'skip_permissions', label: 'Skip Permissions', type: 'select', options: [{ value: 'true', label: 'Yes' }, { value: 'false', label: 'No' }] },
   ],
   bsgateway: [
     { key: 'bsgateway_url', label: 'Gateway URL', type: 'text', placeholder: 'https://gateway.bsvibe.dev' },
@@ -221,13 +215,13 @@ export default function SettingsPage() {
             <div>
               <p className="text-[10px] uppercase tracking-widest text-text-tertiary font-bold mb-1">1. Install</p>
               <code className="block text-xs text-stitch-primary bg-stitch-surface rounded px-3 py-2 font-mono select-all">
-                curl -fsSL {window.location.origin}/worker/install.sh | bash
+                curl -fsSL {API_BASE_URL || window.location.origin}/worker/install.sh | bash
               </code>
             </div>
             <div>
               <p className="text-[10px] uppercase tracking-widest text-text-tertiary font-bold mb-1">2. Register</p>
               <code className="block text-xs text-stitch-primary bg-stitch-surface rounded px-3 py-2 font-mono select-all">
-                bsnexus-worker register --server {window.location.origin.replace(':3000', ':8000')}
+                bsnexus-worker register --server {API_BASE_URL || window.location.origin}
               </code>
             </div>
             <div>
