@@ -268,6 +268,9 @@ export default function SettingsPage() {
                   <code className="block text-xs text-text-secondary bg-stitch-surface rounded px-3 py-1.5 font-mono">
                     npm i -g @openai/codex              <span className="text-text-tertiary"># Codex</span>
                   </code>
+                  <code className="block text-xs text-text-secondary bg-stitch-surface rounded px-3 py-1.5 font-mono">
+                    go install github.com/opencode-ai/opencode@latest <span className="text-text-tertiary"># OpenCode</span>
+                  </code>
                 </div>
               </div>
               <div>
