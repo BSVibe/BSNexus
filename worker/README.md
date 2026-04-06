@@ -5,7 +5,7 @@ Self-hosted worker agent for BSNexus. Like GitHub Actions self-hosted runners â€
 ## Quick Install
 
 ```bash
-curl -fsSL https://your-bsnexus-server/worker/install.sh | bash
+curl -fsSL https://nexus.bsvibe.dev/worker/install.sh | bash
 ```
 
 This installs `bsnexus-worker` CLI to `~/.bsnexus-worker/` and adds it to your PATH.
@@ -19,7 +19,7 @@ This installs `bsnexus-worker` CLI to `~/.bsnexus-worker/` and adds it to your P
 
 ```bash
 # 1. Register (one-time, from any directory)
-bsnexus-worker register --server https://your-bsnexus-app.com
+bsnexus-worker register --server https://nexus.bsvibe.dev
 
 # 2. Run (from your project directory)
 cd my-project
@@ -29,7 +29,7 @@ bsnexus-worker run
 ### Bind to a specific project
 
 ```bash
-bsnexus-worker register --server https://your-bsnexus-app.com --project PROJECT_ID
+bsnexus-worker register --server https://nexus.bsvibe.dev --project PROJECT_ID
 ```
 
 The worker will only accept tasks from that project.
