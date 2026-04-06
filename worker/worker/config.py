@@ -4,8 +4,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class WorkerSettings(BaseSettings):
-    # BSNexus server
-    server_url: str = "http://localhost:8000"
+    # BSNexus URL (frontend or API — /api/v1/* paths are proxied in production)
+    server_url: str = "http://localhost:3000"
 
     # Worker identity (from registration)
     worker_token: str = ""

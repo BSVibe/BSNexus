@@ -4,7 +4,7 @@ import { Button, Modal } from '../components/common'
 import { executorConfigsApi } from '../api/executorConfigs'
 import type { ExecutorConfig, ExecutorConfigCreate } from '../types/executor'
 import Header from '../components/layout/Header'
-import { API_BASE_URL } from '../api/client'
+// Worker guide uses the current origin — in production, frontend proxies /api to backend
 
 const INPUT_CLASS =
   'w-full px-3 py-2 bg-stitch-surface-low border border-stitch-outline-variant/20 rounded-md text-text-primary text-sm placeholder:text-text-tertiary focus:outline-none focus:border-stitch-primary focus:ring-1 focus:ring-stitch-primary'
@@ -215,13 +215,13 @@ export default function SettingsPage() {
             <div>
               <p className="text-[10px] uppercase tracking-widest text-text-tertiary font-bold mb-1">1. Install</p>
               <code className="block text-xs text-stitch-primary bg-stitch-surface rounded px-3 py-2 font-mono select-all">
-                curl -fsSL {API_BASE_URL || window.location.origin}/worker/install.sh | bash
+                curl -fsSL {window.location.origin}/worker/install.sh | bash
               </code>
             </div>
             <div>
               <p className="text-[10px] uppercase tracking-widest text-text-tertiary font-bold mb-1">2. Register</p>
               <code className="block text-xs text-stitch-primary bg-stitch-surface rounded px-3 py-2 font-mono select-all">
-                bsnexus-worker register --server {API_BASE_URL || window.location.origin}
+                bsnexus-worker register --server {window.location.origin}
               </code>
             </div>
             <div>

@@ -19,7 +19,7 @@ This installs `bsnexus-worker` CLI to `~/.bsnexus-worker/` and adds it to your P
 
 ```bash
 # 1. Register (one-time, from any directory)
-bsnexus-worker register --server http://your-server:8000
+bsnexus-worker register --server https://your-bsnexus-app.com
 
 # 2. Run (from your project directory)
 cd my-project
@@ -29,7 +29,7 @@ bsnexus-worker run
 ### Bind to a specific project
 
 ```bash
-bsnexus-worker register --server http://your-server:8000 --project PROJECT_ID
+bsnexus-worker register --server https://your-bsnexus-app.com --project PROJECT_ID
 ```
 
 The worker will only accept tasks from that project.
@@ -59,7 +59,7 @@ All settings via environment variables or `.env` file:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BSNEXUS_SERVER_URL` | `http://localhost:8000` | BSNexus server |
+| `BSNEXUS_SERVER_URL` | `http://localhost:3000` | BSNexus URL (frontend — proxies /api to backend) |
 | `BSNEXUS_WORKER_TOKEN` | (required) | Auth token from register |
 | `BSNEXUS_WORKER_NAME` | hostname | Display name |
 | `BSNEXUS_PROJECT_ID` | (optional) | Only accept tasks from this project |
