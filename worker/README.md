@@ -59,7 +59,7 @@ All settings via environment variables or `.env` file:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BSNEXUS_SERVER_URL` | `http://localhost:3000` | BSNexus URL (frontend — proxies /api to backend) |
+| `BSNEXUS_SERVER_URL` | `https://nexus.bsvibe.dev` | BSNexus URL (defaults to official SaaS) |
 | `BSNEXUS_WORKER_TOKEN` | (required) | Auth token from register |
 | `BSNEXUS_WORKER_NAME` | hostname | Display name |
 | `BSNEXUS_PROJECT_ID` | (optional) | Only accept tasks from this project |

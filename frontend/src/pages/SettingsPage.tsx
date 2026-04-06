@@ -12,6 +12,7 @@ const INPUT_CLASS =
 const EXECUTOR_TYPES = [
   { value: 'claude_api', label: 'LLM API', description: 'Any LLM via LiteLLM (Claude, GPT, Gemini, open-source). For both coding and non-coding tasks.' },
   { value: 'bsgateway', label: 'BSGateway', description: 'BSGateway proxy with automatic cost-optimized model routing' },
+  { value: '_worker', label: 'Self-Hosted Worker', description: 'Run Claude Code on your own machine. Install the worker agent and connect it here.' },
 ] as const
 
 interface ConfigField {
@@ -202,40 +203,6 @@ export default function SettingsPage() {
           )}
         </div>
 
-        {/* Worker Setup Guide */}
-        <div className="bg-stitch-surface-container rounded-xl p-6">
-          <h3 className="text-sm font-semibold text-text-primary uppercase tracking-wider mb-3">
-            Self-Hosted Worker
-          </h3>
-          <p className="text-xs text-text-secondary mb-4">
-            Run a worker on your machine to execute tasks via Claude Code locally.
-          </p>
-
-          <div className="bg-stitch-surface-lowest rounded-lg p-4 space-y-3">
-            <div>
-              <p className="text-[10px] uppercase tracking-widest text-text-tertiary font-bold mb-1">1. Install</p>
-              <code className="block text-xs text-stitch-primary bg-stitch-surface rounded px-3 py-2 font-mono select-all">
-                curl -fsSL {window.location.origin}/worker/install.sh | bash
-              </code>
-            </div>
-            <div>
-              <p className="text-[10px] uppercase tracking-widest text-text-tertiary font-bold mb-1">2. Register</p>
-              <code className="block text-xs text-stitch-primary bg-stitch-surface rounded px-3 py-2 font-mono select-all">
-                bsnexus-worker register --server {window.location.origin}
-              </code>
-            </div>
-            <div>
-              <p className="text-[10px] uppercase tracking-widest text-text-tertiary font-bold mb-1">3. Run (from your project directory)</p>
-              <code className="block text-xs text-stitch-primary bg-stitch-surface rounded px-3 py-2 font-mono select-all">
-                cd your-project && bsnexus-worker run
-              </code>
-            </div>
-          </div>
-
-          <p className="text-[10px] text-text-tertiary mt-3">
-            Prerequisites: Python 3.11+, Claude Code CLI (<code className="font-mono">npm i -g @anthropic-ai/claude-code</code>)
-          </p>
-        </div>
       </div>
 
       {/* Register / Edit Modal */}
@@ -244,102 +211,136 @@ export default function SettingsPage() {
         onClose={closeModal}
         title={editTarget ? `Edit — ${editTarget.name}` : 'Register Executor'}
         footer={
-          <>
-            <Button variant="secondary" onClick={closeModal}>Cancel</Button>
-            <Button
-              variant="primary"
-              onClick={handleSave}
-              loading={createMutation.isPending || updateMutation.isPending}
-            >
-              {editTarget ? 'Save' : 'Register'}
-            </Button>
-          </>
+          formType === '_worker' && !editTarget ? (
+            <Button variant="secondary" onClick={closeModal}>Close</Button>
+          ) : (
+            <>
+              <Button variant="secondary" onClick={closeModal}>Cancel</Button>
+              <Button
+                variant="primary"
+                onClick={handleSave}
+                loading={createMutation.isPending || updateMutation.isPending}
+              >
+                {editTarget ? 'Save' : 'Register'}
+              </Button>
+            </>
+          )
         }
       >
-        <div className="space-y-4">
-          {/* Name */}
-          <div>
-            <label className="block text-sm text-text-secondary mb-1.5">Name</label>
-            <input
-              value={formName}
-              onChange={(e) => setFormName(e.target.value)}
-              placeholder="e.g. Claude Code (local)"
+        {/* Executor type selector (create only) */}
+        {!editTarget && (
+          <div className="mb-4">
+            <label className="block text-sm text-text-secondary mb-1.5">Executor Type</label>
+            <select
+              value={formType}
+              onChange={(e) => { setFormType(e.target.value); setFormConfig({}) }}
               className={INPUT_CLASS}
-            />
-          </div>
-
-          {/* Executor Type (only on create) */}
-          {!editTarget && (
-            <div>
-              <label className="block text-sm text-text-secondary mb-1.5">Executor Type</label>
-              <select
-                value={formType}
-                onChange={(e) => { setFormType(e.target.value); setFormConfig({}) }}
-                className={INPUT_CLASS}
-              >
-                {EXECUTOR_TYPES.map((t) => (
-                  <option key={t.value} value={t.value}>{t.label}</option>
-                ))}
-              </select>
-              <p className="mt-1 text-xs text-text-tertiary">
-                {EXECUTOR_TYPES.find((t) => t.value === formType)?.description}
-              </p>
-            </div>
-          )}
-
-          {/* Type-specific config fields */}
-          {fields.length > 0 && (
-            <div className="border-t border-stitch-outline-variant/20 pt-4 space-y-3">
-              <p className="text-[10px] uppercase tracking-widest text-text-secondary font-bold">Configuration</p>
-              {fields.map((field) => (
-                <div key={field.key}>
-                  <label className="block text-xs text-text-tertiary mb-1">{field.label}</label>
-                  {field.type === 'select' && field.options ? (
-                    <select
-                      value={formConfig[field.key] || field.options[0]?.value || ''}
-                      onChange={(e) => setFormConfig((c) => ({ ...c, [field.key]: e.target.value }))}
-                      className={INPUT_CLASS}
-                    >
-                      {field.options.map((o) => (
-                        <option key={o.value} value={o.value}>{o.label}</option>
-                      ))}
-                    </select>
-                  ) : (
-                    <input
-                      type={field.type}
-                      value={formConfig[field.key] || ''}
-                      onChange={(e) => setFormConfig((c) => ({ ...c, [field.key]: e.target.value }))}
-                      placeholder={field.placeholder}
-                      className={INPUT_CLASS}
-                    />
-                  )}
-                </div>
+            >
+              {EXECUTOR_TYPES.map((t) => (
+                <option key={t.value} value={t.value}>{t.label}</option>
               ))}
-            </div>
-          )}
-
-          {/* Description */}
-          <div>
-            <label className="block text-sm text-text-secondary mb-1.5">Description (optional)</label>
-            <input
-              value={formDescription}
-              onChange={(e) => setFormDescription(e.target.value)}
-              placeholder="Brief description of this executor setup"
-              className={INPUT_CLASS}
-            />
+            </select>
+            <p className="mt-1 text-xs text-text-tertiary">
+              {EXECUTOR_TYPES.find((t) => t.value === formType)?.description}
+            </p>
           </div>
+        )}
 
-          {/* Default toggle */}
-          <label className="flex items-center gap-2 text-sm text-text-secondary">
-            <input
-              type="checkbox"
-              checked={formDefault}
-              onChange={(e) => setFormDefault(e.target.checked)}
-              className="rounded"
-            />
-            Set as default for this executor type
-          </label>
-        </div>
+        {/* Worker guide (shown when _worker selected) */}
+        {formType === '_worker' && !editTarget ? (
+          <div className="space-y-4">
+            <p className="text-sm text-text-secondary">
+              Run a self-hosted worker on your machine to execute tasks via Claude Code.
+            </p>
+            <div className="bg-stitch-surface-lowest rounded-lg p-4 space-y-3">
+              <div>
+                <p className="text-[10px] uppercase tracking-widest text-text-tertiary font-bold mb-1">1. Install</p>
+                <code className="block text-xs text-stitch-primary bg-stitch-surface rounded px-3 py-2 font-mono select-all">
+                  curl -fsSL {window.location.origin}/worker/install.sh | bash
+                </code>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-widest text-text-tertiary font-bold mb-1">2. Register</p>
+                <code className="block text-xs text-stitch-primary bg-stitch-surface rounded px-3 py-2 font-mono select-all">
+                  bsnexus-worker register
+                </code>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-widest text-text-tertiary font-bold mb-1">3. Run (from your project dir)</p>
+                <code className="block text-xs text-stitch-primary bg-stitch-surface rounded px-3 py-2 font-mono select-all">
+                  cd my-project && bsnexus-worker run
+                </code>
+              </div>
+            </div>
+            <p className="text-[10px] text-text-tertiary">
+              Requires: Python 3.11+, Claude Code CLI (<code className="font-mono">npm i -g @anthropic-ai/claude-code</code>).
+              Worker connects to <strong>{window.location.origin}</strong> by default.
+            </p>
+          </div>
+        ) : (
+          /* Normal executor registration form */
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm text-text-secondary mb-1.5">Name</label>
+              <input
+                value={formName}
+                onChange={(e) => setFormName(e.target.value)}
+                placeholder="e.g. GPT-4o Production"
+                className={INPUT_CLASS}
+              />
+            </div>
+
+            {fields.length > 0 && (
+              <div className="border-t border-stitch-outline-variant/20 pt-4 space-y-3">
+                <p className="text-[10px] uppercase tracking-widest text-text-secondary font-bold">Configuration</p>
+                {fields.map((field) => (
+                  <div key={field.key}>
+                    <label className="block text-xs text-text-tertiary mb-1">{field.label}</label>
+                    {field.type === 'select' && field.options ? (
+                      <select
+                        value={formConfig[field.key] || field.options[0]?.value || ''}
+                        onChange={(e) => setFormConfig((c) => ({ ...c, [field.key]: e.target.value }))}
+                        className={INPUT_CLASS}
+                      >
+                        {field.options.map((o) => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type={field.type}
+                        value={formConfig[field.key] || ''}
+                        onChange={(e) => setFormConfig((c) => ({ ...c, [field.key]: e.target.value }))}
+                        placeholder={field.placeholder}
+                        className={INPUT_CLASS}
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div>
+              <label className="block text-sm text-text-secondary mb-1.5">Description (optional)</label>
+              <input
+                value={formDescription}
+                onChange={(e) => setFormDescription(e.target.value)}
+                placeholder="Brief description"
+                className={INPUT_CLASS}
+              />
+            </div>
+
+            <label className="flex items-center gap-2 text-sm text-text-secondary">
+              <input
+                type="checkbox"
+                checked={formDefault}
+                onChange={(e) => setFormDefault(e.target.checked)}
+                className="rounded"
+              />
+              Set as default
+            </label>
+          </div>
+        )}
       </Modal>
     </>
   )
