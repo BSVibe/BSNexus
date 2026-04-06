@@ -8,12 +8,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
 from backend.src.api import (
+    agent_templates,
     agents,
     architect,
     auth,
     board,
     budget,
     dashboard,
+    executor_configs,
     goals,
     mcp,
     planner,
@@ -171,8 +173,10 @@ async def health_deps():
 
 
 # API routers
+app.include_router(agent_templates.router)
 app.include_router(agents.router)
 app.include_router(budget.router)
+app.include_router(executor_configs.router)
 app.include_router(auth.router)
 app.include_router(goals.router)
 app.include_router(tasks.router)

@@ -32,6 +32,7 @@ from backend.src.models.agent import Agent
 from backend.src.models.budget import CostRecord
 from backend.src.models.goal import Goal
 from backend.src.models.tenant import Tenant, TenantMember
+from backend.src.models.executor_config import ExecutorConfig
 from backend.src.models.worker import Worker
 
 __all__ = [
@@ -59,6 +60,7 @@ __all__ = [
     # New models
     "Agent",
     "CostRecord",
+    "ExecutorConfig",
     "Goal",
     "Tenant",
     "TenantMember",

@@ -41,84 +41,10 @@ async def seed() -> None:
         else:
             print("Default tenant already exists")
 
-        # 2. Seed agents with org chart hierarchy
+        # 2. Agents — no longer seeded. Users choose a template from the Agents page.
         result = await db.execute(text("SELECT count(*) FROM agents"))
         count = result.scalar_one()
-        if count == 0:
-            # Fixed IDs so we can set parent_agent_id for hierarchy
-            architect_id = str(uuid.uuid4())
-            developer_id = str(uuid.uuid4())
-            reviewer_id = str(uuid.uuid4())
-
-            agents = [
-                {
-                    "id": architect_id,
-                    "name": "Architect",
-                    "role": "architect",
-                    "title": "Project Architect",
-                    "job_description": "Designs project architecture and decomposes into tasks through conversation",
-                    "executor_type": "claude_api",
-                    "capabilities": '["coding", "analysis"]',
-                    "skills": "[]",
-                    "monthly_budget_cents": 6000,
-                    "parent_agent_id": None,
-                },
-                {
-                    "id": developer_id,
-                    "name": "Developer",
-                    "role": "engineer",
-                    "title": "Senior Engineer",
-                    "job_description": "Implements features, fixes bugs, writes tests",
-                    "executor_type": "claude_code",
-                    "capabilities": '["coding"]',
-                    "skills": '["git-ops", "code-review"]',
-                    "monthly_budget_cents": 30000,
-                    "parent_agent_id": architect_id,
-                },
-                {
-                    "id": reviewer_id,
-                    "name": "Reviewer",
-                    "role": "reviewer",
-                    "title": "QA Reviewer",
-                    "job_description": "Reviews code quality, runs tests, ensures standards",
-                    "executor_type": "claude_api",
-                    "capabilities": '["coding", "analysis"]',
-                    "skills": '["code-review"]',
-                    "monthly_budget_cents": 10000,
-                    "parent_agent_id": architect_id,
-                },
-            ]
-            for a in agents:
-                await db.execute(
-                    text("""
-                        INSERT INTO agents (
-                            id, tenant_id, name, role, title, job_description,
-                            executor_type, executor_config, skills, capabilities,
-                            parent_agent_id, heartbeat_enabled, monthly_budget_cents,
-                            current_month_spent_cents, status, is_active
-                        ) VALUES (
-                            :id, :tid, :name, :role, :title, :job_desc,
-                            :exec_type, CAST('{}' AS jsonb), CAST(:skills AS jsonb), CAST(:caps AS jsonb),
-                            :parent, false, :budget, 0, 'online', true
-                        )
-                    """),
-                    {
-                        "id": a["id"],
-                        "tid": tid,
-                        "name": a["name"],
-                        "role": a["role"],
-                        "title": a["title"],
-                        "job_desc": a["job_description"],
-                        "exec_type": a["executor_type"],
-                        "skills": a["skills"],
-                        "caps": a["capabilities"],
-                        "parent": a["parent_agent_id"],
-                        "budget": a["monthly_budget_cents"],
-                    },
-                )
-            print(f"Created {len(agents)} seed agents (Architect → Developer, Reviewer)")
-        else:
-            print(f"{count} agents already exist")
+        print(f"{count} agents exist (use Agent Templates to create org chart)")
 
         # 3. Seed mission goal
         result = await db.execute(text("SELECT count(*) FROM goals WHERE level = 'mission'"))

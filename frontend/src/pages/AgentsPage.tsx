@@ -3,6 +3,7 @@ import { useAgentStore } from '../stores/agentStore'
 import type { Agent, AgentCreate, AgentOrgChartNode, ExecutorType } from '../types/agent'
 import Header from '../components/layout/Header'
 import { settingsApi } from '../api/settings'
+import { agentTemplatesApi, type OrgTemplate } from '../api/agentTemplates'
 
 const STATUS_COLORS: Record<string, string> = {
   online: 'bg-green-500',
@@ -428,6 +429,68 @@ function AgentDetailSidebar({ agent, onClose, onDelete }: { agent: Agent; onClos
   )
 }
 
+function TemplateSelector({ onApplied }: { onApplied: () => void }) {
+  const [templates, setTemplates] = useState<OrgTemplate[]>([])
+  const [applying, setApplying] = useState<string | null>(null)
+
+  useEffect(() => {
+    agentTemplatesApi.list().then(setTemplates).catch(() => {})
+  }, [])
+
+  const handleApply = async (templateId: string) => {
+    setApplying(templateId)
+    try {
+      await agentTemplatesApi.apply(templateId)
+      onApplied()
+    } finally {
+      setApplying(null)
+    }
+  }
+
+  function renderTree(agents: OrgTemplate['agents'][0][], indent: number = 0): React.ReactNode {
+    return agents.map((a, i) => (
+      <div key={i}>
+        <div className="flex items-center gap-1" style={{ paddingLeft: indent * 16 }}>
+          {indent > 0 && <span className="text-text-tertiary text-xs">└</span>}
+          <span className="text-xs text-text-primary">{a.name}</span>
+          <span className="text-[10px] text-text-tertiary">({a.role})</span>
+        </div>
+        {a.children && renderTree(a.children, indent + 1)}
+      </div>
+    ))
+  }
+
+  return (
+    <div className="flex flex-col items-center justify-center py-12">
+      <span className="material-symbols-outlined text-4xl mb-3 text-text-tertiary">groups</span>
+      <h3 className="text-lg font-bold text-text-primary mb-1">Build Your AI Team</h3>
+      <p className="text-sm text-text-secondary mb-8">Choose a template to get started, or hire agents individually</p>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-3xl w-full">
+        {templates.map((t) => (
+          <div key={t.id} className="bg-stitch-surface-low rounded-xl p-5 border border-stitch-outline-variant/10 flex flex-col">
+            <h4 className="text-sm font-bold text-text-primary mb-1">{t.name}</h4>
+            <p className="text-xs text-text-tertiary mb-3">{t.description}</p>
+            <div className="bg-stitch-surface-lowest rounded-lg p-3 mb-3 flex-1 space-y-0.5">
+              {renderTree(t.agents)}
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-text-tertiary">{t.agent_count} agents</span>
+              <button
+                onClick={() => handleApply(t.id)}
+                disabled={applying !== null}
+                className="text-xs px-3 py-1.5 rounded-md bg-stitch-primary text-stitch-on-primary font-bold hover:opacity-90 disabled:opacity-50 transition-opacity"
+              >
+                {applying === t.id ? 'Creating...' : 'Use Template'}
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export default function AgentsPage() {
   const { orgChart, fetchOrgChart, loading, selectedAgent, selectAgent, agents, fetchAgents, deleteAgent } = useAgentStore()
   const [showCreateModal, setShowCreateModal] = useState(false)
@@ -469,10 +532,7 @@ export default function AgentsPage() {
       {loading ? (
         <div className="flex items-center justify-center h-64 text-text-secondary">Loading org chart...</div>
       ) : orgChart.length === 0 ? (
-        <div className="flex flex-col items-center justify-center h-64 text-text-secondary">
-          <p className="text-lg mb-2">No agents yet</p>
-          <p className="text-sm">Click "Hire Agent" to create your first AI team member</p>
-        </div>
+        <TemplateSelector onApplied={() => { fetchOrgChart(); fetchAgents() }} />
       ) : (
         <div className="flex justify-center overflow-x-auto pb-8">
           <div className="flex gap-8">
