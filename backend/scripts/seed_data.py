@@ -41,7 +41,29 @@ async def seed() -> None:
         else:
             print("Default tenant already exists")
 
-        # 2. Agents — no longer seeded. Users choose a template from the Agents page.
+        # 2. Default executor config
+        result = await db.execute(text("SELECT count(*) FROM executor_configs"))
+        exec_count = result.scalar_one()
+        if exec_count == 0:
+            await db.execute(
+                text("""
+                    INSERT INTO executor_configs (id, tenant_id, name, executor_type, config, description, is_default)
+                    VALUES (:id, :tid, :name, :exec_type, CAST(:config AS jsonb), :desc, true)
+                """),
+                {
+                    "id": str(uuid.uuid4()),
+                    "tid": tid,
+                    "name": "Claude API (default)",
+                    "exec_type": "claude_api",
+                    "config": '{"model": "anthropic/claude-sonnet-4-20250514"}',
+                    "desc": "Default executor — Claude API via LiteLLM",
+                },
+            )
+            print("Created default executor config (Claude API)")
+        else:
+            print(f"{exec_count} executor configs already exist")
+
+        # 3. Agents — no longer seeded. Users choose a template from the Agents page.
         result = await db.execute(text("SELECT count(*) FROM agents"))
         count = result.scalar_one()
         print(f"{count} agents exist (use Agent Templates to create org chart)")

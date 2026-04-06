@@ -454,16 +454,20 @@ function AgentDetailSidebar({ agent, onClose, onDelete, executorConfigs }: { age
 function TemplateSelector({ onApplied }: { onApplied: () => void }) {
   const [templates, setTemplates] = useState<OrgTemplate[]>([])
   const [applying, setApplying] = useState<string | null>(null)
+  const [error, setError] = useState('')
 
   useEffect(() => {
-    agentTemplatesApi.list().then(setTemplates).catch(() => {})
+    agentTemplatesApi.list().then(setTemplates).catch((e) => setError(`Failed to load templates: ${e}`))
   }, [])
 
   const handleApply = async (templateId: string) => {
     setApplying(templateId)
+    setError('')
     try {
       await agentTemplatesApi.apply(templateId)
       onApplied()
+    } catch (e) {
+      setError(`Failed to apply template: ${(e as Error).message}`)
     } finally {
       setApplying(null)
     }
@@ -487,6 +491,7 @@ function TemplateSelector({ onApplied }: { onApplied: () => void }) {
       <span className="material-symbols-outlined text-4xl mb-3 text-text-tertiary">groups</span>
       <h3 className="text-lg font-bold text-text-primary mb-1">Build Your AI Team</h3>
       <p className="text-sm text-text-secondary mb-8">Choose a template to get started, or hire agents individually</p>
+      {error && <p className="text-sm text-stitch-error mb-4">{error}</p>}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-3xl w-full">
         {templates.map((t) => (

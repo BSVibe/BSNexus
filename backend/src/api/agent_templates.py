@@ -8,8 +8,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sqlalchemy import select
+
 from backend.src.core.tenant_context import DEFAULT_TENANT_ID
-from backend.src.models import Agent
+from backend.src.models import Agent, ExecutorConfig
 from backend.src.repositories.agent_repository import AgentRepository
 from backend.src.schemas.agent import AgentResponse
 from backend.src.storage.database import get_db
@@ -253,10 +255,24 @@ async def get_template(template_id: str) -> OrgTemplate:
 
 @router.post("/{template_id}/apply", response_model=list[AgentResponse])
 async def apply_template(template_id: str, db: AsyncSession = Depends(get_db)) -> list[AgentResponse]:
-    """Apply a template — creates agents with hierarchy. Existing agents are NOT deleted."""
+    """Apply a template — creates agents with hierarchy.
+
+    All agents use the tenant's default executor config.
+    Existing agents are NOT deleted.
+    """
     template = TEMPLATES.get(template_id)
     if not template:
         raise HTTPException(status_code=404, detail=f"Template '{template_id}' not found")
+
+    # Find the default executor config for this tenant
+    result = await db.execute(
+        select(ExecutorConfig).where(
+            ExecutorConfig.tenant_id == DEFAULT_TENANT_ID,
+            ExecutorConfig.is_default.is_(True),
+        ).limit(1)
+    )
+    default_exec = result.scalar_one_or_none()
+    default_executor_type = default_exec.executor_type if default_exec else "claude_api"
 
     repo = AgentRepository(db)
     created: list[Agent] = []
@@ -269,7 +285,7 @@ async def apply_template(template_id: str, db: AsyncSession = Depends(get_db)) -
                 role=t.role,
                 title=t.title,
                 job_description=t.job_description,
-                executor_type=t.executor_type,
+                executor_type=default_executor_type,
                 capabilities=t.capabilities,
                 parent_agent_id=parent_id,
             )
