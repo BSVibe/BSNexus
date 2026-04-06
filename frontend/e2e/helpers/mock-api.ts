@@ -16,6 +16,9 @@ import {
   mockOrgChart,
   mockWorkers,
   mockGoals,
+  mockBudgetOverview,
+  mockCostRecords,
+  mockGlobalSettings,
 } from './fixtures'
 
 /**
@@ -200,6 +203,30 @@ export async function mockAllApis(page: Page) {
   })
   await page.route('**/api/v1/goals', (route) => {
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockGoals) })
+  })
+
+  // Budget summary
+  await page.route('**/api/v1/budget/summary', (route) => {
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockBudgetOverview) })
+  })
+
+  // Budget records
+  await page.route('**/api/v1/budget/records*', (route) => {
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockCostRecords) })
+  })
+
+  // Budget reset
+  await page.route('**/api/v1/budget/reset', (route) => {
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ reset_count: 3 }) })
+  })
+
+  // Settings
+  await page.route('**/api/v1/settings', (route) => {
+    if (route.request().method() === 'GET') {
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockGlobalSettings) })
+    }
+    // PUT — update settings
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockGlobalSettings) })
   })
 
   // PM control

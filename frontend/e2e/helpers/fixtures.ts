@@ -321,6 +321,68 @@ export const mockGoals = [
   },
 ]
 
+export const mockBudgetOverview = {
+  total_budget_cents: 46000,
+  total_spent_cents: 5900,
+  total_remaining_cents: 40100,
+  agent_summaries: [
+    {
+      agent_id: 'agent-001',
+      agent_name: 'Alex',
+      monthly_budget_cents: 6000,
+      current_month_spent_cents: 1200,
+      budget_remaining_cents: 4800,
+      utilization_pct: 20.0,
+    },
+    {
+      agent_id: 'agent-002',
+      agent_name: 'Dev-1',
+      monthly_budget_cents: 30000,
+      current_month_spent_cents: 4500,
+      budget_remaining_cents: 25500,
+      utilization_pct: 15.0,
+    },
+    {
+      agent_id: 'agent-003',
+      agent_name: 'Writer-Bot',
+      monthly_budget_cents: 10000,
+      current_month_spent_cents: 200,
+      budget_remaining_cents: 9800,
+      utilization_pct: 2.0,
+    },
+  ],
+}
+
+export const mockCostRecords = [
+  {
+    id: 'cost-001',
+    tenant_id: '00000000-0000-0000-0000-000000000000',
+    agent_id: 'agent-001',
+    task_id: null,
+    amount_cents: 500,
+    token_count: 12000,
+    model_name: 'claude-3.5-sonnet',
+    recorded_at: '2026-04-05T10:00:00Z',
+  },
+  {
+    id: 'cost-002',
+    tenant_id: '00000000-0000-0000-0000-000000000000',
+    agent_id: 'agent-002',
+    task_id: 'task-001',
+    amount_cents: 200,
+    token_count: 5000,
+    model_name: 'gpt-4o',
+    recorded_at: '2026-04-05T09:00:00Z',
+  },
+]
+
+export const mockGlobalSettings = {
+  llm_api_key: 'sk-***masked***',
+  llm_model: 'anthropic/claude-sonnet-4-20250514',
+  llm_base_url: null,
+  default_executor_type: 'claude_api',
+}
+
 export const mockSessions = [
   {
     id: 'session-001',

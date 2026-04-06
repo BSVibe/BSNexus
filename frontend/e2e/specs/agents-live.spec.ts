@@ -52,7 +52,7 @@ test.describe('Agents — Live API E2E', () => {
   test('Hire Agent modal opens and creates agent via real API', async ({ page }) => {
     await page.goto('/agents', { waitUntil: 'networkidle' })
     // Wait for agents to render
-    await expect(page.locator('button:has-text("Architect")')).toBeVisible()
+    await expect(page.getByText('Agent Organization')).toBeVisible()
 
     // Open modal
     const hireBtn = page.locator('button:has-text("Hire Agent")').first()
@@ -64,8 +64,11 @@ test.describe('Agents — Live API E2E', () => {
     await page.getByPlaceholder('e.g. Alex').fill('E2E Test Bot')
     await page.getByPlaceholder('e.g. engineer').fill('tester')
     await page.getByPlaceholder('e.g. Senior').fill('E2E Tester')
-    // Select executor
-    const executorSelect = page.locator('select').first()
+
+    // Open Advanced section to select executor
+    await page.getByText('Advanced').click()
+    // Now the executor select is visible (2nd select after "Report To")
+    const executorSelect = page.locator('select').nth(1)
     await executorSelect.selectOption('generic_llm')
 
     // Submit (exact match to avoid matching the header "+ Hire Agent" button)
@@ -73,7 +76,7 @@ test.describe('Agents — Live API E2E', () => {
 
     // Modal should close and new agent should appear
     await expect(page.getByText('Hire New Agent')).not.toBeVisible()
-    await expect(page.getByText('E2E Test Bot')).toBeVisible({ timeout: 5000 })
+    await expect(page.getByText('E2E Test Bot').first()).toBeVisible({ timeout: 5000 })
   })
 
   test('clicking agent card shows detail sidebar with real data', async ({ page }) => {
@@ -84,7 +87,7 @@ test.describe('Agents — Live API E2E', () => {
 
     const sidebar = page.getByTestId('agent-detail-sidebar')
     await expect(sidebar).toBeVisible()
-    await expect(sidebar.getByText('Developer')).toBeVisible()
+    await expect(sidebar.getByText('Developer').first()).toBeVisible()
     await expect(sidebar.getByText('engineer', { exact: true })).toBeVisible()
     // Close sidebar
     await sidebar.getByRole('button', { name: '✕' }).click()

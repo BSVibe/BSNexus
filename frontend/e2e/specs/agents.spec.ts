@@ -54,8 +54,8 @@ test.describe('Agents Page — Org Chart & Agent Management', () => {
     // Detail sidebar (fixed right panel) should appear with agent details
     const sidebar = page.getByTestId('agent-detail-sidebar')
     await expect(sidebar).toBeVisible()
-    await expect(sidebar.getByText('Alex')).toBeVisible()
-    await expect(sidebar.getByText('cto')).toBeVisible()
+    await expect(sidebar.getByText('Alex').first()).toBeVisible()
+    await expect(sidebar.getByText('cto').first()).toBeVisible()
   })
 
   test('detail sidebar shows capabilities', async ({ page }) => {
@@ -81,6 +81,39 @@ test.describe('Agents Page — Org Chart & Agent Management', () => {
 
     await sidebar.getByRole('button', { name: '✕' }).click()
     await expect(sidebar).not.toBeVisible()
+  })
+
+  test('detail sidebar shows edit button', async ({ page }) => {
+    await page.locator('button:has-text("Alex")').first().click()
+
+    const sidebar = page.getByTestId('agent-detail-sidebar')
+    await expect(sidebar).toBeVisible()
+    const editBtn = sidebar.locator('button[title="Edit"]')
+    await expect(editBtn).toBeVisible()
+  })
+
+  test('clicking edit shows Save and Cancel buttons', async ({ page }) => {
+    await page.locator('button:has-text("Alex")').first().click()
+
+    const sidebar = page.getByTestId('agent-detail-sidebar')
+    await expect(sidebar).toBeVisible()
+    await sidebar.locator('button[title="Edit"]').click()
+
+    await expect(sidebar.getByRole('button', { name: 'Save' })).toBeVisible()
+    await expect(sidebar.getByRole('button', { name: 'Cancel' })).toBeVisible()
+  })
+
+  test('cancel edit returns to view mode', async ({ page }) => {
+    await page.locator('button:has-text("Alex")').first().click()
+
+    const sidebar = page.getByTestId('agent-detail-sidebar')
+    await expect(sidebar).toBeVisible()
+    await sidebar.locator('button[title="Edit"]').click()
+    await expect(sidebar.getByRole('button', { name: 'Save' })).toBeVisible()
+
+    await sidebar.getByRole('button', { name: 'Cancel' }).click()
+    await expect(sidebar.getByRole('button', { name: 'Save' })).not.toBeVisible()
+    await expect(sidebar.locator('button[title="Edit"]')).toBeVisible()
   })
 })
 

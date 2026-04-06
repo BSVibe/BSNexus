@@ -35,3 +35,10 @@ class AgentBudgetSummary(BaseModel):
     current_month_spent_cents: int = 0
     budget_remaining_cents: Optional[int] = None
     utilization_pct: Optional[float] = None
+
+
+class BudgetOverviewResponse(BaseModel):
+    total_budget_cents: int
+    total_spent_cents: int
+    total_remaining_cents: int
+    agent_summaries: list[AgentBudgetSummary]

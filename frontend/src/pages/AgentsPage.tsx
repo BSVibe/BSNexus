@@ -227,6 +227,183 @@ function HireAgentModal({ onClose, agents, defaultExecutorType }: { onClose: () 
   )
 }
 
+function AgentDetailSidebar({ agent, onClose, onDelete }: { agent: Agent; onClose: () => void; onDelete: (id: string) => void }) {
+  const { updateAgent, fetchOrgChart, fetchAgents } = useAgentStore()
+  const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [form, setForm] = useState({
+    name: agent.name,
+    role: agent.role,
+    title: agent.title || '',
+    job_description: agent.job_description || '',
+    executor_type: agent.executor_type as string,
+    heartbeat_enabled: agent.heartbeat_enabled,
+    heartbeat_interval_seconds: agent.heartbeat_interval_seconds ?? 3600,
+    monthly_budget_cents: agent.monthly_budget_cents,
+  })
+
+  useEffect(() => {
+    setForm({
+      name: agent.name,
+      role: agent.role,
+      title: agent.title || '',
+      job_description: agent.job_description || '',
+      executor_type: agent.executor_type,
+      heartbeat_enabled: agent.heartbeat_enabled,
+      heartbeat_interval_seconds: agent.heartbeat_interval_seconds ?? 3600,
+      monthly_budget_cents: agent.monthly_budget_cents,
+    })
+    setEditing(false)
+  }, [agent.id])
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      await updateAgent(agent.id, {
+        name: form.name,
+        role: form.role,
+        title: form.title || undefined,
+        job_description: form.job_description || undefined,
+        executor_type: form.executor_type as Agent['executor_type'],
+        heartbeat_enabled: form.heartbeat_enabled,
+        heartbeat_interval_seconds: form.heartbeat_enabled ? form.heartbeat_interval_seconds : null,
+        monthly_budget_cents: form.monthly_budget_cents,
+      })
+      await fetchOrgChart()
+      await fetchAgents()
+      setEditing(false)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const labelClass = 'text-[10px] uppercase tracking-widest text-text-secondary'
+  const inputClass = 'w-full px-2.5 py-1.5 bg-stitch-surface-lowest border border-stitch-outline-variant/20 rounded-md text-text-primary text-sm focus:outline-none focus:border-stitch-primary focus:ring-1 focus:ring-stitch-primary'
+
+  return (
+    <div data-testid="agent-detail-sidebar" className="fixed right-0 top-0 w-96 h-full bg-stitch-surface-low border-l border-stitch-outline-variant/20 p-6 overflow-y-auto z-50">
+      <div className="flex justify-between items-center mb-6">
+        <h3 className="text-lg font-bold">{agent.name}</h3>
+        <div className="flex items-center gap-2">
+          {!editing ? (
+            <button onClick={() => setEditing(true)} className="text-text-secondary hover:text-stitch-primary transition-colors" title="Edit">
+              <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>edit</span>
+            </button>
+          ) : (
+            <>
+              <button onClick={handleSave} disabled={saving} className="text-xs px-2.5 py-1 rounded bg-stitch-primary text-stitch-on-primary font-bold hover:opacity-90 disabled:opacity-50">
+                {saving ? '...' : 'Save'}
+              </button>
+              <button onClick={() => { setEditing(false); setForm({ name: agent.name, role: agent.role, title: agent.title || '', job_description: agent.job_description || '', executor_type: agent.executor_type, heartbeat_enabled: agent.heartbeat_enabled, heartbeat_interval_seconds: agent.heartbeat_interval_seconds ?? 3600, monthly_budget_cents: agent.monthly_budget_cents }) }} className="text-xs px-2.5 py-1 rounded bg-stitch-surface-highest text-text-secondary font-bold hover:opacity-90">
+                Cancel
+              </button>
+            </>
+          )}
+          <button onClick={onClose} className="text-text-secondary hover:text-text-primary">✕</button>
+        </div>
+      </div>
+      <div className="space-y-4">
+        <div>
+          <label className={labelClass}>Name</label>
+          {editing ? (
+            <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} className={inputClass} />
+          ) : (
+            <p className="text-sm">{agent.name}</p>
+          )}
+        </div>
+        <div>
+          <label className={labelClass}>Role</label>
+          {editing ? (
+            <input value={form.role} onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))} className={inputClass} />
+          ) : (
+            <p className="text-sm">{agent.role}</p>
+          )}
+        </div>
+        <div>
+          <label className={labelClass}>Title</label>
+          {editing ? (
+            <input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="Optional title" className={inputClass} />
+          ) : (
+            <p className="text-sm">{agent.title || <span className="text-text-tertiary">—</span>}</p>
+          )}
+        </div>
+        <div>
+          <label className={labelClass}>Executor</label>
+          {editing ? (
+            <select value={form.executor_type} onChange={(e) => setForm((f) => ({ ...f, executor_type: e.target.value }))} className={inputClass}>
+              {EXECUTOR_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          ) : (
+            <p className="text-sm">{EXECUTOR_LABELS[agent.executor_type] || agent.executor_type}</p>
+          )}
+        </div>
+        <div>
+          <label className={labelClass}>Capabilities</label>
+          <div className="flex flex-wrap gap-1 mt-1">
+            {agent.capabilities.map((cap) => (
+              <span key={cap} className="text-xs px-2 py-0.5 rounded-full bg-stitch-secondary-container text-stitch-on-secondary-container">{cap}</span>
+            ))}
+          </div>
+        </div>
+        <div>
+          <label className={labelClass}>Heartbeat</label>
+          {editing ? (
+            <div className="space-y-2 mt-1">
+              <label className="flex items-center gap-2 text-sm text-text-secondary">
+                <input type="checkbox" checked={form.heartbeat_enabled} onChange={(e) => setForm((f) => ({ ...f, heartbeat_enabled: e.target.checked }))} className="rounded" />
+                Enabled
+              </label>
+              {form.heartbeat_enabled && (
+                <div className="flex items-center gap-2">
+                  <input type="number" value={form.heartbeat_interval_seconds / 3600} onChange={(e) => setForm((f) => ({ ...f, heartbeat_interval_seconds: Number(e.target.value) * 3600 }))} min={1} className={`${inputClass} w-20`} />
+                  <span className="text-xs text-text-tertiary">hours</span>
+                </div>
+              )}
+            </div>
+          ) : agent.heartbeat_enabled ? (
+            <p className="text-sm">Every {(agent.heartbeat_interval_seconds || 0) / 3600}h</p>
+          ) : (
+            <p className="text-sm text-text-tertiary">Disabled</p>
+          )}
+        </div>
+        <div>
+          <label className={labelClass}>Job Description</label>
+          {editing ? (
+            <textarea value={form.job_description} onChange={(e) => setForm((f) => ({ ...f, job_description: e.target.value }))} rows={3} placeholder="Describe what this agent does..." className={inputClass} />
+          ) : (
+            <p className="text-sm text-text-secondary whitespace-pre-wrap">{agent.job_description || <span className="text-text-tertiary">—</span>}</p>
+          )}
+        </div>
+        <div>
+          <label className={labelClass}>Monthly Budget</label>
+          {editing ? (
+            <div className="flex items-center gap-2 mt-1">
+              <span className="text-sm text-text-secondary">$</span>
+              <input type="number" value={form.monthly_budget_cents != null ? form.monthly_budget_cents / 100 : ''} onChange={(e) => setForm((f) => ({ ...f, monthly_budget_cents: e.target.value ? Math.round(Number(e.target.value) * 100) : null }))} placeholder="No limit" min={0} step={0.01} className={`${inputClass} w-32`} />
+            </div>
+          ) : agent.monthly_budget_cents != null ? (
+            <p className="text-sm">
+              ${(agent.current_month_spent_cents / 100).toFixed(2)} / ${(agent.monthly_budget_cents / 100).toFixed(2)}
+            </p>
+          ) : (
+            <p className="text-sm text-text-tertiary">No limit</p>
+          )}
+        </div>
+        <div className="pt-4 border-t border-stitch-outline-variant/20">
+          <button
+            onClick={() => onDelete(agent.id)}
+            className="w-full px-4 py-2 rounded-lg bg-red-500/10 text-red-400 text-sm hover:bg-red-500/20 transition-colors"
+          >
+            Remove Agent
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function AgentsPage() {
   const { orgChart, fetchOrgChart, loading, selectedAgent, selectAgent, agents, fetchAgents, deleteAgent } = useAgentStore()
   const [showCreateModal, setShowCreateModal] = useState(false)
@@ -284,64 +461,11 @@ export default function AgentsPage() {
 
       {/* Agent Detail Sidebar */}
       {selectedAgent && (
-        <div data-testid="agent-detail-sidebar" className="fixed right-0 top-0 w-96 h-full bg-stitch-surface-low border-l border-stitch-outline-variant/20 p-6 overflow-y-auto z-50">
-          <div className="flex justify-between items-center mb-6">
-            <h3 className="text-lg font-bold">{selectedAgent.name}</h3>
-            <button onClick={() => selectAgent(null)} className="text-text-secondary hover:text-text-primary">✕</button>
-          </div>
-          <div className="space-y-4">
-            <div>
-              <label className="text-[10px] uppercase tracking-widest text-text-secondary">Role</label>
-              <p className="text-sm">{selectedAgent.role}</p>
-            </div>
-            {selectedAgent.title && (
-              <div>
-                <label className="text-[10px] uppercase tracking-widest text-text-secondary">Title</label>
-                <p className="text-sm">{selectedAgent.title}</p>
-              </div>
-            )}
-            <div>
-              <label className="text-[10px] uppercase tracking-widest text-text-secondary">Executor</label>
-              <p className="text-sm">{EXECUTOR_LABELS[selectedAgent.executor_type] || selectedAgent.executor_type}</p>
-            </div>
-            <div>
-              <label className="text-[10px] uppercase tracking-widest text-text-secondary">Capabilities</label>
-              <div className="flex flex-wrap gap-1 mt-1">
-                {selectedAgent.capabilities.map((cap) => (
-                  <span key={cap} className="text-xs px-2 py-0.5 rounded-full bg-stitch-secondary-container text-stitch-on-secondary-container">{cap}</span>
-                ))}
-              </div>
-            </div>
-            {selectedAgent.heartbeat_enabled && (
-              <div>
-                <label className="text-[10px] uppercase tracking-widest text-text-secondary">Heartbeat</label>
-                <p className="text-sm">Every {(selectedAgent.heartbeat_interval_seconds || 0) / 3600}h</p>
-              </div>
-            )}
-            {selectedAgent.job_description && (
-              <div>
-                <label className="text-[10px] uppercase tracking-widest text-text-secondary">Job Description</label>
-                <p className="text-sm text-text-secondary whitespace-pre-wrap">{selectedAgent.job_description}</p>
-              </div>
-            )}
-            {selectedAgent.monthly_budget_cents != null && (
-              <div>
-                <label className="text-[10px] uppercase tracking-widest text-text-secondary">Budget</label>
-                <p className="text-sm">
-                  ${(selectedAgent.current_month_spent_cents / 100).toFixed(2)} / ${(selectedAgent.monthly_budget_cents / 100).toFixed(2)}
-                </p>
-              </div>
-            )}
-            <div className="pt-4 border-t border-stitch-outline-variant/20">
-              <button
-                onClick={() => handleDelete(selectedAgent.id)}
-                className="w-full px-4 py-2 rounded-lg bg-red-500/10 text-red-400 text-sm hover:bg-red-500/20 transition-colors"
-              >
-                Remove Agent
-              </button>
-            </div>
-          </div>
-        </div>
+        <AgentDetailSidebar
+          agent={selectedAgent}
+          onClose={() => selectAgent(null)}
+          onDelete={handleDelete}
+        />
       )}
 
       {/* Create Modal */}

@@ -16,11 +16,11 @@ test.describe('Navigation — Sidebar & Active States', () => {
     await expect(page.locator('aside').first().getByText('Agent Orchestrator')).toBeVisible()
   })
 
-  test('sidebar has Projects nav item with folder_open icon', async ({ page }) => {
+  test('sidebar has Dashboard nav item with dashboard icon', async ({ page }) => {
     const sidebar = page.locator('aside').first()
-    const projectsLink = sidebar.getByRole('link', { name: 'Projects' })
-    await expect(projectsLink).toBeVisible()
-    await expect(projectsLink.locator('span.material-symbols-outlined:has-text("folder_open")')).toBeVisible()
+    const dashboardLink = sidebar.getByRole('link', { name: 'Dashboard' })
+    await expect(dashboardLink).toBeVisible()
+    await expect(dashboardLink.locator('span.material-symbols-outlined:has-text("dashboard")')).toBeVisible()
   })
 
   test('sidebar has Agents nav item with groups icon', async ({ page }) => {
@@ -30,39 +30,45 @@ test.describe('Navigation — Sidebar & Active States', () => {
     await expect(agentsLink.locator('span.material-symbols-outlined:has-text("groups")')).toBeVisible()
   })
 
-  test('sidebar has Architect nav item with architecture icon', async ({ page }) => {
+  test('sidebar has Budget nav item with account_balance_wallet icon', async ({ page }) => {
     const sidebar = page.locator('aside').first()
-    const architectLink = sidebar.getByRole('link', { name: 'Architect' })
-    await expect(architectLink).toBeVisible()
-    await expect(architectLink.locator('span.material-symbols-outlined:has-text("architecture")')).toBeVisible()
+    const budgetLink = sidebar.getByRole('link', { name: 'Budget' })
+    await expect(budgetLink).toBeVisible()
+    await expect(budgetLink.locator('span.material-symbols-outlined:has-text("account_balance_wallet")')).toBeVisible()
   })
 
-  test('sidebar has Settings button with settings icon', async ({ page }) => {
+  test('sidebar has Settings nav item with settings icon', async ({ page }) => {
     const sidebar = page.locator('aside').first()
-    const settingsBtn = sidebar.getByRole('button', { name: 'Settings' })
-    await expect(settingsBtn).toBeVisible()
-    await expect(settingsBtn.locator('span.material-symbols-outlined:has-text("settings")')).toBeVisible()
+    const settingsLink = sidebar.getByRole('link', { name: 'Settings' })
+    await expect(settingsLink).toBeVisible()
+    await expect(settingsLink.locator('span.material-symbols-outlined:has-text("settings")')).toBeVisible()
   })
 
-  test('Projects link is active on /dashboard', async ({ page }) => {
+  test('Dashboard link is active on /dashboard', async ({ page }) => {
     const sidebar = page.locator('aside').first()
-    const projectsLink = sidebar.getByRole('link', { name: 'Projects' })
-    // Active state has font-semibold and filled icon
-    await expect(projectsLink).toHaveClass(/font-semibold/)
+    const dashboardLink = sidebar.getByRole('link', { name: 'Dashboard' })
+    await expect(dashboardLink).toHaveClass(/font-semibold/)
   })
 
-  test('Architect link is active on /architect', async ({ page }) => {
-    await page.goto('/architect')
+  test('Budget link is active on /budget', async ({ page }) => {
+    await page.goto('/budget')
     const sidebar = page.locator('aside').first()
-    const architectLink = sidebar.getByRole('link', { name: 'Architect' })
-    await expect(architectLink).toHaveClass(/font-semibold/)
+    const budgetLink = sidebar.getByRole('link', { name: 'Budget' })
+    await expect(budgetLink).toHaveClass(/font-semibold/)
   })
 
-  test('Projects link remains active on /projects/:id', async ({ page }) => {
+  test('Settings link is active on /settings', async ({ page }) => {
+    await page.goto('/settings')
+    const sidebar = page.locator('aside').first()
+    const settingsLink = sidebar.getByRole('link', { name: 'Settings' })
+    await expect(settingsLink).toHaveClass(/font-semibold/)
+  })
+
+  test('Dashboard link remains active on /projects/:id', async ({ page }) => {
     await page.goto('/projects/proj-001')
     const sidebar = page.locator('aside').first()
-    const projectsLink = sidebar.getByRole('link', { name: 'Projects' })
-    await expect(projectsLink).toHaveClass(/font-semibold/)
+    const dashboardLink = sidebar.getByRole('link', { name: 'Dashboard' })
+    await expect(dashboardLink).toHaveClass(/font-semibold/)
   })
 
   test('sidebar shows user profile section with person icon', async ({ page }) => {
@@ -82,17 +88,22 @@ test.describe('Navigation — Sidebar & Active States', () => {
     await expect(logoutBtn.locator('span.material-symbols-outlined:has-text("logout")')).toBeVisible()
   })
 
-  test('clicking Architect nav link navigates to /architect', async ({ page }) => {
+  test('clicking Budget nav link navigates to /budget', async ({ page }) => {
     const sidebar = page.locator('aside').first()
-    await sidebar.getByRole('link', { name: 'Architect' }).click()
-    await expect(page).toHaveURL('/architect')
+    await sidebar.getByRole('link', { name: 'Budget' }).click()
+    await expect(page).toHaveURL('/budget')
   })
 
-  test('clicking Projects nav link navigates to /dashboard', async ({ page }) => {
-    // First go to architect, then click Projects
-    await page.goto('/architect')
+  test('clicking Settings nav link navigates to /settings', async ({ page }) => {
     const sidebar = page.locator('aside').first()
-    await sidebar.getByRole('link', { name: 'Projects' }).click()
+    await sidebar.getByRole('link', { name: 'Settings' }).click()
+    await expect(page).toHaveURL('/settings')
+  })
+
+  test('clicking Dashboard nav link navigates to /dashboard', async ({ page }) => {
+    await page.goto('/agents')
+    const sidebar = page.locator('aside').first()
+    await sidebar.getByRole('link', { name: 'Dashboard' }).click()
     await expect(page).toHaveURL('/dashboard')
   })
 
@@ -104,7 +115,6 @@ test.describe('Navigation — Sidebar & Active States', () => {
   test('layout is a flex container with sidebar and main content', async ({ page }) => {
     const layoutRoot = page.locator('div.flex.h-screen').first()
     await expect(layoutRoot).toBeVisible()
-    // Sidebar (aside) + main are siblings
     await expect(layoutRoot.locator('aside')).toBeVisible()
     await expect(layoutRoot.locator('main')).toBeVisible()
   })

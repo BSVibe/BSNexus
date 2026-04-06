@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.models import Agent
@@ -122,3 +122,28 @@ async def delete_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)) 
         raise HTTPException(status_code=404, detail="Agent not found")
     await repo.delete(agent)
     await repo.commit()
+
+
+@router.post("/{agent_id}/heartbeat", status_code=200)
+async def trigger_agent_heartbeat(
+    agent_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Trigger an immediate heartbeat for an agent."""
+    repo = AgentRepository(db)
+    agent = await repo.get_by_id(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    if not agent.heartbeat_enabled:
+        raise HTTPException(status_code=400, detail="Heartbeat not enabled for this agent")
+
+    # Publish heartbeat event if stream_manager is available
+    stream_manager = getattr(request.app.state, "stream_manager", None)
+    if stream_manager is not None:
+        from backend.src.core.heartbeat import HeartbeatScheduler
+
+        scheduler = HeartbeatScheduler(db_session_factory=None, stream_manager=stream_manager)
+        await scheduler.trigger_immediate(agent_id)
+
+    return {"status": "triggered", "agent_id": str(agent_id)}

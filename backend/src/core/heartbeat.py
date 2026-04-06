@@ -11,6 +11,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.models import Agent
+from backend.src.queue.streams import RedisStreamManager
 
 logger = structlog.get_logger(__name__)
 
@@ -19,11 +20,17 @@ class HeartbeatScheduler:
     """Manages periodic agent heartbeats.
 
     Each agent with heartbeat_enabled=True gets woken at its configured interval.
-    On heartbeat, the agent checks for ready tasks and triggers execution.
+    On heartbeat, the agent publishes an event to the escalation stream so the
+    orchestrator can prioritize tasks assigned to that agent.
     """
 
-    def __init__(self, db_session_factory: object) -> None:
+    def __init__(
+        self,
+        db_session_factory: object,
+        stream_manager: RedisStreamManager | None = None,
+    ) -> None:
         self._db_session_factory = db_session_factory
+        self._stream_manager = stream_manager
         self._running = False
         self._tasks: dict[uuid.UUID, asyncio.Task[None]] = {}
 
@@ -92,16 +99,34 @@ class HeartbeatScheduler:
             await db.commit()
             return
 
-        # Update last heartbeat
+        # Update last heartbeat and set online
         await db.execute(
             update(Agent).where(Agent.id == agent.id).values(last_heartbeat_at=now, status="online")
         )
         await db.commit()
 
-        # TODO: Trigger pending task execution for this agent
-        # This will be wired when the orchestrator integrates heartbeat
+        # Publish heartbeat event to escalation stream for orchestrator
+        if self._stream_manager is not None:
+            await self._stream_manager.publish(
+                RedisStreamManager.TASKS_ESCALATION,
+                {
+                    "event": "agent_heartbeat",
+                    "agent_id": str(agent.id),
+                    "agent_name": agent.name,
+                    "timestamp": now.isoformat(),
+                },
+            )
+            logger.info("heartbeat_event_published", agent_id=str(agent.id))
 
     async def trigger_immediate(self, agent_id: uuid.UUID) -> None:
         """Trigger an immediate heartbeat for an agent (e.g., task assignment, @-mention)."""
         logger.info("heartbeat_immediate_trigger", agent_id=str(agent_id))
-        # TODO: Wire to execution loop
+        if self._stream_manager is not None:
+            await self._stream_manager.publish(
+                RedisStreamManager.TASKS_ESCALATION,
+                {
+                    "event": "agent_heartbeat_immediate",
+                    "agent_id": str(agent_id),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                },
+            )

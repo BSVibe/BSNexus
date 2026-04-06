@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { projectsApi } from '../api/projects'
 import { dashboardApi } from '../api/dashboard'
+import { budgetApi } from '../api/budget'
 import type { ProjectDashboardSummary } from '../types/project'
 import { Link, useNavigate } from 'react-router-dom'
 import { Badge, Button, Modal, StatCard } from '../components/common'
@@ -25,6 +26,11 @@ export default function DashboardPage() {
   const { data: projectsSummary } = useQuery({
     queryKey: ['projects-summary'],
     queryFn: dashboardApi.getProjectsSummary,
+  })
+
+  const { data: budgetOverview } = useQuery({
+    queryKey: ['budget', 'summary'],
+    queryFn: budgetApi.getSummary,
   })
 
   const summaryMap = useMemo(() => {
@@ -140,8 +146,8 @@ export default function DashboardPage() {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10">
           <StatCard label="Total Projects" value={stats.totalProjects} icon="folder_open" />
           <StatCard label="Active Tasks" value={stats.totalTasks} subtext={`${stats.doneTasks} done`} />
-          <StatCard label="Bugs Detected" value={stats.totalBugs} icon="bug_report" />
           <StatCard label="Completion Rate" value={stats.completionRate} icon="bolt" />
+          <StatCard label="Compute Cost" value={budgetOverview ? `$${(budgetOverview.total_spent_cents / 100).toFixed(2)}` : '$0.00'} icon="payments" subtext={budgetOverview?.total_budget_cents ? `of $${(budgetOverview.total_budget_cents / 100).toFixed(2)}` : undefined} />
         </div>
 
         {/* Project List Header with Batch Actions */}

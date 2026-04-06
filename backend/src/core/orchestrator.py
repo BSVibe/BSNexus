@@ -558,6 +558,22 @@ class PMOrchestrator:
                     task_id = msg.get("task_id", "?")
                     msg_id = msg.get("_message_id", "?")
                     try:
+                        # Handle heartbeat events: acknowledge and log
+                        event_type = msg.get("event", "")
+                        if event_type in ("agent_heartbeat", "agent_heartbeat_immediate"):
+                            agent_id = msg.get("agent_id", "?")
+                            logger.info(
+                                "escalation_heartbeat_received",
+                                agent_id=agent_id,
+                                event=event_type,
+                            )
+                            await self.stream_manager.acknowledge(
+                                RedisStreamManager.TASKS_ESCALATION,
+                                RedisStreamManager.GROUP_ARCHITECT,
+                                msg_id,
+                            )
+                            continue
+
                         msg_project_id = msg.get("project_id", "")
                         if str(project_id) != str(msg_project_id):
                             logger.debug(
