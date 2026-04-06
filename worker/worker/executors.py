@@ -127,6 +127,9 @@ EXECUTOR_REGISTRY: dict[str, type[CLIExecutor]] = {
     "opencode": OpenCodeExecutor,
 }
 
+# Preference order when multiple CLIs are installed
+EXECUTOR_PRIORITY = ["claude_code", "codex", "opencode"]
+
 
 def get_executor(name: str, **kwargs) -> CLIExecutor:
     """Get an executor by name. Raises KeyError if not found."""
@@ -138,10 +141,10 @@ def get_executor(name: str, **kwargs) -> CLIExecutor:
 
 
 def detect_available() -> list[str]:
-    """Return names of executors whose CLI is installed."""
+    """Return installed executors, sorted by preference (claude_code > codex > opencode)."""
     available = []
-    for name, cls in EXECUTOR_REGISTRY.items():
-        instance = cls()
-        if instance.resolve_cmd():
+    for name in EXECUTOR_PRIORITY:
+        cls = EXECUTOR_REGISTRY.get(name)
+        if cls and cls().resolve_cmd():
             available.append(name)
     return available

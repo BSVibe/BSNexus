@@ -231,7 +231,10 @@ def main() -> None:
                 print("Install one of: claude (npm i -g @anthropic-ai/claude-code), codex (npm i -g @openai/codex), opencode")
                 sys.exit(1)
             executor_name = available[0]
-            logger.info("auto_detected_executor", executor=executor_name)
+            if len(available) > 1:
+                logger.info("auto_detected_executor", selected=executor_name, available=available, hint="override with --executor")
+            else:
+                logger.info("auto_detected_executor", selected=executor_name)
 
         asyncio.run(poll_and_execute(executor_name))
 
