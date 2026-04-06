@@ -40,7 +40,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
         id="startup",
         name="Startup Team",
         description="Small team for early-stage startups. CEO leads with a CTO, PM, and Marketer.",
-        agent_count=6,
+        agent_count=7,
         agents=[
             AgentTemplate(
                 name="CEO",
@@ -65,6 +65,14 @@ TEMPLATES: dict[str, OrgTemplate] = {
                                 job_description="Implements features, fixes bugs, writes tests, deploys code",
                                 executor_type="claude_code",
                                 capabilities=["coding"],
+                            ),
+                            AgentTemplate(
+                                name="QA",
+                                role="qa_engineer",
+                                title="QA Engineer",
+                                job_description="Reviews code quality, runs tests, validates requirements, reports bugs",
+                                executor_type="claude_api",
+                                capabilities=["coding", "analysis"],
                             ),
                         ],
                     ),
@@ -126,7 +134,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
         id="enterprise",
         name="Enterprise",
         description="Full company structure with C-level executives and department teams.",
-        agent_count=10,
+        agent_count=11,
         agents=[
             AgentTemplate(
                 name="CEO",
@@ -167,6 +175,14 @@ TEMPLATES: dict[str, OrgTemplate] = {
                                 job_description="CI/CD pipelines, infrastructure, monitoring, deployment",
                                 executor_type="claude_code",
                                 capabilities=["coding"],
+                            ),
+                            AgentTemplate(
+                                name="QA Lead",
+                                role="qa_lead",
+                                title="QA Lead",
+                                job_description="Test strategy, code review, quality standards, bug triage",
+                                executor_type="claude_api",
+                                capabilities=["coding", "analysis"],
                             ),
                         ],
                     ),

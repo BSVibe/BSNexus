@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react'
 import { useAgentStore } from '../stores/agentStore'
 import type { Agent, AgentCreate, AgentOrgChartNode, ExecutorType } from '../types/agent'
 import Header from '../components/layout/Header'
-import { settingsApi } from '../api/settings'
 import { agentTemplatesApi, type OrgTemplate } from '../api/agentTemplates'
+import { executorConfigsApi } from '../api/executorConfigs'
+import type { ExecutorConfig } from '../types/executor'
 
 const STATUS_COLORS: Record<string, string> = {
   online: 'bg-green-500',
@@ -85,13 +86,14 @@ function OrgChartNode({ node }: { node: AgentOrgChartNode }) {
   )
 }
 
-function HireAgentModal({ onClose, agents, defaultExecutorType }: { onClose: () => void; agents: Agent[]; defaultExecutorType: string }) {
+function HireAgentModal({ onClose, agents, executorConfigs }: { onClose: () => void; agents: Agent[]; executorConfigs: ExecutorConfig[] }) {
   const { createAgent, fetchOrgChart, fetchAgents } = useAgentStore()
+  const defaultConfig = executorConfigs.find((c) => c.is_default) || executorConfigs[0]
   const [form, setForm] = useState<AgentCreate>({
     name: '',
     role: '',
     title: '',
-    executor_type: defaultExecutorType as ExecutorType,
+    executor_type: defaultConfig?.executor_type as ExecutorType || 'claude_api',
     capabilities: ['general'],
     job_description: '',
   })
@@ -193,18 +195,33 @@ function HireAgentModal({ onClose, agents, defaultExecutorType }: { onClose: () 
           </button>
           {showAdvanced && (
             <div>
-              <label className="block text-xs uppercase tracking-widest text-text-secondary mb-1">
-                Executor <span className="normal-case">(default: {EXECUTOR_LABELS[defaultExecutorType] || defaultExecutorType})</span>
-              </label>
-              <select
-                value={form.executor_type}
-                onChange={(e) => setForm((f) => ({ ...f, executor_type: e.target.value as ExecutorType }))}
-                className="w-full px-3 py-2 bg-stitch-surface border border-stitch-outline-variant/30 rounded-lg text-sm text-text-primary focus:border-stitch-primary focus:outline-none"
-              >
-                {EXECUTOR_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
+              <label className="block text-xs uppercase tracking-widest text-text-secondary mb-1">Executor</label>
+              {executorConfigs.length > 0 ? (
+                <select
+                  value={form.executor_type}
+                  onChange={(e) => setForm((f) => ({ ...f, executor_type: e.target.value as ExecutorType }))}
+                  className="w-full px-3 py-2 bg-stitch-surface border border-stitch-outline-variant/30 rounded-lg text-sm text-text-primary focus:border-stitch-primary focus:outline-none"
+                >
+                  {executorConfigs.map((c) => (
+                    <option key={c.id} value={c.executor_type}>
+                      {c.name} ({EXECUTOR_LABELS[c.executor_type] || c.executor_type})
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <>
+                  <select
+                    value={form.executor_type}
+                    onChange={(e) => setForm((f) => ({ ...f, executor_type: e.target.value as ExecutorType }))}
+                    className="w-full px-3 py-2 bg-stitch-surface border border-stitch-outline-variant/30 rounded-lg text-sm text-text-primary focus:border-stitch-primary focus:outline-none"
+                  >
+                    {EXECUTOR_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs text-text-tertiary">Register executors in Settings for customized options</p>
+                </>
+              )}
             </div>
           )}
 
@@ -228,7 +245,7 @@ function HireAgentModal({ onClose, agents, defaultExecutorType }: { onClose: () 
   )
 }
 
-function AgentDetailSidebar({ agent, onClose, onDelete }: { agent: Agent; onClose: () => void; onDelete: (id: string) => void }) {
+function AgentDetailSidebar({ agent, onClose, onDelete, executorConfigs }: { agent: Agent; onClose: () => void; onDelete: (id: string) => void; executorConfigs: ExecutorConfig[] }) {
   const { updateAgent, fetchOrgChart, fetchAgents } = useAgentStore()
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -335,9 +352,14 @@ function AgentDetailSidebar({ agent, onClose, onDelete }: { agent: Agent; onClos
           <label className={labelClass}>Executor</label>
           {editing ? (
             <select value={form.executor_type} onChange={(e) => setForm((f) => ({ ...f, executor_type: e.target.value }))} className={inputClass}>
-              {EXECUTOR_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
+              {executorConfigs.length > 0
+                ? executorConfigs.map((c) => (
+                    <option key={c.id} value={c.executor_type}>{c.name}</option>
+                  ))
+                : EXECUTOR_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))
+              }
             </select>
           ) : (
             <p className="text-sm">{EXECUTOR_LABELS[agent.executor_type] || agent.executor_type}</p>
@@ -494,12 +516,14 @@ function TemplateSelector({ onApplied }: { onApplied: () => void }) {
 export default function AgentsPage() {
   const { orgChart, fetchOrgChart, loading, selectedAgent, selectAgent, agents, fetchAgents, deleteAgent } = useAgentStore()
   const [showCreateModal, setShowCreateModal] = useState(false)
-  const [defaultExecutorType, setDefaultExecutorType] = useState('claude_api')
+  const [executorConfigs, setExecutorConfigs] = useState<ExecutorConfig[]>([])
+  const [showResetConfirm, setShowResetConfirm] = useState(false)
+  const [resetting, setResetting] = useState(false)
 
   useEffect(() => {
     fetchOrgChart()
     fetchAgents()
-    settingsApi.get().then((s) => setDefaultExecutorType(s.default_executor_type)).catch(() => {})
+    executorConfigsApi.list().then(setExecutorConfigs).catch(() => {})
   }, [fetchOrgChart, fetchAgents])
 
   const handleDelete = async (id: string) => {
@@ -510,17 +534,43 @@ export default function AgentsPage() {
     await fetchAgents()
   }
 
+  const handleReset = async () => {
+    setResetting(true)
+    try {
+      // Delete all agents
+      for (const a of agents) {
+        await deleteAgent(a.id)
+      }
+      selectAgent(null)
+      await fetchOrgChart()
+      await fetchAgents()
+    } finally {
+      setResetting(false)
+      setShowResetConfirm(false)
+    }
+  }
+
   return (
     <>
       <Header
         title="Agent Organization"
         action={
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className="bg-gradient-to-r from-stitch-primary to-stitch-primary-container text-stitch-on-primary-container px-4 py-1.5 rounded-md text-sm font-bold shadow-lg shadow-stitch-primary/20 hover:opacity-90 transition-opacity"
-          >
-            + Hire Agent
-          </button>
+          <div className="flex items-center gap-2">
+            {agents.length > 0 && (
+              <button
+                onClick={() => setShowResetConfirm(true)}
+                className="bg-stitch-surface-highest text-text-secondary px-3 py-1.5 rounded-md text-sm font-semibold hover:text-stitch-error transition-colors"
+              >
+                Reset
+              </button>
+            )}
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="bg-gradient-to-r from-stitch-primary to-stitch-primary-container text-stitch-on-primary-container px-4 py-1.5 rounded-md text-sm font-bold shadow-lg shadow-stitch-primary/20 hover:opacity-90 transition-opacity"
+            >
+              + Hire Agent
+            </button>
+          </div>
         }
       />
       <div className="p-8">
@@ -549,11 +599,30 @@ export default function AgentsPage() {
           agent={selectedAgent}
           onClose={() => selectAgent(null)}
           onDelete={handleDelete}
+          executorConfigs={executorConfigs}
         />
       )}
 
       {/* Create Modal */}
-      {showCreateModal && <HireAgentModal onClose={() => setShowCreateModal(false)} agents={agents} defaultExecutorType={defaultExecutorType} />}
+      {showCreateModal && <HireAgentModal onClose={() => setShowCreateModal(false)} agents={agents} executorConfigs={executorConfigs} />}
+
+      {/* Reset confirmation */}
+      {showResetConfirm && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => setShowResetConfirm(false)}>
+          <div className="bg-stitch-surface-low rounded-xl w-full max-w-sm p-6 border border-stitch-outline-variant/20" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-text-primary mb-2">Reset All Agents</h3>
+            <p className="text-sm text-text-secondary mb-4">
+              This will delete all {agents.length} agents. You can then select a new template to start over.
+            </p>
+            <div className="flex gap-3">
+              <button onClick={() => setShowResetConfirm(false)} className="flex-1 px-4 py-2 rounded-lg bg-stitch-surface-highest text-text-secondary text-sm">Cancel</button>
+              <button onClick={handleReset} disabled={resetting} className="flex-1 px-4 py-2 rounded-lg bg-red-500/20 text-red-400 text-sm font-bold hover:bg-red-500/30 disabled:opacity-50">
+                {resetting ? 'Deleting...' : 'Delete All'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       </div>
     </>
   )
