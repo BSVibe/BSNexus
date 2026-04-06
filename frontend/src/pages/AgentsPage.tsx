@@ -237,6 +237,7 @@ function AgentDetailSidebar({ agent, onClose, onDelete }: { agent: Agent; onClos
     title: agent.title || '',
     job_description: agent.job_description || '',
     executor_type: agent.executor_type as string,
+    capabilities: [...agent.capabilities],
     heartbeat_enabled: agent.heartbeat_enabled,
     heartbeat_interval_seconds: agent.heartbeat_interval_seconds ?? 3600,
     monthly_budget_cents: agent.monthly_budget_cents,
@@ -249,6 +250,7 @@ function AgentDetailSidebar({ agent, onClose, onDelete }: { agent: Agent; onClos
       title: agent.title || '',
       job_description: agent.job_description || '',
       executor_type: agent.executor_type,
+      capabilities: [...agent.capabilities],
       heartbeat_enabled: agent.heartbeat_enabled,
       heartbeat_interval_seconds: agent.heartbeat_interval_seconds ?? 3600,
       monthly_budget_cents: agent.monthly_budget_cents,
@@ -265,6 +267,7 @@ function AgentDetailSidebar({ agent, onClose, onDelete }: { agent: Agent; onClos
         title: form.title || undefined,
         job_description: form.job_description || undefined,
         executor_type: form.executor_type as Agent['executor_type'],
+        capabilities: form.capabilities,
         heartbeat_enabled: form.heartbeat_enabled,
         heartbeat_interval_seconds: form.heartbeat_enabled ? form.heartbeat_interval_seconds : null,
         monthly_budget_cents: form.monthly_budget_cents,
@@ -294,7 +297,7 @@ function AgentDetailSidebar({ agent, onClose, onDelete }: { agent: Agent; onClos
               <button onClick={handleSave} disabled={saving} className="text-xs px-2.5 py-1 rounded bg-stitch-primary text-stitch-on-primary font-bold hover:opacity-90 disabled:opacity-50">
                 {saving ? '...' : 'Save'}
               </button>
-              <button onClick={() => { setEditing(false); setForm({ name: agent.name, role: agent.role, title: agent.title || '', job_description: agent.job_description || '', executor_type: agent.executor_type, heartbeat_enabled: agent.heartbeat_enabled, heartbeat_interval_seconds: agent.heartbeat_interval_seconds ?? 3600, monthly_budget_cents: agent.monthly_budget_cents }) }} className="text-xs px-2.5 py-1 rounded bg-stitch-surface-highest text-text-secondary font-bold hover:opacity-90">
+              <button onClick={() => { setEditing(false); setForm({ name: agent.name, role: agent.role, title: agent.title || '', job_description: agent.job_description || '', executor_type: agent.executor_type, capabilities: [...agent.capabilities], heartbeat_enabled: agent.heartbeat_enabled, heartbeat_interval_seconds: agent.heartbeat_interval_seconds ?? 3600, monthly_budget_cents: agent.monthly_budget_cents }) }} className="text-xs px-2.5 py-1 rounded bg-stitch-surface-highest text-text-secondary font-bold hover:opacity-90">
                 Cancel
               </button>
             </>
@@ -341,11 +344,32 @@ function AgentDetailSidebar({ agent, onClose, onDelete }: { agent: Agent; onClos
         </div>
         <div>
           <label className={labelClass}>Capabilities</label>
-          <div className="flex flex-wrap gap-1 mt-1">
-            {agent.capabilities.map((cap) => (
-              <span key={cap} className="text-xs px-2 py-0.5 rounded-full bg-stitch-secondary-container text-stitch-on-secondary-container">{cap}</span>
-            ))}
-          </div>
+          {editing ? (
+            <div className="flex flex-wrap gap-1.5 mt-1">
+              {['coding', 'writing', 'analysis', 'marketing', 'research', 'general'].map((cap) => {
+                const active = form.capabilities.includes(cap)
+                return (
+                  <button
+                    key={cap}
+                    type="button"
+                    onClick={() => setForm((f) => ({
+                      ...f,
+                      capabilities: active ? f.capabilities.filter((c) => c !== cap) : [...f.capabilities, cap],
+                    }))}
+                    className={`text-xs px-2 py-0.5 rounded-full transition-colors ${active ? 'bg-stitch-secondary-container text-stitch-on-secondary-container' : 'bg-stitch-surface-highest text-text-tertiary hover:text-text-secondary'}`}
+                  >
+                    {cap}
+                  </button>
+                )
+              })}
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-1 mt-1">
+              {agent.capabilities.map((cap) => (
+                <span key={cap} className="text-xs px-2 py-0.5 rounded-full bg-stitch-secondary-container text-stitch-on-secondary-container">{cap}</span>
+              ))}
+            </div>
+          )}
         </div>
         <div>
           <label className={labelClass}>Heartbeat</label>

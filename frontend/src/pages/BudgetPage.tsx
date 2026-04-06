@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import Header from '../components/layout/Header'
 import { StatCard, Button, Modal } from '../components/common'
 import { budgetApi } from '../api/budget'
+import { agentsApi } from '../api/agents'
 import type { AgentBudgetSummary, CostRecord } from '../types/budget'
 
 function formatCents(cents: number): string {
@@ -22,10 +23,14 @@ function UtilizationBar({ pct }: { pct: number }) {
   )
 }
 
-function AgentBudgetCard({ summary }: { summary: AgentBudgetSummary }) {
+function AgentBudgetCard({ summary, onEdit }: { summary: AgentBudgetSummary; onEdit: (s: AgentBudgetSummary) => void }) {
   const pct = summary.utilization_pct ?? 0
   return (
-    <div className="bg-stitch-surface-low rounded-xl p-5 border border-stitch-outline-variant/10">
+    <button
+      type="button"
+      onClick={() => onEdit(summary)}
+      className="bg-stitch-surface-low rounded-xl p-5 border border-stitch-outline-variant/10 text-left w-full hover:border-stitch-primary/30 transition-colors cursor-pointer"
+    >
       <div className="flex items-center justify-between mb-3">
         <h4 className="text-sm font-bold text-text-primary">{summary.agent_name}</h4>
         {summary.utilization_pct !== null && (
@@ -47,7 +52,7 @@ function AgentBudgetCard({ summary }: { summary: AgentBudgetSummary }) {
       ) : (
         <p className="text-xs text-text-tertiary">No budget limit set</p>
       )}
-    </div>
+    </button>
   )
 }
 
@@ -99,6 +104,23 @@ function CostRecordsTable({
 export default function BudgetPage() {
   const queryClient = useQueryClient()
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false)
+  const [editTarget, setEditTarget] = useState<AgentBudgetSummary | null>(null)
+  const [editBudgetDollars, setEditBudgetDollars] = useState('')
+
+  const budgetUpdateMutation = useMutation({
+    mutationFn: async ({ agentId, budgetCents }: { agentId: string; budgetCents: number | null }) => {
+      return agentsApi.update(agentId, { monthly_budget_cents: budgetCents })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['budget'] })
+      setEditTarget(null)
+    },
+  })
+
+  const openBudgetEdit = (summary: AgentBudgetSummary) => {
+    setEditTarget(summary)
+    setEditBudgetDollars(summary.monthly_budget_cents != null ? (summary.monthly_budget_cents / 100).toFixed(2) : '')
+  }
 
   const { data: overview, isLoading } = useQuery({
     queryKey: ['budget', 'summary'],
@@ -175,7 +197,7 @@ export default function BudgetPage() {
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   {overview.agent_summaries.map((s) => (
-                    <AgentBudgetCard key={s.agent_id} summary={s} />
+                    <AgentBudgetCard key={s.agent_id} summary={s} onEdit={openBudgetEdit} />
                   ))}
                 </div>
               </div>
@@ -219,6 +241,54 @@ export default function BudgetPage() {
         <p className="text-sm text-text-secondary">
           This will reset all agents' monthly spend counters to zero. This action cannot be undone.
         </p>
+      </Modal>
+
+      {/* Budget edit modal */}
+      <Modal
+        open={editTarget !== null}
+        onClose={() => setEditTarget(null)}
+        title={`Edit Budget — ${editTarget?.agent_name}`}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setEditTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => {
+                if (!editTarget) return
+                const cents = editBudgetDollars ? Math.round(Number(editBudgetDollars) * 100) : null
+                budgetUpdateMutation.mutate({ agentId: editTarget.agent_id, budgetCents: cents })
+              }}
+              loading={budgetUpdateMutation.isPending}
+            >
+              Save
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm text-text-secondary mb-1.5">Monthly Budget ($)</label>
+            <input
+              type="number"
+              value={editBudgetDollars}
+              onChange={(e) => setEditBudgetDollars(e.target.value)}
+              placeholder="No limit"
+              min={0}
+              step={0.01}
+              className="w-full px-3 py-2 bg-stitch-surface-low border border-stitch-outline-variant/20 rounded-md text-text-primary text-sm focus:outline-none focus:border-stitch-primary focus:ring-1 focus:ring-stitch-primary"
+            />
+            <p className="mt-1 text-xs text-text-tertiary">
+              Leave empty to remove budget limit.
+            </p>
+          </div>
+          {editTarget && editTarget.current_month_spent_cents > 0 && (
+            <p className="text-xs text-text-tertiary">
+              Current month spent: {formatCents(editTarget.current_month_spent_cents)}
+            </p>
+          )}
+        </div>
       </Modal>
     </>
   )
