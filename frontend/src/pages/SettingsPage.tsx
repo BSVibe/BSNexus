@@ -12,7 +12,7 @@ const INPUT_CLASS =
 const EXECUTOR_TYPES = [
   { value: 'claude_api', label: 'LLM API', description: 'Any LLM via LiteLLM (Claude, GPT, Gemini, open-source). For both coding and non-coding tasks.' },
   { value: 'bsgateway', label: 'BSGateway', description: 'BSGateway proxy with automatic cost-optimized model routing' },
-  { value: '_worker', label: 'Self-Hosted Worker', description: 'Run Claude Code on your own machine. Install the worker agent and connect it here.' },
+  { value: '_worker', label: 'Self-Hosted Worker', description: 'Run coding tasks on your machine via Claude Code, Codex, or OpenCode.' },
 ] as const
 
 interface ConfigField {
@@ -250,31 +250,35 @@ export default function SettingsPage() {
         {formType === '_worker' && !editTarget ? (
           <div className="space-y-4">
             <p className="text-sm text-text-secondary">
-              Run a self-hosted worker on your machine to execute tasks via Claude Code.
+              Run coding tasks on your machine. Supports Claude Code, Codex, and OpenCode — auto-detects which CLI is installed.
             </p>
             <div className="bg-stitch-surface-lowest rounded-lg p-4 space-y-3">
               <div>
-                <p className="text-[10px] uppercase tracking-widest text-text-tertiary font-bold mb-1">1. Install</p>
+                <p className="text-[10px] uppercase tracking-widest text-text-tertiary font-bold mb-1">1. Install worker</p>
                 <code className="block text-xs text-stitch-primary bg-stitch-surface rounded px-3 py-2 font-mono select-all">
                   curl -fsSL {window.location.origin}/worker/install.sh | bash
                 </code>
               </div>
               <div>
-                <p className="text-[10px] uppercase tracking-widest text-text-tertiary font-bold mb-1">2. Register</p>
-                <code className="block text-xs text-stitch-primary bg-stitch-surface rounded px-3 py-2 font-mono select-all">
-                  bsnexus-worker register
-                </code>
+                <p className="text-[10px] uppercase tracking-widest text-text-tertiary font-bold mb-1">2. Install a coding CLI (pick one)</p>
+                <div className="space-y-1">
+                  <code className="block text-xs text-text-secondary bg-stitch-surface rounded px-3 py-1.5 font-mono">
+                    npm i -g @anthropic-ai/claude-code  <span className="text-text-tertiary"># Claude Code</span>
+                  </code>
+                  <code className="block text-xs text-text-secondary bg-stitch-surface rounded px-3 py-1.5 font-mono">
+                    npm i -g @openai/codex              <span className="text-text-tertiary"># Codex</span>
+                  </code>
+                </div>
               </div>
               <div>
-                <p className="text-[10px] uppercase tracking-widest text-text-tertiary font-bold mb-1">3. Run (from your project dir)</p>
+                <p className="text-[10px] uppercase tracking-widest text-text-tertiary font-bold mb-1">3. Register & run</p>
                 <code className="block text-xs text-stitch-primary bg-stitch-surface rounded px-3 py-2 font-mono select-all">
-                  cd my-project && bsnexus-worker run
+                  bsnexus-worker register && cd my-project && bsnexus-worker run
                 </code>
               </div>
             </div>
             <p className="text-[10px] text-text-tertiary">
-              Requires: Python 3.11+, Claude Code CLI (<code className="font-mono">npm i -g @anthropic-ai/claude-code</code>).
-              Worker connects to <strong>{window.location.origin}</strong> by default.
+              Worker auto-detects installed CLI. Override with <code className="font-mono">--executor codex</code>.
             </p>
           </div>
         ) : (

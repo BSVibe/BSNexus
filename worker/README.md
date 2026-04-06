@@ -1,6 +1,6 @@
 # BSNexus Worker
 
-Self-hosted worker agent for BSNexus. Like GitHub Actions self-hosted runners — runs on your machine, executes tasks in your project via Claude Code.
+Self-hosted worker agent for BSNexus. Like GitHub Actions self-hosted runners — runs on your machine, executes tasks via Claude Code, Codex, or OpenCode.
 
 ## Quick Install
 
@@ -13,7 +13,10 @@ This installs `bsnexus-worker` CLI to `~/.bsnexus-worker/` and adds it to your P
 ### Prerequisites
 
 - **Python 3.11+**
-- **Claude Code CLI** — `npm install -g @anthropic-ai/claude-code`
+- **At least one coding CLI** (auto-detected):
+  - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) — `npm i -g @anthropic-ai/claude-code`
+  - [Codex](https://github.com/openai/codex) — `npm i -g @openai/codex`
+  - [OpenCode](https://github.com/opencode-ai/opencode) — `go install github.com/opencode-ai/opencode@latest`
 
 ## Usage
 
@@ -43,14 +46,14 @@ BSNexus Server                     Your Machine (project dir)
 │  Task Queue  │◄── poll ─────────│  bsnexus-worker │
 │              │─── task ────────►│                │
 │              │◄── result ───────│  ┌────────────┐│
-└──────────────┘                   │  │claude --print│
+└──────────────┘                   │  │ claude/codex ││
                                    │  └────────────┘│
                                    └────────────────┘
 ```
 
 1. **Register** — Worker registers with server, receives auth token (saved to `.env`)
 2. **Poll** — Worker polls `/api/v1/workers/poll` every 5 seconds
-3. **Execute** — Runs `claude --print` in the current directory (your project repo)
+3. **Execute** — Auto-detects CLI (`claude`, `codex`, or `opencode`) and runs in cwd
 4. **Report** — Sends stdout/stderr back via `/api/v1/workers/result`
 
 ## Configuration
