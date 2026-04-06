@@ -60,6 +60,19 @@ function AgentNode({ data }: NodeProps) {
             ${((agent.current_month_spent_cents || 0) / 100).toFixed(0)}/{agent.monthly_budget_cents != null ? `$${(agent.monthly_budget_cents / 100).toFixed(0)}` : '∞'}
           </span>
         </div>
+        {agent.monthly_budget_cents != null && agent.monthly_budget_cents > 0 && (
+          <div className="mt-2">
+            <div className="h-1 w-full bg-[#343439] rounded-full overflow-hidden">
+              <div
+                className="h-full rounded-full"
+                style={{
+                  width: `${Math.min(budgetPct ?? 0, 100)}%`,
+                  backgroundColor: (budgetPct ?? 0) >= 90 ? '#ffb4ab' : (budgetPct ?? 0) >= 70 ? '#eab308' : '#adc6ff',
+                }}
+              />
+            </div>
+          </div>
+        )}
       </button>
       <Handle type="source" position={Position.Bottom} className="!bg-transparent !border-0 !w-0 !h-0" />
     </>
