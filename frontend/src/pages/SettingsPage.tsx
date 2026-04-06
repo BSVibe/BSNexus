@@ -279,7 +279,8 @@ export default function SettingsPage() {
                   bsnexus-worker register{'\n'}cd my-project && bsnexus-worker run
                 </code>
                 <p className="text-[10px] text-text-tertiary mt-1.5">
-                  설치된 CLI를 자동 감지합니다. 특정 executor를 지정하려면:
+                  Auto-detects installed CLI (priority: claude_code {'>'} codex {'>'} opencode).
+                  To use a specific executor:
                 </p>
                 <div className="space-y-1 mt-1">
                   <code className="block text-xs text-text-secondary bg-stitch-surface rounded px-3 py-1.5 font-mono">
