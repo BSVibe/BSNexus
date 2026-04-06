@@ -1,67 +1,75 @@
 # BSNexus Worker
 
-Self-hosted worker agent for BSNexus. Runs on your machine and executes tasks via Claude Code CLI.
+Self-hosted worker agent for BSNexus. Like GitHub Actions self-hosted runners — runs on your machine, executes tasks in your project via Claude Code.
 
-## Prerequisites
-
-- Python 3.11+
-- [uv](https://docs.astral.sh/uv/) package manager
-- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed and authenticated
+## Quick Install
 
 ```bash
-# Install Claude Code CLI
-npm install -g @anthropic-ai/claude-code
-
-# Verify
-claude --version
+curl -fsSL https://your-bsnexus-server/worker/install.sh | bash
 ```
 
-## Quick Start
+This installs `bsnexus-worker` CLI to `~/.bsnexus-worker/` and adds it to your PATH.
+
+### Prerequisites
+
+- **Python 3.11+**
+- **Claude Code CLI** — `npm install -g @anthropic-ai/claude-code`
+
+## Usage
 
 ```bash
-cd worker
+# 1. Register (one-time, from any directory)
+bsnexus-worker register --server http://your-server:8000
 
-# 1. Install dependencies
-uv sync
-
-# 2. Register this worker with your BSNexus server
-uv run bsnexus-worker register --name "My MacBook" --server http://your-bsnexus-server:8000
-
-# 3. Start the worker (polls for tasks)
-uv run bsnexus-worker run
+# 2. Run (from your project directory)
+cd my-project
+bsnexus-worker run
 ```
+
+### Bind to a specific project
+
+```bash
+bsnexus-worker register --server http://your-server:8000 --project PROJECT_ID
+```
+
+The worker will only accept tasks from that project.
 
 ## How It Works
 
 ```
-BSNexus Server                          Your Machine
-┌─────────────┐                        ┌──────────────┐
-│  Task Queue  │◄── poll (HTTP) ───────│  Worker Agent │
-│  (Redis)     │─── task ─────────────►│  (this CLI)   │
-│              │◄── result ────────────│              │
-└─────────────┘                        │  ┌──────────┐│
-                                       │  │ Claude   ││
-                                       │  │ Code CLI ││
-                                       │  └──────────┘│
-                                       └──────────────┘
+BSNexus Server                     Your Machine (project dir)
+┌──────────────┐                   ┌────────────────┐
+│              │◄── heartbeat ────│                │
+│  Task Queue  │◄── poll ─────────│  bsnexus-worker │
+│              │─── task ────────►│                │
+│              │◄── result ───────│  ┌────────────┐│
+└──────────────┘                   │  │claude --print│
+                                   │  └────────────┘│
+                                   └────────────────┘
 ```
 
-1. Worker registers with BSNexus server (one-time, saves token to `.env`)
-2. Worker polls `/api/v1/workers/poll` for assigned tasks
-3. When a task arrives, executes it via `claude --print` subprocess
-4. Reports result back via `/api/v1/workers/result`
-5. Sends periodic heartbeat to stay online
+1. **Register** — Worker registers with server, receives auth token (saved to `.env`)
+2. **Poll** — Worker polls `/api/v1/workers/poll` every 5 seconds
+3. **Execute** — Runs `claude --print` in the current directory (your project repo)
+4. **Report** — Sends stdout/stderr back via `/api/v1/workers/result`
 
 ## Configuration
 
-Environment variables (or `.env` file):
+All settings via environment variables or `.env` file:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BSNEXUS_SERVER_URL` | `http://localhost:8000` | BSNexus server URL |
-| `BSNEXUS_WORKER_TOKEN` | (required) | Worker auth token (from register) |
-| `BSNEXUS_WORKER_NAME` | | Worker display name |
-| `BSNEXUS_WORKSPACE_DIR` | `.` | Working directory for Claude Code |
-| `BSNEXUS_POLL_INTERVAL_SECONDS` | `5` | Polling interval |
+| `BSNEXUS_SERVER_URL` | `http://localhost:8000` | BSNexus server |
+| `BSNEXUS_WORKER_TOKEN` | (required) | Auth token from register |
+| `BSNEXUS_WORKER_NAME` | hostname | Display name |
+| `BSNEXUS_PROJECT_ID` | (optional) | Only accept tasks from this project |
+| `BSNEXUS_POLL_INTERVAL_SECONDS` | `5` | Poll interval |
 | `BSNEXUS_CLAUDE_TIMEOUT_SECONDS` | `3600` | Max execution time per task |
-| `BSNEXUS_SKIP_PERMISSIONS` | `true` | Skip Claude Code permission prompts |
+| `BSNEXUS_SKIP_PERMISSIONS` | `true` | Skip Claude permission prompts |
+
+## Security
+
+- Worker token is a one-time secret — only shown at registration
+- Token is hashed (SHA256) server-side, raw token never stored
+- Optional project binding limits task scope
+- Worker runs in the current directory only — no arbitrary path execution

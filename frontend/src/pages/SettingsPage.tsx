@@ -186,22 +186,62 @@ export default function SettingsPage() {
           </button>
         }
       />
-      <div className="p-8 max-w-3xl">
-        {isLoading ? (
-          <p className="text-sm text-text-tertiary py-4">Loading executor configurations...</p>
-        ) : configs.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-48 text-text-secondary">
-            <span className="material-symbols-outlined text-4xl mb-2 text-text-tertiary">settings_suggest</span>
-            <p className="text-sm mb-1">No executors registered yet</p>
-            <p className="text-xs text-text-tertiary">Register an executor to start assigning agents</p>
+      <div className="p-8 max-w-3xl space-y-8">
+        {/* Executor Configs */}
+        <div>
+          <h3 className="text-sm font-semibold text-text-primary uppercase tracking-wider mb-4">
+            Registered Executors
+          </h3>
+          {isLoading ? (
+            <p className="text-sm text-text-tertiary py-4">Loading...</p>
+          ) : configs.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-32 text-text-secondary bg-stitch-surface-low rounded-xl border border-stitch-outline-variant/10">
+              <span className="material-symbols-outlined text-3xl mb-2 text-text-tertiary">settings_suggest</span>
+              <p className="text-xs">No executors registered. Click "+ Register Executor" to add one.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {configs.map((c) => (
+                <ExecutorCard key={c.id} config={c} onEdit={openEdit} onDelete={handleDelete} />
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Worker Setup Guide */}
+        <div className="bg-stitch-surface-container rounded-xl p-6">
+          <h3 className="text-sm font-semibold text-text-primary uppercase tracking-wider mb-3">
+            Self-Hosted Worker
+          </h3>
+          <p className="text-xs text-text-secondary mb-4">
+            Run a worker on your machine to execute tasks via Claude Code locally.
+          </p>
+
+          <div className="bg-stitch-surface-lowest rounded-lg p-4 space-y-3">
+            <div>
+              <p className="text-[10px] uppercase tracking-widest text-text-tertiary font-bold mb-1">1. Install</p>
+              <code className="block text-xs text-stitch-primary bg-stitch-surface rounded px-3 py-2 font-mono select-all">
+                curl -fsSL {window.location.origin}/worker/install.sh | bash
+              </code>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-widest text-text-tertiary font-bold mb-1">2. Register</p>
+              <code className="block text-xs text-stitch-primary bg-stitch-surface rounded px-3 py-2 font-mono select-all">
+                bsnexus-worker register --server {window.location.origin.replace(':3000', ':8000')}
+              </code>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-widest text-text-tertiary font-bold mb-1">3. Run (from your project directory)</p>
+              <code className="block text-xs text-stitch-primary bg-stitch-surface rounded px-3 py-2 font-mono select-all">
+                cd your-project && bsnexus-worker run
+              </code>
+            </div>
           </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {configs.map((c) => (
-              <ExecutorCard key={c.id} config={c} onEdit={openEdit} onDelete={handleDelete} />
-            ))}
-          </div>
-        )}
+
+          <p className="text-[10px] text-text-tertiary mt-3">
+            Prerequisites: Python 3.11+, Claude Code CLI (<code className="font-mono">npm i -g @anthropic-ai/claude-code</code>)
+          </p>
+        </div>
       </div>
 
       {/* Register / Edit Modal */}
