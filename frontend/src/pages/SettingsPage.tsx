@@ -276,8 +276,22 @@ export default function SettingsPage() {
               <div>
                 <p className="text-[10px] uppercase tracking-widest text-text-tertiary font-bold mb-1">3. Register & run</p>
                 <code className="block text-xs text-stitch-primary bg-stitch-surface rounded px-3 py-2 font-mono select-all">
-                  bsnexus-worker register && cd my-project && bsnexus-worker run
+                  bsnexus-worker register{'\n'}cd my-project && bsnexus-worker run
                 </code>
+                <p className="text-[10px] text-text-tertiary mt-1.5">
+                  설치된 CLI를 자동 감지합니다. 특정 executor를 지정하려면:
+                </p>
+                <div className="space-y-1 mt-1">
+                  <code className="block text-xs text-text-secondary bg-stitch-surface rounded px-3 py-1.5 font-mono">
+                    bsnexus-worker run --executor claude_code
+                  </code>
+                  <code className="block text-xs text-text-secondary bg-stitch-surface rounded px-3 py-1.5 font-mono">
+                    bsnexus-worker run --executor codex
+                  </code>
+                  <code className="block text-xs text-text-secondary bg-stitch-surface rounded px-3 py-1.5 font-mono">
+                    bsnexus-worker run --executor opencode
+                  </code>
+                </div>
               </div>
             </div>
             <p className="text-[10px] text-text-tertiary">
