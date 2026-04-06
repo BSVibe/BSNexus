@@ -6,9 +6,8 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.core.tenant_context import DEFAULT_TENANT_ID
 from backend.src.models import Agent, ExecutorConfig
@@ -26,6 +25,7 @@ class AgentTemplate(BaseModel):
     job_description: str
     executor_type: str
     capabilities: list[str]
+    monthly_budget_cents: int | None = None
     children: list["AgentTemplate"] = []
 
 
@@ -36,6 +36,12 @@ class OrgTemplate(BaseModel):
     agent_count: int
     agents: list[AgentTemplate]
 
+
+# ─── Budget presets (cents/month) ─────────────────────────────────
+# C-level / Lead: light usage (strategy, review)     → $20
+# Coding agents: heavy API calls                     → $50
+# QA: moderate (review + test runs)                   → $30
+# PM / Marketer / Designer / Writer: text generation  → $15
 
 TEMPLATES: dict[str, OrgTemplate] = {
     "startup": OrgTemplate(
@@ -51,6 +57,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                 job_description="Sets company vision, makes strategic decisions, coordinates all departments",
                 executor_type="claude_api",
                 capabilities=["analysis", "writing", "general"],
+                monthly_budget_cents=2000,
                 children=[
                     AgentTemplate(
                         name="CTO",
@@ -59,6 +66,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                         job_description="Leads technical architecture and engineering team",
                         executor_type="claude_api",
                         capabilities=["coding", "analysis"],
+                        monthly_budget_cents=2000,
                         children=[
                             AgentTemplate(
                                 name="Engineer",
@@ -67,6 +75,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                                 job_description="Implements features, fixes bugs, writes tests, deploys code",
                                 executor_type="claude_code",
                                 capabilities=["coding"],
+                                monthly_budget_cents=5000,
                             ),
                             AgentTemplate(
                                 name="QA",
@@ -75,6 +84,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                                 job_description="Reviews code quality, runs tests, validates requirements, reports bugs",
                                 executor_type="claude_api",
                                 capabilities=["coding", "analysis"],
+                                monthly_budget_cents=3000,
                             ),
                         ],
                     ),
@@ -85,6 +95,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                         job_description="Defines product requirements, prioritizes backlog, manages roadmap",
                         executor_type="generic_llm",
                         capabilities=["analysis", "writing", "general"],
+                        monthly_budget_cents=1500,
                     ),
                     AgentTemplate(
                         name="Marketer",
@@ -93,6 +104,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                         job_description="Creates marketing content, manages campaigns, analyzes metrics",
                         executor_type="generic_llm",
                         capabilities=["marketing", "writing", "research"],
+                        monthly_budget_cents=1500,
                     ),
                     AgentTemplate(
                         name="Designer",
@@ -101,6 +113,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                         job_description="Designs user interfaces, creates prototypes, maintains design system",
                         executor_type="generic_llm",
                         capabilities=["writing", "analysis"],
+                        monthly_budget_cents=1500,
                     ),
                 ],
             ),
@@ -109,7 +122,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
     "minimal": OrgTemplate(
         id="minimal",
         name="Minimal",
-        description="Bare minimum to get started. CEO and one Developer.",
+        description="Bare minimum to get started. Lead and one Developer.",
         agent_count=2,
         agents=[
             AgentTemplate(
@@ -119,6 +132,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                 job_description="Leads the team, makes decisions, reviews work",
                 executor_type="claude_api",
                 capabilities=["coding", "analysis", "general"],
+                monthly_budget_cents=2000,
                 children=[
                     AgentTemplate(
                         name="Developer",
@@ -127,6 +141,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                         job_description="Implements features and fixes bugs",
                         executor_type="claude_code",
                         capabilities=["coding"],
+                        monthly_budget_cents=5000,
                     ),
                 ],
             ),
@@ -145,6 +160,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                 job_description="Sets company vision and strategy",
                 executor_type="claude_api",
                 capabilities=["analysis", "writing", "general"],
+                monthly_budget_cents=2000,
                 children=[
                     AgentTemplate(
                         name="CTO",
@@ -153,6 +169,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                         job_description="Technical architecture and engineering leadership",
                         executor_type="claude_api",
                         capabilities=["coding", "analysis"],
+                        monthly_budget_cents=2000,
                         children=[
                             AgentTemplate(
                                 name="Backend Engineer",
@@ -161,6 +178,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                                 job_description="Backend API development, database design, infrastructure",
                                 executor_type="claude_code",
                                 capabilities=["coding"],
+                                monthly_budget_cents=5000,
                             ),
                             AgentTemplate(
                                 name="Frontend Engineer",
@@ -169,6 +187,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                                 job_description="Frontend UI development, component design, performance",
                                 executor_type="claude_code",
                                 capabilities=["coding"],
+                                monthly_budget_cents=5000,
                             ),
                             AgentTemplate(
                                 name="DevOps",
@@ -177,6 +196,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                                 job_description="CI/CD pipelines, infrastructure, monitoring, deployment",
                                 executor_type="claude_code",
                                 capabilities=["coding"],
+                                monthly_budget_cents=3000,
                             ),
                             AgentTemplate(
                                 name="QA Lead",
@@ -185,6 +205,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                                 job_description="Test strategy, code review, quality standards, bug triage",
                                 executor_type="claude_api",
                                 capabilities=["coding", "analysis"],
+                                monthly_budget_cents=3000,
                             ),
                         ],
                     ),
@@ -195,6 +216,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                         job_description="Product strategy, roadmap, user research",
                         executor_type="generic_llm",
                         capabilities=["analysis", "writing", "research"],
+                        monthly_budget_cents=2000,
                         children=[
                             AgentTemplate(
                                 name="Product Manager",
@@ -203,6 +225,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                                 job_description="Feature specs, backlog grooming, stakeholder communication",
                                 executor_type="generic_llm",
                                 capabilities=["analysis", "writing"],
+                                monthly_budget_cents=1500,
                             ),
                             AgentTemplate(
                                 name="Designer",
@@ -211,6 +234,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                                 job_description="UI/UX design, prototyping, design system",
                                 executor_type="generic_llm",
                                 capabilities=["writing", "analysis"],
+                                monthly_budget_cents=1500,
                             ),
                         ],
                     ),
@@ -221,6 +245,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                         job_description="Marketing strategy, brand, content, growth",
                         executor_type="generic_llm",
                         capabilities=["marketing", "writing", "research"],
+                        monthly_budget_cents=2000,
                         children=[
                             AgentTemplate(
                                 name="Content Writer",
@@ -229,6 +254,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                                 job_description="Blog posts, documentation, copywriting",
                                 executor_type="generic_llm",
                                 capabilities=["writing", "marketing"],
+                                monthly_budget_cents=1500,
                             ),
                         ],
                     ),
@@ -287,6 +313,7 @@ async def apply_template(template_id: str, db: AsyncSession = Depends(get_db)) -
                 job_description=t.job_description,
                 executor_type=default_executor_type,
                 capabilities=t.capabilities,
+                monthly_budget_cents=t.monthly_budget_cents,
                 parent_agent_id=parent_id,
             )
             await repo.add(agent)
