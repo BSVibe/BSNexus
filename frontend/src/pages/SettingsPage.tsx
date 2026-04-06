@@ -9,11 +9,9 @@ const INPUT_CLASS =
   'w-full px-3 py-2 bg-stitch-surface-low border border-stitch-outline-variant/20 rounded-md text-text-primary text-sm placeholder:text-text-tertiary focus:outline-none focus:border-stitch-primary focus:ring-1 focus:ring-stitch-primary'
 
 const EXECUTOR_TYPES = [
-  { value: 'claude_api', label: 'Claude API', description: 'Direct Claude API calls via LiteLLM' },
-  { value: 'claude_code', label: 'Claude Code', description: 'Claude Code CLI — local or self-hosted' },
-  { value: 'bsgateway', label: 'BSGateway', description: 'BSGateway proxy with cost optimization' },
-  { value: 'codex', label: 'Codex', description: 'OpenAI Codex for code completion' },
-  { value: 'generic_llm', label: 'Generic LLM', description: 'Any LiteLLM-compatible model' },
+  { value: 'claude_api', label: 'LLM API', description: 'Any LLM via LiteLLM (Claude, GPT, Gemini, open-source). For both coding and non-coding tasks.' },
+  { value: 'claude_code', label: 'Claude Code', description: 'Claude Code CLI — runs on local machine or self-hosted worker' },
+  { value: 'bsgateway', label: 'BSGateway', description: 'BSGateway proxy with automatic cost-optimized model routing' },
 ] as const
 
 interface ConfigField {
@@ -26,9 +24,10 @@ interface ConfigField {
 
 const EXECUTOR_FIELDS: Record<string, ConfigField[]> = {
   claude_api: [
-    { key: 'api_key', label: 'API Key', type: 'password', placeholder: 'sk-ant-...' },
-    { key: 'model', label: 'Model', type: 'text', placeholder: 'anthropic/claude-sonnet-4-20250514' },
+    { key: 'api_key', label: 'API Key', type: 'password', placeholder: 'sk-ant-..., sk-..., etc.' },
+    { key: 'model', label: 'Model (LiteLLM format)', type: 'text', placeholder: 'anthropic/claude-sonnet-4-20250514' },
     { key: 'base_url', label: 'Base URL (optional)', type: 'text', placeholder: 'https://api.anthropic.com' },
+    { key: 'temperature', label: 'Temperature', type: 'text', placeholder: '0.0 for coding, 0.7 for writing' },
     { key: 'max_tokens', label: 'Max Tokens', type: 'text', placeholder: '4096' },
   ],
   claude_code: [
@@ -41,17 +40,6 @@ const EXECUTOR_FIELDS: Record<string, ConfigField[]> = {
     { key: 'bsgateway_url', label: 'Gateway URL', type: 'text', placeholder: 'https://gateway.bsvibe.dev' },
     { key: 'bsgateway_api_key', label: 'API Key', type: 'password', placeholder: 'bsg-...' },
     { key: 'routing_hint', label: 'Routing Strategy', type: 'select', options: [{ value: 'auto', label: 'Auto (cost-optimized)' }, { value: 'performance', label: 'Performance' }, { value: 'economy', label: 'Economy' }] },
-  ],
-  codex: [
-    { key: 'execution_mode', label: 'Execution Mode', type: 'select', options: [{ value: 'tenant', label: 'Tenant (cloud)' }, { value: 'self_hosted', label: 'Self-hosted' }] },
-    { key: 'model', label: 'Model', type: 'text', placeholder: 'openai/codex-mini' },
-    { key: 'api_key', label: 'API Key', type: 'password', placeholder: 'sk-...' },
-  ],
-  generic_llm: [
-    { key: 'api_key', label: 'API Key', type: 'password', placeholder: 'sk-...' },
-    { key: 'model', label: 'Model', type: 'text', placeholder: 'openai/gpt-4o' },
-    { key: 'base_url', label: 'Base URL (optional)', type: 'text', placeholder: 'https://api.openai.com/v1' },
-    { key: 'temperature', label: 'Temperature', type: 'text', placeholder: '0.7' },
   ],
 }
 

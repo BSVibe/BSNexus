@@ -15,70 +15,91 @@ const STATUS_COLORS: Record<string, string> = {
 
 const EXECUTOR_LABELS: Record<string, string> = {
   claude_code: 'Claude Code',
-  claude_api: 'Claude API',
+  claude_api: 'LLM API',
   bsgateway: 'BSGateway',
   codex: 'Codex',
-  generic_llm: 'Generic LLM',
+  generic_llm: 'LLM API',
 }
 
 const EXECUTOR_OPTIONS: { value: ExecutorType; label: string }[] = [
-  { value: 'claude_api', label: 'Claude API' },
+  { value: 'claude_api', label: 'LLM API' },
   { value: 'claude_code', label: 'Claude Code' },
   { value: 'bsgateway', label: 'BSGateway' },
-  { value: 'codex', label: 'Codex' },
-  { value: 'generic_llm', label: 'Generic LLM' },
 ]
 
-function OrgChartNode({ node }: { node: AgentOrgChartNode }) {
+function AgentCard({ agent }: { agent: Agent }) {
   const { selectAgent } = useAgentStore()
-  const agent = node.agent
   const budgetPct =
     agent.monthly_budget_cents && agent.monthly_budget_cents > 0
       ? Math.round((agent.current_month_spent_cents / agent.monthly_budget_cents) * 100)
       : null
 
   return (
-    <div className="flex flex-col items-center">
-      <button
-        onClick={() => selectAgent(agent)}
-        className="w-56 p-4 rounded-xl bg-stitch-surface-container border border-stitch-outline-variant/15 hover:border-stitch-primary/20 transition-all group cursor-pointer"
-      >
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2">
-            <div className={`w-2 h-2 rounded-full ${STATUS_COLORS[agent.status] || 'bg-gray-500'}`} />
-            <span className="text-xs text-text-secondary">{agent.status}</span>
-          </div>
-          <span className="text-[10px] px-2 py-0.5 rounded-full bg-stitch-primary/10 text-stitch-primary font-medium">
-            {EXECUTOR_LABELS[agent.executor_type] || agent.executor_type}
-          </span>
-        </div>
+    <button
+      onClick={() => selectAgent(agent)}
+      className="w-48 p-3 rounded-lg bg-stitch-surface-container border border-stitch-outline-variant/15 hover:border-stitch-primary/30 transition-all group cursor-pointer text-left"
+    >
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <div className={`w-2 h-2 rounded-full shrink-0 ${STATUS_COLORS[agent.status] || 'bg-gray-500'}`} />
         <h4 className="text-sm font-bold text-text-primary group-hover:text-stitch-primary transition-colors truncate">
           {agent.name}
         </h4>
-        <p className="text-xs text-text-secondary truncate">{agent.role}{agent.title ? ` · ${agent.title}` : ''}</p>
-        {budgetPct !== null && (
-          <div className="mt-3">
-            <div className="flex justify-between text-[10px] text-text-secondary mb-1">
-              <span>Budget</span>
-              <span>${(agent.current_month_spent_cents / 100).toFixed(0)} / ${(agent.monthly_budget_cents! / 100).toFixed(0)}</span>
-            </div>
-            <div className="h-1 w-full bg-stitch-surface-highest rounded-full overflow-hidden">
-              <div
-                className={`h-full rounded-full ${budgetPct >= 80 ? 'bg-yellow-500' : 'bg-stitch-primary'}`}
-                style={{ width: `${Math.min(budgetPct, 100)}%` }}
-              />
-            </div>
+      </div>
+      <p className="text-[11px] text-text-secondary truncate mb-1">{agent.title || agent.role}</p>
+      <span className="text-[10px] px-1.5 py-0.5 rounded bg-stitch-primary/10 text-stitch-primary font-medium">
+        {EXECUTOR_LABELS[agent.executor_type] || agent.executor_type}
+      </span>
+      {budgetPct !== null && (
+        <div className="mt-2">
+          <div className="h-1 w-full bg-stitch-surface-highest rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full ${budgetPct >= 90 ? 'bg-stitch-error' : budgetPct >= 70 ? 'bg-yellow-500' : 'bg-stitch-primary'}`}
+              style={{ width: `${Math.min(budgetPct, 100)}%` }}
+            />
           </div>
-        )}
-      </button>
+        </div>
+      )}
+    </button>
+  )
+}
 
-      {node.children.length > 0 && (
+const LINE = 'border-stitch-outline-variant/40'
+
+function OrgChartNode({ node }: { node: AgentOrgChartNode }) {
+  const count = node.children.length
+
+  return (
+    <div className="flex flex-col items-center">
+      <AgentCard agent={node.agent} />
+
+      {count > 0 && (
         <>
-          <div className="w-px h-6 bg-stitch-outline-variant/30" />
-          <div className="flex gap-6">
-            {node.children.map((child) => (
-              <OrgChartNode key={child.agent.id} node={child} />
-            ))}
+          {/* Vertical stem from parent */}
+          <div className={`w-px h-6 ${LINE} border-l`} />
+
+          {/* Children container */}
+          <div className="flex items-start gap-0">
+            {node.children.map((child, i) => {
+              // Each child column: vertical drop + optional horizontal connector
+              const isFirst = i === 0
+              const isLast = i === count - 1
+              const isOnly = count === 1
+
+              return (
+                <div key={child.agent.id} className="flex flex-col items-center px-2">
+                  {/* Horizontal + vertical connector */}
+                  <div className="flex w-full h-6">
+                    {/* Left half of horizontal line */}
+                    <div className={`flex-1 ${isOnly || isFirst ? '' : `border-t ${LINE}`}`} />
+                    {/* Center vertical drop */}
+                    <div className={`w-px ${LINE} border-l`} />
+                    {/* Right half of horizontal line */}
+                    <div className={`flex-1 ${isOnly || isLast ? '' : `border-t ${LINE}`}`} />
+                  </div>
+                  <OrgChartNode node={child} />
+                </div>
+              )
+            })}
           </div>
         </>
       )}
@@ -589,8 +610,8 @@ export default function AgentsPage() {
       ) : orgChart.length === 0 ? (
         <TemplateSelector onApplied={() => { fetchOrgChart(); fetchAgents() }} />
       ) : (
-        <div className="flex justify-center overflow-x-auto pb-8">
-          <div className="flex gap-8">
+        <div className="overflow-x-auto pb-8">
+          <div className="inline-flex gap-12 min-w-full justify-center py-4">
             {orgChart.map((node) => (
               <OrgChartNode key={node.agent.id} node={node} />
             ))}
