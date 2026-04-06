@@ -52,22 +52,14 @@ function AgentNode({ data }: NodeProps) {
           <span className="text-sm font-bold text-[#e3e2e8] truncate">{agent.name}</span>
         </div>
         <p className="text-[11px] text-[#c2c6d6] truncate mb-2">{agent.title || agent.role}</p>
-        <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#adc6ff]/10 text-[#adc6ff] font-medium">
-          {EXECUTOR_LABELS[agent.executor_type] || agent.executor_type}
-        </span>
-        {budgetPct !== null && (
-          <div className="mt-2">
-            <div className="h-1 w-full bg-[#343439] rounded-full overflow-hidden">
-              <div
-                className="h-full rounded-full"
-                style={{
-                  width: `${Math.min(budgetPct, 100)}%`,
-                  backgroundColor: budgetPct >= 90 ? '#ffb4ab' : budgetPct >= 70 ? '#eab308' : '#adc6ff',
-                }}
-              />
-            </div>
-          </div>
-        )}
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#adc6ff]/10 text-[#adc6ff] font-medium">
+            {EXECUTOR_LABELS[agent.executor_type] || agent.executor_type}
+          </span>
+          <span className="text-[10px] text-[#8c909f]">
+            ${((agent.current_month_spent_cents || 0) / 100).toFixed(0)}/{agent.monthly_budget_cents != null ? `$${(agent.monthly_budget_cents / 100).toFixed(0)}` : '∞'}
+          </span>
+        </div>
       </button>
       <Handle type="source" position={Position.Bottom} className="!bg-transparent !border-0 !w-0 !h-0" />
     </>
