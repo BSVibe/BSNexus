@@ -151,11 +151,11 @@ function ProjectContent({ projectId }: { projectId: string }) {
           )}
 
           {activeTab === 'timeline' && (
-            <TimelineView projectId={projectId} />
+            <TimelineView />
           )}
 
           {activeTab === 'design' && (
-            <DesignView projectId={projectId} />
+            <DesignView />
           )}
         </div>
 

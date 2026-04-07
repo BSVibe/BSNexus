@@ -1,5 +1,4 @@
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export default function DesignView({ projectId }: { projectId: string }) {
+export default function DesignView() {
   return (
     <div className="flex-1 flex items-center justify-center">
       <div className="text-center">
