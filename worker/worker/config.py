@@ -7,6 +7,9 @@ class WorkerSettings(BaseSettings):
     # BSNexus URL — defaults to official SaaS
     server_url: str = "https://nexus.bsvibe.dev"
 
+    # Install token (from Settings → Install Token)
+    install_token: str = ""
+
     # Worker identity (from registration)
     worker_token: str = ""
     worker_name: str = ""

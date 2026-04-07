@@ -7,7 +7,9 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.src.models import Agent
+from sqlalchemy import select
+
+from backend.src.models import Agent, ExecutorConfig
 from backend.src.repositories.agent_repository import AgentRepository
 from backend.src.schemas.agent import AgentCreate, AgentOrgChartResponse, AgentResponse, AgentUpdate
 from backend.src.storage.database import get_db
@@ -22,16 +24,36 @@ def _agent_to_response(agent: Agent) -> AgentResponse:
     return AgentResponse.model_validate(agent)
 
 
+async def _resolve_executor_type(db: AsyncSession, config_id: uuid.UUID | None) -> str:
+    """Resolve executor_type from config_id, falling back to tenant default."""
+    if config_id:
+        result = await db.execute(select(ExecutorConfig).where(ExecutorConfig.id == config_id))
+        ec = result.scalar_one_or_none()
+        if ec:
+            return ec.executor_type
+    # Fall back to tenant default
+    result = await db.execute(
+        select(ExecutorConfig).where(
+            ExecutorConfig.tenant_id == _DEFAULT_TENANT_ID,
+            ExecutorConfig.is_default.is_(True),
+        ).limit(1)
+    )
+    ec = result.scalar_one_or_none()
+    return ec.executor_type if ec else "claude_api"
+
+
 @router.post("", response_model=AgentResponse, status_code=201)
 async def create_agent(body: AgentCreate, db: AsyncSession = Depends(get_db)) -> AgentResponse:
     repo = AgentRepository(db)
+    executor_type = await _resolve_executor_type(db, body.executor_config_id)
     agent = Agent(
         tenant_id=_DEFAULT_TENANT_ID,
         name=body.name,
         role=body.role,
         title=body.title,
         job_description=body.job_description,
-        executor_type=body.executor_type,
+        executor_config_id=body.executor_config_id,
+        executor_type=executor_type,
         executor_config=body.executor_config,
         system_prompt=body.system_prompt,
         skills=body.skills,
@@ -106,6 +128,10 @@ async def update_agent(
     update_data = body.model_dump(exclude_unset=True)
     if not update_data:
         return _agent_to_response(agent)
+
+    # Sync executor_type when executor_config_id changes
+    if "executor_config_id" in update_data:
+        update_data["executor_type"] = await _resolve_executor_type(db, update_data["executor_config_id"])
 
     updated = await repo.update_fields(agent_id, **update_data)
     await repo.commit()

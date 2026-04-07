@@ -8,12 +8,20 @@ from uuid import UUID
 from bsvibe_auth import BSVibeUser
 from backend.src import models, schemas
 from backend.src.core.auth import Permission, require_permission
+from backend.src.core.workspace import LocalStorageBackend, WorkspaceService
 from backend.src.repositories.phase_repository import PhaseRepository
 from backend.src.repositories.project_repository import ProjectRepository
 from backend.src.storage.database import get_db
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
+
+# Workspace service singleton — base_dir configurable via env
+import os as _os
+
+_workspace_service = WorkspaceService(
+    LocalStorageBackend(_os.environ.get("WORKSPACE_BASE_DIR", "/data/workspaces"))
+)
 
 # -- Helpers -------------------------------------------------------------------
 
@@ -47,15 +55,37 @@ async def create_project(
     _auth: BSVibeUser = Depends(require_permission(Permission.project_create)),
     db: AsyncSession = Depends(get_db),
 ) -> schemas.ProjectResponse:
-    """Create a new project."""
+    """Create a new project with workspace."""
+    from pathlib import Path as _Path
+
     repo = ProjectRepository(db)
+    ws_type = models.WorkspaceType(project_data.workspace_type)
+
+    # Validate: local_import requires a valid repo_path
+    if ws_type == models.WorkspaceType.local_import:
+        if not project_data.repo_path:
+            raise HTTPException(status_code=400, detail="Local workspace requires a project path")
+        if not _Path(project_data.repo_path).is_dir():
+            raise HTTPException(status_code=400, detail=f"Path does not exist or is not a directory: {project_data.repo_path}")
 
     project = models.Project(
         name=project_data.name,
         description=project_data.description,
         repo_path=project_data.repo_path,
+        workspace_type=ws_type,
+        github_repo_url=project_data.github_repo_url,
+        github_branch=project_data.github_branch or "main",
     )
     await repo.add(project)
+    await db.flush()
+
+    # Create server-managed workspace directory
+    if ws_type == models.WorkspaceType.server_managed:
+        workspace_dir = await _workspace_service.create_workspace(project.id)
+        project.workspace_dir = workspace_dir
+    elif project_data.repo_path:
+        project.workspace_dir = project_data.repo_path
+
     await repo.commit()
 
     # Reload with phases eagerly loaded
@@ -134,6 +164,10 @@ async def delete_project(
 
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
+
+    # Clean up server-managed workspace
+    if project.workspace_type == models.WorkspaceType.server_managed:
+        await _workspace_service.cleanup_workspace(project.id)
 
     await repo.delete(project)
     await repo.commit()

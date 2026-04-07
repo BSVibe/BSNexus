@@ -54,14 +54,15 @@ class TestAgentCreate:
             "name": "CTO Bot",
             "role": "cto",
             "title": "Chief Technology Officer",
-            "executor_type": "bsgateway",
             "capabilities": ["coding", "analysis"],
         })
         assert resp.status_code == 201
         data = resp.json()
         assert data["name"] == "CTO Bot"
         assert data["role"] == "cto"
-        assert data["executor_type"] == "bsgateway"
+        # executor_type resolved from executor_config_id (null → tenant default → claude_api)
+        assert data["executor_type"] == "claude_api"
+        assert data["executor_config_id"] is None
         assert data["capabilities"] == ["coding", "analysis"]
         assert data["status"] == "offline"
         assert data["is_active"] is True

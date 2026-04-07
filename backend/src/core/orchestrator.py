@@ -200,7 +200,7 @@ class PMOrchestrator:
                     project = await project_repo.get_by_id(project_id, load_phases=False)
                     if project:
                         max_concurrent = getattr(project, "max_concurrent_tasks", 1) or 1
-                        repo_path = project.repo_path or ""
+                        repo_path = project.workspace_dir or project.repo_path or ""
 
                     # Concurrency constraint: respect max_concurrent_tasks
                     active_count = await repo.count_active_tasks(project_id)

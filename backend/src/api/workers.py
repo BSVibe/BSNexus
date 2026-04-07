@@ -3,20 +3,87 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import secrets
+import tarfile
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, HTTPException, Header, Request
+from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.src.api.settings import verify_install_token
 from backend.src.core.tenant_context import DEFAULT_TENANT_ID
 from backend.src.core.worker_dispatch import WorkerDispatcher
+from backend.src.models import ExecutorConfig
 from backend.src.models.worker import Worker
 from backend.src.storage.database import get_db
 
+# Workers with no heartbeat for this long are considered offline
+_HEARTBEAT_TIMEOUT_SECONDS = 60
+
 router = APIRouter(prefix="/api/v1/workers", tags=["workers"])
+
+# ─── Static: install script & source bundle ─────────────────────
+_WORKER_DIR = Path(__file__).resolve().parents[3] / "worker"
+_INSTALL_SCRIPT = _WORKER_DIR / "install.sh"
+
+
+@router.get("/install.sh", response_class=PlainTextResponse, include_in_schema=False)
+async def get_install_script(request: Request) -> PlainTextResponse:
+    """Serve the worker install script with server URL auto-injected."""
+    if not _INSTALL_SCRIPT.is_file():
+        raise HTTPException(status_code=404, detail="install.sh not found")
+    # Inject the server origin — prefer forwarded headers (Vite proxy, nginx, etc.)
+    host = (
+        request.headers.get("x-forwarded-host")
+        or request.headers.get("host")
+        or "localhost:8000"
+    )
+    scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
+    origin = f"{scheme}://{host}"
+    content = _INSTALL_SCRIPT.read_text().replace(
+        'SERVER_URL="${BSNEXUS_SERVER_URL:-}"',
+        f'SERVER_URL="${{BSNEXUS_SERVER_URL:-{origin}}}"',
+    )
+    return PlainTextResponse(content, media_type="text/plain")
+
+
+_cached_tarball: bytes | None = None
+
+
+def _build_worker_tarball() -> bytes:
+    """Build worker source tarball. Cached after first call."""
+    global _cached_tarball  # noqa: PLW0603
+    if _cached_tarball is not None:
+        return _cached_tarball
+    src_dir = _WORKER_DIR / "worker"
+    pyproject = _WORKER_DIR / "pyproject.toml"
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        tar.add(str(pyproject), arcname="pyproject.toml")
+        for f in src_dir.rglob("*.py"):
+            tar.add(str(f), arcname=f"worker/{f.relative_to(src_dir)}")
+    _cached_tarball = buf.getvalue()
+    return _cached_tarball
+
+
+@router.get("/source.tar.gz", include_in_schema=False)
+async def get_worker_source() -> StreamingResponse:
+    """Serve the worker source as a tarball for remote installation."""
+    src_dir = _WORKER_DIR / "worker"
+    pyproject = _WORKER_DIR / "pyproject.toml"
+    if not src_dir.is_dir() or not pyproject.is_file():
+        raise HTTPException(status_code=404, detail="Worker source not found")
+
+    data = _build_worker_tarball()
+    return StreamingResponse(io.BytesIO(data), media_type="application/gzip", headers={
+        "Content-Disposition": "attachment; filename=bsnexus-worker.tar.gz",
+    })
 
 
 class WorkerRegisterRequest(BaseModel):
@@ -49,23 +116,82 @@ def _hash_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-@router.post("/register", response_model=WorkerRegisterResponse, status_code=201)
-async def register_worker(body: WorkerRegisterRequest, db: AsyncSession = Depends(get_db)) -> WorkerRegisterResponse:
-    """Register a new remote worker. Returns a one-time token."""
-    token = secrets.token_urlsafe(32)
-    worker = Worker(
+def _worker_description(capabilities: list[str]) -> str:
+    return f"Self-hosted worker ({', '.join(capabilities)})"
+
+
+def _make_worker_executor_config(name: str, worker_id: uuid.UUID, capabilities: list[str]) -> ExecutorConfig:
+    return ExecutorConfig(
         tenant_id=DEFAULT_TENANT_ID,
-        name=body.name,
-        labels=body.labels,
-        capabilities=body.capabilities,
-        token_hash=_hash_token(token),
-        status="online",
-        last_heartbeat=datetime.now(timezone.utc),
+        name=f"Worker: {name}",
+        executor_type="worker",
+        config={"worker_id": str(worker_id)},
+        description=_worker_description(capabilities),
     )
-    db.add(worker)
-    await db.flush()
+
+
+@router.post("/register", response_model=WorkerRegisterResponse, status_code=201)
+async def register_worker(
+    body: WorkerRegisterRequest,
+    x_install_token: str = Header("", alias="X-Install-Token"),
+    db: AsyncSession = Depends(get_db),
+) -> WorkerRegisterResponse:
+    """Register or re-register a worker. Same name = update existing."""
+    if not await verify_install_token(x_install_token, db):
+        raise HTTPException(status_code=401, detail="Invalid install token. Generate one in Settings.")
+
+    token = secrets.token_urlsafe(32)
+    now = datetime.now(timezone.utc)
+
+    # Check for existing worker with same name
+    result = await db.execute(
+        select(Worker).where(
+            Worker.tenant_id == DEFAULT_TENANT_ID,
+            Worker.name == body.name,
+        )
+    )
+    worker = result.scalar_one_or_none()
+
+    if worker:
+        # Re-register: update token, capabilities, reactivate
+        worker.token_hash = _hash_token(token)
+        worker.capabilities = body.capabilities
+        worker.labels = body.labels
+        worker.status = "online"
+        worker.last_heartbeat = now
+        worker.is_active = True
+        await db.flush()
+
+        # Update linked ExecutorConfig
+        linked = await db.execute(
+            select(ExecutorConfig).where(
+                ExecutorConfig.executor_type == "worker",
+                ExecutorConfig.config["worker_id"].as_string() == str(worker.id),
+            )
+        )
+        exec_config = linked.scalar_one_or_none()
+        if exec_config:
+            exec_config.description = _worker_description(body.capabilities)
+        else:
+            db.add(_make_worker_executor_config(body.name, worker.id, body.capabilities))
+    else:
+        # New registration
+        worker = Worker(
+            tenant_id=DEFAULT_TENANT_ID,
+            name=body.name,
+            labels=body.labels,
+            capabilities=body.capabilities,
+            token_hash=_hash_token(token),
+            status="online",
+            last_heartbeat=now,
+        )
+        db.add(worker)
+        await db.flush()
+        await db.refresh(worker)
+
+        db.add(_make_worker_executor_config(body.name, worker.id, body.capabilities))
+
     await db.commit()
-    await db.refresh(worker)
     return WorkerRegisterResponse(id=worker.id, token=token)
 
 
@@ -189,18 +315,39 @@ async def submit_result(
     return {"status": "accepted"}
 
 
+def _compute_status(worker: Worker) -> str:
+    """Compute worker status based on last heartbeat."""
+    if not worker.last_heartbeat:
+        return "offline"
+    hb = worker.last_heartbeat
+    # SQLite returns naive datetimes — treat as UTC
+    if hb.tzinfo is None:
+        hb = hb.replace(tzinfo=timezone.utc)
+    age = (datetime.now(timezone.utc) - hb).total_seconds()
+    return "online" if age < _HEARTBEAT_TIMEOUT_SECONDS else "offline"
+
+
 @router.get("", response_model=list[WorkerResponse])
 async def list_workers(db: AsyncSession = Depends(get_db)) -> list[WorkerResponse]:
     result = await db.execute(
         select(Worker).where(Worker.tenant_id == DEFAULT_TENANT_ID, Worker.is_active.is_(True)).order_by(Worker.created_at)
     )
     workers = result.scalars().all()
+
+    # Compute status once per worker; update stale entries in DB
+    statuses: dict[uuid.UUID, str] = {}
+    for w in workers:
+        statuses[w.id] = _compute_status(w)
+        if w.status != statuses[w.id]:
+            await db.execute(update(Worker).where(Worker.id == w.id).values(status=statuses[w.id]))
+    await db.commit()
+
     return [
         WorkerResponse(
             id=w.id,
             name=w.name,
             labels=w.labels,
-            status=w.status,
+            status=statuses[w.id],
             last_heartbeat=w.last_heartbeat,
             capabilities=w.capabilities,
             created_at=w.created_at,
@@ -216,4 +363,13 @@ async def deregister_worker(worker_id: uuid.UUID, db: AsyncSession = Depends(get
     if not worker:
         raise HTTPException(status_code=404, detail="Worker not found")
     await db.execute(update(Worker).where(Worker.id == worker_id).values(is_active=False, status="offline"))
+    # Remove linked ExecutorConfig
+    linked = await db.execute(
+        select(ExecutorConfig).where(
+            ExecutorConfig.executor_type == "worker",
+            ExecutorConfig.config["worker_id"].as_string() == str(worker_id),
+        )
+    )
+    for ec in linked.scalars().all():
+        await db.delete(ec)
     await db.commit()

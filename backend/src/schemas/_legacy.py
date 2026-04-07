@@ -148,12 +148,17 @@ class PhaseResponse(BaseModel):
 
 class ProjectCreate(BaseModel):
     name: str
-    description: str
-    repo_path: str
+    description: str = ""
+    repo_path: Optional[str] = None
+    workspace_type: str = "server_managed"  # server_managed | local_import
+    github_repo_url: Optional[str] = None
+    github_branch: str = "main"
 
     @field_validator("repo_path")
     @classmethod
-    def _validate_repo_path(cls, v: str) -> str:
+    def _validate_repo_path(cls, v: str | None) -> str | None:
+        if not v:
+            return v
         return _check_path_traversal(v)
 
 
@@ -170,7 +175,11 @@ class ProjectResponse(BaseModel):
     name: str
     description: str
     design_doc_path: Optional[str] = None
-    repo_path: str
+    repo_path: Optional[str] = None
+    workspace_type: str = "server_managed"
+    workspace_dir: Optional[str] = None
+    github_repo_url: Optional[str] = None
+    github_branch: Optional[str] = None
     status: ProjectStatus
     llm_config: Optional[dict] = None
     created_at: datetime
@@ -205,20 +214,22 @@ class TaskCreate(BaseModel):
     project_id: uuid.UUID
     phase_id: uuid.UUID
     title: str
-    description: str
-    priority: TaskPriority
+    description: str = ""
+    priority: TaskPriority = TaskPriority.medium
     task_type: TaskType = TaskType.feature
+    agent_id: Optional[uuid.UUID] = None
     executor_type: str = "coding"
     executor_metadata: dict = Field(default_factory=dict)
     depends_on: list[uuid.UUID] = Field(default_factory=list)
-    worker_prompt: str
-    qa_prompt: str
+    worker_prompt: str = ""
+    qa_prompt: str = ""
 
 
 class TaskUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     priority: Optional[TaskPriority] = None
+    agent_id: Optional[uuid.UUID] = None
     executor_type: Optional[str] = None
     executor_metadata: Optional[dict] = None
     expected_version: Optional[int] = None
@@ -245,6 +256,7 @@ class TaskResponse(BaseModel):
     executor_type: str = "coding"
     executor_metadata: dict = Field(default_factory=dict)
     source: TaskSource = TaskSource.architect
+    agent_id: Optional[uuid.UUID] = None
     parent_task_id: Optional[uuid.UUID] = None
     worker_prompt: Optional[dict] = None
     qa_prompt: Optional[dict] = None

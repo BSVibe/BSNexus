@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Button, Modal } from '../components/common'
 import { executorConfigsApi } from '../api/executorConfigs'
+import { settingsApi } from '../api/settings'
+import { workersApi, type WorkerInfo } from '../api/workers'
 import type { ExecutorConfig, ExecutorConfigCreate } from '../types/executor'
 import Header from '../components/layout/Header'
-// Worker guide uses the current origin — in production, frontend proxies /api to backend
 
 const INPUT_CLASS =
   'w-full px-3 py-2 bg-stitch-surface-low border border-stitch-outline-variant/20 rounded-md text-text-primary text-sm placeholder:text-text-tertiary focus:outline-none focus:border-stitch-primary focus:ring-1 focus:ring-stitch-primary'
@@ -14,6 +15,12 @@ const EXECUTOR_TYPES = [
   { value: 'bsgateway', label: 'BSGateway', description: 'BSGateway proxy with automatic cost-optimized model routing' },
   { value: '_worker', label: 'Self-Hosted Worker', description: 'Run coding tasks on your machine via Claude Code, Codex, or OpenCode.' },
 ] as const
+
+const TYPE_LABELS: Record<string, string> = {
+  claude_api: 'LLM API',
+  bsgateway: 'BSGateway',
+  worker: 'Worker',
+}
 
 interface ConfigField {
   key: string
@@ -40,38 +47,58 @@ const EXECUTOR_FIELDS: Record<string, ConfigField[]> = {
 
 function ExecutorCard({
   config,
+  worker,
   onEdit,
   onDelete,
 }: {
   config: ExecutorConfig
+  worker?: WorkerInfo
   onEdit: (c: ExecutorConfig) => void
-  onDelete: (id: string) => void
+  onDelete: (id: string, isWorker: boolean) => void
 }) {
-  const typeLabel = EXECUTOR_TYPES.find((t) => t.value === config.executor_type)?.label ?? config.executor_type
+  const isWorker = config.executor_type === 'worker'
+  const typeLabel = TYPE_LABELS[config.executor_type] ?? config.executor_type
+
+  const heartbeatAgo = worker?.last_heartbeat
+    ? `${Math.round((Date.now() - new Date(worker.last_heartbeat).getTime()) / 60000)}m ago`
+    : null
+
   return (
     <div className="bg-stitch-surface-low rounded-xl p-5 border border-stitch-outline-variant/10">
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
-          <h4 className="text-sm font-bold text-text-primary">{config.name}</h4>
+          {isWorker && (
+            <div className={`w-2 h-2 rounded-full shrink-0 ${worker?.status === 'online' ? 'bg-green-500' : 'bg-gray-500'}`} />
+          )}
+          <h4 className="text-sm font-bold text-text-primary truncate">{config.name}</h4>
           {config.is_default && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-stitch-primary/20 text-stitch-primary font-bold">DEFAULT</span>
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-stitch-primary/20 text-stitch-primary font-bold shrink-0">DEFAULT</span>
           )}
         </div>
-        <div className="flex items-center gap-1">
-          <button onClick={() => onEdit(config)} className="p-1 text-text-tertiary hover:text-stitch-primary transition-colors" title="Edit">
-            <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>edit</span>
-          </button>
-          <button onClick={() => onDelete(config.id)} className="p-1 text-text-tertiary hover:text-stitch-error transition-colors" title="Delete">
+        <div className="flex items-center gap-1 shrink-0">
+          {!isWorker && (
+            <button onClick={() => onEdit(config)} className="p-1 text-text-tertiary hover:text-stitch-primary transition-colors" title="Edit">
+              <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>edit</span>
+            </button>
+          )}
+          <button onClick={() => onDelete(isWorker ? (config.config.worker_id as string) : config.id, isWorker)} className="p-1 text-text-tertiary hover:text-stitch-error transition-colors" title="Delete">
             <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>delete</span>
           </button>
         </div>
       </div>
-      <span className="text-xs px-2 py-0.5 rounded-full bg-stitch-secondary-container text-stitch-on-secondary-container">
-        {typeLabel}
-      </span>
-      {config.description && (
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-xs px-2 py-0.5 rounded-full bg-stitch-secondary-container text-stitch-on-secondary-container">
+          {typeLabel}
+        </span>
+        {isWorker && worker?.capabilities.map((c) => (
+          <span key={c} className="text-[10px] px-1.5 py-0.5 rounded bg-stitch-primary/10 text-stitch-primary font-medium">{c}</span>
+        ))}
+      </div>
+      {isWorker && heartbeatAgo ? (
+        <p className="text-[10px] text-text-tertiary mt-2">Last heartbeat: {heartbeatAgo}</p>
+      ) : config.description ? (
         <p className="text-xs text-text-tertiary mt-2">{config.description}</p>
-      )}
+      ) : null}
     </div>
   )
 }
@@ -93,6 +120,19 @@ export default function SettingsPage() {
     queryFn: executorConfigsApi.list,
   })
 
+  const { data: workers = [] } = useQuery({
+    queryKey: ['workers'],
+    queryFn: workersApi.list,
+    refetchInterval: 30000, // refresh worker status every 30s
+  })
+
+  // Map worker_id → WorkerInfo for quick lookup
+  const workerMap = useMemo(() => {
+    const m = new Map<string, WorkerInfo>()
+    for (const w of workers) m.set(w.id, w)
+    return m
+  }, [workers])
+
   const createMutation = useMutation({
     mutationFn: (data: ExecutorConfigCreate) => executorConfigsApi.create(data),
     onSuccess: () => {
@@ -113,6 +153,37 @@ export default function SettingsPage() {
   const deleteMutation = useMutation({
     mutationFn: (id: string) => executorConfigsApi.delete(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['executor-configs'] }),
+  })
+
+  const deleteWorkerMutation = useMutation({
+    mutationFn: (id: string) => workersApi.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['workers'] })
+      queryClient.invalidateQueries({ queryKey: ['executor-configs'] })
+    },
+  })
+
+  const [shownToken, setShownToken] = useState<string | null>(null)
+
+  const { data: tokenInfo } = useQuery({
+    queryKey: ['install-token'],
+    queryFn: settingsApi.getInstallToken,
+  })
+
+  const generateTokenMutation = useMutation({
+    mutationFn: settingsApi.generateInstallToken,
+    onSuccess: (data) => {
+      setShownToken(data.token)
+      queryClient.invalidateQueries({ queryKey: ['install-token'] })
+    },
+  })
+
+  const revokeTokenMutation = useMutation({
+    mutationFn: settingsApi.revokeInstallToken,
+    onSuccess: () => {
+      setShownToken(null)
+      queryClient.invalidateQueries({ queryKey: ['install-token'] })
+    },
   })
 
   const openCreate = () => {
@@ -160,9 +231,14 @@ export default function SettingsPage() {
     }
   }
 
-  const handleDelete = (id: string) => {
-    if (confirm('Delete this executor configuration?')) {
-      deleteMutation.mutate(id)
+  const handleDelete = (id: string, isWorker: boolean) => {
+    const msg = isWorker ? 'Remove this worker and its executor config?' : 'Delete this executor configuration?'
+    if (confirm(msg)) {
+      if (isWorker) {
+        deleteWorkerMutation.mutate(id)
+      } else {
+        deleteMutation.mutate(id)
+      }
     }
   }
 
@@ -182,7 +258,7 @@ export default function SettingsPage() {
         }
       />
       <div className="p-8 max-w-3xl space-y-8">
-        {/* Executor Configs */}
+        {/* Executors (unified: LLM APIs + Workers) */}
         <div>
           <h3 className="text-sm font-semibold text-text-primary uppercase tracking-wider mb-4">
             Registered Executors
@@ -197,10 +273,65 @@ export default function SettingsPage() {
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {configs.map((c) => (
-                <ExecutorCard key={c.id} config={c} onEdit={openEdit} onDelete={handleDelete} />
+                <ExecutorCard
+                  key={c.id}
+                  config={c}
+                  worker={c.executor_type === 'worker' ? workerMap.get(c.config.worker_id as string) : undefined}
+                  onEdit={openEdit}
+                  onDelete={handleDelete}
+                />
               ))}
             </div>
           )}
+        </div>
+
+        {/* Install Token */}
+        <div>
+          <h3 className="text-sm font-semibold text-text-primary uppercase tracking-wider mb-4">
+            Worker Install Token
+          </h3>
+          <div className="bg-stitch-surface-low rounded-xl p-5 border border-stitch-outline-variant/10 space-y-3">
+            <p className="text-xs text-text-tertiary">
+              Required for worker registration. Generate a token and provide it via <code className="text-stitch-primary">--token</code> flag.
+            </p>
+            {shownToken && (
+              <div className="bg-stitch-surface rounded-lg p-3">
+                <p className="text-[10px] uppercase tracking-widest text-stitch-error font-bold mb-1">Copy now — shown only once</p>
+                <code className="block text-xs text-stitch-primary font-mono select-all break-all">{shownToken}</code>
+              </div>
+            )}
+            <div className="flex items-center gap-2">
+              {tokenInfo?.has_token ? (
+                <>
+                  <span className="text-xs text-text-secondary flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-green-500 inline-block" /> Token configured
+                  </span>
+                  <button
+                    onClick={() => generateTokenMutation.mutate()}
+                    className="text-xs px-3 py-1 rounded bg-stitch-primary/10 text-stitch-primary hover:bg-stitch-primary/20 transition-colors"
+                  >
+                    Regenerate
+                  </button>
+                  <button
+                    onClick={() => { if (confirm('Revoke install token? Workers will not be able to register until a new token is generated.')) revokeTokenMutation.mutate() }}
+                    className="text-xs px-3 py-1 rounded bg-stitch-error/10 text-stitch-error hover:bg-stitch-error/20 transition-colors"
+                  >
+                    Revoke
+                  </button>
+                </>
+              ) : (
+                <>
+                  <span className="text-xs text-text-tertiary">No token configured (open registration)</span>
+                  <button
+                    onClick={() => generateTokenMutation.mutate()}
+                    className="text-xs px-3 py-1 rounded bg-stitch-primary/10 text-stitch-primary hover:bg-stitch-primary/20 transition-colors"
+                  >
+                    Generate Token
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
         </div>
 
       </div>
@@ -256,13 +387,13 @@ export default function SettingsPage() {
               <div>
                 <p className="text-[10px] uppercase tracking-widest text-text-tertiary font-bold mb-1">1. Install worker</p>
                 <code className="block text-xs text-stitch-primary bg-stitch-surface rounded px-3 py-2 font-mono select-all">
-                  curl -fsSL {window.location.origin}/worker/install.sh | bash
+                  curl -fsSL {window.location.origin}/api/v1/workers/install.sh | bash
                 </code>
               </div>
               <div>
                 <p className="text-[10px] uppercase tracking-widest text-text-tertiary font-bold mb-1">2. Register & run</p>
                 <code className="block text-xs text-stitch-primary bg-stitch-surface rounded px-3 py-2 font-mono select-all">
-                  bsnexus-worker register{'\n'}cd my-project && bsnexus-worker run
+                  bsnexus-worker register --server {window.location.origin} --token YOUR_TOKEN{'\n'}cd my-project && bsnexus-worker run
                 </code>
                 <p className="text-[10px] text-text-tertiary mt-1.5">
                   To use a specific executor:

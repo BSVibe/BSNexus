@@ -44,6 +44,7 @@ class WorkerDispatcher:
         project_id: str,
         *,
         prompt: str | None = None,
+        workspace_dir: str | None = None,
     ) -> str:
         """Publish a task to a worker's dedicated stream.
 
@@ -58,6 +59,8 @@ class WorkerDispatcher:
         }
         if prompt:
             data["prompt"] = prompt
+        if workspace_dir:
+            data["workspace_dir"] = workspace_dir
 
         msg_id = await self._stream.publish(self._worker_stream(worker_id), data)
         logger.info(

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useAgentStore } from '../stores/agentStore'
-import type { Agent, AgentCreate, AgentOrgChartNode, ExecutorType } from '../types/agent'
+import type { Agent, AgentCreate } from '../types/agent'
 import Header from '../components/layout/Header'
 import OrgChart from '../components/agents/OrgChart'
 import { agentTemplatesApi, type OrgTemplate } from '../api/agentTemplates'
@@ -13,23 +13,18 @@ const EXECUTOR_LABELS: Record<string, string> = {
   bsgateway: 'BSGateway',
   codex: 'Codex',
   generic_llm: 'LLM API',
+  worker: 'Worker',
 }
-
-const EXECUTOR_OPTIONS: { value: ExecutorType; label: string }[] = [
-  { value: 'claude_api', label: 'LLM API' },
-  { value: 'bsgateway', label: 'BSGateway' },
-]
 
 // OrgChartNode rendering moved to components/agents/OrgChart.tsx (React Flow)
 
 function HireAgentModal({ onClose, agents, executorConfigs }: { onClose: () => void; agents: Agent[]; executorConfigs: ExecutorConfig[] }) {
   const { createAgent, fetchOrgChart, fetchAgents } = useAgentStore()
-  const defaultConfig = executorConfigs.find((c) => c.is_default) || executorConfigs[0]
   const [form, setForm] = useState<AgentCreate>({
     name: '',
     role: '',
     title: '',
-    executor_type: defaultConfig?.executor_type as ExecutorType || 'claude_api',
+    executor_config_id: null, // null = use default
     capabilities: ['general'],
     job_description: '',
   })
@@ -132,32 +127,19 @@ function HireAgentModal({ onClose, agents, executorConfigs }: { onClose: () => v
           {showAdvanced && (
             <div>
               <label className="block text-xs uppercase tracking-widest text-text-secondary mb-1">Executor</label>
-              {executorConfigs.length > 0 ? (
-                <select
-                  value={form.executor_type}
-                  onChange={(e) => setForm((f) => ({ ...f, executor_type: e.target.value as ExecutorType }))}
-                  className="w-full px-3 py-2 bg-stitch-surface border border-stitch-outline-variant/30 rounded-lg text-sm text-text-primary focus:border-stitch-primary focus:outline-none"
-                >
-                  {executorConfigs.map((c) => (
-                    <option key={c.id} value={c.executor_type}>
-                      {c.name} ({EXECUTOR_LABELS[c.executor_type] || c.executor_type})
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <>
-                  <select
-                    value={form.executor_type}
-                    onChange={(e) => setForm((f) => ({ ...f, executor_type: e.target.value as ExecutorType }))}
-                    className="w-full px-3 py-2 bg-stitch-surface border border-stitch-outline-variant/30 rounded-lg text-sm text-text-primary focus:border-stitch-primary focus:outline-none"
-                  >
-                    {EXECUTOR_OPTIONS.map((opt) => (
-                      <option key={opt.value} value={opt.value}>{opt.label}</option>
-                    ))}
-                  </select>
-                  <p className="mt-1 text-xs text-text-tertiary">Register executors in Settings for customized options</p>
-                </>
-              )}
+              <select
+                value={form.executor_config_id ?? '_default'}
+                onChange={(e) => setForm((f) => ({ ...f, executor_config_id: e.target.value === '_default' ? null : e.target.value }))}
+                className="w-full px-3 py-2 bg-stitch-surface border border-stitch-outline-variant/30 rounded-lg text-sm text-text-primary focus:border-stitch-primary focus:outline-none"
+              >
+                <option value="_default">Use Default</option>
+                {executorConfigs.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} ({EXECUTOR_LABELS[c.executor_type] || c.executor_type})
+                    {c.is_default ? ' ★' : ''}
+                  </option>
+                ))}
+              </select>
             </div>
           )}
 
@@ -190,7 +172,7 @@ function AgentDetailSidebar({ agent, onClose, onDelete, executorConfigs }: { age
     role: agent.role,
     title: agent.title || '',
     job_description: agent.job_description || '',
-    executor_type: agent.executor_type as string,
+    executor_config_id: agent.executor_config_id as string | null,
     capabilities: [...agent.capabilities],
     heartbeat_enabled: agent.heartbeat_enabled,
     heartbeat_interval_seconds: agent.heartbeat_interval_seconds ?? 3600,
@@ -203,7 +185,7 @@ function AgentDetailSidebar({ agent, onClose, onDelete, executorConfigs }: { age
       role: agent.role,
       title: agent.title || '',
       job_description: agent.job_description || '',
-      executor_type: agent.executor_type,
+      executor_config_id: agent.executor_config_id,
       capabilities: [...agent.capabilities],
       heartbeat_enabled: agent.heartbeat_enabled,
       heartbeat_interval_seconds: agent.heartbeat_interval_seconds ?? 3600,
@@ -220,7 +202,7 @@ function AgentDetailSidebar({ agent, onClose, onDelete, executorConfigs }: { age
         role: form.role,
         title: form.title || undefined,
         job_description: form.job_description || undefined,
-        executor_type: form.executor_type as Agent['executor_type'],
+        executor_config_id: form.executor_config_id,
         capabilities: form.capabilities,
         heartbeat_enabled: form.heartbeat_enabled,
         heartbeat_interval_seconds: form.heartbeat_enabled ? form.heartbeat_interval_seconds : null,
@@ -251,7 +233,7 @@ function AgentDetailSidebar({ agent, onClose, onDelete, executorConfigs }: { age
               <button onClick={handleSave} disabled={saving} className="text-xs px-2.5 py-1 rounded bg-stitch-primary text-stitch-on-primary font-bold hover:opacity-90 disabled:opacity-50">
                 {saving ? '...' : 'Save'}
               </button>
-              <button onClick={() => { setEditing(false); setForm({ name: agent.name, role: agent.role, title: agent.title || '', job_description: agent.job_description || '', executor_type: agent.executor_type, capabilities: [...agent.capabilities], heartbeat_enabled: agent.heartbeat_enabled, heartbeat_interval_seconds: agent.heartbeat_interval_seconds ?? 3600, monthly_budget_cents: agent.monthly_budget_cents }) }} className="text-xs px-2.5 py-1 rounded bg-stitch-surface-highest text-text-secondary font-bold hover:opacity-90">
+              <button onClick={() => { setEditing(false); setForm({ name: agent.name, role: agent.role, title: agent.title || '', job_description: agent.job_description || '', executor_config_id: agent.executor_config_id as string | null, capabilities: [...agent.capabilities], heartbeat_enabled: agent.heartbeat_enabled, heartbeat_interval_seconds: agent.heartbeat_interval_seconds ?? 3600, monthly_budget_cents: agent.monthly_budget_cents }) }} className="text-xs px-2.5 py-1 rounded bg-stitch-surface-highest text-text-secondary font-bold hover:opacity-90">
                 Cancel
               </button>
             </>
@@ -287,18 +269,26 @@ function AgentDetailSidebar({ agent, onClose, onDelete, executorConfigs }: { age
         <div>
           <label className={labelClass}>Executor</label>
           {editing ? (
-            <select value={form.executor_type} onChange={(e) => setForm((f) => ({ ...f, executor_type: e.target.value }))} className={inputClass}>
-              {executorConfigs.length > 0
-                ? executorConfigs.map((c) => (
-                    <option key={c.id} value={c.executor_type}>{c.name}</option>
-                  ))
-                : EXECUTOR_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>{o.label}</option>
-                  ))
-              }
+            <select
+              value={form.executor_config_id ?? '_default'}
+              onChange={(e) => setForm((f) => ({ ...f, executor_config_id: e.target.value === '_default' ? null : e.target.value }))}
+              className={inputClass}
+            >
+              <option value="_default">Use Default</option>
+              {executorConfigs.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name} ({EXECUTOR_LABELS[c.executor_type] || c.executor_type})
+                  {c.is_default ? ' ★' : ''}
+                </option>
+              ))}
             </select>
           ) : (
-            <p className="text-sm">{EXECUTOR_LABELS[agent.executor_type] || agent.executor_type}</p>
+            <p className="text-sm">
+              {agent.executor_config_id
+                ? executorConfigs.find((c) => c.id === agent.executor_config_id)?.name || agent.executor_type
+                : `Default (${EXECUTOR_LABELS[agent.executor_type] || agent.executor_type})`
+              }
+            </p>
           )}
         </div>
         <div>

@@ -25,18 +25,28 @@ from worker.executors import CLIExecutor, detect_available, get_executor
 logger = structlog.get_logger(__name__)
 
 
-async def register(name: str, server_url: str, project_id: str | None = None) -> None:
+async def register(
+    name: str,
+    server_url: str,
+    project_id: str | None = None,
+    install_token: str = "",
+) -> None:
     """Register this worker with the BSNexus server."""
     # Detect available executors on this machine
     available = detect_available()
     capabilities = available if available else ["claude_code"]
+
+    token = install_token or settings.install_token
+    headers: dict[str, str] = {}
+    if token:
+        headers["X-Install-Token"] = token
 
     async with httpx.AsyncClient(base_url=server_url, timeout=30) as client:
         payload: dict = {"name": name, "capabilities": capabilities}
         if project_id:
             payload["labels"] = [f"project:{project_id}"]
 
-        res = await client.post("/api/v1/workers/register", json=payload)
+        res = await client.post("/api/v1/workers/register", json=payload, headers=headers)
         res.raise_for_status()
         data = res.json()
 
@@ -189,6 +199,7 @@ def main() -> None:
         print("Options:")
         print("  --name NAME       Worker name (default: hostname)")
         print("  --server URL      BSNexus URL (default: nexus.bsvibe.dev)")
+        print("  --token TOKEN     Install token (from Settings)")
         print("  --project ID      Bind to project")
         print("  --executor NAME   CLI executor (default: auto-detect)")
         print("")
@@ -202,6 +213,7 @@ def main() -> None:
         name = socket.gethostname()
         server = settings.server_url
         project_id = None
+        install_token = ""
         i = 1
         while i < len(args):
             if args[i] == "--name" and i + 1 < len(args):
@@ -210,9 +222,11 @@ def main() -> None:
                 server = args[i + 1]; i += 2
             elif args[i] == "--project" and i + 1 < len(args):
                 project_id = args[i + 1]; i += 2
+            elif args[i] == "--token" and i + 1 < len(args):
+                install_token = args[i + 1]; i += 2
             else:
                 i += 1
-        asyncio.run(register(name, server, project_id))
+        asyncio.run(register(name, server, project_id, install_token))
 
     elif cmd == "run":
         executor_name = ""

@@ -27,7 +27,10 @@ class Agent(Base):
     title: Mapped[str | None] = mapped_column(String(255), nullable=True)
     job_description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    # Executor binding
+    # Executor binding — NULL means "use tenant default"
+    executor_config_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("executor_configs.id", ondelete="SET NULL"), nullable=True
+    )
     executor_type: Mapped[str] = mapped_column(
         String(50), nullable=False, default="claude_api", server_default="claude_api"
     )

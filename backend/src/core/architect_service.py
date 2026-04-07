@@ -30,7 +30,7 @@ SessionFactory = async_sessionmaker[AsyncSession] | Callable[[], AsyncSession]
 
 FINALIZE_MARKER = "[FINALIZE]"
 _CONTEXT_RE = re.compile(r"<design_context>(.*?)</design_context>", re.DOTALL)
-_CREATE_TASK_RE = re.compile(r"\[CREATE_TASK\](.*?)\[/CREATE_TASK\]", re.DOTALL)
+CREATE_TASK_RE = re.compile(r"\[CREATE_TASK\](.*?)\[/CREATE_TASK\]", re.DOTALL)
 _MODIFY_TASK_RE = re.compile(r"\[MODIFY_TASK\](.*?)\[/MODIFY_TASK\]", re.DOTALL)
 
 
@@ -55,7 +55,7 @@ def clean_response(text: str) -> tuple[str, bool, str | None]:
 
 def strip_action_markers(text: str) -> str:
     """Remove action marker blocks from user-visible text."""
-    text = _CREATE_TASK_RE.sub("", text)
+    text = CREATE_TASK_RE.sub("", text)
     text = _MODIFY_TASK_RE.sub("", text)
     return text.strip()
 
@@ -408,7 +408,7 @@ class ArchitectService:
         phases = await phase_repo.list_by_project(session.project_id)
         active_phase = next((p for p in phases if p.status == models.PhaseStatus.active), None)
 
-        for match in _CREATE_TASK_RE.finditer(text):
+        for match in CREATE_TASK_RE.finditer(text):
             if not active_phase:
                 break
 

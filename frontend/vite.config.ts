@@ -14,7 +14,18 @@ export default defineConfig(({ mode }) => {
       host: '0.0.0.0',
       port: 3000,
       proxy: {
-        '/api': env.VITE_API_URL || 'http://localhost:8000',
+        '/api': {
+          target: env.VITE_API_URL || 'http://localhost:8000',
+          changeOrigin: false,
+          headers: { 'X-Forwarded-Host': '' },  // placeholder, overridden per-request
+          configure: (proxy) => {
+            proxy.on('proxyReq', (proxyReq, req) => {
+              if (req.headers.host) {
+                proxyReq.setHeader('X-Forwarded-Host', req.headers.host)
+              }
+            })
+          },
+        },
       },
     },
   }

@@ -12,6 +12,7 @@ class AgentCreate(BaseModel):
     role: str
     title: Optional[str] = None
     job_description: Optional[str] = None
+    executor_config_id: Optional[uuid.UUID] = None  # NULL = use tenant default
     executor_type: str = "claude_api"
     executor_config: dict = Field(default_factory=dict)
     system_prompt: Optional[str] = None
@@ -28,6 +29,7 @@ class AgentUpdate(BaseModel):
     role: Optional[str] = None
     title: Optional[str] = None
     job_description: Optional[str] = None
+    executor_config_id: Optional[uuid.UUID] = None  # NULL = use tenant default
     executor_type: Optional[str] = None
     executor_config: Optional[dict] = None
     system_prompt: Optional[str] = None
@@ -49,6 +51,7 @@ class AgentResponse(BaseModel):
     role: str
     title: Optional[str] = None
     job_description: Optional[str] = None
+    executor_config_id: Optional[uuid.UUID] = None
     executor_type: str
     executor_config: dict = Field(default_factory=dict)
     system_prompt: Optional[str] = None

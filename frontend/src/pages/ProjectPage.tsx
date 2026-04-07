@@ -1,22 +1,30 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { useBoard } from '../hooks/useBoard'
 import { useBoardStore } from '../stores/boardStore'
-import { useArchitectStore } from '../stores/architectStore'
-import { useToastStore } from '../stores/toastStore'
-import type { ChatMessage as ChatMessageType } from '../stores/architectStore'
 import { projectsApi } from '../api/projects'
-import { architectApi } from '../api/architect'
 import KanbanBoard from '../components/board/KanbanBoard'
 import BoardStats from '../components/board/BoardStats'
 import TaskDetail from '../components/board/TaskDetail'
-import PMControl from '../components/board/PMControl'
-import RedesignView from '../components/board/RedesignView'
-import ChatMessage from '../components/architect/ChatMessage'
-import ChatInput from '../components/architect/ChatInput'
+import FileBrowser from '../components/workspace/FileBrowser'
+import AgentSidebar from '../components/project/AgentSidebar'
+import AgentChatModal from '../components/project/AgentChatModal'
+import AddTaskModal from '../components/project/AddTaskModal'
+import TimelineView from '../components/project/TimelineView'
+import DesignView from '../components/project/DesignView'
 import Header from '../components/layout/Header'
 import type { Task } from '../types/task'
+import type { Agent } from '../types/agent'
+
+type TabId = 'board' | 'files' | 'timeline' | 'design'
+
+const TABS: { id: TabId; label: string; icon: string }[] = [
+  { id: 'board', label: 'Board', icon: 'view_kanban' },
+  { id: 'files', label: 'Files', icon: 'folder' },
+  { id: 'timeline', label: 'Timeline', icon: 'timeline' },
+  { id: 'design', label: 'Design', icon: 'palette' },
+]
 
 export default function ProjectPage() {
   const { projectId } = useParams<{ projectId: string }>()
@@ -29,7 +37,7 @@ export default function ProjectPage() {
         <div className="p-8">
           <div className="rounded-lg border border-dashed border-stitch-outline-variant/30 p-12 text-center">
             <p className="text-text-secondary mb-4">Select a project from the Dashboard.</p>
-            <button type="button" onClick={() => navigate('/')} className="text-sm text-stitch-primary hover:underline">
+            <button type="button" onClick={() => navigate('/dashboard')} className="text-sm text-stitch-primary hover:underline">
               Go to Dashboard
             </button>
           </div>
@@ -42,30 +50,14 @@ export default function ProjectPage() {
 }
 
 function ProjectContent({ projectId }: { projectId: string }) {
-  const queryClient = useQueryClient()
-  const addToast = useToastStore((s) => s.addToast)
-  const [chatOpen, setChatOpen] = useState(false)
-  const messagesEndRef = useRef<HTMLDivElement>(null)
-  const abortRef = useRef<AbortController | null>(null)
+  const [activeTab, setActiveTab] = useState<TabId>('board')
+  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [addTaskOpen, setAddTaskOpen] = useState(false)
+  const [chatAgent, setChatAgent] = useState<Agent | null>(null)
 
   // Board state
   const { isLoading: boardLoading } = useBoard(projectId)
-  const { columns, redesignTasks, selectedTask, setSelectedTask, isConnected } = useBoardStore()
-
-  // Architect state
-  const {
-    sessionId,
-    messages,
-    isStreaming,
-    setSessionId,
-    setProjectId,
-    setMessages,
-    addMessage,
-    appendToLastMessage,
-    setStreaming,
-    setConnected,
-    clearMessages,
-  } = useArchitectStore()
+  const { columns, selectedTask, setSelectedTask, isConnected } = useBoardStore()
 
   // Project data
   const { data: project } = useQuery({
@@ -74,88 +66,8 @@ function ProjectContent({ projectId }: { projectId: string }) {
     enabled: !!projectId,
   })
 
-  // Load architect session for this project
-  useEffect(() => {
-    setProjectId(projectId)
-    architectApi.getSessionByProject(projectId)
-      .then((session) => {
-        setSessionId(session.id)
-        setConnected(true)
-        const chatMessages: ChatMessageType[] = session.messages.map((m) => ({
-          id: m.id,
-          role: m.role,
-          content: m.content,
-          createdAt: m.created_at,
-        }))
-        setMessages(chatMessages)
-      })
-      .catch(() => {
-        setSessionId(null)
-        setConnected(false)
-        clearMessages()
-      })
-
-    return () => {
-      setProjectId(null)
-      setSessionId(null)
-      clearMessages()
-    }
-  }, [projectId, setProjectId, setSessionId, setConnected, setMessages, clearMessages])
-
-  // Auto-scroll chat
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
-
-  const handleSend = useCallback((content: string) => {
-    const currentSessionId = useArchitectStore.getState().sessionId
-    if (!currentSessionId || useArchitectStore.getState().isStreaming) return
-
-    addMessage({
-      id: crypto.randomUUID(),
-      role: 'user',
-      content,
-      createdAt: new Date().toISOString(),
-    })
-
-    setStreaming(true)
-    let firstChunk = true
-
-    const controller = architectApi.streamMessage(currentSessionId, content, {
-      onChunk: (text) => {
-        if (firstChunk) {
-          firstChunk = false
-          addMessage({
-            id: crypto.randomUUID(),
-            role: 'assistant',
-            content: text,
-            isStreaming: true,
-            createdAt: new Date().toISOString(),
-          })
-        } else {
-          appendToLastMessage(text)
-        }
-      },
-      onDone: () => {
-        setStreaming(false)
-        queryClient.invalidateQueries({ queryKey: ['board', projectId] })
-      },
-      onFinalizeReady: () => {
-        setStreaming(false)
-      },
-      onError: (message) => {
-        setStreaming(false)
-        addToast(`Architect error: ${message}`, 'error')
-      },
-    })
-
-    abortRef.current = controller
-  }, [addMessage, appendToLastMessage, setStreaming, queryClient, projectId, addToast])
-
-  const isRedesigning = redesignTasks.length > 0
-
-  const handleRedesignDone = () => {
-    queryClient.invalidateQueries({ queryKey: ['board', projectId] })
+  const handleChatWithAgent = (agent: Agent) => {
+    setChatAgent(agent)
   }
 
   if (boardLoading) {
@@ -171,6 +83,7 @@ function ProjectContent({ projectId }: { projectId: string }) {
 
   return (
     <>
+      {/* Header with tabs */}
       <Header
         title={project?.name || 'Project'}
         action={
@@ -184,105 +97,99 @@ function ProjectContent({ projectId }: { projectId: string }) {
             </div>
             <button
               type="button"
-              onClick={() => setChatOpen(!chatOpen)}
+              onClick={() => setSidebarOpen(!sidebarOpen)}
               className="p-2 rounded-md hover:bg-stitch-surface-container text-text-secondary transition-colors"
-              title={chatOpen ? 'Close chat' : 'Open Architect chat'}
+              title={sidebarOpen ? 'Hide agents' : 'Show agents'}
             >
-              <span className="material-symbols-outlined">{chatOpen ? 'right_panel_close' : 'right_panel_open'}</span>
+              <span className="material-symbols-outlined">{sidebarOpen ? 'right_panel_close' : 'right_panel_open'}</span>
             </button>
           </div>
         }
       />
 
-      <div className="flex h-[calc(100vh-64px)] overflow-hidden">
-        {/* Main content: Board */}
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <div className="px-8 pt-6">
-            {/* Project header */}
-            <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-8">
-              <div>
-                <div className="flex items-center gap-3 mb-2">
-                  <h2 className="text-4xl font-extrabold tracking-[-0.04em] text-white">{project?.name || 'Project'}</h2>
-                  <span className="px-3 py-1 rounded-full bg-stitch-secondary-container text-stitch-on-secondary-container text-xs font-bold uppercase tracking-widest">
-                    {project?.status || 'Active'}
-                  </span>
-                </div>
-                {project?.description && (
-                  <p className="text-text-secondary max-w-2xl leading-relaxed">{project.description}</p>
-                )}
-              </div>
-              <div className="flex items-center gap-3">
-                <PMControl projectId={projectId} />
-              </div>
-            </div>
-          </div>
+      {/* Tabs in sub-header */}
+      <div className="px-8 flex items-center gap-1 border-b border-stitch-outline-variant/10 bg-stitch-surface">
+        {TABS.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-bold uppercase tracking-widest transition-colors border-b-2 -mb-px ${
+              activeTab === tab.id
+                ? 'text-stitch-primary border-stitch-primary'
+                : 'text-text-tertiary border-transparent hover:text-text-secondary'
+            }`}
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>{tab.icon}</span>
+            {tab.label}
+          </button>
+        ))}
+      </div>
 
-          {isRedesigning && (
-            <div className="px-8 pb-3">
-              <RedesignView
-                tasks={redesignTasks as Task[]}
-                onDone={handleRedesignDone}
-              />
+      {/* Main content area */}
+      <div className="flex h-[calc(100vh-112px)] overflow-hidden">
+        {/* Center content */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {activeTab === 'board' && (
+            <>
+              <div className="px-8 pt-4 pb-3">
+                <BoardStats projectName={project?.name} />
+              </div>
+              <div className="flex-1 overflow-auto px-8 pb-6">
+                <KanbanBoard
+                  columns={columns}
+                  onTaskClick={(task: Task) => setSelectedTask(task)}
+                  onAddTask={() => setAddTaskOpen(true)}
+                />
+              </div>
+            </>
+          )}
+
+          {activeTab === 'files' && (
+            <div className="flex-1 overflow-hidden">
+              <FileBrowser projectId={projectId} />
             </div>
           )}
 
-          <div className="px-8 pb-4">
-            <BoardStats projectName={project?.name} />
-          </div>
+          {activeTab === 'timeline' && (
+            <TimelineView projectId={projectId} />
+          )}
 
-          <div className="flex-1 overflow-auto px-8 pb-6">
-            <KanbanBoard
-              columns={columns}
-              onTaskClick={(task: Task) => setSelectedTask(task)}
-            />
-          </div>
+          {activeTab === 'design' && (
+            <DesignView projectId={projectId} />
+          )}
         </div>
 
-        {/* Right panel: Architect Chat drawer */}
-        {chatOpen && (
-          <aside className="w-80 h-full bg-stitch-surface-low border-l border-stitch-outline-variant/10 flex flex-col shrink-0">
-            <div className="py-6 px-5">
-              <h2 className="text-sm font-bold uppercase tracking-widest text-text-secondary mb-1">Architect Chat</h2>
-              {sessionId && (
-                <span className="text-[10px] text-stitch-primary font-bold">project-bound</span>
-              )}
-            </div>
-
-            <div className="flex-1 overflow-y-auto px-5 space-y-4">
-              {!sessionId ? (
-                <div className="flex flex-col items-center justify-center h-full gap-3">
-                  <div className="w-12 h-12 rounded-xl bg-stitch-surface-container flex items-center justify-center">
-                    <span className="material-symbols-outlined text-text-muted">chat</span>
-                  </div>
-                  <p className="text-sm text-text-tertiary">No architect session for this project.</p>
-                </div>
-              ) : messages.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full gap-3">
-                  <div className="w-12 h-12 rounded-xl bg-stitch-primary/10 flex items-center justify-center">
-                    <span className="material-symbols-outlined text-stitch-primary" style={{ fontVariationSettings: "'FILL' 1" }}>bolt</span>
-                  </div>
-                  <p className="text-sm text-text-secondary">Start a conversation with the Architect.</p>
-                </div>
-              ) : (
-                messages.map((msg) => (
-                  <ChatMessage key={msg.id} message={msg} />
-                ))
-              )}
-              <div ref={messagesEndRef} />
-            </div>
-
-            {sessionId && (
-              <div className="p-4 border-t border-stitch-outline-variant/10">
-                <ChatInput onSend={handleSend} disabled={isStreaming || !sessionId} />
-              </div>
-            )}
-          </aside>
+        {/* Right sidebar: Agents */}
+        {sidebarOpen && (
+          <AgentSidebar
+            projectId={projectId}
+            onChatWithAgent={handleChatWithAgent}
+          />
         )}
       </div>
 
       {/* Task detail modal */}
       {selectedTask && (
         <TaskDetail task={selectedTask as Task} onClose={() => setSelectedTask(null)} />
+      )}
+
+      {/* Add task modal */}
+      {project && (
+        <AddTaskModal
+          open={addTaskOpen}
+          onClose={() => setAddTaskOpen(false)}
+          project={project}
+        />
+      )}
+
+      {/* Agent chat modal */}
+      {chatAgent && (
+        <AgentChatModal
+          open={!!chatAgent}
+          onClose={() => setChatAgent(null)}
+          agent={chatAgent}
+          projectId={projectId}
+        />
       )}
     </>
   )

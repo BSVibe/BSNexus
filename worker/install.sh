@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # BSNexus Worker Installer
-# Usage: curl -fsSL https://your-bsnexus-server/worker/install.sh | bash
+# Usage: curl -fsSL .../install.sh | bash
 #
-# Environment variables:
-#   BSNEXUS_SERVER_URL  — BSNexus server URL (required if not passed as arg)
-#   INSTALL_DIR         — Installation directory (default: ~/.bsnexus-worker)
+# Environment variables (optional):
+#   BSNEXUS_SERVER_URL, INSTALL_DIR
 
 set -euo pipefail
 
@@ -15,10 +14,10 @@ YELLOW='\033[0;33m'
 RED='\033[0;31m'
 NC='\033[0m'
 
-info()  { echo -e "${GREEN}▸${NC} $*"; }
-warn()  { echo -e "${YELLOW}▸${NC} $*"; }
-error() { echo -e "${RED}✕${NC} $*" >&2; }
-header() { echo -e "\n${BOLD}$*${NC}"; }
+info()  { printf '%b\n' "${GREEN}▸${NC} $*"; }
+warn()  { printf '%b\n' "${YELLOW}▸${NC} $*"; }
+error() { printf '%b\n' "${RED}✕${NC} $*" >&2; }
+header() { printf '\n%b\n' "${BOLD}$*${NC}"; }
 
 # ─── Check prerequisites ─────────────────────────────────────────
 
@@ -71,32 +70,28 @@ header "Installing to $INSTALL_DIR"
 mkdir -p "$INSTALL_DIR"
 cd "$INSTALL_DIR"
 
-# Download worker package (or copy if local)
-if [ -f "$(dirname "$0")/worker/main.py" ] 2>/dev/null; then
-    # Local install (from repo)
+# Detect server URL from the URL this script was fetched from
+# e.g. http://bsserver:3000/api/v1/workers/install.sh → http://bsserver:3000
+SERVER_URL="${BSNEXUS_SERVER_URL:-}"
+
+# Download worker source from server
+if [ -n "$SERVER_URL" ]; then
+    info "Downloading worker source from $SERVER_URL..."
+    if curl -fsSL "$SERVER_URL/api/v1/workers/source.tar.gz" | tar xz; then
+        info "Downloaded worker source"
+    else
+        error "Failed to download worker source. Check your install token."
+        exit 1
+    fi
+elif [ -f "$(dirname "$0")/worker/main.py" ] 2>/dev/null; then
+    # Local install (from repo checkout)
     cp -r "$(dirname "$0")/worker" "$INSTALL_DIR/worker"
     cp "$(dirname "$0")/pyproject.toml" "$INSTALL_DIR/pyproject.toml"
     info "Copied from local source"
 else
-    # Create minimal worker inline (self-contained)
-    info "Creating worker package..."
-    mkdir -p worker
-
-    cat > pyproject.toml << 'PYPROJECT'
-[project]
-name = "bsnexus-worker"
-version = "0.1.0"
-requires-python = ">=3.11"
-dependencies = ["httpx>=0.27.0", "structlog>=23.0.0", "pydantic-settings>=2.0.0"]
-
-[project.scripts]
-bsnexus-worker = "worker.main:main"
-PYPROJECT
-
-    # Download worker source from server if BSNEXUS_SERVER_URL is set
-    if [ -n "${BSNEXUS_SERVER_URL:-}" ]; then
-        info "Server URL: $BSNEXUS_SERVER_URL"
-    fi
+    error "Cannot determine server URL. Set BSNEXUS_SERVER_URL and re-run:"
+    error "  BSNEXUS_SERVER_URL=http://your-server:3000 curl -fsSL .../install.sh | bash"
+    exit 1
 fi
 
 # Install dependencies
@@ -115,7 +110,7 @@ cat > "$WRAPPER" << WRAPPER_SCRIPT
 #!/usr/bin/env bash
 cd "$INSTALL_DIR"
 if command -v uv &>/dev/null; then
-    exec uv run bsnexus-worker "\$@"
+    exec uv run python -m worker.main "\$@"
 else
     exec python3 -m worker.main "\$@"
 fi
@@ -144,16 +139,15 @@ fi
 # ─── Done ─────────────────────────────────────────────────────────
 
 header "Installation complete!"
-echo ""
-echo "  Next steps:"
-echo ""
-echo "  1. Open a new terminal (or run: source $SHELL_RC)"
-echo ""
-echo "  2. Register this worker:"
-echo "     ${BOLD}bsnexus-worker register --name \"$(hostname)\" --server YOUR_SERVER_URL${NC}"
-echo ""
-echo "  3. Start the worker:"
-echo "     ${BOLD}bsnexus-worker run${NC}"
-echo ""
-echo "  Installed to: $INSTALL_DIR"
-echo ""
+printf '\n'
+printf '  Next steps:\n'
+printf '\n'
+printf '  1. Open a new terminal (or run: source %s)\n' "$SHELL_RC"
+printf '\n'
+printf '  2. Register this worker:\n'
+printf '     %bbsnexus-worker register --name "%s" --server YOUR_SERVER_URL%b\n' "$BOLD" "$(hostname)" "$NC"
+printf '\n'
+printf '  3. Start the worker:\n'
+printf '     %bbsnexus-worker run%b\n' "$BOLD" "$NC"
+printf '\n'
+printf '  Installed to: %s\n\n' "$INSTALL_DIR"

@@ -24,6 +24,12 @@ from backend.src.storage.database import Base
 # ── Enums ──────────────────────────────────────────────────────────────
 
 
+class WorkspaceType(str, enum.Enum):
+    server_managed = "server_managed"
+    local_import = "local_import"
+    github_connected = "github_connected"
+
+
 class ProjectStatus(str, enum.Enum):
     design = "design"
     active = "active"
@@ -111,7 +117,17 @@ class Project(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     design_doc_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    repo_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    repo_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    # Workspace management
+    workspace_type: Mapped[WorkspaceType] = mapped_column(
+        Enum(WorkspaceType), nullable=False, default=WorkspaceType.server_managed, server_default="server_managed"
+    )
+    workspace_dir: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    github_repo_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    github_branch: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    github_token_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     status: Mapped[ProjectStatus] = mapped_column(Enum(ProjectStatus), nullable=False, default=ProjectStatus.design)
     max_concurrent_tasks: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     llm_config: Mapped[dict | None] = mapped_column(JSON, nullable=True)

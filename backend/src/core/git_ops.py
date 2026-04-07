@@ -70,6 +70,43 @@ class GitOps:
         await self.ensure_branch(branch_name)
         await self._run("revert", "--no-edit", commit_hash)
 
+    # ── Remote operations (GitHub) ─────────────────────────────────
+
+    async def clone(self, url: str, branch: str = "main") -> None:
+        """Clone a remote repo into repo_path."""
+        await asyncio.create_subprocess_exec(
+            "git", "clone", "--branch", branch, "--single-branch", url, self.repo_path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        # Configure identity
+        await self._run("config", "user.email", "bsnexus@localhost")
+        await self._run("config", "user.name", "BSNexus")
+
+    async def add_remote(self, name: str, url: str) -> None:
+        """Add or update a git remote."""
+        try:
+            await self._run("remote", "get-url", name)
+            await self._run("remote", "set-url", name, url)
+        except RuntimeError:
+            await self._run("remote", "add", name, url)
+
+    async def pull(self, remote: str = "origin", branch: str = "main") -> str:
+        """Pull from remote. Returns output."""
+        return await self._run("pull", remote, branch, "--ff-only")
+
+    async def push(self, remote: str = "origin", branch: str = "main") -> str:
+        """Push to remote. Returns output."""
+        return await self._run("push", remote, branch)
+
+    async def has_remote(self, name: str = "origin") -> bool:
+        """Check if a remote exists."""
+        try:
+            await self._run("remote", "get-url", name)
+            return True
+        except RuntimeError:
+            return False
+
     async def _is_git_repo(self) -> bool:
         """Check if repo_path is an existing git repository."""
         try:

@@ -6,9 +6,10 @@ interface Props {
   status: string
   tasks: Task[]
   onTaskClick?: (task: Task) => void
+  onAddTask?: () => void
 }
 
-export default function KanbanColumn({ title, status, tasks, onTaskClick }: Props) {
+export default function KanbanColumn({ title, status, tasks, onTaskClick, onAddTask }: Props) {
   const isDone = status === 'done'
 
   return (
@@ -17,8 +18,8 @@ export default function KanbanColumn({ title, status, tasks, onTaskClick }: Prop
         <h3 className="text-xs font-bold uppercase tracking-[0.05em] text-text-secondary">
           {title} <span className="ml-2 text-[10px] opacity-50">{tasks.length}</span>
         </h3>
-        {status === 'waiting' && (
-          <button className="text-text-secondary hover:text-white">
+        {onAddTask && (
+          <button onClick={onAddTask} className="text-text-secondary hover:text-white transition-colors" title="Add task">
             <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>add</span>
           </button>
         )}

@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
 from backend.src.api import (
+    agent_chat,
     agent_templates,
     agents,
     architect,
@@ -25,6 +26,7 @@ from backend.src.api import (
     settings,
     tasks,
     workers,
+    workspace,
 )
 from backend.src.config import Settings, settings as app_settings
 from backend.src.core.rate_limiter import RateLimitMiddleware
@@ -173,6 +175,7 @@ async def health_deps():
 
 
 # API routers
+app.include_router(agent_chat.router)
 app.include_router(agent_templates.router)
 app.include_router(agents.router)
 app.include_router(budget.router)
@@ -189,4 +192,5 @@ app.include_router(settings.router)
 app.include_router(security.router)
 app.include_router(planner.router)
 app.include_router(workers.router)
+app.include_router(workspace.router)
 app.include_router(mcp.router)

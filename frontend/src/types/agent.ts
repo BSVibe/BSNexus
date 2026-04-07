@@ -1,5 +1,5 @@
 export type AgentStatus = 'online' | 'busy' | 'offline' | 'budget_exceeded'
-export type ExecutorType = 'claude_code' | 'claude_api' | 'bsgateway' | 'codex' | 'generic_llm'
+export type ExecutorType = 'claude_code' | 'claude_api' | 'bsgateway' | 'codex' | 'generic_llm' | 'worker'
 
 export interface Agent {
   id: string
@@ -8,6 +8,7 @@ export interface Agent {
   role: string
   title: string | null
   job_description: string | null
+  executor_config_id: string | null
   executor_type: ExecutorType
   executor_config: Record<string, unknown>
   system_prompt: string | null
@@ -35,6 +36,7 @@ export interface AgentCreate {
   role: string
   title?: string
   job_description?: string
+  executor_config_id?: string | null
   executor_type?: ExecutorType
   executor_config?: Record<string, unknown>
   system_prompt?: string
@@ -51,6 +53,7 @@ export interface AgentUpdate {
   role?: string
   title?: string
   job_description?: string
+  executor_config_id?: string | null
   executor_type?: ExecutorType
   executor_config?: Record<string, unknown>
   system_prompt?: string

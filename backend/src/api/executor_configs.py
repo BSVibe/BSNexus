@@ -32,13 +32,12 @@ async def create_executor_config(
             detail=f"Invalid executor_type '{body.executor_type}'. Valid: {sorted(EXECUTOR_TYPES)}",
         )
 
-    # If this is set as default, unset existing defaults for same executor_type
+    # If this is set as default, unset ALL existing defaults for this tenant
     if body.is_default:
         await db.execute(
             update(ExecutorConfig)
             .where(
                 ExecutorConfig.tenant_id == DEFAULT_TENANT_ID,
-                ExecutorConfig.executor_type == body.executor_type,
                 ExecutorConfig.is_default.is_(True),
             )
             .values(is_default=False)
@@ -92,13 +91,12 @@ async def update_executor_config(
 
     update_data = body.model_dump(exclude_unset=True)
 
-    # If setting as default, unset existing defaults for same type
+    # If setting as default, unset ALL existing defaults for this tenant
     if update_data.get("is_default"):
         await db.execute(
             update(ExecutorConfig)
             .where(
                 ExecutorConfig.tenant_id == DEFAULT_TENANT_ID,
-                ExecutorConfig.executor_type == config.executor_type,
                 ExecutorConfig.is_default.is_(True),
                 ExecutorConfig.id != config_id,
             )

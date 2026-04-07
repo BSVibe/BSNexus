@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, Index, String, Text, Uuid, func
+from sqlalchemy import Column, ForeignKey, Index, String, Text, Uuid, func, text
 from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -23,6 +23,13 @@ class ExecutorConfig(Base):
     __tablename__ = "executor_configs"
     __table_args__ = (
         Index("ix_executor_configs_tenant", "tenant_id"),
+        Index(
+            "uq_executor_configs_one_default_per_tenant",
+            "tenant_id",
+            unique=True,
+            postgresql_where=text("is_default = true"),
+            sqlite_where=text("is_default = 1"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)

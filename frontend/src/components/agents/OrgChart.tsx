@@ -1,4 +1,4 @@
-import { useMemo, useCallback } from 'react'
+import { useMemo } from 'react'
 import {
   ReactFlow,
   Background,
@@ -8,7 +8,6 @@ import {
   type NodeProps,
   Handle,
   Position,
-  useReactFlow,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import type { Agent, AgentOrgChartNode } from '../../types/agent'
@@ -26,6 +25,7 @@ const EXECUTOR_LABELS: Record<string, string> = {
   claude_api: 'LLM API',
   bsgateway: 'BSGateway',
   generic_llm: 'LLM API',
+  worker: 'Worker',
 }
 
 /** Custom node component for agent cards */

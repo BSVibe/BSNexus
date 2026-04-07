@@ -16,6 +16,7 @@ from backend.src.models._legacy import (
     Project,
     ProjectStatus,
     Setting,
+    WorkspaceType,
     SuggestionStatus,
     Task,
     TaskHistory,
@@ -47,6 +48,7 @@ __all__ = [
     "TaskSource",
     "TaskStatus",
     "TaskType",
+    "WorkspaceType",
     # Legacy models
     "DesignMessage",
     "DesignSession",

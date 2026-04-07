@@ -290,7 +290,7 @@ async def apply_template(template_id: str, db: AsyncSession = Depends(get_db)) -
     if not template:
         raise HTTPException(status_code=404, detail=f"Template '{template_id}' not found")
 
-    # Find the default executor config for this tenant
+    # Resolve default executor type for display (executor_config_id stays NULL = "Use Default")
     result = await db.execute(
         select(ExecutorConfig).where(
             ExecutorConfig.tenant_id == DEFAULT_TENANT_ID,
@@ -311,6 +311,7 @@ async def apply_template(template_id: str, db: AsyncSession = Depends(get_db)) -
                 role=t.role,
                 title=t.title,
                 job_description=t.job_description,
+                executor_config_id=None,  # Use Default
                 executor_type=default_executor_type,
                 capabilities=t.capabilities,
                 monthly_budget_cents=t.monthly_budget_cents,
