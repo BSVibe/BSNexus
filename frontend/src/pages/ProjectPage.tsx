@@ -57,7 +57,7 @@ function ProjectContent({ projectId }: { projectId: string }) {
 
   // Board state
   const { isLoading: boardLoading } = useBoard(projectId)
-  const { columns, selectedTask, setSelectedTask, isConnected } = useBoardStore()
+  const { columns, selectedTask, setSelectedTask } = useBoardStore()
 
   // Project data
   const { data: project } = useQuery({
@@ -88,23 +88,14 @@ function ProjectContent({ projectId }: { projectId: string }) {
           </span>
         }
         action={
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-stitch-surface-container border border-stitch-outline-variant/20">
-              <span
-                className="inline-block w-2 h-2 rounded-full"
-                style={{ backgroundColor: isConnected ? 'var(--status-done)' : 'var(--status-redesign)' }}
-              />
-              <span className="text-[11px] font-medium text-text-secondary">{isConnected ? 'Live' : 'Offline'}</span>
-            </div>
-            <button
-              type="button"
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="p-2 rounded-md hover:bg-stitch-surface-container text-text-secondary transition-colors"
-              title={sidebarOpen ? 'Hide chat' : 'Show chat'}
-            >
-              <span className="material-symbols-outlined">{sidebarOpen ? 'right_panel_close' : 'right_panel_open'}</span>
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className="p-2 rounded-md hover:bg-stitch-surface-container text-text-secondary transition-colors"
+            title={sidebarOpen ? 'Hide chat' : 'Show chat'}
+          >
+            <span className="material-symbols-outlined">{sidebarOpen ? 'right_panel_close' : 'right_panel_open'}</span>
+          </button>
         }
       />
 
