@@ -45,6 +45,12 @@ const EXECUTOR_FIELDS: Record<string, ConfigField[]> = {
   ],
 }
 
+function formatHeartbeatAgo(last: string | undefined | null): string | null {
+  if (!last) return null
+  const ms = Date.now() - new Date(last).getTime()
+  return `${Math.round(ms / 60000)}m ago`
+}
+
 function ExecutorCard({
   config,
   worker,
@@ -58,10 +64,7 @@ function ExecutorCard({
 }) {
   const isWorker = config.executor_type === 'worker'
   const typeLabel = TYPE_LABELS[config.executor_type] ?? config.executor_type
-
-  const heartbeatAgo = worker?.last_heartbeat
-    ? `${Math.round((Date.now() - new Date(worker.last_heartbeat).getTime()) / 60000)}m ago`
-    : null
+  const heartbeatAgo = formatHeartbeatAgo(worker?.last_heartbeat)
 
   return (
     <div className="bg-stitch-surface-low rounded-xl p-5 border border-stitch-outline-variant/10">

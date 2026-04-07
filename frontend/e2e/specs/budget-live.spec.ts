@@ -72,7 +72,7 @@ test.describe('Budget — Live API E2E', () => {
 
     // Get current summary
     const before = await page.request.get(`${API}/api/v1/budget/summary`)
-    const beforeData = await before.json()
+    await before.json() // verify parseable
 
     // Reset
     const resetRes = await page.request.post(`${API}/api/v1/budget/reset`)
