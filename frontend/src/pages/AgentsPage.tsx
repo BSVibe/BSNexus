@@ -192,6 +192,8 @@ function AgentDetailSidebar({ agent, onClose, onDelete, executorConfigs }: { age
       monthly_budget_cents: agent.monthly_budget_cents,
     })
     setEditing(false)
+    // Reset form only when a different agent is selected, not on every field change
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agent.id])
 
   const handleSave = async () => {
