@@ -1,0 +1,259 @@
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { agentChatApi } from '../../api/agentChat'
+import { agentsApi } from '../../api/agents'
+import ChatMessage from './ChatMessage'
+import MentionAutocomplete from './MentionAutocomplete'
+
+const MIN_WIDTH = 240
+const MAX_WIDTH = 600
+const DEFAULT_WIDTH = 320
+
+interface Props {
+  projectId: string
+}
+
+export default function UnifiedChatSidebar({ projectId }: Props) {
+  const queryClient = useQueryClient()
+  const [width, setWidth] = useState(DEFAULT_WIDTH)
+  const [input, setInput] = useState('')
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null)
+  const [mentionIndex, setMentionIndex] = useState(0)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const isDragging = useRef(false)
+  const startX = useRef(0)
+  const startWidth = useRef(DEFAULT_WIDTH)
+
+  const { data: agents = [] } = useQuery({
+    queryKey: ['agents'],
+    queryFn: () => agentsApi.list(),
+  })
+
+  const { data: historyData } = useQuery({
+    queryKey: ['project-chat', projectId],
+    queryFn: () => agentChatApi.history(projectId),
+  })
+
+  const messages = historyData?.messages ?? []
+
+  const filteredAgents = useMemo(() => {
+    if (mentionQuery === null) return []
+    return agents.filter((a) => a.name.toLowerCase().startsWith(mentionQuery.toLowerCase()))
+  }, [agents, mentionQuery])
+
+  const sendMutation = useMutation({
+    mutationFn: (message: string) => agentChatApi.send(projectId, message),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['project-chat', projectId] })
+      const hasTaskActions = data.messages.some((m) => m.actions.some((a) => a.type === 'task_created'))
+      if (hasTaskActions) queryClient.invalidateQueries({ queryKey: ['board', projectId] })
+      const hasGoalActions = data.messages.some((m) => m.actions.some((a) => a.type.startsWith('goal_')))
+      if (hasGoalActions) queryClient.invalidateQueries({ queryKey: ['goals', projectId] })
+    },
+  })
+
+  const clearMutation = useMutation({
+    mutationFn: () => agentChatApi.clear(projectId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['project-chat', projectId] }),
+  })
+
+  // @mention detection
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value
+    setInput(val)
+
+    // Check for @mention at cursor
+    const pos = e.target.selectionStart
+    const textBeforeCursor = val.slice(0, pos)
+    const match = textBeforeCursor.match(/(?:^|\s)@(\w*)$/)
+    if (match) {
+      setMentionQuery(match[1])
+      setMentionIndex(0)
+    } else {
+      setMentionQuery(null)
+    }
+  }, [])
+
+  const handleMentionSelect = useCallback((agent: { name: string }) => {
+    const pos = textareaRef.current?.selectionStart ?? input.length
+    const textBefore = input.slice(0, pos)
+    const atIndex = textBefore.lastIndexOf('@')
+    if (atIndex >= 0) {
+      const before = input.slice(0, atIndex)
+      const after = input.slice(pos)
+      setInput(`${before}@${agent.name} ${after}`)
+    }
+    setMentionQuery(null)
+    textareaRef.current?.focus()
+  }, [input])
+
+  const handleSend = useCallback(() => {
+    const trimmed = input.trim()
+    if (!trimmed || sendMutation.isPending) return
+    setInput('')
+    setMentionQuery(null)
+    sendMutation.mutate(trimmed)
+  }, [input, sendMutation])
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (mentionQuery !== null && filteredAgents.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setMentionIndex((i) => Math.min(i + 1, filteredAgents.length - 1))
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setMentionIndex((i) => Math.max(i - 1, 0))
+        return
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        handleMentionSelect(filteredAgents[mentionIndex])
+        return
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setMentionQuery(null)
+        return
+      }
+    }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSend()
+    }
+  }, [mentionQuery, filteredAgents, mentionIndex, handleMentionSelect, handleSend])
+
+  // Auto-scroll
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages.length, sendMutation.isPending])
+
+  // Resize
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    isDragging.current = true
+    startX.current = e.clientX
+    startWidth.current = width
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+  }, [width])
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isDragging.current) return
+      const delta = startX.current - e.clientX
+      setWidth(Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startWidth.current + delta)))
+    }
+    const handleMouseUp = () => {
+      if (!isDragging.current) return
+      isDragging.current = false
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [])
+
+  return (
+    <aside
+      className="h-full bg-stitch-surface-low border-l border-stitch-outline-variant/10 flex shrink-0 overflow-hidden"
+      style={{ width }}
+    >
+      {/* Resize handle */}
+      <div
+        onMouseDown={handleMouseDown}
+        className="w-1 cursor-col-resize hover:bg-stitch-primary/30 active:bg-stitch-primary/50 transition-colors shrink-0"
+      />
+
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+        {/* Header */}
+        <div className="px-4 py-3 border-b border-stitch-outline-variant/10 flex items-center justify-between">
+          <h3 className="text-[10px] font-bold uppercase tracking-widest text-text-tertiary">Chat</h3>
+          {messages.length > 0 && (
+            <button
+              onClick={() => clearMutation.mutate()}
+              className="text-[10px] text-text-tertiary hover:text-stitch-error transition-colors"
+              title="Clear chat"
+            >
+              clear
+            </button>
+          )}
+        </div>
+
+        {/* Messages */}
+        <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
+          {messages.length === 0 && !sendMutation.isPending && (
+            <div className="flex flex-col items-center justify-center h-full text-text-tertiary">
+              <span className="material-symbols-outlined text-3xl mb-2 opacity-40">chat</span>
+              <p className="text-xs text-center">@mention an agent to start a conversation</p>
+            </div>
+          )}
+
+          {messages.map((msg) => (
+            <ChatMessage key={msg.id} message={msg} />
+          ))}
+
+          {sendMutation.isPending && (
+            <div className="flex items-center gap-2 px-1">
+              <div className="flex items-center gap-1">
+                <div className="w-1.5 h-1.5 bg-stitch-primary rounded-full animate-bounce" />
+                <div className="w-1.5 h-1.5 bg-stitch-primary rounded-full animate-bounce" style={{ animationDelay: '0.15s' }} />
+                <div className="w-1.5 h-1.5 bg-stitch-primary rounded-full animate-bounce" style={{ animationDelay: '0.3s' }} />
+              </div>
+              <span className="text-[10px] text-text-tertiary">thinking...</span>
+            </div>
+          )}
+
+          <div ref={messagesEndRef} />
+        </div>
+
+        {/* Error */}
+        {sendMutation.isError && (
+          <p className="text-xs text-stitch-error px-3 pb-1">
+            {(sendMutation.error as Error).message || 'Failed to send'}
+          </p>
+        )}
+
+        {/* Input area */}
+        <div className="border-t border-stitch-outline-variant/10 p-3 relative">
+          {/* Mention autocomplete */}
+          {mentionQuery !== null && filteredAgents.length > 0 && (
+            <MentionAutocomplete
+              agents={filteredAgents}
+              query={mentionQuery}
+              selectedIndex={mentionIndex}
+              onSelect={handleMentionSelect}
+              onDismiss={() => setMentionQuery(null)}
+            />
+          )}
+
+          <div className="flex items-end gap-2">
+            <textarea
+              ref={textareaRef}
+              value={input}
+              onChange={handleInputChange}
+              onKeyDown={handleKeyDown}
+              placeholder="@mention an agent..."
+              rows={1}
+              className="flex-1 px-3 py-2 bg-stitch-surface border border-stitch-outline-variant/20 rounded-lg text-text-primary text-sm placeholder:text-text-tertiary focus:outline-none focus:border-stitch-primary resize-none"
+              style={{ maxHeight: '120px' }}
+              disabled={sendMutation.isPending}
+            />
+            <button
+              onClick={handleSend}
+              disabled={!input.trim() || sendMutation.isPending}
+              className="p-2 rounded-lg bg-stitch-primary text-white disabled:opacity-40 hover:bg-stitch-primary/80 transition-colors shrink-0"
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>send</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </aside>
+  )
+}

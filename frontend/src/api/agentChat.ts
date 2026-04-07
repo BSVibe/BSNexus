@@ -4,12 +4,14 @@ export interface ChatMessageOut {
   id: string
   role: 'user' | 'assistant'
   content: string
+  agent_id: string | null
+  agent_name: string | null
   created_at: string
-  actions: Array<{ type: string; task_id?: string; title?: string }>
+  actions: Array<{ type: string; task_id?: string; goal_id?: string; title?: string }>
 }
 
 export interface ChatResponse {
-  message: ChatMessageOut
+  messages: ChatMessageOut[]
 }
 
 export interface ChatHistoryResponse {
@@ -17,18 +19,18 @@ export interface ChatHistoryResponse {
 }
 
 export const agentChatApi = {
-  send: (projectId: string, agentId: string, message: string) =>
+  send: (projectId: string, message: string) =>
     apiClient
-      .post<ChatResponse>(`/api/v1/projects/${projectId}/chat`, { agent_id: agentId, message })
+      .post<ChatResponse>(`/api/v1/projects/${projectId}/chat`, { message })
       .then((r) => r.data),
 
-  history: (projectId: string, agentId: string) =>
+  history: (projectId: string) =>
     apiClient
-      .get<ChatHistoryResponse>(`/api/v1/projects/${projectId}/chat`, { params: { agent_id: agentId } })
+      .get<ChatHistoryResponse>(`/api/v1/projects/${projectId}/chat`)
       .then((r) => r.data),
 
-  clear: (projectId: string, agentId: string) =>
+  clear: (projectId: string) =>
     apiClient
-      .delete(`/api/v1/projects/${projectId}/chat`, { params: { agent_id: agentId } })
+      .delete(`/api/v1/projects/${projectId}/chat`)
       .then((r) => r.data),
 }

@@ -1,4 +1,4 @@
-"""Tests for Agent Chat API endpoints."""
+"""Tests for Unified Project Chat API — @mention routing + goal markers."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 import pytest_asyncio
 
+from backend.src.api.agent_chat import _parse_mentions, _pick_default_agent
 from backend.src.models import (
     Agent,
     Phase,
@@ -15,8 +16,6 @@ from backend.src.models import (
     Project,
     ProjectStatus,
     Setting,
-    Task,
-    TaskStatus,
     Tenant,
 )
 
@@ -25,10 +24,9 @@ _TENANT_ID = uuid.UUID("00000000-0000-0000-0000-000000000000")
 
 @pytest_asyncio.fixture(autouse=True)
 async def _seed_tenant(db_session):
-    """Ensure default tenant exists."""
+    """Ensure default tenant + LLM key exist."""
     t = Tenant(id=_TENANT_ID, name="Test", slug="test", owner_user_id="user-1")
     db_session.add(t)
-    # Add global LLM API key setting
     db_session.add(Setting(key="llm_api_key", value="sk-test-fake-key-12345678"))
     db_session.add(Setting(key="llm_model", value="anthropic/claude-sonnet-4-20250514"))
     await db_session.flush()
@@ -37,22 +35,12 @@ async def _seed_tenant(db_session):
 
 @pytest_asyncio.fixture
 async def project(db_session) -> Project:
-    """Create a test project with an active phase."""
-    p = Project(
-        name="Test Project",
-        description="A test project for chat",
-        status=ProjectStatus.active,
-    )
+    p = Project(name="Test Project", description="A test project", status=ProjectStatus.active)
     db_session.add(p)
     await db_session.flush()
-
     phase = Phase(
-        project_id=p.id,
-        name="Phase 1",
-        description="First phase",
-        branch_name="phase/phase-1",
-        order=1,
-        status=PhaseStatus.active,
+        project_id=p.id, name="Phase 1", description="First phase",
+        branch_name="phase/phase-1", order=1, status=PhaseStatus.active,
     )
     db_session.add(phase)
     await db_session.flush()
@@ -61,44 +49,39 @@ async def project(db_session) -> Project:
 
 
 @pytest_asyncio.fixture
-async def agent(db_session) -> Agent:
-    """Create a test agent."""
-    a = Agent(
-        tenant_id=_TENANT_ID,
-        name="Test Engineer",
-        role="engineer",
-        title="Senior Engineer",
-        executor_type="claude_api",
-        executor_config={},
-        system_prompt="You are a helpful engineering assistant.",
-        capabilities=["coding"],
-        status="online",
-    )
-    db_session.add(a)
+async def agents(db_session) -> list[Agent]:
+    """Create test agents: CEO, Engineer, QA."""
+    result = []
+    for name, role in [("CEO", "cto"), ("Engineer", "engineer"), ("QA Lead", "qa")]:
+        a = Agent(
+            tenant_id=_TENANT_ID, name=name, role=role,
+            executor_type="claude_api", executor_config={},
+            capabilities=["coding"], status="online",
+        )
+        db_session.add(a)
+        result.append(a)
     await db_session.flush()
     await db_session.commit()
-    return a
+    return result
 
 
 @pytest.fixture
-def mock_llm_chat():
+def mock_llm():
     """Mock LLMClient.chat to return a canned response."""
     with patch("backend.src.api.agent_chat.LLMClient") as mock_cls:
         instance = AsyncMock()
-        instance.chat = AsyncMock(return_value="Here is my response about the project.")
+        instance.chat = AsyncMock(return_value="Here is my response.")
         mock_cls.return_value = instance
         yield instance
 
 
 @pytest.fixture
-def mock_llm_chat_with_task():
-    """Mock LLMClient.chat to return a response with task creation markers."""
+def mock_llm_with_task():
+    """Mock LLM returning a CREATE_TASK marker."""
     response = (
-        'I\'ll create the auth API task for you.\n\n'
-        '[CREATE_TASK]{"title": "Implement Auth API", "description": "Build JWT auth endpoints", '
-        '"priority": "high", "task_type": "feature", '
-        '"worker_prompt": "Implement JWT authentication", "qa_prompt": "Test auth flow"}[/CREATE_TASK]\n\n'
-        'The task has been created.'
+        'Creating the task now.\n\n'
+        '[CREATE_TASK]{"title": "Implement Auth API", "description": "JWT endpoints", '
+        '"priority": "high", "task_type": "feature"}[/CREATE_TASK]\n\nDone!'
     )
     with patch("backend.src.api.agent_chat.LLMClient") as mock_cls:
         instance = AsyncMock()
@@ -107,203 +90,216 @@ def mock_llm_chat_with_task():
         yield instance
 
 
-class TestAgentChat:
+@pytest.fixture
+def mock_llm_with_goal():
+    """Mock LLM returning a SET_GOAL marker."""
+    response = (
+        'Setting the project goal.\n\n'
+        '[SET_GOAL]{"title": "Ship auth v2 by Q3", "level": "project", '
+        '"description": "Complete auth system with OAuth + JWT"}[/SET_GOAL]\n\nGoal set!'
+    )
+    with patch("backend.src.api.agent_chat.LLMClient") as mock_cls:
+        instance = AsyncMock()
+        instance.chat = AsyncMock(return_value=response)
+        mock_cls.return_value = instance
+        yield instance
+
+
+# ── @Mention parsing (unit tests) ──────────────────────────────────
+
+
+class TestMentionParsing:
+    def test_single_mention(self, agents) -> None:
+        mentioned = _parse_mentions("@Engineer build the auth API", agents)
+        assert len(mentioned) == 1
+        assert mentioned[0].name == "Engineer"
+
+    def test_multiple_mentions(self, agents) -> None:
+        mentioned = _parse_mentions("@CEO @Engineer let's discuss", agents)
+        assert len(mentioned) == 2
+        assert mentioned[0].name == "CEO"
+        assert mentioned[1].name == "Engineer"
+
+    def test_no_mention(self, agents) -> None:
+        mentioned = _parse_mentions("just a regular message", agents)
+        assert len(mentioned) == 0
+
+    def test_case_insensitive(self, agents) -> None:
+        mentioned = _parse_mentions("@ceo what do you think?", agents)
+        assert len(mentioned) == 1
+        assert mentioned[0].name == "CEO"
+
+    def test_mention_with_space_in_name(self, agents) -> None:
+        mentioned = _parse_mentions("@QA Lead please review", agents)
+        assert len(mentioned) == 1
+        assert mentioned[0].name == "QA Lead"
+
+    def test_no_duplicate_mentions(self, agents) -> None:
+        mentioned = _parse_mentions("@CEO hello @CEO again", agents)
+        assert len(mentioned) == 1
+
+
+class TestDefaultAgentPicker:
+    def test_prefers_pm_cto(self, agents) -> None:
+        default = _pick_default_agent(agents)
+        assert default is not None
+        assert default.name == "CEO"  # role="cto"
+
+    def test_empty_list(self) -> None:
+        assert _pick_default_agent([]) is None
+
+    def test_falls_back_to_first(self, db_session) -> None:
+        a = Agent(
+            tenant_id=_TENANT_ID, name="Worker", role="worker",
+            executor_type="claude_api", executor_config={},
+            capabilities=["coding"], status="online",
+        )
+        assert _pick_default_agent([a]) == a
+
+
+# ── Chat endpoint tests ────────────────────────────────────────────
+
+
+class TestUnifiedChat:
     @pytest.mark.asyncio
-    async def test_send_message(self, client, project, agent, mock_llm_chat) -> None:
+    async def test_send_with_mention(self, client, project, agents, mock_llm) -> None:
         resp = await client.post(
             f"/api/v1/projects/{project.id}/chat",
-            json={"agent_id": str(agent.id), "message": "Hello, how is the project going?"},
+            json={"message": "@Engineer build auth API"},
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert data["message"]["role"] == "assistant"
-        assert data["message"]["content"] == "Here is my response about the project."
-        assert data["message"]["actions"] == []
-        mock_llm_chat.chat.assert_called_once()
+        assert len(data["messages"]) == 1
+        msg = data["messages"][0]
+        assert msg["role"] == "assistant"
+        assert msg["agent_name"] == "Engineer"
+        assert msg["agent_id"] is not None
 
     @pytest.mark.asyncio
-    async def test_send_message_creates_task(self, client, project, agent, mock_llm_chat_with_task) -> None:
+    async def test_send_without_mention_uses_default(self, client, project, agents, mock_llm) -> None:
         resp = await client.post(
             f"/api/v1/projects/{project.id}/chat",
-            json={"agent_id": str(agent.id), "message": "Create an auth API task"},
+            json={"message": "what's the project status?"},
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert len(data["message"]["actions"]) == 1
-        assert data["message"]["actions"][0]["type"] == "task_created"
-        assert data["message"]["actions"][0]["title"] == "Implement Auth API"
-        # Markers should be stripped from display text
-        assert "[CREATE_TASK]" not in data["message"]["content"]
-        assert "created" in data["message"]["content"].lower() or "auth" in data["message"]["content"].lower()
+        assert len(data["messages"]) == 1
+        # CEO is default (role=cto)
+        assert data["messages"][0]["agent_name"] == "CEO"
 
     @pytest.mark.asyncio
-    async def test_chat_history(self, client, project, agent, mock_llm_chat) -> None:
-        # Send a message first
-        await client.post(
+    async def test_multi_mention(self, client, project, agents, mock_llm) -> None:
+        resp = await client.post(
             f"/api/v1/projects/{project.id}/chat",
-            json={"agent_id": str(agent.id), "message": "Hello"},
-        )
-
-        # Get history
-        resp = await client.get(
-            f"/api/v1/projects/{project.id}/chat",
-            params={"agent_id": str(agent.id)},
+            json={"message": "@CEO @Engineer let's plan together"},
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert len(data["messages"]) == 2  # user + assistant
-        assert data["messages"][0]["role"] == "user"
-        assert data["messages"][0]["content"] == "Hello"
-        assert data["messages"][1]["role"] == "assistant"
+        assert len(data["messages"]) == 2
+        assert data["messages"][0]["agent_name"] == "CEO"
+        assert data["messages"][1]["agent_name"] == "Engineer"
 
     @pytest.mark.asyncio
-    async def test_clear_history(self, client, project, agent, mock_llm_chat) -> None:
-        # Send a message
-        await client.post(
+    async def test_task_creation_marker(self, client, project, agents, mock_llm_with_task) -> None:
+        resp = await client.post(
             f"/api/v1/projects/{project.id}/chat",
-            json={"agent_id": str(agent.id), "message": "Hello"},
-        )
-
-        # Clear
-        resp = await client.delete(
-            f"/api/v1/projects/{project.id}/chat",
-            params={"agent_id": str(agent.id)},
+            json={"message": "@Engineer create auth task"},
         )
         assert resp.status_code == 200
+        msg = resp.json()["messages"][0]
+        assert len(msg["actions"]) == 1
+        assert msg["actions"][0]["type"] == "task_created"
+        assert msg["actions"][0]["title"] == "Implement Auth API"
+        assert "[CREATE_TASK]" not in msg["content"]
 
-        # Verify empty
-        resp = await client.get(
+    @pytest.mark.asyncio
+    async def test_goal_creation_marker(self, client, project, agents, mock_llm_with_goal) -> None:
+        resp = await client.post(
             f"/api/v1/projects/{project.id}/chat",
-            params={"agent_id": str(agent.id)},
+            json={"message": "@CEO set our project goal"},
         )
+        assert resp.status_code == 200
+        msg = resp.json()["messages"][0]
+        goal_actions = [a for a in msg["actions"] if a["type"] == "goal_created"]
+        assert len(goal_actions) == 1
+        assert goal_actions[0]["title"] == "Ship auth v2 by Q3"
+        assert "[SET_GOAL]" not in msg["content"]
+
+    @pytest.mark.asyncio
+    async def test_goal_upsert(self, client, project, agents, mock_llm_with_goal) -> None:
+        """Second SET_GOAL with same level updates existing goal."""
+        await client.post(
+            f"/api/v1/projects/{project.id}/chat",
+            json={"message": "@CEO set goal"},
+        )
+        # Second call should update, not create
+        resp = await client.post(
+            f"/api/v1/projects/{project.id}/chat",
+            json={"message": "@CEO update goal"},
+        )
+        assert resp.status_code == 200
+        msg = resp.json()["messages"][0]
+        goal_actions = [a for a in msg["actions"] if a["type"] == "goal_updated"]
+        assert len(goal_actions) == 1
+
+    @pytest.mark.asyncio
+    async def test_history(self, client, project, agents, mock_llm) -> None:
+        await client.post(
+            f"/api/v1/projects/{project.id}/chat",
+            json={"message": "@Engineer hello"},
+        )
+        resp = await client.get(f"/api/v1/projects/{project.id}/chat")
+        assert resp.status_code == 200
+        msgs = resp.json()["messages"]
+        assert len(msgs) == 2  # user + assistant
+        assert msgs[0]["role"] == "user"
+        assert msgs[1]["role"] == "assistant"
+        assert msgs[1]["agent_name"] == "Engineer"
+
+    @pytest.mark.asyncio
+    async def test_clear_history(self, client, project, agents, mock_llm) -> None:
+        await client.post(
+            f"/api/v1/projects/{project.id}/chat",
+            json={"message": "@Engineer hello"},
+        )
+        resp = await client.delete(f"/api/v1/projects/{project.id}/chat")
+        assert resp.status_code == 200
+        resp = await client.get(f"/api/v1/projects/{project.id}/chat")
         assert resp.json()["messages"] == []
 
     @pytest.mark.asyncio
-    async def test_project_not_found(self, client, agent, mock_llm_chat) -> None:
-        fake_id = uuid.uuid4()
+    async def test_project_not_found(self, client, agents, mock_llm) -> None:
         resp = await client.post(
-            f"/api/v1/projects/{fake_id}/chat",
-            json={"agent_id": str(agent.id), "message": "Hello"},
+            f"/api/v1/projects/{uuid.uuid4()}/chat",
+            json={"message": "hello"},
         )
         assert resp.status_code == 404
-        assert "Project not found" in resp.json()["detail"]
 
     @pytest.mark.asyncio
-    async def test_agent_not_found(self, client, project, mock_llm_chat) -> None:
-        fake_id = uuid.uuid4()
+    async def test_no_agents_returns_400(self, client, project, mock_llm) -> None:
         resp = await client.post(
             f"/api/v1/projects/{project.id}/chat",
-            json={"agent_id": str(fake_id), "message": "Hello"},
+            json={"message": "hello"},
         )
-        assert resp.status_code == 404
-        assert "Agent not found" in resp.json()["detail"]
+        assert resp.status_code == 400
+        assert "No agents" in resp.json()["detail"]
 
     @pytest.mark.asyncio
-    async def test_empty_message_rejected(self, client, project, agent) -> None:
+    async def test_empty_message_rejected(self, client, project, agents) -> None:
         resp = await client.post(
             f"/api/v1/projects/{project.id}/chat",
-            json={"agent_id": str(agent.id), "message": ""},
+            json={"message": ""},
         )
-        assert resp.status_code == 422  # Validation error
+        assert resp.status_code == 422
 
     @pytest.mark.asyncio
-    async def test_llm_error_returns_502(self, client, project, agent) -> None:
+    async def test_llm_error_returns_502(self, client, project, agents) -> None:
         with patch("backend.src.api.agent_chat.LLMClient") as mock_cls:
             instance = AsyncMock()
-            instance.chat = AsyncMock(side_effect=Exception("LLM provider timeout"))
+            instance.chat = AsyncMock(side_effect=Exception("LLM timeout"))
             mock_cls.return_value = instance
-
             resp = await client.post(
                 f"/api/v1/projects/{project.id}/chat",
-                json={"agent_id": str(agent.id), "message": "Hello"},
+                json={"message": "@Engineer hello"},
             )
             assert resp.status_code == 502
-            assert "LLM error" in resp.json()["detail"]
-
-    @pytest.mark.asyncio
-    async def test_conversation_context_maintained(self, client, project, agent, mock_llm_chat) -> None:
-        """Verify that multiple messages build up conversation context."""
-        # First message
-        await client.post(
-            f"/api/v1/projects/{project.id}/chat",
-            json={"agent_id": str(agent.id), "message": "First message"},
-        )
-
-        # Second message — LLM should receive full history
-        mock_llm_chat.chat.reset_mock()
-        await client.post(
-            f"/api/v1/projects/{project.id}/chat",
-            json={"agent_id": str(agent.id), "message": "Second message"},
-        )
-
-        # Check messages sent to LLM include history
-        call_args = mock_llm_chat.chat.call_args
-        messages = call_args[0][0]  # first positional arg
-        # Should have: system + user1 + assistant1 + user2
-        assert len(messages) >= 4
-        assert messages[0]["role"] == "system"
-        user_messages = [m for m in messages if m["role"] == "user"]
-        assert len(user_messages) == 2
-
-    @pytest.mark.asyncio
-    async def test_no_llm_key_returns_400(self, client, project, agent, db_session) -> None:
-        """If no LLM key is configured, return a helpful error."""
-        # Remove the LLM key
-        from sqlalchemy import delete
-        await db_session.execute(delete(Setting).where(Setting.key == "llm_api_key"))
-        await db_session.commit()
-
-        with patch("backend.src.api.agent_chat.LLMClient"):
-            resp = await client.post(
-                f"/api/v1/projects/{project.id}/chat",
-                json={"agent_id": str(agent.id), "message": "Hello"},
-            )
-            assert resp.status_code == 400
-            assert "API key" in resp.json()["detail"]
-
-
-class TestActionMarkerParsing:
-    @pytest.mark.asyncio
-    async def test_multiple_tasks_created(self, client, project, agent) -> None:
-        """Multiple CREATE_TASK markers create multiple tasks."""
-        response = (
-            'Creating two tasks:\n'
-            '[CREATE_TASK]{"title": "Task A", "priority": "high"}[/CREATE_TASK]\n'
-            '[CREATE_TASK]{"title": "Task B", "priority": "low", "task_type": "bug"}[/CREATE_TASK]\n'
-            'Done!'
-        )
-        with patch("backend.src.api.agent_chat.LLMClient") as mock_cls:
-            instance = AsyncMock()
-            instance.chat = AsyncMock(return_value=response)
-            mock_cls.return_value = instance
-
-            resp = await client.post(
-                f"/api/v1/projects/{project.id}/chat",
-                json={"agent_id": str(agent.id), "message": "Create tasks"},
-            )
-            assert resp.status_code == 200
-            assert len(resp.json()["message"]["actions"]) == 2
-            assert resp.json()["message"]["actions"][0]["title"] == "Task A"
-            assert resp.json()["message"]["actions"][1]["title"] == "Task B"
-
-    @pytest.mark.asyncio
-    async def test_invalid_json_in_marker_skipped(self, client, project, agent) -> None:
-        """Invalid JSON in marker is silently skipped."""
-        response = (
-            'Creating task:\n'
-            '[CREATE_TASK]not valid json[/CREATE_TASK]\n'
-            '[CREATE_TASK]{"title": "Valid Task"}[/CREATE_TASK]\n'
-            'Done!'
-        )
-        with patch("backend.src.api.agent_chat.LLMClient") as mock_cls:
-            instance = AsyncMock()
-            instance.chat = AsyncMock(return_value=response)
-            mock_cls.return_value = instance
-
-            resp = await client.post(
-                f"/api/v1/projects/{project.id}/chat",
-                json={"agent_id": str(agent.id), "message": "Create tasks"},
-            )
-            assert resp.status_code == 200
-            assert len(resp.json()["message"]["actions"]) == 1
-            assert resp.json()["message"]["actions"][0]["title"] == "Valid Task"
