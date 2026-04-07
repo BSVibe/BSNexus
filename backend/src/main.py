@@ -114,83 +114,100 @@ async def lifespan(app: FastAPI):
     await close_redis()
 
 
-app = FastAPI(
-    title="BSNexus",
-    description="AI-Powered Development Manager",
-    version="0.1.0",
-    lifespan=lifespan,
-    redirect_slashes=False,
-)
-
-# Security headers (outermost — runs first on response)
-app.add_middleware(
-    SecurityHeadersMiddleware,
-    enable_hsts=app_settings.enable_hsts,
-    hsts_max_age=app_settings.hsts_max_age,
-)
-
-# Rate limiting
-if app_settings.rate_limit_enabled:
-    app.add_middleware(RateLimitMiddleware)
-
-# CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=app_settings.cors_allowed_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+_ROUTERS = [
+    agent_chat.router,
+    agent_templates.router,
+    agents.router,
+    budget.router,
+    executor_configs.router,
+    auth.router,
+    goals.router,
+    tasks.router,
+    projects.router,
+    pm.router,
+    architect.router,
+    board.router,
+    dashboard.router,
+    settings.router,
+    security.router,
+    planner.router,
+    workers.router,
+    workspace.router,
+    mcp.router,
+]
 
 
-@app.get("/health")
-async def health():
-    return {"status": "healthy", "version": "0.1.0"}
+def create_app(
+    *,
+    cors_origins: list[str] | None = None,
+    rate_limit: bool | None = None,
+    enable_hsts: bool | None = None,
+    hsts_max_age: int | None = None,
+) -> FastAPI:
+    """App factory — creates a configured FastAPI instance.
+
+    Defaults are read from app_settings; kwargs override for testing.
+    """
+    _app = FastAPI(
+        title="BSNexus",
+        description="AI-Powered Development Manager",
+        version="0.1.0",
+        lifespan=lifespan,
+        redirect_slashes=False,
+    )
+
+    # Security headers (outermost — runs first on response)
+    _app.add_middleware(
+        SecurityHeadersMiddleware,
+        enable_hsts=enable_hsts if enable_hsts is not None else app_settings.enable_hsts,
+        hsts_max_age=hsts_max_age if hsts_max_age is not None else app_settings.hsts_max_age,
+    )
+
+    # Rate limiting
+    if rate_limit if rate_limit is not None else app_settings.rate_limit_enabled:
+        _app.add_middleware(RateLimitMiddleware)
+
+    # CORS
+    origins = cors_origins if cors_origins is not None else app_settings.cors_allowed_origins
+    _app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    # Health endpoints
+    @_app.get("/health")
+    async def health():
+        return {"status": "healthy", "version": "0.1.0"}
+
+    @_app.get("/health/deps")
+    async def health_deps():
+        redis_status = "disconnected"
+        try:
+            redis = await get_redis()
+            await redis.ping()  # type: ignore[misc]
+            redis_status = "connected"
+        except Exception:
+            pass
+
+        pg_status = "disconnected"
+        try:
+            async with engine.connect() as conn:
+                await conn.execute(text("SELECT 1"))
+                pg_status = "connected"
+        except Exception:
+            pass
+
+        return {"redis": redis_status, "postgresql": pg_status}
+
+    # API routers
+    for router in _ROUTERS:
+        _app.include_router(router)
+
+    return _app
 
 
-@app.get("/health/deps")
-async def health_deps():
-    # Check Redis
-    redis_status = "disconnected"
-    try:
-        redis = await get_redis()
-        await redis.ping()  # type: ignore[misc]
-        redis_status = "connected"
-    except Exception:
-        pass
-
-    # Check PostgreSQL
-    pg_status = "disconnected"
-    try:
-        async with engine.connect() as conn:
-            await conn.execute(text("SELECT 1"))
-            pg_status = "connected"
-    except Exception:
-        pass
-
-    return {
-        "redis": redis_status,
-        "postgresql": pg_status,
-    }
-
-
-# API routers
-app.include_router(agent_chat.router)
-app.include_router(agent_templates.router)
-app.include_router(agents.router)
-app.include_router(budget.router)
-app.include_router(executor_configs.router)
-app.include_router(auth.router)
-app.include_router(goals.router)
-app.include_router(tasks.router)
-app.include_router(projects.router)
-app.include_router(pm.router)
-app.include_router(architect.router)
-app.include_router(board.router)
-app.include_router(dashboard.router)
-app.include_router(settings.router)
-app.include_router(security.router)
-app.include_router(planner.router)
-app.include_router(workers.router)
-app.include_router(workspace.router)
-app.include_router(mcp.router)
+# Default app instance for uvicorn
+app = create_app()
