@@ -137,6 +137,8 @@ async def test_execution_loop_picks_ready_task_and_executes() -> None:
     mock_project_repo = AsyncMock()
     mock_project = MagicMock()
     mock_project.repo_path = "/tmp/repo"
+    mock_project.workspace_dir = None
+    mock_project.max_concurrent_tasks = 1
     mock_project_repo.get_by_id = AsyncMock(return_value=mock_project)
 
     async def stop_after_execute(*args, **kwargs):
@@ -978,6 +980,8 @@ async def test_process_escalation_no_llm_config() -> None:
 
     mock_project = MagicMock()
     mock_project.id = uuid.uuid4()
+    mock_project.workspace_dir = None
+    mock_project.max_concurrent_tasks = 1
     mock_project_repo = AsyncMock()
     mock_project_repo.get_by_id = AsyncMock(return_value=mock_project)
 
@@ -1015,6 +1019,8 @@ async def test_process_escalation_phase_not_found() -> None:
 
     mock_project = MagicMock()
     mock_project.id = uuid.uuid4()
+    mock_project.workspace_dir = None
+    mock_project.max_concurrent_tasks = 1
     mock_project_repo = AsyncMock()
     mock_project_repo.get_by_id = AsyncMock(return_value=mock_project)
 
@@ -1061,6 +1067,8 @@ async def test_process_escalation_llm_error_triggers_intervention() -> None:
 
     mock_project = MagicMock()
     mock_project.id = task.project_id
+    mock_project.workspace_dir = None
+    mock_project.max_concurrent_tasks = 1
     mock_project_repo = AsyncMock()
     mock_project_repo.get_by_id = AsyncMock(return_value=mock_project)
 
@@ -1110,6 +1118,8 @@ async def test_process_escalation_invalid_tasks_format() -> None:
 
     mock_project = MagicMock()
     mock_project.id = task.project_id
+    mock_project.workspace_dir = None
+    mock_project.max_concurrent_tasks = 1
     mock_project_repo = AsyncMock()
     mock_project_repo.get_by_id = AsyncMock(return_value=mock_project)
 
@@ -1159,6 +1169,8 @@ async def test_process_escalation_successful_redesign() -> None:
 
     mock_project = MagicMock()
     mock_project.id = task.project_id
+    mock_project.workspace_dir = None
+    mock_project.max_concurrent_tasks = 1
     mock_project_repo = AsyncMock()
     mock_project_repo.get_by_id = AsyncMock(return_value=mock_project)
 
@@ -1344,6 +1356,8 @@ async def test_process_escalation_apply_redesign_failure() -> None:
 
     mock_project = MagicMock()
     mock_project.id = task.project_id
+    mock_project.workspace_dir = None
+    mock_project.max_concurrent_tasks = 1
     mock_project_repo = AsyncMock()
     mock_project_repo.get_by_id = AsyncMock(return_value=mock_project)
 
