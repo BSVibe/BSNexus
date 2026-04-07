@@ -219,8 +219,8 @@ export default function UnifiedChatSidebar({ projectId }: Props) {
           </p>
         )}
 
-        {/* Input area — pb-14 avoids overlap with fixed HelpButton */}
-        <div className="border-t border-stitch-outline-variant/10 p-3 pb-14 relative">
+        {/* Input area */}
+        <div className="border-t border-stitch-outline-variant/10 p-3 relative">
           {/* Mention autocomplete */}
           {mentionQuery !== null && filteredAgents.length > 0 && (
             <MentionAutocomplete

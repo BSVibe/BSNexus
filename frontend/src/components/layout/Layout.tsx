@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { Outlet } from 'react-router-dom'
 import Sidebar from './Sidebar'
-import HelpButton from '../help/HelpButton'
 
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -23,7 +22,6 @@ export default function Layout() {
           <Outlet />
         </div>
       </main>
-      <HelpButton />
     </div>
   )
 }
