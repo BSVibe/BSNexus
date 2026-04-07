@@ -215,7 +215,7 @@ export default function UnifiedChatSidebar({ projectId }: Props) {
         {/* Error */}
         {sendMutation.isError && (
           <p className="text-xs text-stitch-error px-3 pb-1">
-            {(sendMutation.error as Error).message || 'Failed to send'}
+            {(sendMutation.error as any)?.response?.data?.detail || (sendMutation.error as Error).message || 'Failed to send'}
           </p>
         )}
 
