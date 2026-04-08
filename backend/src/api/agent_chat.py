@@ -137,21 +137,63 @@ def _parse_mentions(message: str, agents: list[models.Agent]) -> list[models.Age
     return mentioned
 
 
-def _pick_default_agent(agents: list[models.Agent]) -> models.Agent | None:
-    """Pick a default agent when no @mention is found."""
+def _find_org_root(agents: list[models.Agent]) -> models.Agent | None:
+    """Find the org chart root — an agent with no parent (top-level leader)."""
     if not agents:
         return None
-    # Prefer PM/CTO roles
-    for agent in agents:
-        if any(r in agent.role.lower() for r in ("pm", "cto", "manager", "lead")):
-            return agent
-    return agents[0]
+    roots = [a for a in agents if not a.parent_agent_id]
+    return roots[0] if roots else agents[0]
+
+
+def _pick_default_agent(agents: list[models.Agent], message: str = "") -> models.Agent | None:
+    """Pick the best-matching agent for a message using routing_keywords.
+
+    Each agent has user-defined routing_keywords (multi-language).
+    Matching priority: routing_keywords (3x) > job_description/capabilities (1x).
+    No hardcoded role names or language-specific synonym dicts.
+    """
+    if not agents:
+        return None
+    if not message.strip():
+        return _find_org_root(agents)
+
+    msg_lower = message.lower()
+
+    scores: dict[int, float] = {}
+    for idx, agent in enumerate(agents):
+        score = 0.0
+
+        # Primary: routing_keywords match (user-defined, multi-language)
+        for kw in (agent.routing_keywords or []):
+            if kw.lower() in msg_lower:
+                score += 3.0
+
+        # Secondary: job_description + capabilities text overlap
+        meta_parts = [agent.job_description or ""]
+        meta_parts.extend(agent.capabilities or [])
+        meta_text = " ".join(meta_parts).lower()
+        meta_tokens = set(re.findall(r"[a-z가-힣]+", meta_text))
+        msg_tokens = set(re.findall(r"[a-z가-힣]+", msg_lower))
+        score += len(msg_tokens & meta_tokens)
+
+        scores[idx] = score
+
+    best_idx = max(scores, key=lambda i: scores[i])
+    if scores[best_idx] > 0:
+        logger.info("agent_routed", agent=agents[best_idx].name, score=scores[best_idx], message_preview=message[:50])
+        return agents[best_idx]
+
+    # No match — fallback to org chart root (top-level leader)
+    return _find_org_root(agents)
 
 
 # ── Helpers ─────────────────────────────────────────────────────────
 
 
-def _build_system_prompt(agent: models.Agent, project: models.Project, goal_context: str) -> str:
+def _build_system_prompt(
+    agent: models.Agent, project: models.Project, goal_context: str,
+    all_agents: list[models.Agent] | None = None,
+) -> str:
     """Build system prompt for agent chat from agent config + project context."""
     parts: list[str] = []
 
@@ -168,13 +210,26 @@ def _build_system_prompt(agent: models.Agent, project: models.Project, goal_cont
 
     parts.append(build_project_context(project))
 
+    # Inject org chart so the agent knows who else is available
+    if all_agents:
+        colleagues = [a for a in all_agents if a.id != agent.id and a.is_active]
+        if colleagues:
+            lines = ["Your team (you can @mention them to delegate or ask for input):"]
+            for a in colleagues:
+                desc = f"  - @{a.name} ({a.role})"
+                if a.job_description:
+                    desc += f" — {a.job_description}"
+                lines.append(desc)
+            parts.append("\n".join(lines))
+
     parts.append(
         "You can create tasks by including markers in your response:\n"
         '[CREATE_TASK]{"title": "...", "description": "...", "priority": "medium", '
         '"task_type": "feature", "worker_prompt": "...", "qa_prompt": "..."}[/CREATE_TASK]\n\n'
         "You can set or update the project goal by including:\n"
         '[SET_GOAL]{"title": "...", "description": "...", "level": "project"}[/SET_GOAL]\n\n'
-        "Only include these markers when the user explicitly asks you to create tasks or set goals."
+        "Only include these markers when the user explicitly asks you to create tasks or set goals.\n"
+        "If another team member's expertise would be valuable, @mention them naturally in your response."
     )
 
     return "\n\n".join(parts)
@@ -321,6 +376,7 @@ async def _execute_goal_markers(
 async def _build_chat_context(
     agent: models.Agent, project: models.Project, project_id: uuid.UUID,
     history: list[dict[str, Any]], user_message: str, db: AsyncSession,
+    all_agents: list[models.Agent] | None = None,
 ) -> tuple[str, list[dict[str, str]]]:
     """Build system prompt + LLM message history for an agent."""
     goal_context = ""
@@ -335,7 +391,7 @@ async def _build_chat_context(
     if project_goal:
         goal_context = await goal_svc.build_goal_context(project_goal.id)
 
-    system_prompt = _build_system_prompt(agent, project, goal_context)
+    system_prompt = _build_system_prompt(agent, project, goal_context, all_agents=all_agents)
     messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
     for msg in history:
         content = msg["content"]
@@ -364,10 +420,11 @@ async def _process_response(
 async def _call_via_llm(
     agent: models.Agent, project: models.Project, project_id: uuid.UUID,
     history: list[dict[str, Any]], user_message: str, db: AsyncSession,
+    all_agents: list[models.Agent] | None = None,
 ) -> ChatMessageOut:
     """Direct LLM call for claude_api / generic_llm / codex executors."""
     llm_config = await _resolve_llm_config(agent, db)
-    _, messages = await _build_chat_context(agent, project, project_id, history, user_message, db)
+    _, messages = await _build_chat_context(agent, project, project_id, history, user_message, db, all_agents=all_agents)
 
     client = LLMClient(llm_config)
     try:
@@ -382,7 +439,7 @@ async def _call_via_llm(
 async def _call_via_worker(
     agent: models.Agent, project: models.Project, project_id: uuid.UUID,
     history: list[dict[str, Any]], user_message: str, db: AsyncSession,
-    redis: Any,
+    redis: Any, all_agents: list[models.Agent] | None = None,
 ) -> ChatMessageOut:
     """Dispatch chat to a worker and wait for the result via Redis polling."""
     # Resolve worker_id from executor config
@@ -413,7 +470,7 @@ async def _call_via_worker(
             raise HTTPException(status_code=503, detail=f"Worker is offline. Start the worker '{worker.name if worker else 'unknown'}' first.")
 
     # Build prompt context
-    system_prompt, _ = await _build_chat_context(agent, project, project_id, history, user_message, db)
+    system_prompt, _ = await _build_chat_context(agent, project, project_id, history, user_message, db, all_agents=all_agents)
 
     # Flatten history for worker
     flat_history: list[dict[str, str]] = []
@@ -460,7 +517,7 @@ async def _call_via_worker(
 async def _call_agent(
     agent: models.Agent, project: models.Project, project_id: uuid.UUID,
     history: list[dict[str, Any]], user_message: str, db: AsyncSession,
-    redis: Any | None = None,
+    redis: Any | None = None, all_agents: list[models.Agent] | None = None,
 ) -> ChatMessageOut:
     """Route chat to the appropriate executor based on agent config."""
     executor_type = agent.executor_type
@@ -468,9 +525,9 @@ async def _call_agent(
     if executor_type == "worker":
         if redis is None:
             raise HTTPException(status_code=500, detail="Redis not available for worker dispatch")
-        return await _call_via_worker(agent, project, project_id, history, user_message, db, redis)
+        return await _call_via_worker(agent, project, project_id, history, user_message, db, redis, all_agents=all_agents)
     # claude_api, generic_llm, codex, bsgateway — direct LLM call
-    return await _call_via_llm(agent, project, project_id, history, user_message, db)
+    return await _call_via_llm(agent, project, project_id, history, user_message, db, all_agents=all_agents)
 
 
 # ── Endpoints ───────────────────────────────────────────────────────
@@ -508,7 +565,7 @@ async def chat_with_agent(
     # Parse @mentions
     mentioned = _parse_mentions(body.message, all_agents)
     if not mentioned:
-        default = _pick_default_agent(all_agents)
+        default = _pick_default_agent(all_agents, body.message)
         if default:
             mentioned = [default]
 
@@ -516,11 +573,27 @@ async def chat_with_agent(
     history = _get_history(project_id)
     _add_message(project_id, "user", body.message)
 
-    # Call each mentioned agent sequentially
+    # Call each mentioned agent sequentially, then follow up delegations
     responses: list[ChatMessageOut] = []
-    for agent in mentioned:
-        msg = await _call_agent(agent, project, project_id, history, body.message, db, redis=redis)
+    called_ids: set[uuid.UUID] = set()
+    max_delegation_depth = 3
+
+    async def _call_and_delegate(
+        agent: models.Agent, message: str, depth: int,
+    ) -> None:
+        if agent.id in called_ids or depth > max_delegation_depth:
+            return
+        called_ids.add(agent.id)
+        msg = await _call_agent(agent, project, project_id, history, message, db, redis=redis, all_agents=all_agents)
         responses.append(msg)
+        # Check if the agent's response mentions other agents (delegation)
+        delegated = _parse_mentions(msg.content, [a for a in all_agents if a.id not in called_ids])
+        for delegate in delegated:
+            delegate_prompt = f"[{agent.name} asked for your input]\n\n{msg.content}"
+            await _call_and_delegate(delegate, delegate_prompt, depth + 1)
+
+    for agent in mentioned:
+        await _call_and_delegate(agent, body.message, 0)
 
     await db.commit()
     return ChatResponse(messages=responses)

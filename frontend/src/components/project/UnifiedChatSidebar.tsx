@@ -37,6 +37,10 @@ export default function UnifiedChatSidebar({ projectId }: Props) {
 
   const messages = historyData?.messages ?? []
 
+  // Optimistic: track the message being sent + target agent
+  const [pendingMessage, setPendingMessage] = useState<string | null>(null)
+  const [pendingAgent, setPendingAgent] = useState<string | null>(null)
+
   const filteredAgents = useMemo(() => {
     if (mentionQuery === null) return []
     return agents.filter((a) => a.name.toLowerCase().startsWith(mentionQuery.toLowerCase()))
@@ -45,11 +49,17 @@ export default function UnifiedChatSidebar({ projectId }: Props) {
   const sendMutation = useMutation({
     mutationFn: (message: string) => agentChatApi.send(projectId, message),
     onSuccess: (data) => {
+      setPendingMessage(null)
+      setPendingAgent(null)
       queryClient.invalidateQueries({ queryKey: ['project-chat', projectId] })
       const hasTaskActions = data.messages.some((m) => m.actions.some((a) => a.type === 'task_created'))
       if (hasTaskActions) queryClient.invalidateQueries({ queryKey: ['board', projectId] })
       const hasGoalActions = data.messages.some((m) => m.actions.some((a) => a.type.startsWith('goal_')))
       if (hasGoalActions) queryClient.invalidateQueries({ queryKey: ['goals', projectId] })
+    },
+    onError: () => {
+      setPendingMessage(null)
+      setPendingAgent(null)
     },
   })
 
@@ -91,10 +101,18 @@ export default function UnifiedChatSidebar({ projectId }: Props) {
   const handleSend = useCallback(() => {
     const trimmed = input.trim()
     if (!trimmed || sendMutation.isPending) return
+
+    // Extract @mentioned agent name for typing indicator
+    const mentionMatch = trimmed.match(/@(\S+)/)
+    const mentionedName = mentionMatch?.[1] ?? null
+    const matched = mentionedName ? agents.find((a) => a.name.toLowerCase() === mentionedName.toLowerCase()) : null
+
+    setPendingMessage(trimmed)
+    setPendingAgent(matched?.name ?? mentionedName)
     setInput('')
     setMentionQuery(null)
     sendMutation.mutate(trimmed)
-  }, [input, sendMutation])
+  }, [input, sendMutation, agents])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (mentionQuery !== null && filteredAgents.length > 0) {
@@ -198,15 +216,35 @@ export default function UnifiedChatSidebar({ projectId }: Props) {
             <ChatMessage key={msg.id} message={msg} />
           ))}
 
-          {sendMutation.isPending && (
-            <div className="flex items-center gap-2 px-1">
-              <div className="flex items-center gap-1">
-                <div className="w-1.5 h-1.5 bg-stitch-primary rounded-full animate-bounce" />
-                <div className="w-1.5 h-1.5 bg-stitch-primary rounded-full animate-bounce" style={{ animationDelay: '0.15s' }} />
-                <div className="w-1.5 h-1.5 bg-stitch-primary rounded-full animate-bounce" style={{ animationDelay: '0.3s' }} />
-              </div>
-              <span className="text-[10px] text-text-tertiary">thinking...</span>
-            </div>
+          {/* Optimistic user message + agent typing indicator */}
+          {sendMutation.isPending && pendingMessage && (
+            <>
+              <ChatMessage
+                message={{
+                  id: '__pending_user',
+                  role: 'user',
+                  content: pendingMessage,
+                  agent_id: null,
+                  agent_name: null,
+                  created_at: new Date().toISOString(),
+                  actions: [],
+                }}
+              />
+              {pendingAgent && (
+                <ChatMessage
+                  message={{
+                    id: '__pending_agent',
+                    role: 'assistant',
+                    content: '​', // zero-width space — content is replaced by typing indicator
+                    agent_id: null,
+                    agent_name: pendingAgent,
+                    created_at: new Date().toISOString(),
+                    actions: [],
+                  }}
+                  typing
+                />
+              )}
+            </>
           )}
 
           <div ref={messagesEndRef} />

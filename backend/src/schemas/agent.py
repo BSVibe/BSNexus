@@ -18,6 +18,7 @@ class AgentCreate(BaseModel):
     system_prompt: Optional[str] = None
     skills: Optional[list[str]] = None
     capabilities: list[str] = Field(default_factory=lambda: ["general"])
+    routing_keywords: list[str] = Field(default_factory=list)
     parent_agent_id: Optional[uuid.UUID] = None
     heartbeat_interval_seconds: Optional[int] = None
     heartbeat_enabled: bool = False
@@ -35,6 +36,7 @@ class AgentUpdate(BaseModel):
     system_prompt: Optional[str] = None
     skills: Optional[list[str]] = None
     capabilities: Optional[list[str]] = None
+    routing_keywords: Optional[list[str]] = None
     parent_agent_id: Optional[uuid.UUID] = None
     heartbeat_interval_seconds: Optional[int] = None
     heartbeat_enabled: Optional[bool] = None
@@ -57,6 +59,7 @@ class AgentResponse(BaseModel):
     system_prompt: Optional[str] = None
     skills: Optional[list[str]] = None
     capabilities: list[str] = Field(default_factory=list)
+    routing_keywords: list[str] = Field(default_factory=list)
     parent_agent_id: Optional[uuid.UUID] = None
     heartbeat_interval_seconds: Optional[int] = None
     heartbeat_enabled: bool = False
