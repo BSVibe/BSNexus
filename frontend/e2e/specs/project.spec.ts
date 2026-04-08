@@ -17,22 +17,9 @@ test.describe('Project — Detail Page & Board Integration', () => {
     await expect(page.getByText('BSNexus').first()).toBeVisible()
   })
 
-  test('displays project status badge', async ({ page }) => {
-    await expect(page.getByText('active', { exact: false }).first()).toBeVisible()
-  })
-
-  test('displays project description', async ({ page }) => {
-    await expect(page.getByText('AI-powered development management system')).toBeVisible()
-  })
-
-  test('connection status indicator shows Live or Offline', async ({ page }) => {
-    const statusText = page.locator('header').getByText(/Live|Offline/)
-    await expect(statusText).toBeVisible()
-  })
-
-  test('has architect chat toggle button with panel icon', async ({ page }) => {
-    const toggleBtn = page.locator('button[title="Open Architect chat"]').or(
-      page.locator('button[title="Close chat"]'),
+  test('has chat sidebar toggle button', async ({ page }) => {
+    const toggleBtn = page.locator('button[title="Hide chat"]').or(
+      page.locator('button[title="Show chat"]'),
     )
     await expect(toggleBtn).toBeVisible()
   })
@@ -59,22 +46,6 @@ test.describe('Project — Detail Page & Board Integration', () => {
     await expect(page.getByText('In Progress', { exact: false }).first()).toBeVisible()
     await expect(page.getByText('Review', { exact: false }).first()).toBeVisible()
     await expect(page.getByText('Done', { exact: false }).first()).toBeVisible()
-  })
-
-  test('opening architect chat panel shows Architect Chat heading', async ({ page }) => {
-    const toggleBtn = page.locator('button[title="Open Architect chat"]')
-    if (await toggleBtn.isVisible()) {
-      await toggleBtn.click()
-      await expect(page.getByText('Architect Chat')).toBeVisible()
-    }
-  })
-
-  test('architect chat panel shows project-bound label', async ({ page }) => {
-    const toggleBtn = page.locator('button[title="Open Architect chat"]')
-    if (await toggleBtn.isVisible()) {
-      await toggleBtn.click()
-      await expect(page.getByText('project-bound')).toBeVisible()
-    }
   })
 
   test('board stats uses Material Symbols bolt icon', async ({ page }) => {

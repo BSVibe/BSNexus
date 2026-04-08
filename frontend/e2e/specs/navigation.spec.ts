@@ -58,7 +58,7 @@ test.describe('Navigation — Sidebar & Active States', () => {
   })
 
   test('Settings link is active on /settings', async ({ page }) => {
-    await page.goto('/settings')
+    await setupPage(page, '/settings')
     const sidebar = page.locator('aside').first()
     const settingsLink = sidebar.getByRole('link', { name: 'Settings' })
     await expect(settingsLink).toHaveClass(/font-semibold/)

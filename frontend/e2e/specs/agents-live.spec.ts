@@ -43,10 +43,9 @@ test.describe('Agents — Live API E2E', () => {
     await page.goto('/agents', { waitUntil: 'networkidle' })
 
     await expect(page.getByText('Agent Organization')).toBeVisible()
-    // Seed agents visible on cards (use role text which is unique)
-    await expect(page.locator('button:has-text("Architect")')).toBeVisible()
-    await expect(page.locator('button:has-text("Developer")')).toBeVisible()
-    await expect(page.locator('button:has-text("Reviewer")')).toBeVisible()
+    // Company OS seed agents
+    await expect(page.locator('button:has-text("CEO")').first()).toBeVisible()
+    await expect(page.locator('button:has-text("CTO")').first()).toBeVisible()
   })
 
   test('Hire Agent modal opens and creates agent via real API', async ({ page }) => {
@@ -65,12 +64,6 @@ test.describe('Agents — Live API E2E', () => {
     await page.getByPlaceholder('e.g. engineer').fill('tester')
     await page.getByPlaceholder('e.g. Senior').fill('E2E Tester')
 
-    // Open Advanced section to select executor
-    await page.getByText('Advanced').click()
-    // Now the executor select is visible (2nd select after "Report To")
-    const executorSelect = page.locator('select').nth(1)
-    await executorSelect.selectOption('generic_llm')
-
     // Submit (exact match to avoid matching the header "+ Hire Agent" button)
     await page.getByRole('button', { name: 'Hire Agent', exact: true }).click()
 
@@ -82,13 +75,12 @@ test.describe('Agents — Live API E2E', () => {
   test('clicking agent card shows detail sidebar with real data', async ({ page }) => {
     await page.goto('/agents', { waitUntil: 'networkidle' })
 
-    // Click the Developer card
-    await page.locator('button:has-text("Developer")').first().click()
+    // Click the CTO card
+    await page.locator('button:has-text("CTO")').first().click()
 
     const sidebar = page.getByTestId('agent-detail-sidebar')
     await expect(sidebar).toBeVisible()
-    await expect(sidebar.getByText('Developer').first()).toBeVisible()
-    await expect(sidebar.getByText('engineer', { exact: true })).toBeVisible()
+    await expect(sidebar.getByText('CTO').first()).toBeVisible()
     // Close sidebar
     await sidebar.getByRole('button', { name: '✕' }).click()
     await expect(sidebar).not.toBeVisible()

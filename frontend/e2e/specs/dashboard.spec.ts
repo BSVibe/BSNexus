@@ -61,12 +61,6 @@ test.describe('Dashboard — Stat Cards & Project Grid', () => {
     await expect(bsnexusCard.getByText('2').first()).toBeVisible()
   })
 
-  test('project card shows architect indicator when session exists', async ({ page }) => {
-    const bsnexusCard = page.locator('a[href="/projects/proj-001"]')
-    await expect(bsnexusCard.locator('span.material-symbols-outlined:has-text("architecture")')).toBeVisible()
-    await expect(bsnexusCard.getByText('Architect')).toBeVisible()
-  })
-
   test('project card shows event icon with date', async ({ page }) => {
     const bsnexusCard = page.locator('a[href="/projects/proj-001"]')
     await expect(bsnexusCard.locator('span.material-symbols-outlined:has-text("event")')).toBeVisible()

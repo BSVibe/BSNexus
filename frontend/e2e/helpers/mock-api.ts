@@ -19,6 +19,8 @@ import {
   mockBudgetOverview,
   mockCostRecords,
   mockGlobalSettings,
+  mockExecutorConfigs,
+  mockInstallToken,
 } from './fixtures'
 
 /**
@@ -218,6 +220,29 @@ export async function mockAllApis(page: Page) {
   // Budget reset
   await page.route('**/api/v1/budget/reset', (route) => {
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ reset_count: 3 }) })
+  })
+
+  // Executor configs (CRUD)
+  await page.route('**/api/v1/executor-configs', (route) => {
+    if (route.request().method() === 'GET') {
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockExecutorConfigs) })
+    }
+    // POST — create
+    return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(mockExecutorConfigs[0]) })
+  })
+  await page.route('**/api/v1/executor-configs/*', (route) => {
+    const url = route.request().url()
+    const id = url.split('/').pop()
+    const config = mockExecutorConfigs.find((c) => c.id === id)
+    if (route.request().method() === 'DELETE') {
+      return route.fulfill({ status: 204, body: '' })
+    }
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(config || mockExecutorConfigs[0]) })
+  })
+
+  // Install token
+  await page.route('**/api/v1/settings/install-token', (route) => {
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockInstallToken) })
   })
 
   // Settings

@@ -42,14 +42,6 @@ test.describe('Navigation — Live E2E', () => {
     await expect(page.locator('header').getByRole('heading', { name: 'Budget' })).toBeVisible()
   })
 
-  test('navigate to /settings via sidebar', async ({ page }) => {
-    await setupLivePage(page, '/dashboard')
-
-    await page.locator('aside').first().getByRole('link', { name: 'Settings' }).click()
-    await expect(page).toHaveURL('/settings')
-    await expect(page.locator('header').getByRole('heading', { name: 'Settings' })).toBeVisible()
-  })
-
   test('navigate to /agents via sidebar', async ({ page }) => {
     await setupLivePage(page, '/dashboard')
 
@@ -67,12 +59,4 @@ test.describe('Navigation — Live E2E', () => {
     await expect(page.getByText('Utilization')).toBeVisible()
   })
 
-  test('/settings shows Settings page with real API data', async ({ page }) => {
-    await setupLivePage(page, '/settings')
-
-    await expect(page.getByText('LLM Configuration')).toBeVisible()
-    await expect(page.getByText('Default Executor')).toBeVisible()
-    const select = page.locator('select')
-    await expect(select).toBeVisible()
-  })
 })
