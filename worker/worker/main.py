@@ -148,7 +148,16 @@ async def _handle_chat(
             "error_message": result.error,
         },
     )
-    logger.info("chat_completed", chat_id=chat_id, success=result.success)
+    if result.success:
+        logger.info("chat_completed", chat_id=chat_id, success=True)
+    else:
+        logger.error(
+            "chat_failed",
+            chat_id=chat_id,
+            error=result.error,
+            stderr=(result.stderr or "")[:500],
+            stdout_preview=(result.stdout or "")[:200],
+        )
 
 
 async def poll_and_execute(executor_name: str) -> None:

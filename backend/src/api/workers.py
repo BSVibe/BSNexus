@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import secrets
 import tarfile
 import uuid
@@ -290,6 +291,11 @@ async def poll_tasks(
 
     tasks: list[WorkerTaskMessage] = []
     for msg in messages:
+        # `consume()` auto-decodes JSON fields, so `history` may be a list/dict.
+        # Re-serialize to keep WorkerTaskMessage.history a string for the worker.
+        history_val = msg.get("history", "[]")
+        if not isinstance(history_val, str):
+            history_val = json.dumps(history_val)
         tasks.append(WorkerTaskMessage(
             task_id=msg.get("task_id", ""),
             project_id=msg.get("project_id", ""),
@@ -300,7 +306,7 @@ async def poll_tasks(
             chat_id=msg.get("chat_id", ""),
             message=msg.get("message", ""),
             system_prompt=msg.get("system_prompt", ""),
-            history=msg.get("history", "[]"),
+            history=history_val,
         ))
         # Auto-ack after delivery
         msg_id = msg.get("_message_id")
