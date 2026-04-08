@@ -16,38 +16,36 @@ export default function ChatMessage({ message }: { message: ChatMessageOut }) {
   const agentColor = message.agent_name ? getAgentColor(message.agent_name) : '#6b7280'
   const initial = message.agent_name?.[0]?.toUpperCase() || '?'
 
+  if (isUser) {
+    return (
+      <div className="flex justify-end">
+        <div className="max-w-[85%] rounded-2xl rounded-br-sm bg-stitch-primary/20 px-3 py-2 text-sm text-text-primary">
+          <div className="whitespace-pre-wrap break-words">{message.content}</div>
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div className={`flex items-start gap-2 ${isUser ? 'flex-row-reverse' : ''}`}>
-      {/* Avatar */}
+    <div className="flex items-start gap-2">
+      {/* Agent avatar */}
       <div
-        className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[10px] font-bold ${
-          isUser ? 'bg-stitch-surface-high text-text-secondary' : 'text-white'
-        }`}
-        style={isUser ? undefined : { backgroundColor: agentColor }}
+        className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-[10px] font-bold text-white mt-0.5"
+        style={{ backgroundColor: agentColor }}
       >
-        {isUser ? (
-          <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>person</span>
-        ) : (
-          initial
-        )}
+        {initial}
       </div>
 
-      <div className={`max-w-[80%] ${isUser ? '' : ''}`}>
-        {/* Agent name label */}
-        {!isUser && message.agent_name && (
-          <p className="text-[10px] font-bold mb-0.5" style={{ color: agentColor }}>
+      <div className="max-w-[85%]">
+        {/* Agent name */}
+        {message.agent_name && (
+          <p className="text-[10px] font-bold mb-1 ml-1" style={{ color: agentColor }}>
             {message.agent_name}
           </p>
         )}
 
         {/* Message bubble */}
-        <div
-          className={`rounded-lg px-3 py-2 text-sm ${
-            isUser
-              ? 'bg-stitch-primary/15 text-text-primary'
-              : 'bg-stitch-surface-low border border-stitch-outline-variant/10 text-text-primary'
-          }`}
-        >
+        <div className="rounded-2xl rounded-tl-sm bg-stitch-surface border border-stitch-outline-variant/10 px-3 py-2 text-sm text-text-primary">
           <div className="whitespace-pre-wrap break-words">{message.content}</div>
 
           {/* Action notifications */}

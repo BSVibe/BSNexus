@@ -1,8 +1,10 @@
-"""Tests for Unified Project Chat API — @mention routing + goal markers."""
+"""Tests for Unified Project Chat API — @mention routing + goal markers + executor routing."""
 
 from __future__ import annotations
 
+import json
 import uuid
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -11,6 +13,7 @@ import pytest_asyncio
 from backend.src.api.agent_chat import _parse_mentions, _pick_default_agent
 from backend.src.models import (
     Agent,
+    ExecutorConfig,
     Phase,
     PhaseStatus,
     Project,
@@ -18,6 +21,7 @@ from backend.src.models import (
     Setting,
     Tenant,
 )
+from backend.src.models.worker import Worker
 
 _TENANT_ID = uuid.UUID("00000000-0000-0000-0000-000000000000")
 
@@ -303,3 +307,230 @@ class TestUnifiedChat:
                 json={"message": "@Engineer hello"},
             )
             assert resp.status_code == 502
+
+
+# ── Worker executor routing tests ─────────────────────────────────
+
+
+@pytest_asyncio.fixture
+async def worker_agent(db_session) -> tuple[Agent, Worker, ExecutorConfig]:
+    """Create a worker-type agent with linked Worker and ExecutorConfig."""
+    worker = Worker(
+        tenant_id=_TENANT_ID,
+        name="test-worker",
+        labels=[],
+        capabilities=["claude_code"],
+        token_hash="fakehash",
+        status="online",
+        is_active=True,
+        last_heartbeat=datetime.now(timezone.utc),
+    )
+    db_session.add(worker)
+    await db_session.flush()
+
+    exec_cfg = ExecutorConfig(
+        tenant_id=_TENANT_ID,
+        name="Worker: test-worker",
+        executor_type="worker",
+        config={"worker_id": str(worker.id)},
+        description="Self-hosted worker (claude_code)",
+    )
+    db_session.add(exec_cfg)
+    await db_session.flush()
+
+    agent = Agent(
+        tenant_id=_TENANT_ID,
+        name="DevWorker",
+        role="engineer",
+        executor_type="worker",
+        executor_config_id=exec_cfg.id,
+        executor_config={},
+        capabilities=["coding"],
+        status="online",
+    )
+    db_session.add(agent)
+    await db_session.flush()
+    await db_session.commit()
+    return agent, worker, exec_cfg
+
+
+class TestWorkerExecutorChat:
+    """Tests for chat routing through worker executors."""
+
+    @pytest.mark.asyncio
+    async def test_worker_chat_dispatches_and_returns(self, test_app, client, project, worker_agent) -> None:
+        """Worker agent chat: dispatch → poll Redis → return response."""
+        agent, worker, _ = worker_agent
+        mock_redis = AsyncMock()
+
+        # Simulate: first poll returns None, second returns the result
+        result_payload = json.dumps({
+            "success": True,
+            "output": "I built the auth API.",
+            "error_message": None,
+            "worker_id": str(worker.id),
+        })
+        mock_redis.get = AsyncMock(side_effect=[None, result_payload])
+        mock_redis.delete = AsyncMock()
+        mock_redis.set = AsyncMock()
+
+        test_app.state.redis = mock_redis
+
+        with patch("backend.src.api.agent_chat.WorkerDispatcher") as mock_dispatcher_cls:
+            mock_dispatcher = AsyncMock()
+            mock_dispatcher.dispatch_chat = AsyncMock(return_value="msg-123")
+            mock_dispatcher_cls.return_value = mock_dispatcher
+
+            resp = await client.post(
+                f"/api/v1/projects/{project.id}/chat",
+                json={"message": f"@{agent.name} build auth API"},
+            )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["messages"]) == 1
+        msg = data["messages"][0]
+        assert msg["agent_name"] == "DevWorker"
+        assert "I built the auth API" in msg["content"]
+        mock_dispatcher.dispatch_chat.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_worker_chat_error_returns_502(self, test_app, client, project, worker_agent) -> None:
+        """Worker returns success=false → 502 error."""
+        agent, worker, _ = worker_agent
+        mock_redis = AsyncMock()
+
+        result_payload = json.dumps({
+            "success": False,
+            "output": "",
+            "error_message": "CLI process exited with code 1",
+            "worker_id": str(worker.id),
+        })
+        mock_redis.get = AsyncMock(return_value=result_payload)
+        mock_redis.delete = AsyncMock()
+
+        test_app.state.redis = mock_redis
+
+        with patch("backend.src.api.agent_chat.WorkerDispatcher") as mock_dispatcher_cls:
+            mock_dispatcher = AsyncMock()
+            mock_dispatcher.dispatch_chat = AsyncMock(return_value="msg-123")
+            mock_dispatcher_cls.return_value = mock_dispatcher
+
+            resp = await client.post(
+                f"/api/v1/projects/{project.id}/chat",
+                json={"message": f"@{agent.name} hello"},
+            )
+
+        assert resp.status_code == 502
+        assert "Worker error" in resp.json()["detail"]
+
+    @pytest.mark.asyncio
+    async def test_worker_offline_returns_503(self, test_app, db_session, client, project, worker_agent) -> None:
+        """Offline worker → 503 error."""
+        agent, worker, _ = worker_agent
+        worker.status = "offline"
+        await db_session.commit()
+
+        mock_redis = AsyncMock()
+        test_app.state.redis = mock_redis
+
+        resp = await client.post(
+            f"/api/v1/projects/{project.id}/chat",
+            json={"message": f"@{agent.name} hello"},
+        )
+
+        assert resp.status_code == 503
+        assert "offline" in resp.json()["detail"].lower()
+
+    @pytest.mark.asyncio
+    async def test_worker_timeout_returns_504(self, test_app, client, project, worker_agent) -> None:
+        """Worker never responds → 504 timeout."""
+        agent, worker, _ = worker_agent
+        mock_redis = AsyncMock()
+        mock_redis.get = AsyncMock(return_value=None)  # Never returns result
+
+        test_app.state.redis = mock_redis
+
+        with (
+            patch("backend.src.api.agent_chat.WorkerDispatcher") as mock_dispatcher_cls,
+            patch("backend.src.api.agent_chat.asyncio.sleep", new_callable=AsyncMock),
+        ):
+            mock_dispatcher = AsyncMock()
+            mock_dispatcher.dispatch_chat = AsyncMock(return_value="msg-123")
+            mock_dispatcher_cls.return_value = mock_dispatcher
+
+            resp = await client.post(
+                f"/api/v1/projects/{project.id}/chat",
+                json={"message": f"@{agent.name} hello"},
+            )
+
+        assert resp.status_code == 504
+        assert "timed out" in resp.json()["detail"].lower()
+
+    @pytest.mark.asyncio
+    async def test_worker_chat_with_task_markers(self, test_app, client, project, worker_agent) -> None:
+        """Worker response containing [CREATE_TASK] markers creates tasks."""
+        agent, worker, _ = worker_agent
+        mock_redis = AsyncMock()
+
+        response_with_marker = (
+            'Done!\n\n[CREATE_TASK]{"title": "Auth Endpoint", "description": "JWT login", '
+            '"priority": "high", "task_type": "feature"}[/CREATE_TASK]'
+        )
+        result_payload = json.dumps({
+            "success": True,
+            "output": response_with_marker,
+            "error_message": None,
+            "worker_id": str(worker.id),
+        })
+        mock_redis.get = AsyncMock(return_value=result_payload)
+        mock_redis.delete = AsyncMock()
+
+        test_app.state.redis = mock_redis
+
+        with patch("backend.src.api.agent_chat.WorkerDispatcher") as mock_dispatcher_cls:
+            mock_dispatcher = AsyncMock()
+            mock_dispatcher.dispatch_chat = AsyncMock(return_value="msg-123")
+            mock_dispatcher_cls.return_value = mock_dispatcher
+
+            resp = await client.post(
+                f"/api/v1/projects/{project.id}/chat",
+                json={"message": f"@{agent.name} create auth task"},
+            )
+
+        assert resp.status_code == 200
+        msg = resp.json()["messages"][0]
+        assert len(msg["actions"]) == 1
+        assert msg["actions"][0]["type"] == "task_created"
+        assert msg["actions"][0]["title"] == "Auth Endpoint"
+        assert "[CREATE_TASK]" not in msg["content"]
+
+    @pytest.mark.asyncio
+    async def test_no_redis_returns_500(self, test_app, client, project, worker_agent) -> None:
+        """Worker agent chat without Redis available → 500."""
+        agent, _, _ = worker_agent
+
+        # Ensure redis is not set on app state
+        if hasattr(test_app.state, "redis"):
+            del test_app.state.redis
+
+        resp = await client.post(
+            f"/api/v1/projects/{project.id}/chat",
+            json={"message": f"@{agent.name} hello"},
+        )
+
+        assert resp.status_code == 500
+        assert "Redis" in resp.json()["detail"]
+
+    @pytest.mark.asyncio
+    async def test_llm_agent_ignores_redis(self, client, project, agents, mock_llm) -> None:
+        """LLM-type agents route through LLMClient, not worker dispatch."""
+        resp = await client.post(
+            f"/api/v1/projects/{project.id}/chat",
+            json={"message": "@Engineer build auth"},
+        )
+        assert resp.status_code == 200
+        msg = resp.json()["messages"][0]
+        assert msg["agent_name"] == "Engineer"
+        # LLMClient.chat was called (via mock_llm fixture)
+        mock_llm.chat.assert_called_once()

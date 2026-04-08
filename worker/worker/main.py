@@ -71,7 +71,84 @@ async def register(
     if project_id:
         print(f"  Project:      {project_id}")
     print(f"  Token:        saved to .env")
-    print(f"\n  Run: cd your-project && bsnexus-worker run\n")
+    print("\n  Run: bsnexus-worker run\n")
+
+
+def _build_chat_prompt(system_prompt: str, history: list[dict[str, str]], message: str) -> str:
+    """Build a single prompt string from system prompt + history + user message for CLI execution."""
+    parts: list[str] = []
+    if system_prompt:
+        parts.append(f"[System]\n{system_prompt}")
+    for msg in history:
+        role = msg.get("role", "user").capitalize()
+        parts.append(f"[{role}]\n{msg.get('content', '')}")
+    parts.append(f"[User]\n{message}")
+    parts.append("[Assistant]")
+    return "\n\n".join(parts)
+
+
+async def _handle_task(
+    task: dict, executor: CLIExecutor, cwd: str,
+    client: httpx.AsyncClient, headers: dict[str, str],
+) -> None:
+    """Handle a standard task execution."""
+    task_id = task["task_id"]
+    project_id = task.get("project_id", "")
+    title = task.get("title", "")
+    prompt = task.get("prompt") or title
+
+    if settings.project_id and project_id != settings.project_id:
+        logger.debug("skipping_wrong_project", task_id=task_id)
+        return
+
+    logger.info("task_received", task_id=task_id, title=title)
+    result = await executor.execute(prompt, cwd)
+    await client.post(
+        "/api/v1/workers/result",
+        headers=headers,
+        json={
+            "task_id": task_id,
+            "success": result.success,
+            "output_data": {"stdout": result.stdout},
+            "error_message": result.error,
+        },
+    )
+    logger.info("task_completed", task_id=task_id, success=result.success)
+
+
+async def _handle_chat(
+    task: dict, executor: CLIExecutor,
+    client: httpx.AsyncClient, headers: dict[str, str],
+) -> None:
+    """Handle a chat message: build prompt, execute via CLI, report result."""
+    import json as _json
+
+    chat_id = task.get("chat_id", "")
+    message = task.get("message", "")
+    system_prompt = task.get("system_prompt", "")
+    history_raw = task.get("history", "[]")
+
+    try:
+        history = _json.loads(history_raw) if isinstance(history_raw, str) else history_raw
+    except _json.JSONDecodeError:
+        history = []
+
+    logger.info("chat_received", chat_id=chat_id, message_len=len(message))
+
+    prompt = _build_chat_prompt(system_prompt, history, message)
+    result = await executor.execute(prompt, cwd=os.getcwd())
+
+    await client.post(
+        "/api/v1/workers/chat-result",
+        headers=headers,
+        json={
+            "chat_id": chat_id,
+            "success": result.success,
+            "output": result.stdout,
+            "error_message": result.error,
+        },
+    )
+    logger.info("chat_completed", chat_id=chat_id, success=result.success)
 
 
 async def poll_and_execute(executor_name: str) -> None:
@@ -122,30 +199,12 @@ async def poll_and_execute(executor_name: str) -> None:
                     continue
 
                 for task in tasks:
-                    task_id = task["task_id"]
-                    project_id = task.get("project_id", "")
-                    title = task.get("title", "")
-                    prompt = task.get("prompt") or title
+                    action = task.get("action", "execute")
 
-                    if settings.project_id and project_id != settings.project_id:
-                        logger.debug("skipping_wrong_project", task_id=task_id)
-                        continue
-
-                    logger.info("task_received", task_id=task_id, title=title)
-
-                    result = await executor.execute(prompt, cwd)
-
-                    await client.post(
-                        "/api/v1/workers/result",
-                        headers=headers,
-                        json={
-                            "task_id": task_id,
-                            "success": result.success,
-                            "output_data": {"stdout": result.stdout},
-                            "error_message": result.error,
-                        },
-                    )
-                    logger.info("task_completed", task_id=task_id, success=result.success)
+                    if action == "chat":
+                        await _handle_chat(task, executor, client, headers)
+                    else:
+                        await _handle_task(task, executor, cwd, client, headers)
 
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 401:

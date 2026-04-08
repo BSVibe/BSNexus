@@ -71,15 +71,37 @@ class WorkerDispatcher:
         )
         return msg_id
 
+    async def dispatch_chat(
+        self,
+        worker_id: uuid.UUID,
+        chat_id: str,
+        message: str,
+        system_prompt: str,
+        history: list[dict[str, str]],
+    ) -> str:
+        """Dispatch a chat message to a worker for CLI-based LLM execution.
+
+        The worker processes the message through its CLI executor (e.g. claude --print)
+        and reports the result via POST /api/v1/workers/chat-result.
+        """
+        data: dict[str, str] = {
+            "chat_id": chat_id,
+            "action": "chat",
+            "message": message,
+            "system_prompt": system_prompt,
+            "history": json.dumps(history),
+            "dispatched_at": datetime.now(timezone.utc).isoformat(),
+        }
+        msg_id = await self._stream.publish(self._worker_stream(worker_id), data)
+        logger.info("chat_dispatched_to_worker", worker_id=str(worker_id), chat_id=chat_id, msg_id=msg_id)
+        return msg_id
+
     async def find_available_worker(
         self,
         db: AsyncSession,
-        *,
-        capability: str = "coding",
     ) -> Worker | None:
-        """Find an online, active worker with the required capability.
+        """Find an online, active worker.
 
-        Uses JSON contains for capability matching in SQLite/PostgreSQL.
         Returns the worker with the earliest last_heartbeat (least recently used).
         """
         result = await db.execute(
@@ -88,13 +110,7 @@ class WorkerDispatcher:
                 Worker.status == "online",
             ).order_by(Worker.last_heartbeat.asc())
         )
-        workers = result.scalars().all()
-
-        for worker in workers:
-            caps = worker.capabilities or []
-            if capability in caps:
-                return worker
-        return None
+        return result.scalars().first()
 
     async def report_result(
         self,

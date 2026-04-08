@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, Index, String, Text, Uuid, func, text
+from sqlalchemy import CheckConstraint, ForeignKey, Index, String, Text, Uuid, func, text
 from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -30,6 +30,7 @@ class ExecutorConfig(Base):
             postgresql_where=text("is_default = true"),
             sqlite_where=text("is_default = 1"),
         ),
+        CheckConstraint("length(name) > 0", name="ck_executor_configs_name_not_empty"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)

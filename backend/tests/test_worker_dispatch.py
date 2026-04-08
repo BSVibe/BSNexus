@@ -101,33 +101,26 @@ async def test_dispatch_task_to_worker(db_session):
 
 @pytest.mark.asyncio
 async def test_find_available_worker(db_session):
-    """Find a worker matching the required capability."""
-    w1 = await _create_worker(db_session, "worker-1", ["coding", "analysis"])
-    w2 = await _create_worker(db_session, "worker-2", ["writing"])
+    """Find an online worker (LRU — earliest heartbeat first)."""
+    w1 = await _create_worker(db_session, "worker-1", ["coding"])
+    await _create_worker(db_session, "worker-2", ["writing"])
     await db_session.commit()
 
     mock_stream = AsyncMock()
     dispatcher = WorkerDispatcher(mock_stream)
 
-    worker = await dispatcher.find_available_worker(db_session, capability="coding")
+    worker = await dispatcher.find_available_worker(db_session)
     assert worker is not None
     assert worker.id == w1.id
 
-    writer = await dispatcher.find_available_worker(db_session, capability="writing")
-    assert writer is not None
-    assert writer.id == w2.id
-
 
 @pytest.mark.asyncio
-async def test_find_available_worker_no_match(db_session):
-    """Returns None when no worker has the capability."""
-    await _create_worker(db_session, "worker-1", ["writing"])
-    await db_session.commit()
-
+async def test_find_available_worker_none_online(db_session):
+    """Returns None when no worker is online."""
     mock_stream = AsyncMock()
     dispatcher = WorkerDispatcher(mock_stream)
 
-    worker = await dispatcher.find_available_worker(db_session, capability="research")
+    worker = await dispatcher.find_available_worker(db_session)
     assert worker is None
 
 

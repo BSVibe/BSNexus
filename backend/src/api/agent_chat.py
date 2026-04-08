@@ -6,6 +6,7 @@ Responses may contain [CREATE_TASK] and [SET_GOAL] markers for auto-creation.
 
 from __future__ import annotations
 
+import asyncio
 import collections
 import json
 import re
@@ -15,7 +16,7 @@ from typing import Any
 
 import structlog
 from bsvibe_auth import BSVibeUser
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,6 +30,8 @@ from backend.src.core.goal_alignment import GoalAlignmentService
 from backend.src.core.llm_client import LLMClient, LLMConfig
 from backend.src.core.tenant_context import DEFAULT_TENANT_ID
 from backend.src.api.settings import get_raw_llm_config
+from backend.src.core.worker_dispatch import WorkerDispatcher
+from backend.src.queue.streams import RedisStreamManager
 from backend.src.repositories.phase_repository import PhaseRepository
 from backend.src.storage.database import get_db
 
@@ -315,18 +318,11 @@ async def _execute_goal_markers(
     return actions
 
 
-async def _call_agent(
-    agent: models.Agent,
-    project: models.Project,
-    project_id: uuid.UUID,
-    history: list[dict[str, Any]],
-    user_message: str,
-    db: AsyncSession,
-) -> ChatMessageOut:
-    """Call a single agent's LLM and process response markers."""
-    llm_config = await _resolve_llm_config(agent, db)
-
-    # Build goal context
+async def _build_chat_context(
+    agent: models.Agent, project: models.Project, project_id: uuid.UUID,
+    history: list[dict[str, Any]], user_message: str, db: AsyncSession,
+) -> tuple[str, list[dict[str, str]]]:
+    """Build system prompt + LLM message history for an agent."""
     goal_context = ""
     goal_svc = GoalAlignmentService(db)
     goal_result = await db.execute(
@@ -339,18 +335,40 @@ async def _call_agent(
     if project_goal:
         goal_context = await goal_svc.build_goal_context(project_goal.id)
 
-    # Build LLM messages
     system_prompt = _build_system_prompt(agent, project, goal_context)
     messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
     for msg in history:
-        # Include agent name in assistant messages for context
         content = msg["content"]
         if msg["role"] == "assistant" and msg.get("agent_name"):
             content = f"[{msg['agent_name']}] {content}"
         messages.append({"role": msg["role"], "content": content})
     messages.append({"role": "user", "content": user_message})
+    return system_prompt, messages
 
-    # Call LLM
+
+async def _process_response(
+    response_text: str, project_id: uuid.UUID, agent: models.Agent, db: AsyncSession,
+) -> ChatMessageOut:
+    """Parse markers from LLM response, store message, return ChatMessageOut."""
+    task_actions = await _execute_create_task_markers(response_text, project_id, agent.id, db)
+    goal_actions = await _execute_goal_markers(response_text, project_id, db)
+    all_actions = task_actions + goal_actions
+    cleaned_text = _strip_all_markers(response_text)
+    msg = _add_message(
+        project_id, "assistant", cleaned_text,
+        agent_id=agent.id, agent_name=agent.name, actions=all_actions,
+    )
+    return ChatMessageOut(**msg)
+
+
+async def _call_via_llm(
+    agent: models.Agent, project: models.Project, project_id: uuid.UUID,
+    history: list[dict[str, Any]], user_message: str, db: AsyncSession,
+) -> ChatMessageOut:
+    """Direct LLM call for claude_api / generic_llm / codex executors."""
+    llm_config = await _resolve_llm_config(agent, db)
+    _, messages = await _build_chat_context(agent, project, project_id, history, user_message, db)
+
     client = LLMClient(llm_config)
     try:
         response_text = await client.chat(messages)
@@ -358,20 +376,101 @@ async def _call_agent(
         logger.error("agent_chat_llm_error", error=str(e), agent_id=str(agent.id))
         raise HTTPException(status_code=502, detail=f"LLM error: {e}") from e
 
-    # Execute markers
-    task_actions = await _execute_create_task_markers(response_text, project_id, agent.id, db)
-    goal_actions = await _execute_goal_markers(response_text, project_id, db)
-    all_actions = task_actions + goal_actions
+    return await _process_response(response_text, project_id, agent, db)
 
-    # Clean response
-    cleaned_text = _strip_all_markers(response_text)
 
-    # Store assistant message
-    msg = _add_message(
-        project_id, "assistant", cleaned_text,
-        agent_id=agent.id, agent_name=agent.name, actions=all_actions,
+async def _call_via_worker(
+    agent: models.Agent, project: models.Project, project_id: uuid.UUID,
+    history: list[dict[str, Any]], user_message: str, db: AsyncSession,
+    redis: Any,
+) -> ChatMessageOut:
+    """Dispatch chat to a worker and wait for the result via Redis polling."""
+    # Resolve worker_id from executor config
+    worker_id: uuid.UUID | None = None
+    if agent.executor_config_id:
+        result = await db.execute(
+            select(models.ExecutorConfig).where(models.ExecutorConfig.id == agent.executor_config_id)
+        )
+        exec_cfg = result.scalar_one_or_none()
+        if exec_cfg and exec_cfg.config.get("worker_id"):
+            worker_id = uuid.UUID(exec_cfg.config["worker_id"])
+
+    if not worker_id:
+        # Fallback: find any available worker
+        stream_manager = RedisStreamManager(redis)
+        dispatcher = WorkerDispatcher(stream_manager)
+        worker = await dispatcher.find_available_worker(db)
+        if not worker:
+            raise HTTPException(status_code=503, detail="No online worker available. Start a worker first.")
+        worker_id = worker.id
+    else:
+        # Verify worker is online
+        result = await db.execute(
+            select(models.Worker).where(models.Worker.id == worker_id, models.Worker.is_active.is_(True))
+        )
+        worker = result.scalar_one_or_none()
+        if not worker or worker.status != "online":
+            raise HTTPException(status_code=503, detail=f"Worker is offline. Start the worker '{worker.name if worker else 'unknown'}' first.")
+
+    # Build prompt context
+    system_prompt, _ = await _build_chat_context(agent, project, project_id, history, user_message, db)
+
+    # Flatten history for worker
+    flat_history: list[dict[str, str]] = []
+    for msg in history:
+        content = msg["content"]
+        if msg["role"] == "assistant" and msg.get("agent_name"):
+            content = f"[{msg['agent_name']}] {content}"
+        flat_history.append({"role": msg["role"], "content": content})
+
+    # Dispatch
+    chat_id = str(uuid.uuid4())
+    stream_manager = RedisStreamManager(redis)
+    dispatcher = WorkerDispatcher(stream_manager)
+    await dispatcher.dispatch_chat(
+        worker_id=worker_id,
+        chat_id=chat_id,
+        message=user_message,
+        system_prompt=system_prompt,
+        history=flat_history,
     )
-    return ChatMessageOut(**msg)
+    logger.info("chat_dispatched", chat_id=chat_id, worker_id=str(worker_id), agent=agent.name)
+
+    # Poll for result
+    result_key = f"chat:result:{chat_id}"
+    poll_interval = 0.5
+    max_wait = 120.0
+    waited = 0.0
+    while waited < max_wait:
+        raw = await redis.get(result_key)
+        if raw:
+            await redis.delete(result_key)
+            result_data = json.loads(raw)
+            if not result_data.get("success", False):
+                error = result_data.get("error_message", "Worker execution failed")
+                raise HTTPException(status_code=502, detail=f"Worker error: {error}")
+            response_text = result_data.get("output", "")
+            return await _process_response(response_text, project_id, agent, db)
+        await asyncio.sleep(poll_interval)
+        waited += poll_interval
+
+    raise HTTPException(status_code=504, detail="Worker response timed out (120s). Check worker status.")
+
+
+async def _call_agent(
+    agent: models.Agent, project: models.Project, project_id: uuid.UUID,
+    history: list[dict[str, Any]], user_message: str, db: AsyncSession,
+    redis: Any | None = None,
+) -> ChatMessageOut:
+    """Route chat to the appropriate executor based on agent config."""
+    executor_type = agent.executor_type
+
+    if executor_type == "worker":
+        if redis is None:
+            raise HTTPException(status_code=500, detail="Redis not available for worker dispatch")
+        return await _call_via_worker(agent, project, project_id, history, user_message, db, redis)
+    # claude_api, generic_llm, codex, bsgateway — direct LLM call
+    return await _call_via_llm(agent, project, project_id, history, user_message, db)
 
 
 # ── Endpoints ───────────────────────────────────────────────────────
@@ -381,10 +480,13 @@ async def _call_agent(
 async def chat_with_agent(
     project_id: uuid.UUID,
     body: ChatRequest,
+    request: Request,
     _auth: BSVibeUser = Depends(require_permission(Permission.project_update)),
     db: AsyncSession = Depends(get_db),
 ) -> ChatResponse:
     """Send a message to the project chat. @mention agents to direct the conversation."""
+    redis = getattr(request.app.state, "redis", None)
+
     # Load project with phases + tasks
     result = await db.execute(
         select(models.Project)
@@ -417,7 +519,7 @@ async def chat_with_agent(
     # Call each mentioned agent sequentially
     responses: list[ChatMessageOut] = []
     for agent in mentioned:
-        msg = await _call_agent(agent, project, project_id, history, body.message, db)
+        msg = await _call_agent(agent, project, project_id, history, body.message, db, redis=redis)
         responses.append(msg)
 
     await db.commit()

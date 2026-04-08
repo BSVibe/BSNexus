@@ -143,16 +143,31 @@ async def register_worker(
     token = secrets.token_urlsafe(32)
     now = datetime.now(timezone.utc)
 
-    # Check for existing worker with same name
+    # Check for existing workers with same name (keep most recently active)
     result = await db.execute(
         select(Worker).where(
             Worker.tenant_id == DEFAULT_TENANT_ID,
             Worker.name == body.name,
-        )
+        ).order_by(Worker.last_heartbeat.desc().nulls_last())
     )
-    worker = result.scalar_one_or_none()
+    existing = list(result.scalars().all())
+    worker = existing[0] if existing else None
 
     if worker:
+        # Deactivate duplicates (keep only the first)
+        for dup in existing[1:]:
+            dup.is_active = False
+            dup.status = "offline"
+            # Remove linked ExecutorConfig for duplicate
+            dup_linked = await db.execute(
+                select(ExecutorConfig).where(
+                    ExecutorConfig.executor_type == "worker",
+                    ExecutorConfig.config["worker_id"].as_string() == str(dup.id),
+                )
+            )
+            for ec in dup_linked.scalars().all():
+                await db.delete(ec)
+
         # Re-register: update token, capabilities, reactivate
         worker.token_hash = _hash_token(token)
         worker.capabilities = body.capabilities
@@ -218,12 +233,17 @@ async def worker_heartbeat(
 
 
 class WorkerTaskMessage(BaseModel):
-    task_id: str
-    project_id: str
-    title: str
-    action: str
+    task_id: str = ""
+    project_id: str = ""
+    title: str = ""
+    action: str = "execute"
     prompt: str | None = None
     dispatched_at: str | None = None
+    # Chat-specific fields
+    chat_id: str = ""
+    message: str = ""
+    system_prompt: str = ""
+    history: str = "[]"
 
 
 class WorkerResultRequest(BaseModel):
@@ -277,6 +297,10 @@ async def poll_tasks(
             action=msg.get("action", "execute"),
             prompt=msg.get("prompt"),
             dispatched_at=msg.get("dispatched_at"),
+            chat_id=msg.get("chat_id", ""),
+            message=msg.get("message", ""),
+            system_prompt=msg.get("system_prompt", ""),
+            history=msg.get("history", "[]"),
         ))
         # Auto-ack after delivery
         msg_id = msg.get("_message_id")
@@ -312,6 +336,43 @@ async def submit_result(
         output_data=body.output_data,
         error_message=body.error_message,
     )
+    return {"status": "accepted"}
+
+
+class WorkerChatResultRequest(BaseModel):
+    chat_id: str
+    success: bool
+    output: str = ""
+    error_message: str | None = None
+
+
+@router.post("/chat-result", status_code=200)
+async def submit_chat_result(
+    body: WorkerChatResultRequest,
+    request: Request,
+    x_worker_token: str = Header(..., alias="X-Worker-Token"),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Submit chat execution result from a worker. Stored in Redis for polling."""
+    token_hash = _hash_token(x_worker_token)
+    result = await db.execute(select(Worker).where(Worker.token_hash == token_hash, Worker.is_active.is_(True)))
+    worker = result.scalar_one_or_none()
+    if not worker:
+        raise HTTPException(status_code=401, detail="Invalid worker token")
+
+    redis = getattr(request.app.state, "redis", None)
+    if redis is None:
+        raise HTTPException(status_code=500, detail="Redis not available")
+
+    import json
+    result_key = f"chat:result:{body.chat_id}"
+    await redis.set(result_key, json.dumps({
+        "success": body.success,
+        "output": body.output,
+        "error_message": body.error_message,
+        "worker_id": str(worker.id),
+    }), ex=300)  # TTL 5 minutes
+
     return {"status": "accepted"}
 
 

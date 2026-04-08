@@ -79,11 +79,9 @@ function ExecutorCard({
           )}
         </div>
         <div className="flex items-center gap-1 shrink-0">
-          {!isWorker && (
-            <button onClick={() => onEdit(config)} className="p-1 text-text-tertiary hover:text-stitch-primary transition-colors" title="Edit">
-              <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>edit</span>
-            </button>
-          )}
+          <button onClick={() => onEdit(config)} className="p-1 text-text-tertiary hover:text-stitch-primary transition-colors" title="Edit">
+            <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>edit</span>
+          </button>
           <button onClick={() => onDelete(isWorker ? (config.config.worker_id as string) : config.id, isWorker)} className="p-1 text-text-tertiary hover:text-stitch-error transition-colors" title="Delete">
             <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>delete</span>
           </button>
@@ -215,6 +213,7 @@ export default function SettingsPage() {
   }
 
   const handleSave = () => {
+    if (!formName.trim()) return
     const cleanConfig = Object.fromEntries(
       Object.entries(formConfig).filter(([, v]) => v !== '')
     )
@@ -354,6 +353,7 @@ export default function SettingsPage() {
                 variant="primary"
                 onClick={handleSave}
                 loading={createMutation.isPending || updateMutation.isPending}
+                disabled={!formName.trim()}
               >
                 {editTarget ? 'Save' : 'Register'}
               </Button>
@@ -396,7 +396,7 @@ export default function SettingsPage() {
               <div>
                 <p className="text-[10px] uppercase tracking-widest text-text-tertiary font-bold mb-1">2. Register & run</p>
                 <code className="block text-xs text-stitch-primary bg-stitch-surface rounded px-3 py-2 font-mono select-all">
-                  bsnexus-worker register --server {window.location.origin} --token YOUR_TOKEN{'\n'}cd my-project && bsnexus-worker run
+                  bsnexus-worker register --server {window.location.origin} --token YOUR_TOKEN{'\n'}bsnexus-worker run
                 </code>
                 <p className="text-[10px] text-text-tertiary mt-1.5">
                   To use a specific executor:

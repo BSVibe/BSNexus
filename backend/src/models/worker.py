@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Uuid, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Uuid, func, text
 from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -15,6 +15,13 @@ class Worker(Base):
     __table_args__ = (
         Index("ix_workers_tenant", "tenant_id"),
         Index("ix_workers_status", "status"),
+        Index(
+            "uq_workers_tenant_name_active",
+            "tenant_id", "name",
+            unique=True,
+            postgresql_where=text("is_active = true"),
+            sqlite_where=text("is_active = 1"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)

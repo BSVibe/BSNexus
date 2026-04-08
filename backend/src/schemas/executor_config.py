@@ -12,7 +12,7 @@ EXECUTOR_TYPES = {"claude_api", "claude_code", "bsgateway", "codex", "generic_ll
 
 
 class ExecutorConfigCreate(BaseModel):
-    name: str
+    name: str = Field(..., min_length=1, max_length=255)
     executor_type: str
     config: dict = Field(default_factory=dict)
     description: Optional[str] = None
@@ -20,7 +20,7 @@ class ExecutorConfigCreate(BaseModel):
 
 
 class ExecutorConfigUpdate(BaseModel):
-    name: Optional[str] = None
+    name: Optional[str] = Field(None, min_length=1, max_length=255)
     config: Optional[dict] = None
     description: Optional[str] = None
     is_default: Optional[bool] = None
