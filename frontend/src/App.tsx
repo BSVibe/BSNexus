@@ -12,6 +12,7 @@ import MigratePage from './pages/MigratePage'
 import AgentsPage from './pages/AgentsPage'
 import BudgetPage from './pages/BudgetPage'
 import SettingsPage from './pages/SettingsPage'
+
 const queryClient = new QueryClient()
 
 function App() {
