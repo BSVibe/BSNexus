@@ -1,20 +1,14 @@
-import { useEffect, useRef } from "react"
+import { useEffect } from "react"
 import { useNavigate } from "react-router-dom"
-import { useAuthStore } from "../stores/authStore"
 
+// Legacy callback page — will be removed in TASK-004.
+// Shared cookie auth no longer uses redirect callbacks.
 export default function AuthCallbackPage() {
   const navigate = useNavigate()
-  const handleCallback = useAuthStore((s) => s.handleCallback)
-  const processed = useRef(false)
 
   useEffect(() => {
-    if (processed.current) return
-    processed.current = true
-
-    // BSVibeAuth.handleCallback() handles hash parsing, state validation, and session storage
-    handleCallback()
     navigate("/dashboard", { replace: true })
-  }, [handleCallback, navigate])
+  }, [navigate])
 
   return (
     <div className="flex items-center justify-center min-h-screen">

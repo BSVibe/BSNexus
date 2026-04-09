@@ -1,5 +1,5 @@
-import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { useAuthStore } from '../../stores/authStore'
+import { NavLink, useLocation } from 'react-router-dom'
+import { useAuthContext } from '../auth/AuthContext'
 
 const navItems = [
   { to: '/dashboard', label: 'Dashboard', icon: 'dashboard' },
@@ -15,13 +15,10 @@ interface SidebarProps {
 
 export default function Sidebar({ isOpen, onClose }: SidebarProps) {
   const location = useLocation()
-  const navigate = useNavigate()
-  const signOut = useAuthStore((s) => s.signOut)
-  const user = useAuthStore((s) => s.user)
+  const { user, logout } = useAuthContext()
 
   const handleLogout = async () => {
-    await signOut()
-    navigate('/')
+    await logout()
   }
 
   const isActive = (to: string) => {

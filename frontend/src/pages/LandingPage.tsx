@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom'
-import { useAuthStore } from '../stores/authStore'
+import { useAuthContext } from '../components/auth/AuthContext'
 
 const features = [
   {
@@ -20,9 +20,7 @@ const features = [
 ]
 
 export default function LandingPage() {
-  const user = useAuthStore((s) => s.user)
-  const login = useAuthStore((s) => s.login)
-  const signup = useAuthStore((s) => s.signup)
+  const { user, login } = useAuthContext()
   const navigate = useNavigate()
 
   return (
@@ -81,7 +79,7 @@ export default function LandingPage() {
                 <p className="text-center text-sm text-text-secondary mt-4">
                   Don't have an account?{' '}
                   <button
-                    onClick={signup}
+                    onClick={login}
                     className="text-stitch-primary hover:text-stitch-primary-container font-medium transition-colors"
                   >
                     Sign up

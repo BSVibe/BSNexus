@@ -6,7 +6,7 @@ import { API_BASE_URL } from '../api/client'
 import { parseSSEStream } from '../utils/sse'
 import { Button, Modal } from '../components/common'
 import Header from '../components/layout/Header'
-import { useAuthStore } from '../stores/authStore'
+import { getAccessToken } from '../hooks/useAuth'
 import { useToastStore } from '../stores/toastStore'
 
 type MigratePhase = 'idle' | 'analyze' | 'llm' | 'save' | 'done' | 'error'
@@ -63,7 +63,7 @@ export default function MigratePage() {
     startMigration()
   }
 
-  const startMigration = () => {
+  const startMigration = async () => {
     const controller = new AbortController()
     abortRef.current = controller
     setCurrentStep({ phase: 'analyze', detail: 'Starting...' })
@@ -73,7 +73,7 @@ export default function MigratePage() {
     if (projectName.trim()) body.name = projectName.trim()
 
     const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-    const token = useAuthStore.getState().accessToken
+    const token = await getAccessToken()
     if (token) headers['Authorization'] = `Bearer ${token}`
 
     fetch(`${API_BASE_URL}/api/v1/architect/migrate/stream`, {

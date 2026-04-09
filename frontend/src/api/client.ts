@@ -1,5 +1,5 @@
 import axios from 'axios'
-import { useAuthStore } from '../stores/authStore'
+import { getAccessToken, clearTokenCache } from '../hooks/useAuth'
 
 export const API_BASE_URL: string = import.meta.env.VITE_API_URL || ''
 
@@ -11,8 +11,8 @@ const apiClient = axios.create({
   },
 })
 
-apiClient.interceptors.request.use((config) => {
-  const token = useAuthStore.getState().getToken()
+apiClient.interceptors.request.use(async (config) => {
+  const token = await getAccessToken()
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
   }
@@ -25,8 +25,8 @@ apiClient.interceptors.response.use(
     const originalRequest = error.config
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true
-      // Token expired — clear session and let user re-authenticate
-      useAuthStore.getState().signOut()
+      clearTokenCache()
+      window.location.href = 'https://auth.bsvibe.dev/login'
     }
     return Promise.reject(error)
   },
