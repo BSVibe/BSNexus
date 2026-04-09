@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.src.api.settings import verify_install_token
 from backend.src.core.tenant_context import DEFAULT_TENANT_ID
 from backend.src.core.worker_dispatch import WorkerDispatcher
-from backend.src.models import ExecutorConfig
+from backend.src.models import Agent, ExecutorConfig, Task, TaskStatus
 from backend.src.models.worker import Worker
 from backend.src.storage.database import get_db
 
@@ -323,25 +323,83 @@ async def submit_result(
     x_worker_token: str = Header(..., alias="X-Worker-Token"),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Submit task execution result from a worker."""
+    """Submit task execution result from a worker.
+
+    Updates task status, publishes the result to the stream manager, and posts
+    a chat notification so the user sees task progress in the chat sidebar.
+    """
     token_hash = _hash_token(x_worker_token)
     result = await db.execute(select(Worker).where(Worker.token_hash == token_hash, Worker.is_active.is_(True)))
     worker = result.scalar_one_or_none()
     if not worker:
         raise HTTPException(status_code=401, detail="Invalid worker token")
 
-    stream_manager = getattr(request.app.state, "stream_manager", None)
-    if stream_manager is None:
-        return {"status": "accepted", "note": "no stream manager configured"}
+    # Update task status
+    task_result = await db.execute(select(Task).where(Task.id == body.task_id))
+    task = task_result.scalar_one_or_none()
+    if task:
+        task.status = TaskStatus.review if body.success else TaskStatus.ready
+        if body.output_data:
+            task.output_data = body.output_data
+        if body.error_message:
+            task.error_message = body.error_message
+        await db.commit()
 
-    dispatcher = WorkerDispatcher(stream_manager)
-    await dispatcher.report_result(
-        worker_id=worker.id,
-        task_id=body.task_id,
-        success=body.success,
-        output_data=body.output_data,
-        error_message=body.error_message,
-    )
+    stream_manager = getattr(request.app.state, "stream_manager", None)
+    if stream_manager is not None:
+        dispatcher = WorkerDispatcher(stream_manager)
+        await dispatcher.report_result(
+            worker_id=worker.id,
+            task_id=body.task_id,
+            success=body.success,
+            output_data=body.output_data,
+            error_message=body.error_message,
+        )
+
+    # Post a chat notification so the user sees task completion in real time
+    if task:
+        from backend.src.api.agent_chat import _publish_event
+        redis = getattr(request.app.state, "redis", None)
+        if redis is not None:
+            agent_name = None
+            if task.agent_id:
+                agent_result = await db.execute(select(Agent).where(Agent.id == task.agent_id))
+                agent = agent_result.scalar_one_or_none()
+                if agent:
+                    agent_name = agent.name
+
+            status_emoji = "✅" if body.success else "❌"
+            output_preview = ""
+            if body.success and body.output_data:
+                stdout = body.output_data.get("stdout", "")
+                if stdout:
+                    output_preview = f"\n\n```\n{stdout[:1500]}\n```"
+            elif body.error_message:
+                output_preview = f"\n\n**Error:** {body.error_message[:500]}"
+
+            content = f"{status_emoji} Task **{task.title}** {'completed' if body.success else 'failed'}{output_preview}"
+
+            from backend.src.repositories.conversation_repository import ConversationRepository
+            from datetime import datetime as _dt
+            repo = ConversationRepository(db)
+            msg = await repo.append(
+                task.project_id,
+                role="assistant",
+                content=content,
+                agent_id=task.agent_id,
+                agent_name=agent_name,
+            )
+            await db.commit()
+            await _publish_event(redis, task.project_id, "message_created", {
+                "id": str(msg.id),
+                "role": msg.role,
+                "content": msg.content,
+                "agent_id": str(msg.agent_id) if msg.agent_id else None,
+                "agent_name": msg.agent_name,
+                "actions": msg.actions or [],
+                "created_at": msg.created_at.isoformat() if hasattr(msg.created_at, "isoformat") else _dt.utcnow().isoformat(),
+            })
+
     return {"status": "accepted"}
 
 

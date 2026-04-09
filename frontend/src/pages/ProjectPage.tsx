@@ -124,7 +124,7 @@ function ProjectContent({ projectId }: { projectId: string }) {
           {activeTab === 'board' && (
             <>
               <div className="px-8 pt-4 pb-3">
-                <BoardStats projectName={project?.name} />
+                <BoardStats projectStatus={project?.status} />
               </div>
               <div className="flex-1 overflow-auto px-8 pb-6">
                 <KanbanBoard

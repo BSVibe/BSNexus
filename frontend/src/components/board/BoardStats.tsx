@@ -8,11 +8,19 @@ const statusMeta: Record<string, { label: string; color: string }> = {
   done: { label: 'Done', color: 'var(--status-done)' },
 }
 
-interface Props {
-  projectName?: string
+const PROJECT_STATUS_LABELS: Record<string, string> = {
+  design: 'Design',
+  active: 'Active',
+  paused: 'Paused',
+  completed: 'Completed',
+  archived: 'Archived',
 }
 
-export default function BoardStats({ projectName }: Props) {
+interface Props {
+  projectStatus?: string
+}
+
+export default function BoardStats({ projectStatus }: Props) {
   const { stats, getBoardStats } = useBoardStore()
   const { total, done, completionRate } = getBoardStats()
 
@@ -60,7 +68,7 @@ export default function BoardStats({ projectName }: Props) {
         <div className="flex items-end justify-between">
           <div className="flex items-center gap-2">
             <div className="w-3 h-3 rounded-full bg-stitch-primary animate-pulse" />
-            <span className="text-xl font-bold">{projectName || 'Active'}</span>
+            <span className="text-xl font-bold">{PROJECT_STATUS_LABELS[projectStatus || ''] || 'Active'}</span>
           </div>
           <span className="material-symbols-outlined text-text-secondary">cloud_done</span>
         </div>

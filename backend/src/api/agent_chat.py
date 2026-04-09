@@ -250,13 +250,15 @@ async def _ensure_active_phase(project_id: uuid.UUID, db: AsyncSession) -> model
 
 
 async def _execute_create_task_markers(
-    text: str, project_id: uuid.UUID, agent_id: uuid.UUID, db: AsyncSession,
+    text: str, project_id: uuid.UUID, agent_id: uuid.UUID, db: AsyncSession, redis: Any,
 ) -> list[dict[str, Any]]:
     active_phase = await _ensure_active_phase(project_id, db)
     if not active_phase:
         return []
 
     actions: list[dict[str, Any]] = []
+    created_tasks: list[models.Task] = []
+
     for match in CREATE_TASK_RE.finditer(text):
         try:
             task_data = json.loads(match.group(1).strip())
@@ -287,7 +289,31 @@ async def _execute_create_task_markers(
         )
         db.add(new_task)
         await db.flush()
+        created_tasks.append(new_task)
         actions.append({"type": "task_created", "task_id": str(new_task.id), "title": new_task.title})
+
+    # Auto-dispatch newly created tasks to an available worker so they execute
+    # immediately instead of waiting for a manually started orchestrator.
+    if created_tasks and redis is not None:
+        stream_manager = RedisStreamManager(redis)
+        dispatcher = WorkerDispatcher(stream_manager)
+        worker = await dispatcher.find_available_worker(db)
+        if worker:
+            for task in created_tasks:
+                prompt = (task.worker_prompt or {}).get("prompt") or task.title
+                try:
+                    await dispatcher.dispatch_task(
+                        worker_id=worker.id,
+                        task_id=task.id,
+                        task_title=task.title,
+                        project_id=str(project_id),
+                        prompt=prompt,
+                    )
+                    task.status = models.TaskStatus.in_progress
+                    await db.flush()
+                except Exception as e:
+                    logger.warning("auto_dispatch_failed", task_id=str(task.id), error=str(e))
+
     return actions
 
 
@@ -443,7 +469,7 @@ async def _process_response_text(
     response_text: str, project: models.Project, project_id: uuid.UUID,
     agent: models.Agent, db: AsyncSession, redis: Any,
 ) -> models.ConversationMessage:
-    task_actions = await _execute_create_task_markers(response_text, project_id, agent.id, db)
+    task_actions = await _execute_create_task_markers(response_text, project_id, agent.id, db, redis)
     goal_actions = await _execute_goal_markers(response_text, project_id, db)
     cleaned = _strip_all_markers(response_text)
     return await _store_and_publish(
