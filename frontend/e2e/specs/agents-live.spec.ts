@@ -7,8 +7,22 @@ import { test, expect } from '@playwright/test'
 import { injectAuth } from '../helpers/mock-api'
 
 const API = 'http://localhost:8000'
+const E2E_AGENT_NAMES = ['E2E_Test_Bot', 'Deletable_Bot']
 
 test.describe('Agents — Live API E2E', () => {
+  // Clean up any test agents left over from previous runs or this run
+  test.afterAll(async ({ request }) => {
+    const res = await request.get(`${API}/api/v1/agents`)
+    if (res.ok()) {
+      const agents = await res.json()
+      for (const agent of agents) {
+        if (E2E_AGENT_NAMES.includes(agent.name)) {
+          await request.delete(`${API}/api/v1/agents/${agent.id}`)
+        }
+      }
+    }
+  })
+
   test.beforeEach(async ({ page }) => {
     // Auth is still mocked (SSO requires real auth server)
     // but all /api/v1/agents calls hit the real backend
