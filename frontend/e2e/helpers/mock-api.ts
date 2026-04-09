@@ -24,45 +24,49 @@ import {
 } from './fixtures'
 
 /**
- * Block SSO silent-check redirect so unauthenticated pages don't navigate away.
- * The BSVibeAuth SDK redirects to auth.bsvibe.dev/api/silent-check when no
- * local session exists. We intercept this and redirect back with ?sso_error=1
- * so checkSession() returns null instead of 'redirect'.
+ * Block auth session check so unauthenticated pages stay on the landing page.
+ * The useAuth hook calls auth.bsvibe.dev/api/session to check for an existing
+ * session cookie. We return 401 so getAccessToken() returns null.
  */
 export async function blockSSORedirect(page: Page) {
-  await page.route('**/api/silent-check*', (route) => {
-    const url = new URL(route.request().url())
-    const redirectUri = url.searchParams.get('redirect_uri') || 'http://localhost:3000/'
-    const separator = redirectUri.includes('?') ? '&' : '?'
-    return route.fulfill({
-      status: 302,
-      headers: { location: `${redirectUri}${separator}sso_error=1` },
-    })
+  await page.route('**/auth.bsvibe.dev/api/session', (route) => {
+    return route.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ error: 'no session' }) })
   })
 }
 
-/** Inject auth tokens into localStorage so ProtectedRoute lets us through.
- *
- * BSVibeAuth SDK stores user as JSON under 'bsvibe_user' key.
- * The user object must match BSVibeUser interface:
- *   { id, email, tenantId, role, accessToken, refreshToken, expiresAt }
+/**
+ * Build a fake JWT with the given payload (header.payload.signature).
+ * Only the payload section is read by decodeJwt(); header and signature are stubs.
+ */
+function buildMockJwt(payload: Record<string, unknown>): string {
+  const header = btoa(JSON.stringify({ alg: 'ES256', typ: 'JWT' }))
+  const body = btoa(JSON.stringify(payload)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+  return `${header}.${body}.mock-signature`
+}
+
+const MOCK_JWT_PAYLOAD = {
+  sub: 'user-001',
+  email: 'dev@bsvibe.dev',
+  app_metadata: { tenant_id: 'tenant-001', role: 'authenticated' },
+  exp: Math.floor(Date.now() / 1000) + 3600,
+}
+
+/**
+ * Mock the auth.bsvibe.dev/api/session endpoint to return a valid session,
+ * so getAccessToken() succeeds and useAuth() resolves a user.
  */
 export async function injectAuth(page: Page) {
-  await page.addInitScript(() => {
-    const bsvibeUser = {
-      id: 'user-001',
-      email: 'dev@bsvibe.dev',
-      tenantId: 'tenant-001',
-      role: 'authenticated',
-      accessToken: 'mock-access-token-abc123',
-      refreshToken: 'mock-refresh-token-def456',
-      expiresAt: Math.floor(Date.now() / 1000) + 3600, // 1 hour from now
-    }
-    localStorage.setItem('bsvibe_user', JSON.stringify(bsvibeUser))
-  })
-  // Mock auth/me so enrichUser() resolves
-  await page.route('**/api/v1/auth/me', (route) => {
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockUser) })
+  const mockAccessToken = buildMockJwt(MOCK_JWT_PAYLOAD)
+  await page.route('**/auth.bsvibe.dev/api/session', (route) => {
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        access_token: mockAccessToken,
+        refresh_token: 'mock-refresh-token-def456',
+        expires_in: 3600,
+      }),
+    })
   })
 }
 
