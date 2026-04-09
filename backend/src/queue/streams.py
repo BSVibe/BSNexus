@@ -82,3 +82,30 @@ class RedisStreamManager:
         for stream in [self.TASKS_ESCALATION]:
             await self.redis.xtrim(stream, maxlen=maxlen, approximate=True)
         await self.redis.xtrim(self.EVENTS_BOARD, maxlen=5000, approximate=True)
+
+    async def tail(self, stream: str, last_id: str = "$", block: int = 15000) -> list[dict]:
+        """Tail a stream from `last_id`. Returns parsed messages with `_message_id`.
+
+        Pass `$` to wait for new messages only. After receiving, pass the last
+        `_message_id` back in for subsequent calls. Used by SSE fan-out — no
+        consumer group, no ack, multiple subscribers can tail independently.
+        """
+        messages = await self.redis.xread({stream: last_id}, count=50, block=block)
+        results: list[dict] = []
+        if messages:
+            for _stream_name, stream_messages in messages:
+                for message_id, data in stream_messages:
+                    parsed: dict = {}
+                    for k, v in data.items():
+                        try:
+                            parsed[k] = json.loads(v)
+                        except (json.JSONDecodeError, TypeError):
+                            parsed[k] = v
+                    parsed["_message_id"] = message_id
+                    results.append(parsed)
+        return results
+
+    @staticmethod
+    def chat_events_stream(project_id: str) -> str:
+        """Stream key for project chat events (one stream per project)."""
+        return f"chat:events:{project_id}"

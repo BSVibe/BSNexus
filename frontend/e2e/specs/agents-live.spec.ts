@@ -59,8 +59,8 @@ test.describe('Agents — Live API E2E', () => {
     await hireBtn.click()
     await expect(page.getByText('Hire New Agent')).toBeVisible()
 
-    // Fill form
-    await page.getByPlaceholder('e.g. Alex').fill('E2E Test Bot')
+    // Fill form (spaces in names get normalized to underscores by the backend validator)
+    await page.getByPlaceholder('e.g. Alex').fill('E2E_Test_Bot')
     await page.getByPlaceholder('e.g. engineer').fill('tester')
     await page.getByPlaceholder('e.g. Senior').fill('E2E Tester')
 
@@ -69,7 +69,7 @@ test.describe('Agents — Live API E2E', () => {
 
     // Modal should close and new agent should appear
     await expect(page.getByText('Hire New Agent')).not.toBeVisible()
-    await expect(page.getByText('E2E Test Bot').first()).toBeVisible({ timeout: 5000 })
+    await expect(page.getByText('E2E_Test_Bot').first()).toBeVisible({ timeout: 5000 })
   })
 
   test('clicking agent card shows detail sidebar with real data', async ({ page }) => {
@@ -87,33 +87,37 @@ test.describe('Agents — Live API E2E', () => {
   })
 
   test('remove agent works via real API', async ({ page }) => {
-    // First create an agent to delete via API
+    // Create the test agent under the existing CEO so React Flow positions it
+    // inside the visible org-chart hierarchy (orphan roots get virtualized
+    // off-screen and `scrollIntoViewIfNeeded` can't reach them).
+    const listRes = await page.request.get(`${API}/api/v1/agents`)
+    const allAgents = await listRes.json()
+    const ceo = allAgents.find((a: { name: string }) => a.name === 'CEO')
+    expect(ceo).toBeTruthy()
+
     const createRes = await page.request.post(`${API}/api/v1/agents`, {
-      data: { name: 'Deletable Bot', role: 'temp' },
+      data: { name: 'Deletable_Bot', role: 'temp', parent_agent_id: ceo.id },
     })
     expect(createRes.status()).toBe(201)
     const created = await createRes.json()
 
     await page.goto('/agents', { waitUntil: 'networkidle' })
-    const card = page.locator('button:has-text("Deletable Bot")').first()
-    await card.scrollIntoViewIfNeeded()
-    await expect(card).toBeVisible()
 
-    // Click to open sidebar
-    await card.click()
+    // React Flow positions nodes via CSS transform; force click bypasses
+    // scroll-into-view checks that don't account for transformed coordinates.
+    const card = page.locator('button:has-text("Deletable_Bot")').first()
+    await expect(card).toBeAttached()
+    await card.click({ force: true })
+
     const sidebar = page.getByTestId('agent-detail-sidebar')
     await expect(sidebar).toBeVisible()
 
     // Accept confirm dialog before clicking remove
     page.on('dialog', (dialog) => dialog.accept())
-
-    // Click remove
     await sidebar.getByRole('button', { name: 'Remove Agent' }).click()
 
-    // Agent should disappear from the page
-    await expect(page.locator('button:has-text("Deletable Bot")')).not.toBeVisible({ timeout: 5000 })
-
-    // Verify via API that it's gone
+    // Agent should disappear and return 404 from the API
+    await expect(page.locator('button:has-text("Deletable_Bot")')).toHaveCount(0, { timeout: 5000 })
     const getRes = await page.request.get(`${API}/api/v1/agents/${created.id}`)
     expect(getRes.status()).toBe(404)
   })

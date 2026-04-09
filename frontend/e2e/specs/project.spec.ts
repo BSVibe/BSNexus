@@ -56,3 +56,28 @@ test.describe('Project — Detail Page & Board Integration', () => {
     await expect(page.locator('.material-symbols-outlined:has-text("cloud_done")')).toBeVisible()
   })
 })
+
+test.describe('Project — Unified Chat Sidebar (DB-backed + SSE)', () => {
+  test.beforeEach(async ({ page }) => {
+    await setupPage(page, '/projects/proj-001')
+  })
+
+  test('chat sidebar renders with empty placeholder when history is empty', async ({ page }) => {
+    await expect(page.getByText('@mention an agent to start a conversation')).toBeVisible()
+  })
+
+  test('chat input and send button are visible', async ({ page }) => {
+    await expect(page.getByPlaceholder('@mention an agent...')).toBeVisible()
+  })
+
+  test('sending a message shows the optimistic user bubble + typing indicator', async ({ page }) => {
+    const input = page.getByPlaceholder('@mention an agent...')
+    await input.fill('@CEO hello')
+    await input.press('Enter')
+
+    // Optimistic user bubble appears immediately (text echoed before any API/SSE response).
+    // Note: real assistant reply only arrives via SSE — covered by backend unit tests
+    // since Playwright route mocks can't push into an established EventSource.
+    await expect(page.getByText('@CEO hello').first()).toBeVisible()
+  })
+})

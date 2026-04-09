@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
@@ -15,16 +16,45 @@ function getAgentColor(name: string): string {
   return AGENT_COLORS[Math.abs(hash) % AGENT_COLORS.length]
 }
 
+/** Highlight @mentions in plain text (user messages) */
+function renderWithMentions(text: string) {
+  const parts = text.split(/(@\S+)/g)
+  return parts.map((part, i) =>
+    part.startsWith('@') ? (
+      <span key={i} className="font-semibold text-stitch-primary">{part}</span>
+    ) : (
+      <span key={i}>{part}</span>
+    ),
+  )
+}
+
+/**
+ * Pre-process markdown to wrap @mentions in styled <span> tags.
+ * ReactMarkdown will pass raw HTML through if we use rehype-raw,
+ * but simpler to use a custom remark-like text transform.
+ * We inject a zero-width wrapper that ReactMarkdown renders as inline code-like element.
+ */
+function highlightMentionsInMarkdown(content: string): string {
+  // Wrap @Name (including multi-word like @Product Manager matched greedily)
+  // Use a markdown-safe format: **`@Name`** renders as bold code
+  return content.replace(/@([A-Za-z가-힣][\w\s가-힣]*?)(?=[\s,.)：:;!?]|$)/g, '**@$1**')
+}
+
 export default function ChatMessage({ message, typing }: { message: ChatMessageOut; typing?: boolean }) {
   const isUser = message.role === 'user'
   const agentColor = message.agent_name ? getAgentColor(message.agent_name) : '#6b7280'
   const initial = message.agent_name?.[0]?.toUpperCase() || '?'
 
+  const processedContent = useMemo(
+    () => (isUser ? message.content : highlightMentionsInMarkdown(message.content)),
+    [message.content, isUser],
+  )
+
   if (isUser) {
     return (
       <div className="flex justify-end">
         <div className="max-w-[85%] rounded-2xl rounded-br-sm bg-stitch-primary/20 px-3 py-2 text-sm text-text-primary">
-          <div className="whitespace-pre-wrap break-words">{message.content}</div>
+          <div className="whitespace-pre-wrap break-words">{renderWithMentions(message.content)}</div>
         </div>
       </div>
     )
@@ -57,10 +87,33 @@ export default function ChatMessage({ message, typing }: { message: ChatMessageO
               <div className="w-1.5 h-1.5 bg-text-tertiary rounded-full animate-bounce" style={{ animationDelay: '0.3s' }} />
             </div>
           ) : (
-            <div className="prose prose-sm max-w-none prose-invert [&_p]:my-1 [&_p]:leading-relaxed [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0.5 [&_h1]:text-base [&_h1]:font-bold [&_h1]:mt-3 [&_h1]:mb-1 [&_h2]:text-sm [&_h2]:font-bold [&_h2]:mt-3 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:mt-2 [&_h3]:mb-1 [&_h4]:text-sm [&_h4]:font-semibold [&_h4]:mt-2 [&_h4]:mb-1 [&_strong]:text-text-primary [&_hr]:my-2 [&_blockquote]:border-stitch-primary/40 [&_blockquote]:text-text-secondary [&_table]:text-xs [&_th]:px-2 [&_th]:py-1 [&_td]:px-2 [&_td]:py-1 [&_a]:text-stitch-primary">
+            <div className="prose prose-sm max-w-none prose-invert overflow-hidden [&_p]:my-1 [&_p]:leading-relaxed [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0.5 [&_h1]:text-base [&_h1]:font-bold [&_h1]:mt-3 [&_h1]:mb-1 [&_h2]:text-sm [&_h2]:font-bold [&_h2]:mt-3 [&_h2]:mb-1 [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:mt-2 [&_h3]:mb-1 [&_h4]:text-sm [&_h4]:font-semibold [&_h4]:mt-2 [&_h4]:mb-1 [&_strong]:text-text-primary [&_hr]:my-2 [&_blockquote]:border-stitch-primary/40 [&_blockquote]:text-text-secondary [&_a]:text-stitch-primary [&_pre]:overflow-x-auto [&_pre]:max-w-full">
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 components={{
+                  table({ children, ...props }) {
+                    return (
+                      <div className="overflow-x-auto max-w-full my-2 -mx-1">
+                        <table className="text-xs min-w-full border-collapse" {...props}>
+                          {children}
+                        </table>
+                      </div>
+                    )
+                  },
+                  th({ children, ...props }) {
+                    return (
+                      <th className="px-2 py-1 border border-stitch-outline-variant/20 bg-stitch-surface-container text-left whitespace-nowrap" {...props}>
+                        {children}
+                      </th>
+                    )
+                  },
+                  td({ children, ...props }) {
+                    return (
+                      <td className="px-2 py-1 border border-stitch-outline-variant/20 align-top" {...props}>
+                        {children}
+                      </td>
+                    )
+                  },
                   code({ className, children, ...props }) {
                     const match = /language-(\w+)/.exec(className || '')
                     const codeStr = String(children).replace(/\n$/, '')
@@ -92,7 +145,7 @@ export default function ChatMessage({ message, typing }: { message: ChatMessageO
                   },
                 }}
               >
-                {message.content}
+                {processedContent}
               </ReactMarkdown>
             </div>
           )}

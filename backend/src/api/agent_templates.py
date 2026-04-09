@@ -25,7 +25,6 @@ class AgentTemplate(BaseModel):
     job_description: str
     executor_type: str
     capabilities: list[str]
-    routing_keywords: list[str] = []
     monthly_budget_cents: int | None = None
     children: list["AgentTemplate"] = []
 
@@ -58,7 +57,6 @@ TEMPLATES: dict[str, OrgTemplate] = {
                 job_description="Sets company vision, makes strategic decisions, coordinates all departments",
                 executor_type="claude_api",
                 capabilities=["analysis", "writing", "general"],
-                routing_keywords=["전략", "비전", "사업", "방향", "투자", "strategy", "vision", "business", "direction"],
                 monthly_budget_cents=2000,
                 children=[
                     AgentTemplate(
@@ -68,7 +66,6 @@ TEMPLATES: dict[str, OrgTemplate] = {
                         job_description="Leads technical architecture and engineering team",
                         executor_type="claude_api",
                         capabilities=["coding", "analysis"],
-                        routing_keywords=["기술", "아키텍처", "시스템", "technical", "architecture", "engineering", "stack"],
                         monthly_budget_cents=2000,
                         children=[
                             AgentTemplate(
@@ -78,7 +75,6 @@ TEMPLATES: dict[str, OrgTemplate] = {
                                 job_description="Implements features, fixes bugs, writes tests, deploys code",
                                 executor_type="claude_code",
                                 capabilities=["coding"],
-                                routing_keywords=["코드", "개발", "구현", "버그", "code", "develop", "implement", "fix", "feature"],
                                 monthly_budget_cents=5000,
                             ),
                             AgentTemplate(
@@ -88,7 +84,6 @@ TEMPLATES: dict[str, OrgTemplate] = {
                                 job_description="Reviews code quality, runs tests, validates requirements, reports bugs",
                                 executor_type="claude_api",
                                 capabilities=["coding", "analysis"],
-                                routing_keywords=["테스트", "품질", "버그", "리뷰", "test", "quality", "bug", "review", "qa"],
                                 monthly_budget_cents=3000,
                             ),
                         ],
@@ -100,7 +95,6 @@ TEMPLATES: dict[str, OrgTemplate] = {
                         job_description="Defines product requirements, prioritizes backlog, manages roadmap",
                         executor_type="generic_llm",
                         capabilities=["analysis", "writing", "general"],
-                        routing_keywords=["제품", "기능", "로드맵", "스펙", "백로그", "product", "feature", "roadmap", "spec", "backlog", "prd"],
                         monthly_budget_cents=1500,
                     ),
                     AgentTemplate(
@@ -110,7 +104,6 @@ TEMPLATES: dict[str, OrgTemplate] = {
                         job_description="Creates marketing content, manages campaigns, analyzes metrics",
                         executor_type="generic_llm",
                         capabilities=["marketing", "writing", "research"],
-                        routing_keywords=["마케팅", "광고", "홍보", "캠페인", "성장", "marketing", "campaign", "growth", "seo", "ads"],
                         monthly_budget_cents=1500,
                     ),
                     AgentTemplate(
@@ -120,7 +113,6 @@ TEMPLATES: dict[str, OrgTemplate] = {
                         job_description="Designs user interfaces, creates prototypes, maintains design system",
                         executor_type="generic_llm",
                         capabilities=["writing", "analysis"],
-                        routing_keywords=["디자인", "ui", "ux", "프로토타입", "design", "prototype", "figma", "wireframe"],
                         monthly_budget_cents=1500,
                     ),
                 ],
@@ -140,7 +132,6 @@ TEMPLATES: dict[str, OrgTemplate] = {
                 job_description="Leads the team, makes decisions, reviews work",
                 executor_type="claude_api",
                 capabilities=["coding", "analysis", "general"],
-                routing_keywords=["전략", "리뷰", "방향", "결정", "strategy", "review", "direction", "decision"],
                 monthly_budget_cents=2000,
                 children=[
                     AgentTemplate(
@@ -150,7 +141,6 @@ TEMPLATES: dict[str, OrgTemplate] = {
                         job_description="Implements features and fixes bugs",
                         executor_type="claude_code",
                         capabilities=["coding"],
-                        routing_keywords=["코드", "개발", "구현", "버그", "code", "develop", "implement", "fix", "build"],
                         monthly_budget_cents=5000,
                     ),
                 ],
@@ -170,7 +160,6 @@ TEMPLATES: dict[str, OrgTemplate] = {
                 job_description="Sets company vision and strategy",
                 executor_type="claude_api",
                 capabilities=["analysis", "writing", "general"],
-                routing_keywords=["전략", "비전", "사업", "방향", "투자", "매출", "strategy", "vision", "business", "revenue"],
                 monthly_budget_cents=2000,
                 children=[
                     AgentTemplate(
@@ -180,27 +169,24 @@ TEMPLATES: dict[str, OrgTemplate] = {
                         job_description="Technical architecture and engineering leadership",
                         executor_type="claude_api",
                         capabilities=["coding", "analysis"],
-                        routing_keywords=["기술", "아키텍처", "시스템", "코드리뷰", "technical", "architecture", "engineering", "system"],
                         monthly_budget_cents=2000,
                         children=[
                             AgentTemplate(
-                                name="Backend Engineer",
+                                name="Backend_Engineer",
                                 role="backend_engineer",
                                 title="Senior Backend Engineer",
                                 job_description="Backend API development, database design, infrastructure",
                                 executor_type="claude_code",
                                 capabilities=["coding"],
-                                routing_keywords=["백엔드", "api", "서버", "db", "backend", "database", "sql", "redis"],
                                 monthly_budget_cents=5000,
                             ),
                             AgentTemplate(
-                                name="Frontend Engineer",
+                                name="Frontend_Engineer",
                                 role="frontend_engineer",
                                 title="Senior Frontend Engineer",
                                 job_description="Frontend UI development, component design, performance",
                                 executor_type="claude_code",
                                 capabilities=["coding"],
-                                routing_keywords=["프론트", "프론트엔드", "ui", "react", "css", "frontend", "component", "tailwind"],
                                 monthly_budget_cents=5000,
                             ),
                             AgentTemplate(
@@ -210,17 +196,15 @@ TEMPLATES: dict[str, OrgTemplate] = {
                                 job_description="CI/CD pipelines, infrastructure, monitoring, deployment",
                                 executor_type="claude_code",
                                 capabilities=["coding"],
-                                routing_keywords=["배포", "인프라", "도커", "모니터링", "devops", "deploy", "docker", "ci", "cd", "k8s"],
                                 monthly_budget_cents=3000,
                             ),
                             AgentTemplate(
-                                name="QA Lead",
+                                name="QA_Lead",
                                 role="qa_lead",
                                 title="QA Lead",
                                 job_description="Test strategy, code review, quality standards, bug triage",
                                 executor_type="claude_api",
                                 capabilities=["coding", "analysis"],
-                                routing_keywords=["테스트", "품질", "버그", "qa", "리뷰", "test", "quality", "bug", "review"],
                                 monthly_budget_cents=3000,
                             ),
                         ],
@@ -232,17 +216,15 @@ TEMPLATES: dict[str, OrgTemplate] = {
                         job_description="Product strategy, roadmap, user research",
                         executor_type="generic_llm",
                         capabilities=["analysis", "writing", "research"],
-                        routing_keywords=["제품전략", "사용자", "리서치", "product strategy", "user research", "roadmap"],
                         monthly_budget_cents=2000,
                         children=[
                             AgentTemplate(
-                                name="Product Manager",
+                                name="Product_Manager",
                                 role="product_manager",
                                 title="Product Manager",
                                 job_description="Feature specs, backlog grooming, stakeholder communication",
                                 executor_type="generic_llm",
                                 capabilities=["analysis", "writing"],
-                                routing_keywords=["기능", "스펙", "백로그", "prd", "feature", "spec", "backlog", "requirement"],
                                 monthly_budget_cents=1500,
                             ),
                             AgentTemplate(
@@ -252,7 +234,6 @@ TEMPLATES: dict[str, OrgTemplate] = {
                                 job_description="UI/UX design, prototyping, design system",
                                 executor_type="generic_llm",
                                 capabilities=["writing", "analysis"],
-                                routing_keywords=["디자인", "ux", "프로토타입", "와이어프레임", "design", "prototype", "figma", "wireframe"],
                                 monthly_budget_cents=1500,
                             ),
                         ],
@@ -264,17 +245,15 @@ TEMPLATES: dict[str, OrgTemplate] = {
                         job_description="Marketing strategy, brand, content, growth",
                         executor_type="generic_llm",
                         capabilities=["marketing", "writing", "research"],
-                        routing_keywords=["마케팅", "광고", "홍보", "브랜드", "성장", "marketing", "brand", "growth", "seo", "ads"],
                         monthly_budget_cents=2000,
                         children=[
                             AgentTemplate(
-                                name="Content Writer",
+                                name="Content_Writer",
                                 role="content_writer",
                                 title="Content Writer",
                                 job_description="Blog posts, documentation, copywriting",
                                 executor_type="generic_llm",
                                 capabilities=["writing", "marketing"],
-                                routing_keywords=["글", "블로그", "문서", "카피", "writing", "blog", "docs", "documentation", "content"],
                                 monthly_budget_cents=1500,
                             ),
                         ],
@@ -335,7 +314,6 @@ async def apply_template(template_id: str, db: AsyncSession = Depends(get_db)) -
                 executor_config_id=None,  # Use Default
                 executor_type=default_executor_type,
                 capabilities=t.capabilities,
-                routing_keywords=t.routing_keywords,
                 monthly_budget_cents=t.monthly_budget_cents,
                 parent_agent_id=parent_id,
             )

@@ -50,6 +50,7 @@ def _seed_agents(db_session):
 class TestAgentCreate:
     @pytest.mark.asyncio
     async def test_create_agent(self, client) -> None:
+        # Spaces in names are normalized to underscores so @mentions are unambiguous.
         resp = await client.post("/api/v1/agents", json={
             "name": "CTO Bot",
             "role": "cto",
@@ -58,7 +59,7 @@ class TestAgentCreate:
         })
         assert resp.status_code == 201
         data = resp.json()
-        assert data["name"] == "CTO Bot"
+        assert data["name"] == "CTO_Bot"
         assert data["role"] == "cto"
         # executor_type resolved from executor_config_id (null → tenant default → claude_api)
         assert data["executor_type"] == "claude_api"
@@ -139,7 +140,8 @@ class TestAgentUpdate:
         })
         assert resp.status_code == 200
         data = resp.json()
-        assert data["name"] == "Updated Bot"
+        # Name normalization replaces spaces with underscores.
+        assert data["name"] == "Updated_Bot"
         assert data["role"] == "senior-eng"
         assert data["executor_type"] == "codex"
 

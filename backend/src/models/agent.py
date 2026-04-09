@@ -38,7 +38,6 @@ class Agent(Base):
     system_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
     skills: Mapped[list | None] = mapped_column(JSON, nullable=True)
     capabilities: Mapped[list] = mapped_column(JSON, nullable=False, default=list, server_default="[]")
-    routing_keywords: Mapped[list] = mapped_column(JSON, nullable=False, default=list, server_default="[]")
 
     # Org chart — self-referential, free hierarchy (no depth limit)
     parent_agent_id: Mapped[uuid.UUID | None] = mapped_column(

@@ -4,7 +4,15 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+def _normalize_agent_name(name: str) -> str:
+    """Normalize agent name: trim and replace spaces with underscores for clean @mentions."""
+    cleaned = name.strip().replace(" ", "_")
+    if not cleaned:
+        raise ValueError("Agent name cannot be empty")
+    return cleaned
 
 
 class AgentCreate(BaseModel):
@@ -12,17 +20,21 @@ class AgentCreate(BaseModel):
     role: str
     title: Optional[str] = None
     job_description: Optional[str] = None
-    executor_config_id: Optional[uuid.UUID] = None  # NULL = use tenant default
+    executor_config_id: Optional[uuid.UUID] = None
     executor_type: str = "claude_api"
     executor_config: dict = Field(default_factory=dict)
     system_prompt: Optional[str] = None
     skills: Optional[list[str]] = None
     capabilities: list[str] = Field(default_factory=lambda: ["general"])
-    routing_keywords: list[str] = Field(default_factory=list)
     parent_agent_id: Optional[uuid.UUID] = None
     heartbeat_interval_seconds: Optional[int] = None
     heartbeat_enabled: bool = False
     monthly_budget_cents: Optional[int] = None
+
+    @field_validator("name")
+    @classmethod
+    def _normalize_name(cls, v: str) -> str:
+        return _normalize_agent_name(v)
 
 
 class AgentUpdate(BaseModel):
@@ -30,18 +42,22 @@ class AgentUpdate(BaseModel):
     role: Optional[str] = None
     title: Optional[str] = None
     job_description: Optional[str] = None
-    executor_config_id: Optional[uuid.UUID] = None  # NULL = use tenant default
+    executor_config_id: Optional[uuid.UUID] = None
     executor_type: Optional[str] = None
     executor_config: Optional[dict] = None
     system_prompt: Optional[str] = None
     skills: Optional[list[str]] = None
     capabilities: Optional[list[str]] = None
-    routing_keywords: Optional[list[str]] = None
     parent_agent_id: Optional[uuid.UUID] = None
     heartbeat_interval_seconds: Optional[int] = None
     heartbeat_enabled: Optional[bool] = None
     monthly_budget_cents: Optional[int] = None
     is_active: Optional[bool] = None
+
+    @field_validator("name")
+    @classmethod
+    def _normalize_name(cls, v: Optional[str]) -> Optional[str]:
+        return _normalize_agent_name(v) if v is not None else None
 
 
 class AgentResponse(BaseModel):
@@ -59,7 +75,6 @@ class AgentResponse(BaseModel):
     system_prompt: Optional[str] = None
     skills: Optional[list[str]] = None
     capabilities: list[str] = Field(default_factory=list)
-    routing_keywords: list[str] = Field(default_factory=list)
     parent_agent_id: Optional[uuid.UUID] = None
     heartbeat_interval_seconds: Optional[int] = None
     heartbeat_enabled: bool = False

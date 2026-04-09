@@ -31,6 +31,15 @@ export default function GoalSlogan({ projectId }: Props) {
     },
   })
 
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => goalsApi.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['goals', projectId] })
+      setEditing(false)
+      setPopoverOpen(false)
+    },
+  })
+
   // Close popover on outside click
   useEffect(() => {
     if (!popoverOpen) return
@@ -55,7 +64,12 @@ export default function GoalSlogan({ projectId }: Props) {
   }
 
   const handleSave = () => {
-    if (!goal || !editTitle.trim()) return
+    if (!goal) return
+    // Empty title → delete the goal
+    if (!editTitle.trim()) {
+      deleteMutation.mutate(goal.id)
+      return
+    }
     updateMutation.mutate({ id: goal.id, title: editTitle.trim(), description: editDesc.trim() })
   }
 
@@ -93,20 +107,29 @@ export default function GoalSlogan({ projectId }: Props) {
                 placeholder="Description (optional)"
                 rows={3}
               />
-              <div className="flex justify-end gap-2">
+              <div className="flex items-center justify-between gap-2">
                 <button
-                  onClick={() => setEditing(false)}
-                  className="px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary transition-colors"
+                  onClick={() => goal && deleteMutation.mutate(goal.id)}
+                  disabled={deleteMutation.isPending}
+                  className="px-3 py-1.5 text-xs text-stitch-error hover:bg-stitch-error/10 rounded-lg transition-colors disabled:opacity-40"
                 >
-                  Cancel
+                  {deleteMutation.isPending ? '...' : 'Clear goal'}
                 </button>
-                <button
-                  onClick={handleSave}
-                  disabled={updateMutation.isPending || !editTitle.trim()}
-                  className="px-3 py-1.5 text-xs bg-stitch-primary text-white rounded-lg hover:bg-stitch-primary/80 disabled:opacity-40"
-                >
-                  {updateMutation.isPending ? '...' : 'Save'}
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setEditing(false)}
+                    className="px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSave}
+                    disabled={updateMutation.isPending || deleteMutation.isPending}
+                    className="px-3 py-1.5 text-xs bg-stitch-primary text-white rounded-lg hover:bg-stitch-primary/80 disabled:opacity-40"
+                  >
+                    {updateMutation.isPending || deleteMutation.isPending ? '...' : 'Save'}
+                  </button>
+                </div>
               </div>
             </div>
           ) : (

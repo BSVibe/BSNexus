@@ -113,6 +113,32 @@ export async function mockAllApis(page: Page) {
     })
   })
 
+  // Project chat SSE events endpoint
+  await page.route('**/api/v1/projects/proj-*/chat/events', (route) => {
+    return route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      body: 'event: connected\ndata: {}\n\n',
+    })
+  })
+
+  // Project chat history / send / clear
+  await page.route('**/api/v1/projects/proj-*/chat', (route) => {
+    const method = route.request().method()
+    if (method === 'GET') {
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ messages: [] }) })
+    }
+    if (method === 'DELETE') {
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ detail: 'cleared' }) })
+    }
+    // POST — fire-and-forget, returns dispatched agent names
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ dispatched_agents: ['CEO'] }),
+    })
+  })
+
   // Board snapshot
   await page.route('**/api/v1/board/proj-*', (route) => {
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockBoardResponse) })

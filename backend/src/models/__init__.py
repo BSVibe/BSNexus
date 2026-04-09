@@ -31,6 +31,7 @@ from backend.src.models._legacy import (
 # New models
 from backend.src.models.agent import Agent
 from backend.src.models.budget import CostRecord
+from backend.src.models.conversation import ConversationMessage
 from backend.src.models.goal import Goal
 from backend.src.models.tenant import Tenant, TenantMember
 from backend.src.models.executor_config import ExecutorConfig
@@ -61,6 +62,7 @@ __all__ = [
     "task_dependencies",
     # New models
     "Agent",
+    "ConversationMessage",
     "CostRecord",
     "ExecutorConfig",
     "Goal",

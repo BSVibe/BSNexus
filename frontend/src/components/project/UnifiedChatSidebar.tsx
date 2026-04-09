@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { agentChatApi } from '../../api/agentChat'
 import { agentsApi } from '../../api/agents'
+import { useChatEvents } from '../../hooks/useChatEvents'
 import ChatMessage from './ChatMessage'
 import MentionAutocomplete from './MentionAutocomplete'
 
@@ -30,16 +31,37 @@ export default function UnifiedChatSidebar({ projectId }: Props) {
     queryFn: () => agentsApi.list(),
   })
 
+  // SSE: real-time chat events from server
+  useChatEvents(projectId)
+
   const { data: historyData } = useQuery({
     queryKey: ['project-chat', projectId],
     queryFn: () => agentChatApi.history(projectId),
   })
 
-  const messages = historyData?.messages ?? []
+  const messages = useMemo(() => historyData?.messages ?? [], [historyData])
 
-  // Optimistic: track the message being sent + target agent
+  // Optimistic state: user message + dispatched agent names for typing indicators
   const [pendingMessage, setPendingMessage] = useState<string | null>(null)
-  const [pendingAgent, setPendingAgent] = useState<string | null>(null)
+  const [pendingAgents, setPendingAgents] = useState<string[]>([])
+
+  // Hide optimistic user bubble once the real one arrives via SSE
+  const showPendingUser = useMemo(() => {
+    if (!pendingMessage) return false
+    return !messages.some((m) => m.role === 'user' && m.content === pendingMessage)
+  }, [messages, pendingMessage])
+
+  // Per-agent typing: show while no response from that agent exists after the user message
+  const activeTypingAgents = useMemo(() => {
+    if (!pendingMessage || pendingAgents.length === 0) return []
+    const lastUserIdx = messages.findLastIndex(
+      (m) => m.role === 'user' && m.content === pendingMessage,
+    )
+    if (lastUserIdx < 0) return pendingAgents // user message hasn't arrived yet
+    const responsesAfter = messages.slice(lastUserIdx + 1)
+    const respondedNames = new Set(responsesAfter.filter((m) => m.role === 'assistant').map((m) => m.agent_name))
+    return pendingAgents.filter((name) => !respondedNames.has(name))
+  }, [messages, pendingMessage, pendingAgents])
 
   const filteredAgents = useMemo(() => {
     if (mentionQuery === null) return []
@@ -49,31 +71,33 @@ export default function UnifiedChatSidebar({ projectId }: Props) {
   const sendMutation = useMutation({
     mutationFn: (message: string) => agentChatApi.send(projectId, message),
     onSuccess: (data) => {
-      setPendingMessage(null)
-      setPendingAgent(null)
-      queryClient.invalidateQueries({ queryKey: ['project-chat', projectId] })
-      const hasTaskActions = data.messages.some((m) => m.actions.some((a) => a.type === 'task_created'))
-      if (hasTaskActions) queryClient.invalidateQueries({ queryKey: ['board', projectId] })
-      const hasGoalActions = data.messages.some((m) => m.actions.some((a) => a.type.startsWith('goal_')))
-      if (hasGoalActions) queryClient.invalidateQueries({ queryKey: ['goals', projectId] })
+      setPendingAgents(data.dispatched_agents)
     },
     onError: () => {
       setPendingMessage(null)
-      setPendingAgent(null)
+      setPendingAgents([])
     },
   })
 
+  // Auto-clear pending state once all agents have responded (derived check in render)
+  const allDone = pendingAgents.length > 0 && activeTypingAgents.length === 0 && !showPendingUser
+  if (allDone && pendingMessage) {
+    // Schedule clear for next tick to avoid setState during render warning
+    queueMicrotask(() => {
+      setPendingMessage(null)
+      setPendingAgents([])
+    })
+  }
+
   const clearMutation = useMutation({
     mutationFn: () => agentChatApi.clear(projectId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['project-chat', projectId] }),
+    onSuccess: () => queryClient.setQueryData(['project-chat', projectId], { messages: [] }),
   })
 
   // @mention detection
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value
     setInput(val)
-
-    // Check for @mention at cursor
     const pos = e.target.selectionStart
     const textBeforeCursor = val.slice(0, pos)
     const match = textBeforeCursor.match(/(?:^|\s)@(\w*)$/)
@@ -101,14 +125,13 @@ export default function UnifiedChatSidebar({ projectId }: Props) {
   const handleSend = useCallback(() => {
     const trimmed = input.trim()
     if (!trimmed || sendMutation.isPending) return
-
-    // Extract @mentioned agent name for typing indicator
-    const mentionMatch = trimmed.match(/@(\S+)/)
-    const mentionedName = mentionMatch?.[1] ?? null
-    const matched = mentionedName ? agents.find((a) => a.name.toLowerCase() === mentionedName.toLowerCase()) : null
-
     setPendingMessage(trimmed)
-    setPendingAgent(matched?.name ?? mentionedName)
+    // Set temporary typing agents from @mentions in the message (will be overwritten by server response)
+    const mentionMatches = [...trimmed.matchAll(/@(\S+)/g)]
+    const mentionedNames = mentionMatches
+      .map((m) => agents.find((a) => a.name.toLowerCase() === m[1].toLowerCase())?.name)
+      .filter(Boolean) as string[]
+    setPendingAgents(mentionedNames.length > 0 ? mentionedNames : ['...'])
     setInput('')
     setMentionQuery(null)
     sendMutation.mutate(trimmed)
@@ -143,10 +166,10 @@ export default function UnifiedChatSidebar({ projectId }: Props) {
     }
   }, [mentionQuery, filteredAgents, mentionIndex, handleMentionSelect, handleSend])
 
-  // Auto-scroll
+  // Auto-scroll on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages.length, sendMutation.isPending])
+  }, [messages.length, activeTypingAgents.length])
 
   // Resize
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -205,7 +228,7 @@ export default function UnifiedChatSidebar({ projectId }: Props) {
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
-          {messages.length === 0 && !sendMutation.isPending && (
+          {messages.length === 0 && !pendingMessage && (
             <div className="flex flex-col items-center justify-center h-full text-text-tertiary">
               <span className="material-symbols-outlined text-3xl mb-2 opacity-40">chat</span>
               <p className="text-xs text-center">@mention an agent to start a conversation</p>
@@ -216,36 +239,37 @@ export default function UnifiedChatSidebar({ projectId }: Props) {
             <ChatMessage key={msg.id} message={msg} />
           ))}
 
-          {/* Optimistic user message + agent typing indicator */}
-          {sendMutation.isPending && pendingMessage && (
-            <>
-              <ChatMessage
-                message={{
-                  id: '__pending_user',
-                  role: 'user',
-                  content: pendingMessage,
-                  agent_id: null,
-                  agent_name: null,
-                  created_at: new Date().toISOString(),
-                  actions: [],
-                }}
-              />
-              {pendingAgent && (
-                <ChatMessage
-                  message={{
-                    id: '__pending_agent',
-                    role: 'assistant',
-                    content: '​', // zero-width space — content is replaced by typing indicator
-                    agent_id: null,
-                    agent_name: pendingAgent,
-                    created_at: new Date().toISOString(),
-                    actions: [],
-                  }}
-                  typing
-                />
-              )}
-            </>
+          {/* Optimistic user bubble */}
+          {showPendingUser && pendingMessage && (
+            <ChatMessage
+              message={{
+                id: '__pending_user',
+                role: 'user',
+                content: pendingMessage,
+                agent_id: null,
+                agent_name: null,
+                created_at: new Date().toISOString(),
+                actions: [],
+              }}
+            />
           )}
+
+          {/* Typing indicators — one per dispatched agent still waiting */}
+          {activeTypingAgents.map((agentName) => (
+            <ChatMessage
+              key={`typing-${agentName}`}
+              message={{
+                id: `__typing_${agentName}`,
+                role: 'assistant',
+                content: '​',
+                agent_id: null,
+                agent_name: agentName === '...' ? null : agentName,
+                created_at: new Date().toISOString(),
+                actions: [],
+              }}
+              typing
+            />
+          ))}
 
           <div ref={messagesEndRef} />
         </div>
@@ -259,7 +283,6 @@ export default function UnifiedChatSidebar({ projectId }: Props) {
 
         {/* Input area */}
         <div className="border-t border-stitch-outline-variant/10 p-3 relative">
-          {/* Mention autocomplete */}
           {mentionQuery !== null && filteredAgents.length > 0 && (
             <MentionAutocomplete
               agents={filteredAgents}

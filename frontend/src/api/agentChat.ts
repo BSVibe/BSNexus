@@ -10,8 +10,8 @@ export interface ChatMessageOut {
   actions: Array<{ type: string; task_id?: string; goal_id?: string; title?: string }>
 }
 
-export interface ChatResponse {
-  messages: ChatMessageOut[]
+export interface ChatDispatchResponse {
+  dispatched_agents: string[]
 }
 
 export interface ChatHistoryResponse {
@@ -21,7 +21,7 @@ export interface ChatHistoryResponse {
 export const agentChatApi = {
   send: (projectId: string, message: string) =>
     apiClient
-      .post<ChatResponse>(`/api/v1/projects/${projectId}/chat`, { message })
+      .post<ChatDispatchResponse>(`/api/v1/projects/${projectId}/chat`, { message })
       .then((r) => r.data),
 
   history: (projectId: string) =>
