@@ -95,7 +95,7 @@ function BoardContent({ projectId }: { projectId: string }) {
           </div>
 
           {/* Stats bar */}
-          <BoardStats projectName={project?.name} />
+          <BoardStats projectStatus={project?.status} />
 
           {/* Kanban board */}
           <div className="flex-1 overflow-x-auto overflow-y-hidden">

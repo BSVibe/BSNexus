@@ -54,12 +54,18 @@ export default function UnifiedChatSidebar({ projectId }: Props) {
   // Per-agent typing: show while no response from that agent exists after the user message
   const activeTypingAgents = useMemo(() => {
     if (!pendingMessage || pendingAgents.length === 0) return []
-    const lastUserIdx = messages.findLastIndex(
-      (m) => m.role === 'user' && m.content === pendingMessage,
-    )
+    let lastUserIdx = -1
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'user' && messages[i].content === pendingMessage) {
+        lastUserIdx = i
+        break
+      }
+    }
     if (lastUserIdx < 0) return pendingAgents // user message hasn't arrived yet
-    const responsesAfter = messages.slice(lastUserIdx + 1)
-    const respondedNames = new Set(responsesAfter.filter((m) => m.role === 'assistant').map((m) => m.agent_name))
+    const respondedNames = new Set<string | null>()
+    for (let i = lastUserIdx + 1; i < messages.length; i++) {
+      if (messages[i].role === 'assistant') respondedNames.add(messages[i].agent_name)
+    }
     return pendingAgents.filter((name) => !respondedNames.has(name))
   }, [messages, pendingMessage, pendingAgents])
 
