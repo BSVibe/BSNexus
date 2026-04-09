@@ -12,7 +12,6 @@ import MigratePage from './pages/MigratePage'
 import AgentsPage from './pages/AgentsPage'
 import BudgetPage from './pages/BudgetPage'
 import SettingsPage from './pages/SettingsPage'
-import AuthCallbackPage from './pages/AuthCallbackPage'
 
 const queryClient = new QueryClient()
 
@@ -23,7 +22,6 @@ function App() {
         <BrowserRouter>
           <Routes>
             <Route path="/" element={<LandingPage />} />
-            <Route path="/auth/callback" element={<AuthCallbackPage />} />
             <Route element={<ProtectedRoute />}>
               <Route element={<Layout />}>
                 <Route path="/dashboard" element={<DashboardPage />} />

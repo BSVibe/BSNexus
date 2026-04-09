@@ -33,16 +33,7 @@ test.describe('Auth — Landing Page & Protected Routes', () => {
     await mockAllApis(page)
     await page.goto('/dashboard')
     // ProtectedRoute should redirect to /
-    await expect(page).toHaveURL(/\/(\?sso_error=1)?$/)
-  })
-
-  test('auth callback without tokens navigates away', async ({ page }) => {
-    await blockSSORedirect(page)
-    await injectAuth(page)
-    // With auth, callback processes and redirects to dashboard
-    await page.goto('/auth/callback')
-    await page.waitForURL(/\/dashboard/, { timeout: 10000 })
-    await expect(page).toHaveURL(/\/dashboard/)
+    await expect(page).toHaveURL('/')
   })
 
   test('landing page footer shows "Powered by BSVibe"', async ({ page }) => {

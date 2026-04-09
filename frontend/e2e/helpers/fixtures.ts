@@ -8,11 +8,6 @@ export const mockUser = {
   email: 'dev@bsvibe.dev',
 }
 
-export const mockTokens = {
-  access_token: 'mock-access-token-abc123',
-  refresh_token: 'mock-refresh-token-def456',
-}
-
 export const mockProjects = [
   {
     id: 'proj-001',

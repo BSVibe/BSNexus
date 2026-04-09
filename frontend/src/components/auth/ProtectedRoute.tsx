@@ -1,11 +1,10 @@
 import { Navigate, Outlet } from 'react-router-dom'
-import { useAuthStore } from '../../stores/authStore'
+import { useAuthContext } from './AuthContext'
 
 export default function ProtectedRoute() {
-  const accessToken = useAuthStore((s) => s.accessToken)
-  const isLoading = useAuthStore((s) => s.isLoading)
+  const { user, loading } = useAuthContext()
 
-  if (isLoading) {
+  if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent" />
@@ -13,7 +12,7 @@ export default function ProtectedRoute() {
     )
   }
 
-  if (!accessToken) {
+  if (!user) {
     return <Navigate to="/" replace />
   }
 

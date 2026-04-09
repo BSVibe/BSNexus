@@ -1,15 +1,10 @@
-import { useEffect } from 'react'
-import { useAuthStore } from '../../stores/authStore'
+import { useAuth } from '../../hooks/useAuth'
+import { AuthContext } from './AuthContext'
 
 export default function AuthProvider({ children }: { children: React.ReactNode }) {
-  const initialize = useAuthStore((s) => s.initialize)
-  const isLoading = useAuthStore((s) => s.isLoading)
+  const auth = useAuth()
 
-  useEffect(() => {
-    initialize()
-  }, [initialize])
-
-  if (isLoading) {
+  if (auth.loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
@@ -17,5 +12,9 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
     )
   }
 
-  return <>{children}</>
+  return (
+    <AuthContext.Provider value={auth}>
+      {children}
+    </AuthContext.Provider>
+  )
 }
