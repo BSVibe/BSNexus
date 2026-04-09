@@ -35,3 +35,17 @@ export function getAndClearState(): string | null {
   sessionStorage.removeItem(STATE_KEY);
   return state;
 }
+
+const SSO_CHECKED_KEY = 'bsvibe_sso_checked';
+
+export function markSSOChecked(): void {
+  sessionStorage.setItem(SSO_CHECKED_KEY, '1');
+}
+
+export function wasSSOChecked(): boolean {
+  return sessionStorage.getItem(SSO_CHECKED_KEY) === '1';
+}
+
+export function clearSSOChecked(): void {
+  sessionStorage.removeItem(SSO_CHECKED_KEY);
+}

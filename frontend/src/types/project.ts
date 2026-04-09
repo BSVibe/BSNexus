@@ -19,7 +19,11 @@ export interface Project {
   name: string
   description: string
   design_doc_path: string | null
-  repo_path: string
+  repo_path: string | null
+  workspace_type: 'server_managed' | 'local_import' | 'github_connected'
+  workspace_dir: string | null
+  github_repo_url: string | null
+  github_branch: string | null
   status: ProjectStatus
   llm_config: Record<string, unknown> | null
   created_at: string
@@ -29,8 +33,11 @@ export interface Project {
 
 export interface ProjectCreate {
   name: string
-  description: string
-  repo_path: string
+  description?: string
+  repo_path?: string
+  workspace_type?: 'server_managed' | 'local_import'
+  github_repo_url?: string
+  github_branch?: string
 }
 
 export interface ProjectUpdate {

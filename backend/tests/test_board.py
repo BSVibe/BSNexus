@@ -59,13 +59,13 @@ async def create_project_phase_task(db_session, status: TaskStatus = TaskStatus.
 
 
 @pytest.fixture(autouse=True)
-def mock_redis():
+def mock_redis(test_app):
     """Set app.state.redis to an AsyncMock for all board tests."""
     mock = AsyncMock()
     mock.scan_iter = AsyncMock(return_value=[]).__aiter__
     # Make scan_iter return an empty async iterator by default
     mock.scan_iter.return_value = _empty_async_iter()
-    app.state.redis = mock
+    test_app.state.redis = mock
     yield mock
 
 

@@ -82,14 +82,45 @@ docker compose -f .devcontainer/docker-compose.yml up -d postgres redis
 
 ## API Endpoints
 
-| Prefix              | Description                            |
-| ------------------- | -------------------------------------- |
-| `/api/v1/projects`  | Project and phase CRUD                 |
-| `/api/v1/tasks`     | Task CRUD and state transitions        |
-| `/api/v1/workers`   | Worker registration and heartbeat      |
-| `/api/v1/board`     | Kanban board state and events          |
-| `/api/v1/architect` | Design session chat (HTTP + WebSocket) |
-| `/api/v1/pm`        | PM orchestration control               |
+| Prefix                              | Description                                   |
+| ----------------------------------- | --------------------------------------------- |
+| `/api/v1/projects`                  | Project and phase CRUD                        |
+| `/api/v1/projects/{id}/chat`        | Unified project chat (DB-backed, SSE events)  |
+| `/api/v1/projects/{id}/chat/events` | SSE: real-time chat message stream            |
+| `/api/v1/tasks`                     | Task CRUD and state transitions               |
+| `/api/v1/agents`                    | Agent CRUD + org chart                        |
+| `/api/v1/workers`                   | Worker registration, heartbeat, poll, result  |
+| `/api/v1/board`                     | Kanban board state and events                 |
+| `/api/v1/architect`                 | Design session chat (HTTP + WebSocket)        |
+| `/api/v1/pm`                        | PM orchestration control                      |
+
+## Project Chat Architecture
+
+The unified project chat is **source-agnostic** so it can fan out to web, Slack,
+or any other channel via adapter without changing the core flow.
+
+- **Persistence**: `conversation_messages` table (one row per message). Fields
+  `source`, `external_id`, `thread_ref` let adapters round-trip with external
+  systems (Slack ts, Discord message id, etc.). Repository:
+  `backend/src/repositories/conversation_repository.py`.
+- **Routing**: Mentions are parsed from the user message and matched against
+  agent names. With no mention, `_pick_default_agent` scores each agent by
+  `routing_keywords` (3x weight) plus `job_description`/`capabilities` token
+  overlap, falling back to the org-chart root.
+- **Delegation chain**: After the synchronously called agents respond, any
+  `@mentions` in their replies are queued as a background `asyncio.Task` that
+  uses a fresh DB session. This keeps long chains from blocking the HTTP
+  response.
+- **Event bus**: Every persisted message is published to the Redis Stream
+  `chat:events:{project_id}` (`event=message_created`). Clear publishes
+  `event=history_cleared`. Streams (not Pub/Sub) so adapters can use consumer
+  groups for delivery guarantees if needed; the SSE handler tails with
+  `XREAD $` for fan-out.
+- **Frontend**: `useChatEvents(projectId)` opens an `EventSource` and patches
+  the React Query cache directly. No polling.
+- **Slack roadmap**: A `SlackChannelAdapter` will tail the same chat events
+  stream and post via Slack Web API; an inbound webhook handler will call the
+  same internal flow as the web POST endpoint.
 
 ## Task State Machine
 

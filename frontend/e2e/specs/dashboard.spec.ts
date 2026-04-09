@@ -13,8 +13,8 @@ test.describe('Dashboard — Stat Cards & Project Grid', () => {
   test('renders four stat cards in bento grid', async ({ page }) => {
     await expect(page.getByText('Total Projects')).toBeVisible()
     await expect(page.getByText('Active Tasks')).toBeVisible()
-    await expect(page.getByText('Bugs Detected')).toBeVisible()
     await expect(page.getByText('Completion Rate')).toBeVisible()
+    await expect(page.getByText('Compute Cost')).toBeVisible()
   })
 
   test('stat card shows correct total projects count', async ({ page }) => {
@@ -25,8 +25,8 @@ test.describe('Dashboard — Stat Cards & Project Grid', () => {
 
   test('stat cards use Material Symbols icons', async ({ page }) => {
     await expect(page.locator('span.material-symbols-outlined:has-text("folder_open")').first()).toBeVisible()
-    await expect(page.locator('span.material-symbols-outlined:has-text("bug_report")').first()).toBeVisible()
     await expect(page.locator('span.material-symbols-outlined:has-text("bolt")').first()).toBeVisible()
+    await expect(page.locator('span.material-symbols-outlined:has-text("payments")').first()).toBeVisible()
   })
 
   test('project cards are rendered in a grid', async ({ page }) => {
@@ -59,12 +59,6 @@ test.describe('Dashboard — Stat Cards & Project Grid', () => {
     const bsnexusCard = page.locator('a[href="/projects/proj-001"]')
     await expect(bsnexusCard.locator('span.material-symbols-outlined:has-text("bug_report")')).toBeVisible()
     await expect(bsnexusCard.getByText('2').first()).toBeVisible()
-  })
-
-  test('project card shows architect indicator when session exists', async ({ page }) => {
-    const bsnexusCard = page.locator('a[href="/projects/proj-001"]')
-    await expect(bsnexusCard.locator('span.material-symbols-outlined:has-text("architecture")')).toBeVisible()
-    await expect(bsnexusCard.getByText('Architect')).toBeVisible()
   })
 
   test('project card shows event icon with date', async ({ page }) => {

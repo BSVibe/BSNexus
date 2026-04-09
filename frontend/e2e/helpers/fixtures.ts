@@ -194,6 +194,222 @@ export const mockBoardResponse = {
   redesign_tasks: [],
 }
 
+export const mockAgents = [
+  {
+    id: 'agent-001',
+    tenant_id: '00000000-0000-0000-0000-000000000000',
+    name: 'Alex',
+    role: 'cto',
+    title: 'Chief Technology Officer',
+    job_description: 'Leads technical architecture and engineering decisions',
+    executor_type: 'bsgateway',
+    executor_config: {},
+    system_prompt: 'You are a senior technical leader.',
+    skills: ['architecture-design', 'code-review'],
+    capabilities: ['coding', 'analysis'],
+    parent_agent_id: null,
+    heartbeat_interval_seconds: 14400,
+    heartbeat_enabled: true,
+    last_heartbeat_at: '2026-04-05T10:00:00Z',
+    monthly_budget_cents: 6000,
+    current_month_spent_cents: 1200,
+    status: 'online',
+    is_active: true,
+    created_at: '2026-04-01T00:00:00Z',
+    updated_at: '2026-04-05T10:00:00Z',
+  },
+  {
+    id: 'agent-002',
+    tenant_id: '00000000-0000-0000-0000-000000000000',
+    name: 'Dev-1',
+    role: 'engineer',
+    title: 'Senior Engineer',
+    job_description: null,
+    executor_type: 'claude_code',
+    executor_config: {},
+    system_prompt: null,
+    skills: ['git-ops'],
+    capabilities: ['coding'],
+    parent_agent_id: 'agent-001',
+    heartbeat_interval_seconds: null,
+    heartbeat_enabled: false,
+    last_heartbeat_at: null,
+    monthly_budget_cents: 30000,
+    current_month_spent_cents: 4500,
+    status: 'busy',
+    is_active: true,
+    created_at: '2026-04-01T00:00:00Z',
+    updated_at: '2026-04-05T12:00:00Z',
+  },
+  {
+    id: 'agent-003',
+    tenant_id: '00000000-0000-0000-0000-000000000000',
+    name: 'Writer-Bot',
+    role: 'content writer',
+    title: null,
+    job_description: 'Writes blog posts and documentation',
+    executor_type: 'generic_llm',
+    executor_config: {},
+    system_prompt: null,
+    skills: [],
+    capabilities: ['writing'],
+    parent_agent_id: null,
+    heartbeat_interval_seconds: 28800,
+    heartbeat_enabled: true,
+    last_heartbeat_at: '2026-04-05T08:00:00Z',
+    monthly_budget_cents: 10000,
+    current_month_spent_cents: 200,
+    status: 'online',
+    is_active: true,
+    created_at: '2026-04-02T00:00:00Z',
+    updated_at: '2026-04-05T08:00:00Z',
+  },
+]
+
+export const mockOrgChart = [
+  {
+    agent: mockAgents[0],
+    children: [
+      {
+        agent: mockAgents[1],
+        children: [],
+      },
+    ],
+  },
+  {
+    agent: mockAgents[2],
+    children: [],
+  },
+]
+
+export const mockWorkers = [
+  {
+    id: 'worker-001',
+    name: 'Mac Mini Runner',
+    labels: ['macos', 'gpu'],
+    status: 'online',
+    last_heartbeat: '2026-04-05T12:00:00Z',
+    capabilities: ['claude_code'],
+    created_at: '2026-04-01T00:00:00Z',
+  },
+]
+
+export const mockExecutorConfigs = [
+  {
+    id: 'exec-001',
+    tenant_id: '00000000-0000-0000-0000-000000000000',
+    name: 'Claude Sonnet 4',
+    executor_type: 'claude_api',
+    config: { api_key: 'sk-***', model: 'anthropic/claude-sonnet-4-20250514' },
+    description: 'Default LLM API for coding tasks',
+    is_default: true,
+    created_at: '2026-04-01T00:00:00Z',
+    updated_at: '2026-04-01T00:00:00Z',
+  },
+  {
+    id: 'exec-002',
+    tenant_id: '00000000-0000-0000-0000-000000000000',
+    name: 'Worker: Mac Mini Runner',
+    executor_type: 'worker',
+    config: { worker_id: 'worker-001' },
+    description: 'Self-hosted worker (claude_code)',
+    is_default: false,
+    created_at: '2026-04-01T00:00:00Z',
+    updated_at: '2026-04-01T00:00:00Z',
+  },
+]
+
+export const mockInstallToken = { has_token: true }
+
+export const mockGoals = [
+  {
+    id: 'goal-001',
+    tenant_id: '00000000-0000-0000-0000-000000000000',
+    parent_goal_id: null,
+    level: 'mission',
+    title: 'Build the leading AI-native development ecosystem',
+    description: null,
+    project_id: null,
+    agent_id: null,
+    created_at: '2026-04-01T00:00:00Z',
+    updated_at: '2026-04-01T00:00:00Z',
+  },
+  {
+    id: 'goal-002',
+    tenant_id: '00000000-0000-0000-0000-000000000000',
+    parent_goal_id: 'goal-001',
+    level: 'department',
+    title: 'Ship BSNexus v2.0',
+    description: 'Complete Company OS evolution',
+    project_id: null,
+    agent_id: 'agent-001',
+    created_at: '2026-04-01T00:00:00Z',
+    updated_at: '2026-04-01T00:00:00Z',
+  },
+]
+
+export const mockBudgetOverview = {
+  total_budget_cents: 46000,
+  total_spent_cents: 5900,
+  total_remaining_cents: 40100,
+  agent_summaries: [
+    {
+      agent_id: 'agent-001',
+      agent_name: 'Alex',
+      monthly_budget_cents: 6000,
+      current_month_spent_cents: 1200,
+      budget_remaining_cents: 4800,
+      utilization_pct: 20.0,
+    },
+    {
+      agent_id: 'agent-002',
+      agent_name: 'Dev-1',
+      monthly_budget_cents: 30000,
+      current_month_spent_cents: 4500,
+      budget_remaining_cents: 25500,
+      utilization_pct: 15.0,
+    },
+    {
+      agent_id: 'agent-003',
+      agent_name: 'Writer-Bot',
+      monthly_budget_cents: 10000,
+      current_month_spent_cents: 200,
+      budget_remaining_cents: 9800,
+      utilization_pct: 2.0,
+    },
+  ],
+}
+
+export const mockCostRecords = [
+  {
+    id: 'cost-001',
+    tenant_id: '00000000-0000-0000-0000-000000000000',
+    agent_id: 'agent-001',
+    task_id: null,
+    amount_cents: 500,
+    token_count: 12000,
+    model_name: 'claude-3.5-sonnet',
+    recorded_at: '2026-04-05T10:00:00Z',
+  },
+  {
+    id: 'cost-002',
+    tenant_id: '00000000-0000-0000-0000-000000000000',
+    agent_id: 'agent-002',
+    task_id: 'task-001',
+    amount_cents: 200,
+    token_count: 5000,
+    model_name: 'gpt-4o',
+    recorded_at: '2026-04-05T09:00:00Z',
+  },
+]
+
+export const mockGlobalSettings = {
+  llm_api_key: 'sk-***masked***',
+  llm_model: 'anthropic/claude-sonnet-4-20250514',
+  llm_base_url: null,
+  default_executor_type: 'claude_api',
+}
+
 export const mockSessions = [
   {
     id: 'session-001',

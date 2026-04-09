@@ -1,11 +1,11 @@
-import { useState } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { SettingsModal } from './SettingsModal'
 import { useAuthStore } from '../../stores/authStore'
 
 const navItems = [
-  { to: '/dashboard', label: 'Projects', icon: 'folder_open' },
-  { to: '/architect', label: 'Architect', icon: 'architecture' },
+  { to: '/dashboard', label: 'Dashboard', icon: 'dashboard' },
+  { to: '/agents', label: 'Agents', icon: 'groups' },
+  { to: '/budget', label: 'Budget', icon: 'account_balance_wallet' },
+  { to: '/settings', label: 'Settings', icon: 'settings' },
 ]
 
 interface SidebarProps {
@@ -16,7 +16,6 @@ interface SidebarProps {
 export default function Sidebar({ isOpen, onClose }: SidebarProps) {
   const location = useLocation()
   const navigate = useNavigate()
-  const [settingsOpen, setSettingsOpen] = useState(false)
   const signOut = useAuthStore((s) => s.signOut)
   const user = useAuthStore((s) => s.user)
 
@@ -82,14 +81,6 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
           )
         })}
 
-        <button
-          type="button"
-          onClick={() => setSettingsOpen(true)}
-          className="flex items-center gap-3 px-3 py-2.5 text-sm text-text-secondary font-medium hover:text-accent-text hover:bg-stitch-surface-container rounded-lg cursor-pointer transition-colors w-full"
-        >
-          <span className="material-symbols-outlined">settings</span>
-          Settings
-        </button>
       </nav>
 
       {/* Bottom section: user profile */}
@@ -113,7 +104,6 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
         </button>
       </div>
 
-      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </aside>
     </>
   )

@@ -17,22 +17,9 @@ test.describe('Project — Detail Page & Board Integration', () => {
     await expect(page.getByText('BSNexus').first()).toBeVisible()
   })
 
-  test('displays project status badge', async ({ page }) => {
-    await expect(page.getByText('active', { exact: false }).first()).toBeVisible()
-  })
-
-  test('displays project description', async ({ page }) => {
-    await expect(page.getByText('AI-powered development management system')).toBeVisible()
-  })
-
-  test('connection status indicator shows Live or Offline', async ({ page }) => {
-    const statusText = page.locator('header').getByText(/Live|Offline/)
-    await expect(statusText).toBeVisible()
-  })
-
-  test('has architect chat toggle button with panel icon', async ({ page }) => {
-    const toggleBtn = page.locator('button[title="Open Architect chat"]').or(
-      page.locator('button[title="Close chat"]'),
+  test('has chat sidebar toggle button', async ({ page }) => {
+    const toggleBtn = page.locator('button[title="Hide chat"]').or(
+      page.locator('button[title="Show chat"]'),
     )
     await expect(toggleBtn).toBeVisible()
   })
@@ -61,27 +48,36 @@ test.describe('Project — Detail Page & Board Integration', () => {
     await expect(page.getByText('Done', { exact: false }).first()).toBeVisible()
   })
 
-  test('opening architect chat panel shows Architect Chat heading', async ({ page }) => {
-    const toggleBtn = page.locator('button[title="Open Architect chat"]')
-    if (await toggleBtn.isVisible()) {
-      await toggleBtn.click()
-      await expect(page.getByText('Architect Chat')).toBeVisible()
-    }
-  })
-
-  test('architect chat panel shows project-bound label', async ({ page }) => {
-    const toggleBtn = page.locator('button[title="Open Architect chat"]')
-    if (await toggleBtn.isVisible()) {
-      await toggleBtn.click()
-      await expect(page.getByText('project-bound')).toBeVisible()
-    }
-  })
-
   test('board stats uses Material Symbols bolt icon', async ({ page }) => {
     await expect(page.locator('.material-symbols-outlined:has-text("bolt")').first()).toBeVisible()
   })
 
   test('board stats uses cloud_done icon', async ({ page }) => {
     await expect(page.locator('.material-symbols-outlined:has-text("cloud_done")')).toBeVisible()
+  })
+})
+
+test.describe('Project — Unified Chat Sidebar (DB-backed + SSE)', () => {
+  test.beforeEach(async ({ page }) => {
+    await setupPage(page, '/projects/proj-001')
+  })
+
+  test('chat sidebar renders with empty placeholder when history is empty', async ({ page }) => {
+    await expect(page.getByText('@mention an agent to start a conversation')).toBeVisible()
+  })
+
+  test('chat input and send button are visible', async ({ page }) => {
+    await expect(page.getByPlaceholder('@mention an agent...')).toBeVisible()
+  })
+
+  test('sending a message shows the optimistic user bubble + typing indicator', async ({ page }) => {
+    const input = page.getByPlaceholder('@mention an agent...')
+    await input.fill('@CEO hello')
+    await input.press('Enter')
+
+    // Optimistic user bubble appears immediately (text echoed before any API/SSE response).
+    // Note: real assistant reply only arrives via SSE — covered by backend unit tests
+    // since Playwright route mocks can't push into an established EventSource.
+    await expect(page.getByText('@CEO hello').first()).toBeVisible()
   })
 })

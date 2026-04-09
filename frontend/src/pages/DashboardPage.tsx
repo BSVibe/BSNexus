@@ -2,9 +2,11 @@ import { useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { projectsApi } from '../api/projects'
 import { dashboardApi } from '../api/dashboard'
+import { budgetApi } from '../api/budget'
 import type { ProjectDashboardSummary } from '../types/project'
 import { Link, useNavigate } from 'react-router-dom'
 import { Badge, Button, Modal, StatCard } from '../components/common'
+import FolderPicker from '../components/common/FolderPicker'
 import Header from '../components/layout/Header'
 
 const statusBadgeColors: Record<string, string> = {
@@ -14,9 +16,36 @@ const statusBadgeColors: Record<string, string> = {
   completed: 'var(--status-ready)',
 }
 
+const INPUT_CLASS =
+  'w-full px-3 py-2 bg-stitch-surface-low border border-stitch-outline-variant/20 rounded-md text-text-primary text-sm placeholder:text-text-tertiary focus:outline-none focus:border-stitch-primary focus:ring-1 focus:ring-stitch-primary'
+
 export default function DashboardPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const [createModalOpen, setCreateModalOpen] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [newDesc, setNewDesc] = useState('')
+  const [newWorkspaceType, setNewWorkspaceType] = useState<'server_managed' | 'local_import'>('server_managed')
+  const [newRepoPath, setNewRepoPath] = useState('')
+
+  const createMutation = useMutation({
+    mutationFn: () => projectsApi.create({
+      name: newName,
+      description: newDesc,
+      workspace_type: newWorkspaceType,
+      repo_path: newWorkspaceType === 'local_import' && newRepoPath ? newRepoPath : undefined,
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['projects'] })
+      queryClient.invalidateQueries({ queryKey: ['projects-summary'] })
+      setCreateModalOpen(false)
+      setNewName('')
+      setNewDesc('')
+      setNewWorkspaceType('server_managed')
+      setNewRepoPath('')
+    },
+  })
+
   const { data: projects, isLoading, error } = useQuery({
     queryKey: ['projects'],
     queryFn: projectsApi.list,
@@ -25,6 +54,11 @@ export default function DashboardPage() {
   const { data: projectsSummary } = useQuery({
     queryKey: ['projects-summary'],
     queryFn: dashboardApi.getProjectsSummary,
+  })
+
+  const { data: budgetOverview } = useQuery({
+    queryKey: ['budget', 'summary'],
+    queryFn: budgetApi.getSummary,
   })
 
   const summaryMap = useMemo(() => {
@@ -128,7 +162,7 @@ export default function DashboardPage() {
             Import
           </button>
           <button
-            onClick={() => navigate('/architect', { state: { openNewSession: true } })}
+            onClick={() => setCreateModalOpen(true)}
             className="bg-gradient-to-r from-stitch-primary to-stitch-primary-container text-stitch-on-primary-container px-4 py-1.5 rounded-md text-sm font-bold shadow-lg shadow-stitch-primary/20 hover:opacity-90 transition-opacity"
           >
             New Project
@@ -140,8 +174,8 @@ export default function DashboardPage() {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10">
           <StatCard label="Total Projects" value={stats.totalProjects} icon="folder_open" />
           <StatCard label="Active Tasks" value={stats.totalTasks} subtext={`${stats.doneTasks} done`} />
-          <StatCard label="Bugs Detected" value={stats.totalBugs} icon="bug_report" />
           <StatCard label="Completion Rate" value={stats.completionRate} icon="bolt" />
+          <StatCard label="Compute Cost" value={budgetOverview ? `$${(budgetOverview.total_spent_cents / 100).toFixed(2)}` : '$0.00'} icon="payments" subtext={budgetOverview?.total_budget_cents ? `of $${(budgetOverview.total_budget_cents / 100).toFixed(2)}` : undefined} />
         </div>
 
         {/* Project List Header with Batch Actions */}
@@ -191,12 +225,12 @@ export default function DashboardPage() {
               <span className="material-symbols-outlined text-stitch-primary text-3xl">add</span>
             </div>
             <p className="text-text-secondary mb-2 font-medium">No projects yet</p>
-            <p className="text-sm text-text-tertiary mb-6">Start by creating one with the Architect.</p>
+            <p className="text-sm text-text-tertiary mb-6">Create your first project to get started.</p>
             <button
-              onClick={() => navigate('/architect', { state: { openNewSession: true } })}
+              onClick={() => setCreateModalOpen(true)}
               className="bg-gradient-to-r from-stitch-primary to-stitch-primary-container text-stitch-on-primary-container px-6 py-2.5 rounded-md text-sm font-bold shadow-lg shadow-stitch-primary/20"
             >
-              Start with Architect
+              Create Project
             </button>
           </div>
         ) : (
@@ -299,12 +333,6 @@ export default function DashboardPage() {
                                   {summary.bug_count}
                                 </span>
                               )}
-                              {summary.has_architect_session && (
-                                <span className="flex items-center gap-0.5 text-stitch-primary">
-                                  <span className="material-symbols-outlined" style={{ fontSize: '12px' }}>architecture</span>
-                                  Architect
-                                </span>
-                              )}
                             </div>
                           </div>
                         )
@@ -380,6 +408,91 @@ export default function DashboardPage() {
           Are you sure you want to delete <strong className="text-white">{selectedIds.size} projects</strong>?
           This will permanently remove all selected projects and their phases, tasks, and history.
         </p>
+      </Modal>
+
+      {/* Create Project Modal */}
+      <Modal
+        open={createModalOpen}
+        onClose={() => setCreateModalOpen(false)}
+        title="New Project"
+        width={480}
+        footer={
+          <>
+            <Button variant="secondary" size="sm" onClick={() => setCreateModalOpen(false)}>Cancel</Button>
+            <Button
+              variant="primary"
+              size="sm"
+              loading={createMutation.isPending}
+              onClick={() => createMutation.mutate()}
+              disabled={!newName.trim() || (newWorkspaceType === 'local_import' && !newRepoPath.trim())}
+            >
+              Create
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm text-text-secondary mb-1.5">Project Name *</label>
+            <input
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder="e.g. BSNexus Mobile App"
+              className={INPUT_CLASS}
+              autoFocus
+            />
+          </div>
+          <div>
+            <label className="block text-sm text-text-secondary mb-1.5">Description</label>
+            <textarea
+              value={newDesc}
+              onChange={(e) => setNewDesc(e.target.value)}
+              placeholder="Brief description of the project"
+              rows={3}
+              className={INPUT_CLASS + ' resize-none'}
+            />
+          </div>
+          <div>
+            <label className="block text-sm text-text-secondary mb-2">Workspace</label>
+            <div className="grid grid-cols-2 gap-3">
+              {([
+                { value: 'server_managed' as const, icon: 'cloud', label: 'Server', desc: 'Hosted workspace. Browse files in the web UI.' },
+                { value: 'local_import' as const, icon: 'computer', label: 'Local', desc: 'Self-hosted worker required. Agent works on your machine.' },
+              ]).map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setNewWorkspaceType(opt.value)}
+                  className={`p-3 rounded-lg border text-left transition-all ${
+                    newWorkspaceType === opt.value
+                      ? 'border-stitch-primary bg-stitch-primary/5'
+                      : 'border-stitch-outline-variant/20 hover:border-stitch-outline-variant/40'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="material-symbols-outlined" style={{ fontSize: '16px', color: newWorkspaceType === opt.value ? 'var(--stitch-primary)' : undefined }}>
+                      {opt.icon}
+                    </span>
+                    <span className={`text-sm font-bold ${newWorkspaceType === opt.value ? 'text-stitch-primary' : 'text-text-primary'}`}>
+                      {opt.label}
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-text-tertiary leading-relaxed">{opt.desc}</p>
+                </button>
+              ))}
+            </div>
+            {newWorkspaceType === 'local_import' && (
+              <div className="mt-3">
+                <label className="block text-xs text-text-tertiary mb-1">Project Path *</label>
+                <FolderPicker
+                  value={newRepoPath}
+                  onChange={setNewRepoPath}
+                  placeholder="/home/user/projects/my-app"
+                />
+              </div>
+            )}
+          </div>
+        </div>
       </Modal>
     </>
   )

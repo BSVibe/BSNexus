@@ -181,20 +181,30 @@ class PMOrchestrator:
     # ── Execution Loop ─────────────────────────────────────────────────
 
     async def _execution_loop(self, project_id: uuid.UUID, db_session_factory: SessionFactory) -> None:
-        """Execute tasks sequentially: pick ready task, execute, process result, repeat."""
+        """Execute tasks with configurable concurrency per project."""
         logger.info("Execution loop started for project %s", project_id)
         redesign_check_counter = 0
+        concurrent_tasks: set[asyncio.Task[None]] = set()
+
         while self._running:
             try:
                 task_to_execute = None
                 repo_path = ""
+                max_concurrent = 1  # default
 
                 async with db_session_factory() as db:
                     repo = TaskRepository(db)
 
-                    # Sequential constraint: only one task at a time per project
+                    # Get project's concurrency limit
+                    project_repo = ProjectRepository(db)
+                    project = await project_repo.get_by_id(project_id, load_phases=False)
+                    if project:
+                        max_concurrent = getattr(project, "max_concurrent_tasks", 1) or 1
+                        repo_path = project.workspace_dir or project.repo_path or ""
+
+                    # Concurrency constraint: respect max_concurrent_tasks
                     active_count = await repo.count_active_tasks(project_id)
-                    if active_count > 0:
+                    if active_count >= max_concurrent:
                         await db.commit()
                     else:
                         # Check phase completion and advance
@@ -216,11 +226,6 @@ class PMOrchestrator:
                                 db_session=db,
                                 stream_manager=self.stream_manager,
                             )
-                            # Get repo_path for execution
-                            project_repo = ProjectRepository(db)
-                            project = await project_repo.get_by_id(project_id, load_phases=False)
-                            if project:
-                                repo_path = project.repo_path or ""
 
                         await db.commit()
                         if task_to_execute is not None:
@@ -232,7 +237,19 @@ class PMOrchestrator:
 
                 # Execute task outside DB transaction (long-running)
                 if task_to_execute is not None:
-                    await self._execute_and_review(task_to_execute, repo_path, project_id, db_session_factory)
+                    if max_concurrent <= 1:
+                        # Sequential mode (backward compatible)
+                        await self._execute_and_review(task_to_execute, repo_path, project_id, db_session_factory)
+                    else:
+                        # Concurrent mode: spawn as asyncio task
+                        atask = asyncio.create_task(
+                            self._execute_and_review(task_to_execute, repo_path, project_id, db_session_factory)
+                        )
+                        concurrent_tasks.add(atask)
+                        atask.add_done_callback(concurrent_tasks.discard)
+
+                # Clean up completed concurrent tasks
+                concurrent_tasks = {t for t in concurrent_tasks if not t.done()}
 
             except Exception:
                 logger.exception("Execution loop error")
@@ -541,6 +558,22 @@ class PMOrchestrator:
                     task_id = msg.get("task_id", "?")
                     msg_id = msg.get("_message_id", "?")
                     try:
+                        # Handle heartbeat events: acknowledge and log
+                        event_type = msg.get("event", "")
+                        if event_type in ("agent_heartbeat", "agent_heartbeat_immediate"):
+                            agent_id = msg.get("agent_id", "?")
+                            logger.info(
+                                "escalation_heartbeat_received",
+                                agent_id=agent_id,
+                                event=event_type,
+                            )
+                            await self.stream_manager.acknowledge(
+                                RedisStreamManager.TASKS_ESCALATION,
+                                RedisStreamManager.GROUP_ARCHITECT,
+                                msg_id,
+                            )
+                            continue
+
                         msg_project_id = msg.get("project_id", "")
                         if str(project_id) != str(msg_project_id):
                             logger.debug(

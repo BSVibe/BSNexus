@@ -9,33 +9,59 @@ interface HelpContent {
 function getHelpContent(pathname: string): HelpContent {
   if (pathname === '/' || pathname.startsWith('/dashboard')) {
     return {
-      title: '대시보드',
-      description: '프로젝트 목록을 확인하고 새 프로젝트를 만듭니다.',
-      link: { label: '문서 보기', href: 'https://bsvibe.dev/bsnexus/getting-started' },
+      title: 'Dashboard',
+      description:
+        '프로젝트 현황, 태스크 진행률, 에이전트 비용을 한눈에 확인합니다. ' +
+        'New Project를 눌러 AI Architect와 대화하며 프로젝트를 설계하세요.',
+    }
+  }
+  if (pathname.startsWith('/agents')) {
+    return {
+      title: 'Agents',
+      description:
+        'AI 에이전트 조직도를 관리합니다. 에이전트에 역할(CTO, Engineer 등)을 부여하고, ' +
+        '계층 구조를 만들고, executor를 할당합니다. 카드를 클릭하면 상세 정보를 보고 편집할 수 있습니다.',
+    }
+  }
+  if (pathname.startsWith('/budget')) {
+    return {
+      title: 'Budget',
+      description:
+        '에이전트별 월간 예산과 비용을 추적합니다. ' +
+        '각 에이전트 카드에서 예산 사용률을 확인하고, Cost Records에서 상세 내역을 볼 수 있습니다. ' +
+        '월말에 Reset Monthly로 사용량을 초기화하세요.',
+    }
+  }
+  if (pathname.startsWith('/settings')) {
+    return {
+      title: 'Settings',
+      description:
+        'LLM API 키, 모델, Base URL을 설정합니다. ' +
+        'Default Executor를 선택하면 새 에이전트 생성 시 기본값으로 사용됩니다. ' +
+        'Executor별 상세 설정은 각 에이전트의 편집 모드에서 할 수 있습니다.',
     }
   }
   if (pathname.startsWith('/architect')) {
     return {
       title: 'AI Architect',
-      description: 'AI Architect와 대화하며 프로젝트를 설계합니다.',
-    }
-  }
-  if (pathname.startsWith('/board')) {
-    return {
-      title: 'Kanban 보드',
-      description: 'Kanban 보드에서 태스크 진행 상황을 확인합니다.',
-      link: { label: '문서 보기', href: 'https://bsvibe.dev/bsnexus/features/kanban' },
+      description:
+        'AI Architect와 대화하며 프로젝트를 설계합니다. ' +
+        '요구사항을 설명하면 Phase와 Task로 분해하고, 코드 구조를 제안합니다.',
     }
   }
   if (pathname.startsWith('/project')) {
     return {
-      title: '프로젝트 상세',
-      description: '프로젝트 상세 정보를 확인합니다.',
+      title: 'Project',
+      description:
+        '프로젝트의 태스크를 Kanban 보드와 Timeline으로 관리합니다. ' +
+        'Board 뷰에서 드래그 앤 드롭, Timeline 뷰에서 일정을 확인하세요.',
     }
   }
   return {
-    title: 'BSNexus',
-    description: 'BSNexus는 AI 에이전트 오케스트레이션 플랫폼입니다.',
+    title: 'BSNexus Company OS',
+    description:
+      'AI 에이전트 조직을 구성하고 프로젝트를 자동화하는 Company OS입니다. ' +
+      'Dashboard에서 전체 현황을, Agents에서 조직도를, Budget에서 비용을 관리하세요.',
   }
 }
 

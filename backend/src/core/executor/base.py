@@ -1,5 +1,24 @@
+import enum
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol, runtime_checkable
+
+
+class ExecutorCapability(str, enum.Enum):
+    coding = "coding"
+    writing = "writing"
+    analysis = "analysis"
+    marketing = "marketing"
+    research = "research"
+    general = "general"
+
+
+@dataclass
+class ExecutorInfo:
+    name: str
+    capabilities: list[ExecutorCapability]
+    requires_local: bool = False
+    requires_workspace: bool = False
+    description: str = ""
 
 
 @dataclass

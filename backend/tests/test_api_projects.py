@@ -56,15 +56,21 @@ async def _create_phase(db_session: AsyncSession, project_id: uuid.UUID, **overr
 # ── POST /api/v1/projects ────────────────────────────────────────────────────
 
 
-async def test_create_project_success(client: AsyncClient) -> None:
-    payload = {"name": "New Proj", "description": "Desc", "repo_path": "/tmp/new"}
+async def test_create_project_success(client: AsyncClient, tmp_path) -> None:
+    payload = {
+        "name": "New Proj",
+        "description": "Desc",
+        "repo_path": str(tmp_path),
+        "workspace_type": "local_import",
+    }
     resp = await client.post("/api/v1/projects", json=payload)
 
     assert resp.status_code == 201
     body = resp.json()
     assert body["name"] == "New Proj"
     assert body["description"] == "Desc"
-    assert body["repo_path"] == "/tmp/new"
+    assert body["repo_path"] == str(tmp_path)
+    assert body["workspace_type"] == "local_import"
     assert body["status"] == "design"
     assert "id" in body
     assert "created_at" in body
@@ -72,7 +78,8 @@ async def test_create_project_success(client: AsyncClient) -> None:
 
 
 async def test_create_project_missing_fields(client: AsyncClient) -> None:
-    resp = await client.post("/api/v1/projects", json={"name": "only name"})
+    # name-only creates server_managed, which needs /data; test validation only
+    resp = await client.post("/api/v1/projects", json={})
     assert resp.status_code == 422
 
 
@@ -458,8 +465,8 @@ from backend.src.api.projects import (  # noqa: E402
 )
 
 
-async def test_direct_create_project(db_session: AsyncSession) -> None:
-    data = schemas.ProjectCreate(name="Direct", description="Desc", repo_path="/r")
+async def test_direct_create_project(db_session: AsyncSession, tmp_path) -> None:
+    data = schemas.ProjectCreate(name="Direct", description="Desc", repo_path=str(tmp_path), workspace_type="local_import")
     result = await create_project(data, db=db_session)
     assert result.name == "Direct"
     assert result.status == schemas.ProjectStatus.design

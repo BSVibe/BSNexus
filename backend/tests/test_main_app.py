@@ -81,7 +81,10 @@ async def test_init_db_is_noop() -> None:
 
 
 async def test_cors_preflight_blocked_by_default(client: AsyncClient) -> None:
-    """OPTIONS request is blocked when no origins are configured (secure default)."""
+    """OPTIONS request is blocked when no origins are configured (secure default).
+
+    The test client is created with cors_origins=[] via the app factory.
+    """
     response = await client.options(
         "/health",
         headers={
