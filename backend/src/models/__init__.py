@@ -3,6 +3,7 @@
 from backend.src.models.agent import Agent
 from backend.src.models.budget import CostRecord
 from backend.src.models.conversation import ConversationMessage
+from backend.src.models.design_system import DesignSystem, Screen
 from backend.src.models.executor_config import ExecutorConfig
 from backend.src.models.goal import Goal
 from backend.src.models.phase import Phase, PhaseStatus
@@ -37,10 +38,12 @@ __all__ = [
     "Agent",
     "ConversationMessage",
     "CostRecord",
+    "DesignSystem",
     "ExecutorConfig",
     "Goal",
     "Phase",
     "Project",
+    "Screen",
     "Setting",
     "Task",
     "TaskActivity",
