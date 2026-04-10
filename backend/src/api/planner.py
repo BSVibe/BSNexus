@@ -104,7 +104,7 @@ def _create_task_from_suggestion(
         description=suggestion.description,
         task_type=task_type,
         priority=priority,
-        source=models.TaskSource.architect,
+        source=models.TaskSource.llm,
         status=models.TaskStatus.ready,
         worker_prompt={"prompt": suggestion.description or suggestion.title},
         qa_prompt={"prompt": f"Verify: {suggestion.title}"},

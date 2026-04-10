@@ -29,7 +29,7 @@ from sse_starlette.sse import EventSourceResponse
 from backend.src import models
 from backend.src.api.settings import get_raw_llm_config
 from backend.src.config import settings
-from backend.src.core.architect_service import CREATE_TASK_RE, build_project_context, strip_action_markers
+from backend.src.core.task_markers import CREATE_TASK_RE, build_project_context, strip_action_markers
 from backend.src.core.auth import Permission, require_permission
 from backend.src.core.goal_alignment import GoalAlignmentService
 from backend.src.core.llm_client import LLMClient, LLMConfig
@@ -280,7 +280,7 @@ async def _execute_create_task_markers(
             description=task_data.get("description"),
             priority=priority,
             task_type=task_type,
-            source=models.TaskSource.architect,
+            source=models.TaskSource.llm,
             status=models.TaskStatus.ready,
             agent_id=agent_id,
             worker_prompt={"prompt": task_data.get("worker_prompt", "")},

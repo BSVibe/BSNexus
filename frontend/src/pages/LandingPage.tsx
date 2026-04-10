@@ -4,13 +4,13 @@ import { useAuthContext } from '../components/auth/AuthContext'
 const features = [
   {
     icon: 'psychology',
-    title: 'Project Architect',
-    description: 'AI designs projects through conversation and decomposes them into tasks.',
+    title: 'Conversational Planning',
+    description: 'Talk to AI agents to design your project and decompose it into tasks.',
   },
   {
-    icon: 'view_kanban',
-    title: 'Task Kanban',
-    description: 'Real-time kanban board to track and manage task states.',
+    icon: 'account_tree',
+    title: 'Live Plan View',
+    description: 'See exactly what each agent is doing in real time as the project progresses.',
   },
   {
     icon: 'hub',

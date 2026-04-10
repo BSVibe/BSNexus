@@ -612,7 +612,7 @@ def _make_task_orm(**overrides) -> Task:
         status=TaskStatus.ready,
         priority=TaskPriority.medium,
         task_type=models.TaskType.feature,
-        source=models.TaskSource.architect,
+        source=models.TaskSource.llm,
         parent_task_id=None,
         worker_prompt={"prompt": "w"},
         qa_prompt={"prompt": "q"},

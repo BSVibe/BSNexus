@@ -4,7 +4,7 @@ import os
 
 os.environ.setdefault("TESTING", "1")
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -62,14 +62,9 @@ async def test_session_maker(db_engine):
 
 @pytest_asyncio.fixture
 async def db_session(test_session_maker):
-    """Create a test database session.
-
-    Also patches async_session in the architect module so that
-    finalize_design's fresh-session write scope uses the test DB.
-    """
-    with patch("backend.src.api.architect.async_session", test_session_maker):
-        async with test_session_maker() as session:
-            yield session
+    """Create a test database session."""
+    async with test_session_maker() as session:
+        yield session
 
 
 @pytest_asyncio.fixture

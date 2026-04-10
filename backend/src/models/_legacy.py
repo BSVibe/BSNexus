@@ -69,7 +69,7 @@ class TaskType(str, enum.Enum):
 
 
 class TaskSource(str, enum.Enum):
-    architect = "architect"
+    llm = "llm"
     auto_bug = "auto_bug"
     manual = "manual"
 
@@ -79,22 +79,6 @@ class SuggestionStatus(str, enum.Enum):
     approved = "approved"
     rejected = "rejected"
     modified = "modified"
-
-
-class DesignSessionStatus(str, enum.Enum):
-    active = "active"
-    project_bound = "project_bound"
-    cancelled = "cancelled"
-
-
-class MessageRole(str, enum.Enum):
-    user = "user"
-    assistant = "assistant"
-
-
-class MessageType(str, enum.Enum):
-    chat = "chat"
-    internal = "internal"
 
 
 # ── Association Table ──────────────────────────────────────────────────
@@ -138,9 +122,6 @@ class Project(Base):
 
     # Relationships
     phases: Mapped[list["Phase"]] = relationship("Phase", back_populates="project", cascade="all, delete-orphan")
-    design_sessions: Mapped[list["DesignSession"]] = relationship(
-        "DesignSession", back_populates="project", cascade="all, delete-orphan"
-    )
 
 
 class Phase(Base):
@@ -178,7 +159,7 @@ class Task(Base):
     status: Mapped[TaskStatus] = mapped_column(Enum(TaskStatus), nullable=False, default=TaskStatus.waiting)
     priority: Mapped[TaskPriority] = mapped_column(Enum(TaskPriority), nullable=False, default=TaskPriority.medium)
     task_type: Mapped[TaskType] = mapped_column(Enum(TaskType), nullable=False, default=TaskType.feature)
-    source: Mapped[TaskSource] = mapped_column(Enum(TaskSource), nullable=False, default=TaskSource.architect)
+    source: Mapped[TaskSource] = mapped_column(Enum(TaskSource), nullable=False, default=TaskSource.llm)
     parent_task_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True
     )
@@ -272,52 +253,6 @@ class TaskHistory(Base):
 
     # Relationships
     task: Mapped["Task"] = relationship("Task", back_populates="history")
-
-
-class DesignSession(Base):
-    __tablename__ = "design_sessions"
-
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    project_id: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid, ForeignKey("projects.id", ondelete="SET NULL"), nullable=True
-    )
-    name: Mapped[str | None] = mapped_column(String(255), nullable=True, default=None)
-    status: Mapped[DesignSessionStatus] = mapped_column(
-        Enum(DesignSessionStatus), nullable=False, default=DesignSessionStatus.active
-    )
-    agent_id: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid, ForeignKey("agents.id", ondelete="SET NULL"), nullable=True
-    )
-    llm_config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
-    )
-
-    # Relationships
-    project: Mapped["Project | None"] = relationship("Project", back_populates="design_sessions")
-    messages: Mapped[list["DesignMessage"]] = relationship(
-        "DesignMessage", back_populates="session", cascade="all, delete-orphan"
-    )
-
-
-class DesignMessage(Base):
-    __tablename__ = "design_messages"
-    __table_args__ = (Index("ix_design_messages_session_created", "session_id", "created_at"),)
-
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    session_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("design_sessions.id", ondelete="CASCADE"), nullable=False
-    )
-    role: Mapped[MessageRole] = mapped_column(Enum(MessageRole), nullable=False)
-    content: Mapped[str] = mapped_column(Text, nullable=False)
-    message_type: Mapped[MessageType] = mapped_column(
-        Enum(MessageType), nullable=False, default=MessageType.chat, server_default="chat"
-    )
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-
-    # Relationships
-    session: Mapped["DesignSession"] = relationship("DesignSession", back_populates="messages")
 
 
 class Setting(Base):

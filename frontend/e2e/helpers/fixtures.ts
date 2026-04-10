@@ -90,7 +90,7 @@ export const mockProjectsSummary = [
     task_counts: { waiting: 2, ready: 3, in_progress: 1, review: 1, done: 5 },
     bug_count: 2,
     current_phase: 'Frontend',
-    has_architect_session: true,
+    
     last_activity: '2026-03-28T12:00:00Z',
   },
   {
@@ -100,7 +100,7 @@ export const mockProjectsSummary = [
     task_counts: { waiting: 0, ready: 0, in_progress: 0, review: 0, done: 8 },
     bug_count: 0,
     current_phase: null,
-    has_architect_session: false,
+    
     last_activity: '2026-03-20T00:00:00Z',
   },
   {
@@ -110,7 +110,7 @@ export const mockProjectsSummary = [
     task_counts: {},
     bug_count: 0,
     current_phase: null,
-    has_architect_session: false,
+    
     last_activity: null,
   },
 ]
@@ -125,7 +125,7 @@ export function makeMockTask(overrides: Record<string, unknown> = {}) {
     status: 'ready',
     priority: 'medium',
     task_type: 'feature',
-    source: 'architect',
+    source: 'llm',
     parent_task_id: null,
     worker_prompt: null,
     qa_prompt: null,

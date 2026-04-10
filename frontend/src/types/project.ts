@@ -53,6 +53,5 @@ export interface ProjectDashboardSummary {
   task_counts: Record<string, number>
   bug_count: number
   current_phase: string | null
-  has_architect_session: boolean
   last_activity: string | null
 }

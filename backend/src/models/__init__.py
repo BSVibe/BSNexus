@@ -6,11 +6,6 @@ New models are defined in separate submodules.
 
 # Legacy models (all existing code imports from here)
 from backend.src.models._legacy import (
-    DesignMessage,
-    DesignSession,
-    DesignSessionStatus,
-    MessageRole,
-    MessageType,
     Phase,
     PhaseStatus,
     Project,
@@ -39,9 +34,6 @@ from backend.src.models.worker import Worker
 
 __all__ = [
     # Enums
-    "DesignSessionStatus",
-    "MessageRole",
-    "MessageType",
     "PhaseStatus",
     "ProjectStatus",
     "SuggestionStatus",
@@ -51,8 +43,6 @@ __all__ = [
     "TaskType",
     "WorkspaceType",
     # Legacy models
-    "DesignMessage",
-    "DesignSession",
     "Phase",
     "Project",
     "Setting",

@@ -104,15 +104,6 @@ async def get_projects_summary(
     for project_id, count in bug_counts_result:
         bug_counts[project_id] = count
 
-    # Check for architect sessions
-    session_result = await db.execute(
-        select(models.DesignSession.project_id).where(
-            models.DesignSession.project_id.in_(project_ids),
-            models.DesignSession.status == models.DesignSessionStatus.project_bound,
-        )
-    )
-    projects_with_sessions: set[uuid.UUID] = {row[0] for row in session_result if row[0]}
-
     # Batch query: last activity (latest task updated_at per project)
     activity_result = await db.execute(
         select(
@@ -138,7 +129,6 @@ async def get_projects_summary(
                 task_counts=dict(task_counts.get(project.id, {})),
                 bug_count=bug_counts.get(project.id, 0),
                 current_phase=active_phase.name if active_phase else None,
-                has_architect_session=project.id in projects_with_sessions,
                 last_activity=last_activities.get(project.id),
             )
         )

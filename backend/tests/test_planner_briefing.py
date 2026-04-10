@@ -96,7 +96,7 @@ async def active_tasks(db_session: AsyncSession, project: Project, phase: Phase)
             status=status,
             priority=TaskPriority.medium,
             task_type=TaskType.feature,
-            source=TaskSource.architect,
+            source=TaskSource.llm,
         )
         db_session.add(t)
         tasks.append(t)

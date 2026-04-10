@@ -17,13 +17,9 @@ dependencies = [
     "python-multipart>=0.0.9",
     "sse-starlette>=1.6.0",
     "pyyaml>=6.0",
-    "click>=8.0.0",
     "structlog>=23.0.0",
     "bsvibe-auth[fastapi] @ git+https://github.com/BSVibe/BSVibe-Auth.git@v0.4.0#subdirectory=python",
 ]
-
-[project.scripts]
-bsnexus = "backend.src.cli.main:main"
 
 [project.optional-dependencies]
 dev = [
@@ -50,7 +46,7 @@ line-length = 120
 
 [tool.coverage.run]
 source = ["src"]
-omit = ["*/migrations/*", "src/cli/*"]
+omit = ["*/migrations/*"]
 
 [tool.coverage.report]
 fail_under = 80

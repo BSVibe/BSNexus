@@ -1,26 +1,19 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { useBoard } from '../hooks/useBoard'
-import { useBoardStore } from '../stores/boardStore'
 import { projectsApi } from '../api/projects'
-import KanbanBoard from '../components/board/KanbanBoard'
-import BoardStats from '../components/board/BoardStats'
-import TaskDetail from '../components/board/TaskDetail'
 import FileBrowser from '../components/workspace/FileBrowser'
 import UnifiedChatSidebar from '../components/project/UnifiedChatSidebar'
-import AddTaskModal from '../components/project/AddTaskModal'
 import TimelineView from '../components/project/TimelineView'
 import DesignView from '../components/project/DesignView'
 import ProjectAgentsTab from '../components/project/ProjectAgentsTab'
 import GoalSlogan from '../components/project/GoalSlogan'
 import Header from '../components/layout/Header'
-import type { Task } from '../types/task'
 
-type TabId = 'board' | 'files' | 'timeline' | 'design' | 'agents'
+type TabId = 'plan' | 'files' | 'timeline' | 'design' | 'agents'
 
 const TABS: { id: TabId; label: string; icon: string }[] = [
-  { id: 'board', label: 'Board', icon: 'view_kanban' },
+  { id: 'plan', label: 'Plan', icon: 'account_tree' },
   { id: 'files', label: 'Files', icon: 'folder' },
   { id: 'timeline', label: 'Timeline', icon: 'timeline' },
   { id: 'design', label: 'Design', icon: 'palette' },
@@ -51,13 +44,8 @@ export default function ProjectPage() {
 }
 
 function ProjectContent({ projectId }: { projectId: string }) {
-  const [activeTab, setActiveTab] = useState<TabId>('board')
+  const [activeTab, setActiveTab] = useState<TabId>('plan')
   const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [addTaskOpen, setAddTaskOpen] = useState(false)
-
-  // Board state
-  const { isLoading: boardLoading } = useBoard(projectId)
-  const { columns, selectedTask, setSelectedTask } = useBoardStore()
 
   // Project data
   const { data: project } = useQuery({
@@ -65,17 +53,6 @@ function ProjectContent({ projectId }: { projectId: string }) {
     queryFn: () => projectsApi.get(projectId),
     enabled: !!projectId,
   })
-
-  if (boardLoading) {
-    return (
-      <>
-        <Header title="Project" />
-        <div className="flex items-center justify-center h-64">
-          <div className="animate-spin rounded-full h-8 w-8 border-2 border-stitch-primary border-t-transparent" />
-        </div>
-      </>
-    )
-  }
 
   return (
     <>
@@ -121,19 +98,10 @@ function ProjectContent({ projectId }: { projectId: string }) {
       <div className="flex h-[calc(100vh-112px)] overflow-hidden">
         {/* Center */}
         <div className="flex-1 flex flex-col overflow-hidden">
-          {activeTab === 'board' && (
-            <>
-              <div className="px-8 pt-4 pb-3">
-                <BoardStats projectStatus={project?.status} />
-              </div>
-              <div className="flex-1 overflow-auto px-8 pb-6">
-                <KanbanBoard
-                  columns={columns}
-                  onTaskClick={(task: Task) => setSelectedTask(task)}
-                  onAddTask={() => setAddTaskOpen(true)}
-                />
-              </div>
-            </>
+          {activeTab === 'plan' && (
+            <div className="flex-1 flex items-center justify-center text-text-tertiary text-sm">
+              Plan view coming soon
+            </div>
           )}
 
           {activeTab === 'files' && (
@@ -150,20 +118,6 @@ function ProjectContent({ projectId }: { projectId: string }) {
         {/* Right sidebar: Unified Chat */}
         {sidebarOpen && <UnifiedChatSidebar projectId={projectId} />}
       </div>
-
-      {/* Task detail modal */}
-      {selectedTask && (
-        <TaskDetail task={selectedTask as Task} onClose={() => setSelectedTask(null)} />
-      )}
-
-      {/* Add task modal */}
-      {project && (
-        <AddTaskModal
-          open={addTaskOpen}
-          onClose={() => setAddTaskOpen(false)}
-          project={project}
-        />
-      )}
     </>
   )
 }

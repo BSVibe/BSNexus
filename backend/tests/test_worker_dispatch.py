@@ -65,7 +65,7 @@ async def _create_task(
         status=status,
         priority=TaskPriority.medium,
         task_type=TaskType.feature,
-        source=TaskSource.architect,
+        source=TaskSource.llm,
         agent_id=agent_id,
         executor_type=executor_type,
     )

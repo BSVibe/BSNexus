@@ -11,16 +11,13 @@ from backend.src.api import (
     agent_chat,
     agent_templates,
     agents,
-    architect,
     auth,
-    board,
     budget,
     dashboard,
     executor_configs,
     goals,
     mcp,
     planner,
-    pm,
     projects,
     security,
     settings,
@@ -67,16 +64,15 @@ def _setup_logging() -> None:
     file_handler.setFormatter(formatter)
     root_logger.addHandler(file_handler)
 
-    # Orchestrator-specific log (escalation, scheduling, results — easy to grep)
-    orchestrator_handler = logging.handlers.RotatingFileHandler(
-        os.path.join(log_dir, "orchestrator.log"),
+    # State machine-specific log (transitions, escalation — easy to grep)
+    state_handler = logging.handlers.RotatingFileHandler(
+        os.path.join(log_dir, "state_machine.log"),
         maxBytes=10 * 1024 * 1024,
         backupCount=5,
         encoding="utf-8",
     )
-    orchestrator_handler.setFormatter(formatter)
-    logging.getLogger("backend.src.core.orchestrator").addHandler(orchestrator_handler)
-    logging.getLogger("backend.src.core.state_machine").addHandler(orchestrator_handler)
+    state_handler.setFormatter(formatter)
+    logging.getLogger("backend.src.core.state_machine").addHandler(state_handler)
 
 
 _setup_logging()
@@ -124,9 +120,6 @@ _ROUTERS = [
     goals.router,
     tasks.router,
     projects.router,
-    pm.router,
-    architect.router,
-    board.router,
     dashboard.router,
     settings.router,
     security.router,
