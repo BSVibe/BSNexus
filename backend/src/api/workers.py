@@ -338,7 +338,7 @@ async def submit_result(
     task_result = await db.execute(select(Task).where(Task.id == body.task_id))
     task = task_result.scalar_one_or_none()
     if task:
-        task.status = TaskStatus.review if body.success else TaskStatus.ready
+        task.status = TaskStatus.running if body.success else TaskStatus.pending
         if body.output_data:
             task.output_data = body.output_data
         if body.error_message:

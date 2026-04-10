@@ -6,7 +6,6 @@ arrive via SSE. These tests verify routing, persistence, markers, and events.
 
 from __future__ import annotations
 
-import json
 import uuid
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch

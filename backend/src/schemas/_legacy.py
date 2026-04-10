@@ -77,12 +77,10 @@ class DepsHealthResponse(BaseModel):
 
 
 class TaskStatus(str, enum.Enum):
-    waiting = "waiting"
-    ready = "ready"
-    in_progress = "in_progress"
-    review = "review"
+    pending = "pending"
+    running = "running"
+    blocked = "blocked"
     done = "done"
-    redesign = "redesign"
 
 
 class TaskPriority(str, enum.Enum):

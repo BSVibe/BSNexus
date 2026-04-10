@@ -86,7 +86,7 @@ async def suggestions_mixed(db_session: AsyncSession, project: Project) -> list[
 async def active_tasks(db_session: AsyncSession, project: Project, phase: Phase) -> list[Task]:
     """Create tasks with various statuses: 2 in_progress, 1 ready, 1 done."""
     tasks = []
-    statuses_list = [TaskStatus.in_progress, TaskStatus.in_progress, TaskStatus.ready, TaskStatus.done]
+    statuses_list = [TaskStatus.running, TaskStatus.running, TaskStatus.pending, TaskStatus.done]
     for i, status in enumerate(statuses_list):
         t = Task(
             project_id=project.id,

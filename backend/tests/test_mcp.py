@@ -49,7 +49,7 @@ async def _create_task(
     project: models.Project,
     phase: models.Phase,
     *,
-    status: models.TaskStatus = models.TaskStatus.waiting,
+    status: models.TaskStatus = models.TaskStatus.pending,
     title: str = "Test Task",
 ) -> models.Task:
     task = models.Task(
@@ -104,7 +104,7 @@ async def test_get_board_state_empty(client: AsyncClient, db_session: AsyncSessi
 
 async def test_get_board_state_with_tasks(client: AsyncClient, db_session: AsyncSession) -> None:
     project, phase = await _create_project_and_phase(db_session)
-    await _create_task(db_session, project, phase, status=models.TaskStatus.ready, title="Ready Task")
+    await _create_task(db_session, project, phase, status=models.TaskStatus.pending, title="Ready Task")
     await _create_task(db_session, project, phase, status=models.TaskStatus.done, title="Done Task")
 
     resp = await client.get(f"/api/v1/mcp/board/{project.id}")
@@ -178,7 +178,7 @@ async def test_create_task_no_phase(client: AsyncClient, db_session: AsyncSessio
 
 async def test_update_task_status_success(client: AsyncClient, db_session: AsyncSession) -> None:
     project, phase = await _create_project_and_phase(db_session)
-    task = await _create_task(db_session, project, phase, status=models.TaskStatus.waiting)
+    task = await _create_task(db_session, project, phase, status=models.TaskStatus.pending)
 
     resp = await client.patch(
         f"/api/v1/mcp/tasks/{task.id}/status",
@@ -249,7 +249,7 @@ async def test_get_dependencies_not_found(client: AsyncClient) -> None:
 
 async def test_trigger_executor_from_waiting(client: AsyncClient, db_session: AsyncSession) -> None:
     project, phase = await _create_project_and_phase(db_session)
-    task = await _create_task(db_session, project, phase, status=models.TaskStatus.waiting)
+    task = await _create_task(db_session, project, phase, status=models.TaskStatus.pending)
 
     resp = await client.post(f"/api/v1/mcp/tasks/{task.id}/execute")
     assert resp.status_code == 200
@@ -258,7 +258,7 @@ async def test_trigger_executor_from_waiting(client: AsyncClient, db_session: As
 
 async def test_trigger_executor_from_redesign(client: AsyncClient, db_session: AsyncSession) -> None:
     project, phase = await _create_project_and_phase(db_session)
-    task = await _create_task(db_session, project, phase, status=models.TaskStatus.redesign)
+    task = await _create_task(db_session, project, phase, status=models.TaskStatus.blocked)
 
     resp = await client.post(f"/api/v1/mcp/tasks/{task.id}/execute")
     assert resp.status_code == 200

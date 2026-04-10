@@ -11,8 +11,8 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.core.worker_dispatch import WorkerDispatcher
-from backend.src.models import Agent, Task, Tenant
-from backend.src.models._legacy import TaskStatus, TaskPriority, TaskType, TaskSource
+from backend.src.models import Task, Tenant
+from backend.src.models import TaskStatus, TaskPriority, TaskType, TaskSource
 from backend.src.models.worker import Worker
 
 _TENANT_ID = uuid.UUID("00000000-0000-0000-0000-000000000000")
@@ -23,7 +23,7 @@ _PHASE_ID = uuid.UUID("22222222-2222-2222-2222-222222222222")
 @pytest_asyncio.fixture(autouse=True)
 async def _seed(db_session):
     """Seed tenant, project, and phase."""
-    from backend.src.models._legacy import Project, Phase, PhaseStatus
+    from backend.src.models import Project, Phase, PhaseStatus
     t = Tenant(id=_TENANT_ID, name="Test", slug="test", owner_user_id="user-1")
     db_session.add(t)
     p = Project(id=_PROJECT_ID, name="TestProject", description="test", repo_path="/tmp/test")
@@ -54,7 +54,7 @@ async def _create_worker(db: AsyncSession, name: str = "worker-1", capabilities:
 async def _create_task(
     db: AsyncSession,
     title: str = "Test Task",
-    status: TaskStatus = TaskStatus.ready,
+    status: TaskStatus = TaskStatus.pending,
     agent_id: uuid.UUID | None = None,
     executor_type: str = "coding",
 ) -> Task:

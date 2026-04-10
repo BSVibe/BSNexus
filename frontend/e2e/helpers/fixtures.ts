@@ -122,7 +122,7 @@ export function makeMockTask(overrides: Record<string, unknown> = {}) {
     phase_id: 'phase-002',
     title: 'Implement dashboard stat cards',
     description: 'Add StatCard component with bento grid layout',
-    status: 'ready',
+    status: 'pending',
     priority: 'medium',
     task_type: 'feature',
     source: 'llm',
@@ -152,25 +152,25 @@ export const mockBoardResponse = {
   columns: {
     waiting: {
       tasks: [
-        makeMockTask({ id: 'task-w1', title: 'Design settings page', status: 'waiting', priority: 'low', task_type: 'feature' }),
-        makeMockTask({ id: 'task-w2', title: 'Add notification system', status: 'waiting', priority: 'medium', task_type: 'feature' }),
+        makeMockTask({ id: 'task-w1', title: 'Design settings page', status: 'pending', priority: 'low', task_type: 'feature' }),
+        makeMockTask({ id: 'task-w2', title: 'Add notification system', status: 'pending', priority: 'medium', task_type: 'feature' }),
       ],
     },
     ready: {
       tasks: [
-        makeMockTask({ id: 'task-r1', title: 'Implement dashboard stat cards', status: 'ready', priority: 'medium', task_type: 'feature' }),
-        makeMockTask({ id: 'task-r2', title: 'Fix auth redirect loop', status: 'ready', priority: 'high', task_type: 'bug' }),
-        makeMockTask({ id: 'task-r3', title: 'Add task filtering', status: 'ready', priority: 'low', task_type: 'improvement' }),
+        makeMockTask({ id: 'task-r1', title: 'Implement dashboard stat cards', status: 'pending', priority: 'medium', task_type: 'feature' }),
+        makeMockTask({ id: 'task-r2', title: 'Fix auth redirect loop', status: 'pending', priority: 'high', task_type: 'bug' }),
+        makeMockTask({ id: 'task-r3', title: 'Add task filtering', status: 'pending', priority: 'low', task_type: 'improvement' }),
       ],
     },
     in_progress: {
       tasks: [
-        makeMockTask({ id: 'task-ip1', title: 'Build kanban board', status: 'in_progress', priority: 'high', task_type: 'feature', started_at: '2026-03-28T10:00:00Z' }),
+        makeMockTask({ id: 'task-ip1', title: 'Build kanban board', status: 'running', priority: 'high', task_type: 'feature', started_at: '2026-03-28T10:00:00Z' }),
       ],
     },
     review: {
       tasks: [
-        makeMockTask({ id: 'task-rv1', title: 'Refactor API client', status: 'review', priority: 'medium', task_type: 'refactor' }),
+        makeMockTask({ id: 'task-rv1', title: 'Refactor API client', status: 'running', priority: 'medium', task_type: 'refactor' }),
       ],
     },
     done: {

@@ -304,7 +304,7 @@ export default function DashboardPage() {
                         const total = Object.values(counts).reduce((a, b) => a + b, 0)
                         if (total === 0) return null
                         const done = counts['done'] || 0
-                        const inProgress = (counts['in_progress'] || 0) + (counts['review'] || 0)
+                        const inProgress = counts['running'] || 0
                         const pctDone = Math.round((done / total) * 100)
                         const pctInProgress = Math.round((inProgress / total) * 100)
                         return (

@@ -41,7 +41,7 @@ def mock_stream() -> AsyncMock:
 # -- Helpers ------------------------------------------------------------------
 
 
-def make_task(status: TaskStatus = TaskStatus.waiting, **kwargs) -> Task:
+def make_task(status: TaskStatus = TaskStatus.pending, **kwargs) -> Task:
     """Create a Task object without touching the DB."""
     now = datetime.now(timezone.utc)
     return Task(
@@ -74,25 +74,25 @@ def make_task(status: TaskStatus = TaskStatus.waiting, **kwargs) -> Task:
 
 
 def test_can_transition_valid(state_machine: TaskStateMachine) -> None:
-    assert state_machine.can_transition(TaskStatus.waiting, TaskStatus.ready) is True
+    assert state_machine.can_transition(TaskStatus.pending, TaskStatus.pending) is True
 
 
 def test_can_transition_invalid(state_machine: TaskStateMachine) -> None:
-    assert state_machine.can_transition(TaskStatus.waiting, TaskStatus.done) is False
+    assert state_machine.can_transition(TaskStatus.pending, TaskStatus.done) is False
 
 
 def test_can_transition_all_valid_paths(state_machine: TaskStateMachine) -> None:
     valid_pairs = [
-        (TaskStatus.waiting, TaskStatus.ready),
-        (TaskStatus.ready, TaskStatus.in_progress),
-        (TaskStatus.in_progress, TaskStatus.review),
-        (TaskStatus.in_progress, TaskStatus.ready),
-        (TaskStatus.in_progress, TaskStatus.redesign),
-        (TaskStatus.review, TaskStatus.done),
-        (TaskStatus.review, TaskStatus.ready),
-        (TaskStatus.review, TaskStatus.in_progress),
-        (TaskStatus.review, TaskStatus.redesign),
-        (TaskStatus.redesign, TaskStatus.waiting),
+        (TaskStatus.pending, TaskStatus.pending),
+        (TaskStatus.pending, TaskStatus.running),
+        (TaskStatus.running, TaskStatus.running),
+        (TaskStatus.running, TaskStatus.pending),
+        (TaskStatus.running, TaskStatus.blocked),
+        (TaskStatus.running, TaskStatus.done),
+        (TaskStatus.running, TaskStatus.pending),
+        (TaskStatus.running, TaskStatus.running),
+        (TaskStatus.running, TaskStatus.blocked),
+        (TaskStatus.blocked, TaskStatus.pending),
     ]
     for from_s, to_s in valid_pairs:
         assert state_machine.can_transition(from_s, to_s) is True, f"{from_s} -> {to_s} should be valid"
@@ -100,22 +100,22 @@ def test_can_transition_all_valid_paths(state_machine: TaskStateMachine) -> None
 
 def test_can_transition_invalid_paths(state_machine: TaskStateMachine) -> None:
     invalid_pairs = [
-        (TaskStatus.waiting, TaskStatus.done),
-        (TaskStatus.waiting, TaskStatus.in_progress),
-        (TaskStatus.waiting, TaskStatus.review),
-        (TaskStatus.waiting, TaskStatus.redesign),
-        (TaskStatus.ready, TaskStatus.done),
-        (TaskStatus.ready, TaskStatus.waiting),
-        (TaskStatus.ready, TaskStatus.review),
-        (TaskStatus.done, TaskStatus.waiting),
-        (TaskStatus.done, TaskStatus.ready),
-        (TaskStatus.done, TaskStatus.in_progress),
-        (TaskStatus.done, TaskStatus.review),
-        (TaskStatus.done, TaskStatus.redesign),
-        (TaskStatus.redesign, TaskStatus.ready),
-        (TaskStatus.redesign, TaskStatus.in_progress),
-        (TaskStatus.redesign, TaskStatus.review),
-        (TaskStatus.redesign, TaskStatus.done),
+        (TaskStatus.pending, TaskStatus.done),
+        (TaskStatus.pending, TaskStatus.running),
+        (TaskStatus.pending, TaskStatus.running),
+        (TaskStatus.pending, TaskStatus.blocked),
+        (TaskStatus.pending, TaskStatus.done),
+        (TaskStatus.pending, TaskStatus.pending),
+        (TaskStatus.pending, TaskStatus.running),
+        (TaskStatus.done, TaskStatus.pending),
+        (TaskStatus.done, TaskStatus.pending),
+        (TaskStatus.done, TaskStatus.running),
+        (TaskStatus.done, TaskStatus.running),
+        (TaskStatus.done, TaskStatus.blocked),
+        (TaskStatus.blocked, TaskStatus.pending),
+        (TaskStatus.blocked, TaskStatus.running),
+        (TaskStatus.blocked, TaskStatus.running),
+        (TaskStatus.blocked, TaskStatus.done),
     ]
     for from_s, to_s in invalid_pairs:
         assert state_machine.can_transition(from_s, to_s) is False, f"{from_s} -> {to_s} should be invalid"
@@ -132,12 +132,12 @@ def test_done_is_terminal(state_machine: TaskStateMachine) -> None:
 
 def test_redesign_limited_transitions(state_machine: TaskStateMachine) -> None:
     """redesign can only go to waiting."""
-    allowed = {TaskStatus.waiting}
+    allowed = {TaskStatus.pending}
     for status in TaskStatus:
         if status in allowed:
-            assert state_machine.can_transition(TaskStatus.redesign, status) is True
+            assert state_machine.can_transition(TaskStatus.blocked, status) is True
         else:
-            assert state_machine.can_transition(TaskStatus.redesign, status) is False
+            assert state_machine.can_transition(TaskStatus.blocked, status) is False
 
 
 # -- Valid transitions --------------------------------------------------------
@@ -146,11 +146,11 @@ def test_redesign_limited_transitions(state_machine: TaskStateMachine) -> None:
 async def test_valid_transition_waiting_to_ready(
     state_machine: TaskStateMachine, mock_db: AsyncMock, mock_stream: AsyncMock
 ) -> None:
-    task = make_task(status=TaskStatus.waiting)
+    task = make_task(status=TaskStatus.pending)
     result = await state_machine.transition(
-        task, TaskStatus.ready, reason="deps met", actor="system", db_session=mock_db, stream_manager=mock_stream
+        task, TaskStatus.pending, reason="deps met", actor="system", db_session=mock_db, stream_manager=mock_stream
     )
-    assert result.status == TaskStatus.ready
+    assert result.status == TaskStatus.pending
     assert result.version == 2
     # Verify history was added to session
     mock_db.add.assert_called_once()
@@ -161,20 +161,20 @@ async def test_valid_transition_waiting_to_ready(
 async def test_valid_transition_ready_to_in_progress(
     state_machine: TaskStateMachine, mock_db: AsyncMock, mock_stream: AsyncMock
 ) -> None:
-    task = make_task(status=TaskStatus.ready)
+    task = make_task(status=TaskStatus.pending)
     result = await state_machine.transition(
-        task, TaskStatus.in_progress, db_session=mock_db, stream_manager=mock_stream
+        task, TaskStatus.running, db_session=mock_db, stream_manager=mock_stream
     )
-    assert result.status == TaskStatus.in_progress
+    assert result.status == TaskStatus.running
     assert result.started_at is not None
 
 
 async def test_valid_transition_in_progress_to_review(
     state_machine: TaskStateMachine, mock_db: AsyncMock, mock_stream: AsyncMock
 ) -> None:
-    task = make_task(status=TaskStatus.in_progress)
-    result = await state_machine.transition(task, TaskStatus.review, db_session=mock_db, stream_manager=mock_stream)
-    assert result.status == TaskStatus.review
+    task = make_task(status=TaskStatus.running)
+    result = await state_machine.transition(task, TaskStatus.running, db_session=mock_db, stream_manager=mock_stream)
+    assert result.status == TaskStatus.running
 
 
 async def test_valid_transition_in_progress_to_ready(
@@ -182,15 +182,15 @@ async def test_valid_transition_in_progress_to_ready(
 ) -> None:
     """Execution failure retry: in_progress -> ready resets fields."""
     task = make_task(
-        status=TaskStatus.in_progress,
+        status=TaskStatus.running,
         error_message="Build failed",
         qa_result={"passed": False},
         started_at=datetime.now(timezone.utc),
     )
     result = await state_machine.transition(
-        task, TaskStatus.ready, db_session=mock_db, stream_manager=mock_stream, reason="Execution failed"
+        task, TaskStatus.pending, db_session=mock_db, stream_manager=mock_stream, reason="Execution failed"
     )
-    assert result.status == TaskStatus.ready
+    assert result.status == TaskStatus.pending
     assert result.error_message is None
     assert result.qa_result is None
     assert result.started_at is None
@@ -199,20 +199,20 @@ async def test_valid_transition_in_progress_to_ready(
 async def test_valid_transition_in_progress_to_redesign(
     state_machine: TaskStateMachine, mock_db: AsyncMock, mock_stream: AsyncMock
 ) -> None:
-    task = make_task(status=TaskStatus.in_progress, retry_count=3)
+    task = make_task(status=TaskStatus.running, retry_count=3)
     result = await state_machine.transition(
         task,
-        TaskStatus.redesign,
+        TaskStatus.blocked,
         db_session=mock_db,
         stream_manager=mock_stream,
     )
-    assert result.status == TaskStatus.redesign
+    assert result.status == TaskStatus.blocked
 
 
 async def test_valid_transition_review_to_done(
     state_machine: TaskStateMachine, mock_db: AsyncMock, mock_stream: AsyncMock
 ) -> None:
-    task = make_task(status=TaskStatus.review)
+    task = make_task(status=TaskStatus.running)
 
     with patch("backend.src.core.state_machine.TaskRepository") as MockRepo:
         mock_repo_instance = AsyncMock()
@@ -230,15 +230,15 @@ async def test_valid_transition_review_to_ready(
 ) -> None:
     """QA failure retry: review -> ready resets execution fields."""
     task = make_task(
-        status=TaskStatus.review,
+        status=TaskStatus.running,
         error_message="Tests failing",
         qa_result={"passed": False},
         started_at=datetime.now(timezone.utc),
     )
     result = await state_machine.transition(
-        task, TaskStatus.ready, db_session=mock_db, stream_manager=mock_stream, reason="QA failed, retrying"
+        task, TaskStatus.pending, db_session=mock_db, stream_manager=mock_stream, reason="QA failed, retrying"
     )
-    assert result.status == TaskStatus.ready
+    assert result.status == TaskStatus.pending
     assert result.error_message is None
     assert result.qa_result is None
     assert result.started_at is None
@@ -248,33 +248,33 @@ async def test_valid_transition_review_to_redesign(
     state_machine: TaskStateMachine, mock_db: AsyncMock, mock_stream: AsyncMock
 ) -> None:
     task = make_task(
-        status=TaskStatus.review,
+        status=TaskStatus.running,
         retry_count=3,
         qa_feedback_history=[{"attempt": 1, "feedback": "bad"}],
     )
     result = await state_machine.transition(
         task,
-        TaskStatus.redesign,
+        TaskStatus.blocked,
         db_session=mock_db,
         stream_manager=mock_stream,
         reason="QA failed after max retries",
     )
-    assert result.status == TaskStatus.redesign
+    assert result.status == TaskStatus.blocked
 
 
 async def test_valid_transition_redesign_to_waiting(
     state_machine: TaskStateMachine, mock_db: AsyncMock, mock_stream: AsyncMock
 ) -> None:
     """redesign -> waiting means the task was modified by the Architect."""
-    task = make_task(status=TaskStatus.redesign)
+    task = make_task(status=TaskStatus.blocked)
     result = await state_machine.transition(
         task,
-        TaskStatus.waiting,
+        TaskStatus.pending,
         db_session=mock_db,
         stream_manager=mock_stream,
         reason="Task redesigned by architect",
     )
-    assert result.status == TaskStatus.waiting
+    assert result.status == TaskStatus.pending
     assert result.version == 2
 
 
@@ -282,7 +282,7 @@ async def test_invalid_transition_redesign_to_done(
     state_machine: TaskStateMachine, mock_db: AsyncMock, mock_stream: AsyncMock
 ) -> None:
     """redesign -> done is no longer allowed (tasks stay in redesign or go to waiting)."""
-    task = make_task(status=TaskStatus.redesign)
+    task = make_task(status=TaskStatus.blocked)
     with pytest.raises(ValueError, match="Invalid transition"):
         await state_machine.transition(
             task,
@@ -299,7 +299,7 @@ async def test_invalid_transition_redesign_to_done(
 async def test_invalid_transition_waiting_to_done(
     state_machine: TaskStateMachine, mock_db: AsyncMock, mock_stream: AsyncMock
 ) -> None:
-    task = make_task(status=TaskStatus.waiting)
+    task = make_task(status=TaskStatus.pending)
     with pytest.raises(ValueError, match="Invalid transition"):
         await state_machine.transition(task, TaskStatus.done, db_session=mock_db, stream_manager=mock_stream)
 
@@ -309,15 +309,15 @@ async def test_invalid_transition_done_to_ready(
 ) -> None:
     task = make_task(status=TaskStatus.done)
     with pytest.raises(ValueError, match="Invalid transition"):
-        await state_machine.transition(task, TaskStatus.ready, db_session=mock_db, stream_manager=mock_stream)
+        await state_machine.transition(task, TaskStatus.pending, db_session=mock_db, stream_manager=mock_stream)
 
 
 async def test_invalid_transition_redesign_to_in_progress(
     state_machine: TaskStateMachine, mock_db: AsyncMock, mock_stream: AsyncMock
 ) -> None:
-    task = make_task(status=TaskStatus.redesign)
+    task = make_task(status=TaskStatus.blocked)
     with pytest.raises(ValueError, match="Invalid transition"):
-        await state_machine.transition(task, TaskStatus.in_progress, db_session=mock_db, stream_manager=mock_stream)
+        await state_machine.transition(task, TaskStatus.running, db_session=mock_db, stream_manager=mock_stream)
 
 
 # -- check_dependencies_met (mock TaskRepository) ----------------------------
@@ -351,8 +351,8 @@ async def test_check_dependencies_met_not_done(state_machine: TaskStateMachine, 
 async def test_promote_dependents_on_done(
     state_machine: TaskStateMachine, mock_db: AsyncMock, mock_stream: AsyncMock
 ) -> None:
-    task = make_task(status=TaskStatus.review)
-    waiting_task = make_task(status=TaskStatus.waiting)
+    task = make_task(status=TaskStatus.running)
+    waiting_task = make_task(status=TaskStatus.pending)
 
     with (
         patch("backend.src.core.state_machine.TaskRepository") as MockRepo,
@@ -368,7 +368,7 @@ async def test_promote_dependents_on_done(
     assert result.status == TaskStatus.done
     assert result.completed_at is not None
     # The waiting dependent should have been promoted
-    assert waiting_task.status == TaskStatus.ready
+    assert waiting_task.status == TaskStatus.pending
     assert waiting_task.version == 2
 
 
@@ -376,8 +376,8 @@ async def test_promote_dependents_only_when_all_deps_met(
     state_machine: TaskStateMachine, mock_db: AsyncMock, mock_stream: AsyncMock
 ) -> None:
     """A waiting dependent is NOT promoted if it still has unmet dependencies."""
-    task = make_task(status=TaskStatus.review)
-    waiting_task = make_task(status=TaskStatus.waiting)
+    task = make_task(status=TaskStatus.running)
+    waiting_task = make_task(status=TaskStatus.pending)
 
     with (
         patch("backend.src.core.state_machine.TaskRepository") as MockRepo,
@@ -391,7 +391,7 @@ async def test_promote_dependents_only_when_all_deps_met(
         await state_machine.transition(task, TaskStatus.done, db_session=mock_db, stream_manager=mock_stream)
 
     # Not promoted because dependencies are not met
-    assert waiting_task.status == TaskStatus.waiting
+    assert waiting_task.status == TaskStatus.pending
     assert waiting_task.version == 1
 
 
@@ -399,8 +399,8 @@ async def test_promote_dependents_skips_non_active_phase(
     state_machine: TaskStateMachine, mock_db: AsyncMock, mock_stream: AsyncMock
 ) -> None:
     """A waiting dependent in a non-active phase is NOT promoted even if deps are met."""
-    task = make_task(status=TaskStatus.review)
-    waiting_task = make_task(status=TaskStatus.waiting)
+    task = make_task(status=TaskStatus.running)
+    waiting_task = make_task(status=TaskStatus.pending)
 
     with (
         patch("backend.src.core.state_machine.TaskRepository") as MockRepo,
@@ -414,7 +414,7 @@ async def test_promote_dependents_skips_non_active_phase(
         await state_machine.transition(task, TaskStatus.done, db_session=mock_db, stream_manager=mock_stream)
 
     # Not promoted because phase is not active
-    assert waiting_task.status == TaskStatus.waiting
+    assert waiting_task.status == TaskStatus.pending
     assert waiting_task.version == 1
 
 
@@ -422,18 +422,18 @@ async def test_promote_dependents_skips_non_active_phase(
 
 
 async def test_version_increment(state_machine: TaskStateMachine, mock_db: AsyncMock, mock_stream: AsyncMock) -> None:
-    task = make_task(status=TaskStatus.waiting, version=1)
-    await state_machine.transition(task, TaskStatus.ready, db_session=mock_db, stream_manager=mock_stream)
+    task = make_task(status=TaskStatus.pending, version=1)
+    await state_machine.transition(task, TaskStatus.pending, db_session=mock_db, stream_manager=mock_stream)
     assert task.version == 2
 
 
 async def test_version_increments_multiple_times(
     state_machine: TaskStateMachine, mock_db: AsyncMock, mock_stream: AsyncMock
 ) -> None:
-    task = make_task(status=TaskStatus.waiting, version=1)
-    await state_machine.transition(task, TaskStatus.ready, db_session=mock_db, stream_manager=mock_stream)
+    task = make_task(status=TaskStatus.pending, version=1)
+    await state_machine.transition(task, TaskStatus.pending, db_session=mock_db, stream_manager=mock_stream)
     assert task.version == 2
-    await state_machine.transition(task, TaskStatus.in_progress, db_session=mock_db, stream_manager=mock_stream)
+    await state_machine.transition(task, TaskStatus.running, db_session=mock_db, stream_manager=mock_stream)
     assert task.version == 3
 
 
@@ -443,9 +443,9 @@ async def test_version_increments_multiple_times(
 async def test_task_history_recorded(
     state_machine: TaskStateMachine, mock_db: AsyncMock, mock_stream: AsyncMock
 ) -> None:
-    task = make_task(status=TaskStatus.waiting)
+    task = make_task(status=TaskStatus.pending)
     await state_machine.transition(
-        task, TaskStatus.ready, actor="test-user", reason="deps met", db_session=mock_db, stream_manager=mock_stream
+        task, TaskStatus.pending, actor="test-user", reason="deps met", db_session=mock_db, stream_manager=mock_stream
     )
     # Verify db_session.add was called with a TaskHistory object
     mock_db.add.assert_called_once()
@@ -463,43 +463,43 @@ async def test_task_history_recorded(
 async def test_on_in_progress_sets_started_at(
     state_machine: TaskStateMachine, mock_db: AsyncMock, mock_stream: AsyncMock
 ) -> None:
-    task = make_task(status=TaskStatus.ready)
+    task = make_task(status=TaskStatus.pending)
     assert task.started_at is None
-    await state_machine.transition(task, TaskStatus.in_progress, db_session=mock_db, stream_manager=mock_stream)
+    await state_machine.transition(task, TaskStatus.running, db_session=mock_db, stream_manager=mock_stream)
     assert task.started_at is not None
 
 
 async def test_on_ready_from_in_progress_resets_error_message(
     state_machine: TaskStateMachine, mock_db: AsyncMock, mock_stream: AsyncMock
 ) -> None:
-    task = make_task(status=TaskStatus.in_progress, error_message="Previous error")
-    await state_machine.transition(task, TaskStatus.ready, db_session=mock_db, stream_manager=mock_stream)
+    task = make_task(status=TaskStatus.running, error_message="Previous error")
+    await state_machine.transition(task, TaskStatus.pending, db_session=mock_db, stream_manager=mock_stream)
     assert task.error_message is None
 
 
 async def test_on_ready_from_in_progress_resets_qa_result(
     state_machine: TaskStateMachine, mock_db: AsyncMock, mock_stream: AsyncMock
 ) -> None:
-    task = make_task(status=TaskStatus.in_progress, qa_result={"passed": False})
-    await state_machine.transition(task, TaskStatus.ready, db_session=mock_db, stream_manager=mock_stream)
+    task = make_task(status=TaskStatus.running, qa_result={"passed": False})
+    await state_machine.transition(task, TaskStatus.pending, db_session=mock_db, stream_manager=mock_stream)
     assert task.qa_result is None
 
 
 async def test_on_ready_from_in_progress_resets_started_at(
     state_machine: TaskStateMachine, mock_db: AsyncMock, mock_stream: AsyncMock
 ) -> None:
-    task = make_task(status=TaskStatus.in_progress, started_at=datetime.now(timezone.utc))
-    await state_machine.transition(task, TaskStatus.ready, db_session=mock_db, stream_manager=mock_stream)
+    task = make_task(status=TaskStatus.running, started_at=datetime.now(timezone.utc))
+    await state_machine.transition(task, TaskStatus.pending, db_session=mock_db, stream_manager=mock_stream)
     assert task.started_at is None
 
 
 async def test_on_ready_from_waiting_does_not_reset_fields(
     state_machine: TaskStateMachine, mock_db: AsyncMock, mock_stream: AsyncMock
 ) -> None:
-    task = make_task(status=TaskStatus.waiting)
+    task = make_task(status=TaskStatus.pending)
     # These should remain unchanged (they're already None for waiting tasks, but verify behavior)
-    await state_machine.transition(task, TaskStatus.ready, db_session=mock_db, stream_manager=mock_stream)
-    assert task.status == TaskStatus.ready
+    await state_machine.transition(task, TaskStatus.pending, db_session=mock_db, stream_manager=mock_stream)
+    assert task.status == TaskStatus.pending
     # No fields should be explicitly touched by _on_ready for waiting->ready
 
 
@@ -509,7 +509,7 @@ async def test_on_ready_from_waiting_does_not_reset_fields(
 async def test_on_done_sets_completed_at(
     state_machine: TaskStateMachine, mock_db: AsyncMock, mock_stream: AsyncMock
 ) -> None:
-    task = make_task(status=TaskStatus.review)
+    task = make_task(status=TaskStatus.running)
     assert task.completed_at is None
 
     with patch("backend.src.core.state_machine.TaskRepository") as MockRepo:
@@ -532,7 +532,7 @@ async def test_on_redesign_publishes_escalation_event(
     """_on_redesign should publish to tasks:escalation stream."""
     sm = TaskStateMachine()
     task = make_task(
-        status=TaskStatus.in_progress,
+        status=TaskStatus.running,
         retry_count=3,
         error_message="Max retries exceeded",
         qa_feedback_history=[{"attempt": 1, "feedback": "bad"}, {"attempt": 2, "feedback": "still bad"}],
@@ -540,7 +540,7 @@ async def test_on_redesign_publishes_escalation_event(
 
     await sm.transition(
         task,
-        TaskStatus.redesign,
+        TaskStatus.blocked,
         db_session=mock_db,
         stream_manager=mock_stream,
     )
@@ -569,11 +569,11 @@ async def test_on_redesign_sets_error_message_via_handler(
 ) -> None:
     """Calling _on_redesign directly with reason kwarg sets error_message."""
     sm = TaskStateMachine()
-    task = make_task(status=TaskStatus.in_progress)
+    task = make_task(status=TaskStatus.running)
 
     await sm._on_redesign(
         task,
-        old_status=TaskStatus.in_progress,
+        old_status=TaskStatus.running,
         db_session=mock_db,
         stream_manager=mock_stream,
         reason="Needs architect attention",
@@ -587,11 +587,11 @@ async def test_on_redesign_without_reason_no_error_message(
     mock_stream: AsyncMock,
 ) -> None:
     sm = TaskStateMachine()
-    task = make_task(status=TaskStatus.in_progress, error_message=None)
+    task = make_task(status=TaskStatus.running, error_message=None)
 
     await sm.transition(
         task,
-        TaskStatus.redesign,
+        TaskStatus.blocked,
         db_session=mock_db,
         stream_manager=mock_stream,
     )
@@ -606,17 +606,17 @@ async def test_on_redesign_escalates_to_architect(
 ) -> None:
     """_on_redesign should escalate the task to architect status."""
     sm = TaskStateMachine()
-    task = make_task(status=TaskStatus.in_progress)
+    task = make_task(status=TaskStatus.running)
 
     # Should not raise
     await sm.transition(
         task,
-        TaskStatus.redesign,
+        TaskStatus.blocked,
         db_session=mock_db,
         stream_manager=mock_stream,
         reason="Escalate",
     )
-    assert task.status == TaskStatus.redesign
+    assert task.status == TaskStatus.blocked
 
 
 async def test_on_redesign_empty_qa_feedback_history(
@@ -625,11 +625,11 @@ async def test_on_redesign_empty_qa_feedback_history(
 ) -> None:
     """_on_redesign handles None qa_feedback_history by serializing as empty list."""
     sm = TaskStateMachine()
-    task = make_task(status=TaskStatus.in_progress, qa_feedback_history=None)
+    task = make_task(status=TaskStatus.running, qa_feedback_history=None)
 
     await sm.transition(
         task,
-        TaskStatus.redesign,
+        TaskStatus.blocked,
         db_session=mock_db,
         stream_manager=mock_stream,
         reason="Escalate",
@@ -653,11 +653,11 @@ async def test_transition_ready_to_in_progress_with_extra_kwargs(
     mock_stream: AsyncMock,
 ) -> None:
     sm = TaskStateMachine()
-    task = make_task(status=TaskStatus.ready)
+    task = make_task(status=TaskStatus.pending)
 
     # Extra kwargs should not cause errors
-    await sm.transition(task, TaskStatus.in_progress, db_session=mock_db, stream_manager=mock_stream)
-    assert task.status == TaskStatus.in_progress
+    await sm.transition(task, TaskStatus.running, db_session=mock_db, stream_manager=mock_stream)
+    assert task.status == TaskStatus.running
 
 
 def test_task_fixture_includes_retry_count() -> None:

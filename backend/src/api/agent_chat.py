@@ -281,7 +281,7 @@ async def _execute_create_task_markers(
             priority=priority,
             task_type=task_type,
             source=models.TaskSource.llm,
-            status=models.TaskStatus.ready,
+            status=models.TaskStatus.pending,
             agent_id=agent_id,
             worker_prompt={"prompt": task_data.get("worker_prompt", "")},
             qa_prompt={"prompt": task_data.get("qa_prompt", "")},
@@ -309,7 +309,7 @@ async def _execute_create_task_markers(
                         project_id=str(project_id),
                         prompt=prompt,
                     )
-                    task.status = models.TaskStatus.in_progress
+                    task.status = models.TaskStatus.running
                     await db.flush()
                 except Exception as e:
                     logger.warning("auto_dispatch_failed", task_id=str(task.id), error=str(e))

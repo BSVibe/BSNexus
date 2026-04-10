@@ -40,10 +40,8 @@ async def get_dashboard_stats(
     for status, count in task_counts:
         task_by_status[status.value] = count
     total_tasks = sum(task_by_status.values())
-    active_tasks = (
-        task_by_status.get("ready", 0) + task_by_status.get("in_progress", 0) + task_by_status.get("review", 0)
-    )
-    in_progress_tasks = task_by_status.get("in_progress", 0)
+    active_tasks = task_by_status.get("pending", 0) + task_by_status.get("running", 0)
+    in_progress_tasks = task_by_status.get("running", 0)
     done_tasks = task_by_status.get("done", 0)
     completion_rate = round((done_tasks / total_tasks * 100), 1) if total_tasks > 0 else 0.0
 

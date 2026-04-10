@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from backend.src.core.executor.base import ExecutorCapability, ExecutorInfo
+from backend.src.core.executor.base import ExecutorCapability
 from backend.src.core.executor.claude_api import ClaudeAPIExecutor, INFO as CLAUDE_API_INFO
 from backend.src.core.executor.bsgateway import BSGatewayExecutor, INFO as BSGATEWAY_INFO
 from backend.src.core.executor.generic_llm import GenericLLMExecutor, INFO as GENERIC_LLM_INFO

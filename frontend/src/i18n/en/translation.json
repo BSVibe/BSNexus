@@ -31,11 +31,11 @@
     "send": "Send",
     "thinking": "Thinking..."
   },
-  "board": {
-    "title": "Board",
-    "backlog": "Backlog",
-    "inProgress": "In Progress",
-    "review": "Review",
+  "plan": {
+    "title": "Plan",
+    "pending": "Pending",
+    "running": "Running",
+    "blocked": "Blocked",
     "done": "Done"
   },
   "help": {

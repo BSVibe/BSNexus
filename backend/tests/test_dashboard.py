@@ -74,11 +74,11 @@ async def test_dashboard_stats_with_data(client: AsyncClient, db_session) -> Non
 
     # Create tasks: 2 ready, 1 in_progress, 1 done, 1 waiting
     task_statuses = [
-        TaskStatus.ready,
-        TaskStatus.ready,
-        TaskStatus.in_progress,
+        TaskStatus.pending,
+        TaskStatus.pending,
+        TaskStatus.running,
         TaskStatus.done,
-        TaskStatus.waiting,
+        TaskStatus.pending,
     ]
     for ts in task_statuses:
         db_session.add(
@@ -147,7 +147,7 @@ async def test_dashboard_completion_rate_precision(client: AsyncClient, db_sessi
     await db_session.flush()
 
     # 1 done out of 3 tasks = 33.3%
-    for i, ts in enumerate([TaskStatus.done, TaskStatus.ready, TaskStatus.waiting]):
+    for i, ts in enumerate([TaskStatus.done, TaskStatus.pending, TaskStatus.pending]):
         db_session.add(
             Task(
                 id=uuid.uuid4(),
@@ -224,13 +224,13 @@ async def test_get_dashboard_stats_direct_with_data(db_session) -> None:
 
     # Create tasks covering all counted statuses: ready, in_progress, review, done, waiting
     for ts in [
-        TaskStatus.ready,
-        TaskStatus.ready,
-        TaskStatus.in_progress,
-        TaskStatus.review,
+        TaskStatus.pending,
+        TaskStatus.pending,
+        TaskStatus.running,
+        TaskStatus.running,
         TaskStatus.done,
         TaskStatus.done,
-        TaskStatus.waiting,
+        TaskStatus.pending,
     ]:
         db_session.add(
             Task(
@@ -345,7 +345,7 @@ async def test_dashboard_stats_review_and_blocked_counted_as_active(client: Asyn
     await db_session.flush()
 
     # review(1) + in_progress(1) + ready(1) = 3 active; done(1) + waiting(1) not active
-    for ts in [TaskStatus.review, TaskStatus.in_progress, TaskStatus.ready, TaskStatus.done, TaskStatus.waiting]:
+    for ts in [TaskStatus.running, TaskStatus.running, TaskStatus.pending, TaskStatus.done, TaskStatus.pending]:
         db_session.add(
             Task(
                 id=uuid.uuid4(),

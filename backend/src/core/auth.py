@@ -39,15 +39,8 @@ class Permission(str, enum.Enum):
     admin_audit = "admin.audit"
     admin_security = "admin.security"
 
-    # Architect permissions
-    architect_session = "architect.session"
-    architect_finalize = "architect.finalize"
-
-    # Board permissions
-    board_read = "board.read"
-
-    # PM permissions
-    pm_control = "pm.control"
+    # Plan view permissions
+    plan_read = "plan.read"
 
     # Planner permissions
     planner_read = "planner.read"
@@ -68,10 +61,7 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.worker_register,
         Permission.worker_read,
         Permission.worker_manage,
-        Permission.architect_session,
-        Permission.architect_finalize,
-        Permission.board_read,
-        Permission.pm_control,
+        Permission.plan_read,
         Permission.planner_read,
         Permission.planner_manage,
     },
@@ -79,7 +69,7 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
         Permission.project_read,
         Permission.task_read,
         Permission.worker_read,
-        Permission.board_read,
+        Permission.plan_read,
         Permission.planner_read,
     },
     Role.worker: {

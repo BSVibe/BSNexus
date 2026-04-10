@@ -23,12 +23,10 @@ class TaskStateMachine:
     """State machine for managing task status transitions."""
 
     TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
-        TaskStatus.waiting: {TaskStatus.ready},
-        TaskStatus.ready: {TaskStatus.in_progress},
-        TaskStatus.in_progress: {TaskStatus.review, TaskStatus.ready, TaskStatus.redesign},
-        TaskStatus.review: {TaskStatus.done, TaskStatus.ready, TaskStatus.in_progress, TaskStatus.redesign},
+        TaskStatus.pending: {TaskStatus.running, TaskStatus.blocked},
+        TaskStatus.running: {TaskStatus.done, TaskStatus.pending, TaskStatus.blocked},
+        TaskStatus.blocked: {TaskStatus.pending},
         TaskStatus.done: set(),
-        TaskStatus.redesign: {TaskStatus.waiting},
     }
 
     def __init__(
@@ -110,19 +108,17 @@ class TaskStateMachine:
         **kwargs: Any,
     ) -> None:
         """Dispatch side effects based on the new status."""
-        # NOTE: TaskStatus.review intentionally has no side effect handler.
-        # The orchestrator manages the review workflow directly in _execute_and_review().
         side_effect_map = {
-            TaskStatus.ready: self._on_ready,
-            TaskStatus.in_progress: self._on_in_progress,
+            TaskStatus.pending: self._on_pending,
+            TaskStatus.running: self._on_running,
             TaskStatus.done: self._on_done,
-            TaskStatus.redesign: self._on_redesign,
+            TaskStatus.blocked: self._on_blocked,
         }
         handler = side_effect_map.get(new_status)
         if handler is not None:
             await handler(task, old_status=old_status, db_session=db_session, stream_manager=stream_manager, **kwargs)
 
-    async def _on_ready(
+    async def _on_pending(
         self,
         task: Task,
         *,
@@ -133,16 +129,16 @@ class TaskStateMachine:
     ) -> None:
         """Reset execution fields when retrying.
 
-        Note: qa_feedback_history is intentionally preserved — the orchestrator
-        appends failure context before this transition so the next attempt can
-        reference prior feedback.
+        Note: qa_feedback_history is intentionally preserved — callers
+        append failure context before this transition so the next attempt
+        can reference prior feedback.
         """
-        if old_status in (TaskStatus.in_progress, TaskStatus.review):
+        if old_status == TaskStatus.running:
             task.error_message = None
             task.qa_result = None
             task.started_at = None
 
-    async def _on_in_progress(
+    async def _on_running(
         self,
         task: Task,
         *,
@@ -169,7 +165,7 @@ class TaskStateMachine:
             repo = TaskRepository(db_session)
             await self._promote_dependents(task, repo, db_session)
 
-    async def _on_redesign(
+    async def _on_blocked(
         self,
         task: Task,
         *,
@@ -178,7 +174,7 @@ class TaskStateMachine:
         stream_manager: Optional[RedisStreamManager] = None,
         **kwargs: Any,
     ) -> None:
-        """Handle escalation to Architect: publish escalation event."""
+        """Handle escalation: publish event so a planning agent can react."""
         reason = kwargs.get("reason")
         if reason is not None:
             task.error_message = reason
@@ -213,13 +209,13 @@ class TaskStateMachine:
                 continue
             if await repo.check_dependencies_met(candidate.id):
                 old_status = candidate.status
-                candidate.status = TaskStatus.ready
+                candidate.status = TaskStatus.pending
                 candidate.version += 1
 
                 history = TaskHistory(
                     task_id=candidate.id,
                     from_status=old_status.value,
-                    to_status=TaskStatus.ready.value,
+                    to_status=TaskStatus.pending.value,
                     actor="system",
                     reason=f"All dependencies met (triggered by task {task.id})",
                 )

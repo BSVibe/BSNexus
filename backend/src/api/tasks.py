@@ -78,19 +78,9 @@ async def create_task(
         if await repo.detect_circular_dependency(temp_id, task_data.depends_on):
             raise HTTPException(status_code=400, detail="Circular dependency detected")
 
-    # Determine initial status based on phase and dependencies
-    if task_data.depends_on:
-        initial_status = models.TaskStatus.waiting
-    else:
-        # Only set to ready if the phase is active
-        from backend.src.repositories.phase_repository import PhaseRepository
-
-        phase_repo = PhaseRepository(db)
-        phase = await phase_repo.get_by_id(task_data.phase_id)
-        if phase and phase.status == models.PhaseStatus.active:
-            initial_status = models.TaskStatus.ready
-        else:
-            initial_status = models.TaskStatus.waiting
+    # All new tasks start as pending; the dispatcher promotes them to running
+    # once dependencies are met and the phase is active.
+    initial_status = models.TaskStatus.pending
 
     # Create Task ORM object
     task = Task(
@@ -159,10 +149,10 @@ async def update_task(
                 detail=f"Version conflict: expected {task_data.expected_version}, current {task.version}",
             )
 
-    if task.status not in (models.TaskStatus.waiting, models.TaskStatus.ready):
+    if task.status != models.TaskStatus.pending:
         raise HTTPException(
             status_code=400,
-            detail="Task can only be updated in waiting or ready status",
+            detail="Task can only be updated while in pending status",
         )
 
     update_data = task_data.model_dump(exclude_unset=True, exclude={"expected_version"})

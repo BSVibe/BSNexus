@@ -105,7 +105,7 @@ def _create_task_from_suggestion(
         task_type=task_type,
         priority=priority,
         source=models.TaskSource.llm,
-        status=models.TaskStatus.ready,
+        status=models.TaskStatus.pending,
         worker_prompt={"prompt": suggestion.description or suggestion.title},
         qa_prompt={"prompt": f"Verify: {suggestion.title}"},
     )
@@ -157,8 +157,8 @@ async def get_briefing(
     )
     approved_today = approved_result.scalar() or 0
 
-    # Active tasks (not done, not waiting, not redesign)
-    active_statuses = [models.TaskStatus.ready, models.TaskStatus.in_progress, models.TaskStatus.review]
+    # Active tasks (in flight: pending or running, but not blocked or done)
+    active_statuses = [models.TaskStatus.pending, models.TaskStatus.running]
     active_result = await db.execute(
         select(func.count())
         .select_from(models.Task)
