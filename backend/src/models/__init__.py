@@ -1,6 +1,7 @@
 """BSNexus domain models."""
 
 from backend.src.models.agent import Agent
+from backend.src.models.agent_memory import AgentMemory
 from backend.src.models.budget import CostRecord
 from backend.src.models.conversation import ConversationMessage
 from backend.src.models.design_system import DesignSystem, Screen
@@ -36,6 +37,7 @@ __all__ = [
     "WorkspaceType",
     # Core models
     "Agent",
+    "AgentMemory",
     "ConversationMessage",
     "CostRecord",
     "DesignSystem",
