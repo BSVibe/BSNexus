@@ -28,6 +28,11 @@ from sqlalchemy.orm import selectinload
 from sse_starlette.sse import EventSourceResponse
 
 from backend.src import models
+from backend.src.core.agent_activity import (
+    busy_agent_ids,
+    has_online_worker,
+    resolve_agent_status_dot,
+)
 from backend.src.core.auth import Permission, require_permission
 from backend.src.core.tenant_context import get_tenant_id
 from backend.src.queue.streams import RedisStreamManager
@@ -77,22 +82,32 @@ class AgentStatusCard(BaseModel):
     name: str
     role: str
     title: str | None = None
-    dot: str  # green | yellow | red | gray
+    dot: str  # green | yellow | red | gray | blue
     current_task: dict[str, Any] | None = None
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
 
-def _status_dot(agent: models.Agent, current_task: models.Task | None) -> str:
-    """Map agent + task state to a 4-color status dot."""
-    if current_task is not None:
-        if current_task.status == models.TaskStatus.blocked:
-            return "red"
-        return "green"
-    if agent.status == "online":
-        return "yellow"  # online but idle
-    return "gray"
+def _status_dot(
+    agent: models.Agent,
+    current_task: models.Task | None,
+    *,
+    is_busy: bool = False,
+    online_worker_available: bool = False,
+) -> str:
+    """Backward-compatible thin wrapper around the shared resolver.
+
+    Kept so existing imports / tests do not break — production callers
+    should pass ``is_busy`` and ``online_worker_available`` so the dot
+    matches what the Agents tab shows.
+    """
+    return resolve_agent_status_dot(
+        agent,
+        current_task=current_task,
+        is_busy=is_busy,
+        online_worker_available=online_worker_available,
+    )
 
 
 def _task_to_node(task: models.Task, agent_name: str | None) -> PlanTaskNode:
@@ -180,6 +195,7 @@ async def get_plan_tree(
 @router.get("/agent-status", response_model=list[AgentStatusCard])
 async def get_agent_status(
     project_id: uuid.UUID,
+    request: Request,
     _auth: BSVibeUser = Depends(require_permission(Permission.plan_read)),
     db: AsyncSession = Depends(get_db),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
@@ -217,6 +233,10 @@ async def get_agent_status(
         if task.agent_id is not None:
             running_by_agent[task.agent_id] = task
 
+    redis = getattr(request.app.state, "redis", None)
+    busy_ids = await busy_agent_ids(redis, tenant_id, agent_ids)
+    online_worker_available = await has_online_worker(db, tenant_id)
+
     cards: list[AgentStatusCard] = []
     for agent in agents:
         current = running_by_agent.get(agent.id)
@@ -226,7 +246,12 @@ async def get_agent_status(
                 name=agent.name,
                 role=agent.role,
                 title=agent.title,
-                dot=_status_dot(agent, current),
+                dot=resolve_agent_status_dot(
+                    agent,
+                    current_task=current,
+                    is_busy=agent.id in busy_ids,
+                    online_worker_available=online_worker_available,
+                ),
                 current_task=(
                     {
                         "id": str(current.id),

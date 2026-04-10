@@ -9,6 +9,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sqlalchemy import select
 
+from backend.src.core.agent_activity import (
+    busy_agent_ids,
+    has_online_worker,
+    resolve_agent_runtime_status,
+)
 from backend.src.core.tenant_context import get_tenant_id
 from backend.src.models import Agent, ExecutorConfig, Worker
 from backend.src.repositories.agent_repository import AgentRepository
@@ -23,6 +28,7 @@ def _agent_to_response(
     *,
     has_online_worker: bool = False,
     default_executor_type: str | None = None,
+    is_busy: bool = False,
 ) -> AgentResponse:
     response = AgentResponse.model_validate(agent)
     # Agents that opted into "use default" inherit the tenant's *current*
@@ -32,9 +38,15 @@ def _agent_to_response(
     # before any default was set.
     if agent.executor_config_id is None and default_executor_type is not None:
         response.executor_type = default_executor_type
-    # Worker-typed agents derive status from worker availability
-    if response.executor_type == "worker":
-        response.status = "online" if has_online_worker else "offline"
+    # Single source of truth — see backend/src/core/agent_activity.py.
+    # Note: agent.executor_type may be the old cached value but
+    # response.executor_type already reflects the override above; the
+    # online-worker fallback should still apply to worker agents.
+    response.status = resolve_agent_runtime_status(
+        agent,
+        is_busy=is_busy,
+        online_worker_available=has_online_worker,
+    )
     return response
 
 
@@ -53,14 +65,7 @@ async def _tenant_default_executor_type(
 
 async def _has_online_worker(db: AsyncSession, tenant_id: uuid.UUID) -> bool:
     """True if any active worker in the tenant is online."""
-    result = await db.execute(
-        select(Worker.id).where(
-            Worker.tenant_id == tenant_id,
-            Worker.is_active.is_(True),
-            Worker.status == "online",
-        ).limit(1)
-    )
-    return result.scalar_one_or_none() is not None
+    return await has_online_worker(db, tenant_id)
 
 
 async def _resolve_executor_type(
@@ -117,6 +122,7 @@ async def create_agent(
 
 @router.get("", response_model=list[AgentResponse])
 async def list_agents(
+    request: Request,
     active_only: bool = True,
     limit: int = 100,
     offset: int = 0,
@@ -127,14 +133,22 @@ async def list_agents(
     agents = await repo.list_by_tenant(tenant_id, active_only=active_only, limit=limit, offset=offset)
     online = await _has_online_worker(db, tenant_id)
     default_type = await _tenant_default_executor_type(db, tenant_id)
+    redis = getattr(request.app.state, "redis", None)
+    busy_ids = await busy_agent_ids(redis, tenant_id, [a.id for a in agents])
     return [
-        _agent_to_response(a, has_online_worker=online, default_executor_type=default_type)
+        _agent_to_response(
+            a,
+            has_online_worker=online,
+            default_executor_type=default_type,
+            is_busy=a.id in busy_ids,
+        )
         for a in agents
     ]
 
 
 @router.get("/org-chart", response_model=list[AgentOrgChartResponse])
 async def get_org_chart(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
 ) -> list[AgentOrgChartResponse]:
@@ -143,6 +157,8 @@ async def get_org_chart(
     all_agents = await repo.list_by_tenant(tenant_id, active_only=True, limit=500)
     online = await _has_online_worker(db, tenant_id)
     default_type = await _tenant_default_executor_type(db, tenant_id)
+    redis = getattr(request.app.state, "redis", None)
+    busy_ids = await busy_agent_ids(redis, tenant_id, [a.id for a in all_agents])
 
     # Build tree
     by_parent: dict[uuid.UUID | None, list[Agent]] = {}
@@ -154,7 +170,10 @@ async def get_org_chart(
         return [
             AgentOrgChartResponse(
                 agent=_agent_to_response(
-                    child, has_online_worker=online, default_executor_type=default_type
+                    child,
+                    has_online_worker=online,
+                    default_executor_type=default_type,
+                    is_busy=child.id in busy_ids,
                 ),
                 children=_build_tree(child.id),
             )
@@ -167,6 +186,7 @@ async def get_org_chart(
 @router.get("/{agent_id}", response_model=AgentResponse)
 async def get_agent(
     agent_id: uuid.UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
 ) -> AgentResponse:
@@ -176,8 +196,13 @@ async def get_agent(
         raise HTTPException(status_code=404, detail="Agent not found")
     online = await _has_online_worker(db, tenant_id)
     default_type = await _tenant_default_executor_type(db, tenant_id)
+    redis = getattr(request.app.state, "redis", None)
+    busy_ids = await busy_agent_ids(redis, tenant_id, [agent.id])
     return _agent_to_response(
-        agent, has_online_worker=online, default_executor_type=default_type
+        agent,
+        has_online_worker=online,
+        default_executor_type=default_type,
+        is_busy=agent.id in busy_ids,
     )
 
 

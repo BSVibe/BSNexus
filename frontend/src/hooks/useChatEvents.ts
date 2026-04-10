@@ -55,6 +55,10 @@ export function useChatEvents(projectId: string | undefined) {
 
     const handleAgentStatus = () => {
       queryClient.invalidateQueries({ queryKey: ['agents'] })
+      // Plan view's agent status bar reads a different query — invalidate
+      // it too so the dot flips to ``thinking`` the moment chat dispatches
+      // an agent.
+      queryClient.invalidateQueries({ queryKey: ['agent-status', projectId] })
     }
 
     const connect = () => {

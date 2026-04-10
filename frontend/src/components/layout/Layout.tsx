@@ -1,13 +1,29 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Outlet } from 'react-router-dom'
 import Sidebar from './Sidebar'
 
+const COLLAPSED_KEY = 'bsnexus.sidebar.collapsed'
+
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [collapsed, setCollapsed] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return localStorage.getItem(COLLAPSED_KEY) === '1'
+  })
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    localStorage.setItem(COLLAPSED_KEY, collapsed ? '1' : '0')
+  }, [collapsed])
 
   return (
     <div className="flex h-screen overflow-hidden text-text-primary bg-stitch-surface">
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <Sidebar
+        isOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+        collapsed={collapsed}
+        onToggleCollapsed={() => setCollapsed((c) => !c)}
+      />
       <main className="flex-1 flex flex-col min-w-0 bg-stitch-surface overflow-hidden">
         {/* Hamburger - mobile only */}
         <button

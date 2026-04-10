@@ -416,12 +416,30 @@ async def _store_and_publish(
 
 
 async def _publish_agent_status(redis: Any, project_id: uuid.UUID, agent: models.Agent, status: str) -> None:
-    """Publish agent_status SSE event (busy/online)."""
-    await _publish_event(redis, project_id, "agent_status", {
+    """Publish agent_status SSE event (busy/online).
+
+    Pushed to BOTH the chat events stream (so the chat sidebar can react)
+    and the plan events stream (so the Plan view's AgentStatusBar
+    refreshes its dot without polling).
+    """
+    payload = {
         "agent_id": str(agent.id),
         "agent_name": agent.name,
         "status": status,
-    })
+    }
+    await _publish_event(redis, project_id, "agent_status", payload)
+    if redis is None:
+        return
+    stream_manager = RedisStreamManager(redis)
+    plan_stream = RedisStreamManager.project_events_stream(str(project_id))
+    try:
+        await stream_manager.publish(
+            plan_stream,
+            {"event": "agent_status_changed", "data": payload},
+        )
+        await redis.xtrim(plan_stream, maxlen=500, approximate=True)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 # ── LLM / worker dispatch ───────────────────────────────────────────
@@ -656,6 +674,13 @@ async def _process_agent_in_background(
     Handles delegation chains: if the agent's response @mentions others,
     they are dispatched as further background tasks (up to MAX_DELEGATION_DEPTH).
     """
+    from backend.src.core.agent_activity import clear_agent_busy, mark_agent_busy
+
+    # Mark busy upfront so the Plan view + Agents tab pick up the
+    # transient state even if the agent lookup below stalls. Cleared in
+    # the finally block so a crash never leaves the indicator stuck.
+    await mark_agent_busy(redis, tenant_id, agent_id)
+    agent: models.Agent | None = None
     async with async_session() as db:
         try:
             # Reload project + agent in this session
@@ -701,17 +726,29 @@ async def _process_agent_in_background(
 
         except Exception as e:
             logger.error("background_agent_failed", agent_id=str(agent_id), error=str(e))
-            # Publish error as a system message so the user sees it
+            # Publish error as an assistant message attributed to the
+            # failed agent so the frontend's typing-indicator filter
+            # picks it up and clears the spinner. If the agent failed to
+            # load, look up name + id one more time so the indicator
+            # still clears.
             try:
+                error_agent = agent
+                if error_agent is None:
+                    lookup = await db.execute(
+                        select(models.Agent).where(models.Agent.id == agent_id)
+                    )
+                    error_agent = lookup.scalar_one_or_none()
                 await _store_and_publish(
                     db, redis, project_id,
                     role="assistant", content=f"[Error] {e}",
-                    agent=agent if "agent" in dir() else None,
+                    agent=error_agent,
                 )
-                if "agent" in dir() and agent:
-                    await _publish_agent_status(redis, project_id, agent, "online")
-            except Exception:
+                if error_agent is not None:
+                    await _publish_agent_status(redis, project_id, error_agent, "online")
+            except Exception:  # noqa: BLE001
                 pass
+        finally:
+            await clear_agent_busy(redis, tenant_id, agent_id)
 
 
 # ── Endpoints ───────────────────────────────────────────────────────

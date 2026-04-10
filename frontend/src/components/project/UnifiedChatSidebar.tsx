@@ -3,8 +3,16 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { agentChatApi } from '../../api/agentChat'
 import { agentsApi } from '../../api/agents'
 import { useChatEvents } from '../../hooks/useChatEvents'
+import { useToastStore } from '../../stores/toastStore'
 import ChatMessage from './ChatMessage'
 import MentionAutocomplete from './MentionAutocomplete'
+
+// Safety net: if the backend never publishes a response within this
+// window we force-clear the typing indicator and surface a toast. The
+// backend already publishes ``[Error]`` messages on failure (which
+// clear the indicator on their own), but a Redis hiccup or a worker
+// silently dropping the result must not leave the UI stuck forever.
+const PENDING_TIMEOUT_MS = 90_000
 
 const MIN_WIDTH = 240
 const MAX_WIDTH = 600
@@ -74,14 +82,17 @@ export default function UnifiedChatSidebar({ projectId }: Props) {
     return agents.filter((a) => a.name.toLowerCase().startsWith(mentionQuery.toLowerCase()))
   }, [agents, mentionQuery])
 
+  const addToast = useToastStore((s) => s.addToast)
+
   const sendMutation = useMutation({
     mutationFn: (message: string) => agentChatApi.send(projectId, message),
     onSuccess: (data) => {
       setPendingAgents(data.dispatched_agents)
     },
-    onError: () => {
+    onError: (err) => {
       setPendingMessage(null)
       setPendingAgents([])
+      addToast(`Failed to send: ${(err as Error).message}`, 'error')
     },
   })
 
@@ -94,6 +105,23 @@ export default function UnifiedChatSidebar({ projectId }: Props) {
       setPendingAgents([])
     })
   }
+
+  // Safety net: if the backend never publishes a response within
+  // PENDING_TIMEOUT_MS we force-clear and toast the user. Without this,
+  // a dropped Redis publish or a silently-failed worker turn would leave
+  // the typing indicator on forever.
+  useEffect(() => {
+    if (!pendingMessage || pendingAgents.length === 0) return
+    const timer = setTimeout(() => {
+      addToast(
+        'No response from the agent within 90s — check the worker / LLM status.',
+        'error',
+      )
+      setPendingMessage(null)
+      setPendingAgents([])
+    }, PENDING_TIMEOUT_MS)
+    return () => clearTimeout(timer)
+  }, [pendingMessage, pendingAgents, addToast])
 
   const clearMutation = useMutation({
     mutationFn: () => agentChatApi.clear(projectId),

@@ -316,17 +316,53 @@ async def test_get_plan_tree_direct_404(db_session):
     assert exc.value.status_code == 404
 
 
+def _fake_request(redis: object | None = None) -> object:
+    """Build a minimal Request stand-in with ``app.state.redis``."""
+    from types import SimpleNamespace
+
+    return SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(redis=redis)))
+
+
+@pytest.mark.asyncio
+async def test_get_agent_status_marks_busy_agent_blue_from_redis(db_session):
+    """A redis-tracked busy agent must surface as the ``blue`` (thinking) dot."""
+    from unittest.mock import AsyncMock
+
+    from backend.src.api.plan_tree import get_agent_status
+    from backend.src.core.tenant_context import DEFAULT_TENANT_ID
+
+    project, _ = await _seed_project(db_session)
+    busy_agent = await _add_agent(db_session, name="Talky", role="cto")
+    await db_session.commit()
+
+    # Stub the redis client so MGET reports this single agent as busy.
+    redis = AsyncMock()
+    redis.mget = AsyncMock(return_value=[b"1"])
+
+    cards = await get_agent_status(
+        project_id=project.id,
+        request=_fake_request(redis=redis),
+        db=db_session,
+        tenant_id=DEFAULT_TENANT_ID,
+    )
+    by_id = {c.agent_id: c for c in cards}
+    assert by_id[busy_agent.id].dot == "blue"
+
+
 @pytest.mark.asyncio
 async def test_get_agent_status_direct_all_dot_colors(db_session):
-    """Cover the four-branch _status_dot helper end-to-end."""
+    """Cover the resolve_agent_status_dot branches end-to-end."""
     from backend.src.api.plan_tree import get_agent_status
     from backend.src.core.tenant_context import DEFAULT_TENANT_ID
 
     project, phase = await _seed_project(db_session)
     running_agent = await _add_agent(db_session, name="Worker A", role="worker")
-    idle_agent = await _add_agent(db_session, name="Worker B", role="worker")
+    _idle_agent = await _add_agent(db_session, name="Worker B", role="worker")
     offline_agent = await _add_agent(db_session, name="Worker C", role="worker")
+    # Worker C is also detached from any worker pool, so the worker-type
+    # online fallback should not promote it back to yellow.
     offline_agent.status = "offline"
+    offline_agent.executor_type = "claude_api"
 
     await _add_task(
         db_session, project, phase, title="Run me", status=TaskStatus.running, agent_id=running_agent.id,
@@ -334,7 +370,10 @@ async def test_get_agent_status_direct_all_dot_colors(db_session):
     await db_session.commit()
 
     cards = await get_agent_status(
-        project_id=project.id, db=db_session, tenant_id=DEFAULT_TENANT_ID,
+        project_id=project.id,
+        request=_fake_request(),
+        db=db_session,
+        tenant_id=DEFAULT_TENANT_ID,
     )
     by_name = {c.name: c for c in cards}
     assert by_name["Worker A"].dot == "green"
@@ -352,7 +391,10 @@ async def test_get_agent_status_direct_404(db_session):
 
     with pytest.raises(HTTPException) as exc:
         await get_agent_status(
-            project_id=uuid.uuid4(), db=db_session, tenant_id=DEFAULT_TENANT_ID,
+            project_id=uuid.uuid4(),
+            request=_fake_request(),
+            db=db_session,
+            tenant_id=DEFAULT_TENANT_ID,
         )
     assert exc.value.status_code == 404
 

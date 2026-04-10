@@ -4,7 +4,6 @@ import { useQuery } from '@tanstack/react-query'
 import { projectsApi } from '../api/projects'
 import FileBrowser from '../components/workspace/FileBrowser'
 import UnifiedChatSidebar from '../components/project/UnifiedChatSidebar'
-import TimelineView from '../components/project/TimelineView'
 import DesignView from '../components/project/DesignView'
 import ProjectAgentsTab from '../components/project/ProjectAgentsTab'
 import ProjectChannelsModal from '../components/project/ProjectChannelsModal'
@@ -12,12 +11,15 @@ import GoalSlogan from '../components/project/GoalSlogan'
 import Header from '../components/layout/Header'
 import PlanView from '../components/plan/PlanView'
 
-type TabId = 'plan' | 'files' | 'timeline' | 'design' | 'agents'
+// Timeline tab was a placeholder ("Gantt chart coming soon") and has been
+// removed. The Plan tab covers task progress; the Agents tab stays as a
+// detail view for the per-agent status / drill-down (the Plan view's
+// AgentStatusBar is the at-a-glance summary).
+type TabId = 'plan' | 'files' | 'design' | 'agents'
 
 const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: 'plan', label: 'Plan', icon: 'account_tree' },
   { id: 'files', label: 'Files', icon: 'folder' },
-  { id: 'timeline', label: 'Timeline', icon: 'timeline' },
   { id: 'design', label: 'Design', icon: 'palette' },
   { id: 'agents', label: 'Agents', icon: 'groups' },
 ]
@@ -128,7 +130,6 @@ function ProjectContent({ projectId }: { projectId: string }) {
             </div>
           )}
 
-          {activeTab === 'timeline' && <TimelineView />}
           {activeTab === 'design' && <DesignView projectId={projectId} />}
           {activeTab === 'agents' && <ProjectAgentsTab />}
         </div>
