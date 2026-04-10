@@ -46,6 +46,21 @@ export interface AgentStatusCard {
   current_task: { id: string; title: string; status: TaskStatus } | null
 }
 
+export interface ActivityEntry {
+  id: string
+  task_id: string
+  level: 'milestone' | 'tool'
+  event_type: string
+  summary: string
+  detail: Record<string, unknown> | null
+  created_at: string
+}
+
+export interface ActivityFeedResponse {
+  task_id: string
+  entries: ActivityEntry[]
+}
+
 export const planTreeApi = {
   getTree: (projectId: string) =>
     apiClient.get<PlanTreeResponse>(`/api/v1/projects/${projectId}/plan-tree`).then((r) => r.data),
@@ -53,5 +68,10 @@ export const planTreeApi = {
   getAgentStatus: (projectId: string) =>
     apiClient
       .get<AgentStatusCard[]>(`/api/v1/projects/${projectId}/agent-status`)
+      .then((r) => r.data),
+
+  getTaskActivity: (taskId: string, level: 'milestone' | 'all' = 'milestone') =>
+    apiClient
+      .get<ActivityFeedResponse>(`/api/v1/tasks/${taskId}/activity`, { params: { level } })
       .then((r) => r.data),
 }
