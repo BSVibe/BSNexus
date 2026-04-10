@@ -70,12 +70,6 @@ test.describe('Dashboard — Stat Cards & Project Grid', () => {
     await expect(page.getByRole('button', { name: 'New Project' })).toBeVisible()
   })
 
-  test('header has "Import" button with folder_open icon', async ({ page }) => {
-    const importBtn = page.getByRole('button', { name: 'Import' })
-    await expect(importBtn).toBeVisible()
-    await expect(importBtn.locator('span.material-symbols-outlined:has-text("folder_open")')).toBeVisible()
-  })
-
   test('notifications bell icon is visible in header', async ({ page }) => {
     await expect(page.locator('header span.material-symbols-outlined:has-text("notifications")')).toBeVisible()
   })

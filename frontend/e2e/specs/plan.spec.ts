@@ -54,7 +54,7 @@ test.describe('Project channels modal', () => {
 
   test('opens via the forum icon and shows the linked channel', async ({ page }) => {
     // Forum icon button — title="Channels"
-    await page.getByRole('button', { name: /channels/i }).click()
+    await page.getByTitle('Channels').click()
     await expect(page.getByText(/Project channels/i)).toBeVisible()
     await expect(page.getByText('#bsvibe-tax')).toBeVisible()
   })
