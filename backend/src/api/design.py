@@ -1,17 +1,29 @@
-"""Builtin design tool API.
+"""Builtin design tool API — workspace-backed .bsd files.
 
-Replaces the external Stitch MCP integration with first-party endpoints
-that the Designer agent can call directly. Each project owns at most one
-DesignSystem (with tokens, components, patterns) and any number of
-Screens whose specs reference that design system.
+Replaces the Stitch MCP integration. The Designer agent works with two
+file kinds inside the project workspace:
 
-Phase 5 in the overhaul roadmap. The actual Designer agent workflow
-(natural-language requirements -> screen spec -> code generation) lands
-incrementally on top of these CRUD endpoints.
+  <workspace>/design/system.bsd          — DesignSystem (tokens, components,
+                                            patterns, brand_voice)
+  <workspace>/design/screens/<slug>.bsd  — One Screen per file (name,
+                                            route, intent, spec, optional
+                                            generated_code preview)
+
+Each .bsd file is JSON. The format is intentionally schemaless beyond a
+few well-known top-level keys so the Designer agent can extend it as
+the design system matures without DB migrations.
+
+This API is a thin wrapper around WorkspaceService. Designer-typed
+agents call the same workspace tools every other worker uses, but their
+system prompt instructs them to read and write .bsd files instead of
+production source files.
 """
 
 from __future__ import annotations
 
+import json
+import os
+import re
 import uuid
 from typing import Any
 
@@ -23,9 +35,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src import models
 from backend.src.core.auth import Permission, require_permission
+from backend.src.core.workspace import LocalStorageBackend, WorkspaceService
 from backend.src.storage.database import get_db
 
 router = APIRouter(prefix="/api/v1/projects/{project_id}/design", tags=["design"])
+
+DESIGN_DIR = "design"
+SYSTEM_FILE = f"{DESIGN_DIR}/system.bsd"
+SCREEN_DIR = f"{DESIGN_DIR}/screens"
+SCREEN_EXT = ".bsd"
+
+_workspace_service = WorkspaceService(
+    LocalStorageBackend(os.environ.get("WORKSPACE_BASE_DIR", "/data/workspaces"))
+)
 
 
 # ── Schemas ──────────────────────────────────────────────────────────
@@ -40,72 +62,97 @@ class DesignSystemPayload(BaseModel):
 
 
 class DesignSystemResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: uuid.UUID
     project_id: uuid.UUID
     name: str
     tokens: dict[str, Any]
     components: dict[str, Any]
     patterns: dict[str, Any]
     brand_voice: str | None = None
+    path: str
 
 
-class ScreenCreate(BaseModel):
+class ScreenPayload(BaseModel):
+    """The full body of a .bsd screen file."""
+
     name: str
     route: str | None = None
     intent: str | None = None
     spec: dict[str, Any] = Field(default_factory=dict)
-
-
-class ScreenUpdate(BaseModel):
-    name: str | None = None
-    route: str | None = None
-    intent: str | None = None
-    spec: dict[str, Any] | None = None
-    generated_code_path: str | None = None
-    preview_image_path: str | None = None
+    generated_code: str | None = None
 
 
 class ScreenResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: uuid.UUID
     project_id: uuid.UUID
-    design_system_id: uuid.UUID
+    slug: str
+    path: str
     name: str
     route: str | None = None
     intent: str | None = None
     spec: dict[str, Any]
-    generated_code_path: str | None = None
-    preview_image_path: str | None = None
+    generated_code: str | None = None
+
+
+class ScreenSummary(BaseModel):
+    project_id: uuid.UUID
+    slug: str
+    path: str
+    name: str
+    route: str | None = None
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
 
-async def _get_or_create_design_system(
-    db: AsyncSession, project_id: uuid.UUID
-) -> models.DesignSystem:
-    """Return the project's design system, creating an empty one on first call."""
+_SLUG_RE = re.compile(r"[^a-z0-9-]+")
+
+
+def _slugify(value: str) -> str:
+    slug = _SLUG_RE.sub("-", value.lower()).strip("-")
+    return slug or "screen"
+
+
+async def _ensure_project_exists(db: AsyncSession, project_id: uuid.UUID) -> models.Project:
     result = await db.execute(
-        select(models.DesignSystem).where(models.DesignSystem.project_id == project_id)
+        select(models.Project).where(models.Project.id == project_id)
     )
-    design_system = result.scalar_one_or_none()
-    if design_system is not None:
-        return design_system
-
-    # Verify the project exists before inserting an orphan design system.
-    project_result = await db.execute(
-        select(models.Project.id).where(models.Project.id == project_id)
-    )
-    if project_result.scalar_one_or_none() is None:
+    project = result.scalar_one_or_none()
+    if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
+    return project
 
-    design_system = models.DesignSystem(project_id=project_id)
-    db.add(design_system)
-    await db.flush()
-    return design_system
+
+async def _ensure_workspace(project: models.Project) -> uuid.UUID:
+    """Make sure the workspace dir exists. Returns the project id used as workspace id."""
+    if not await _workspace_service.file_exists(project.id, DESIGN_DIR):
+        # The storage backend creates parent dirs on write; touching a
+        # placeholder ensures the design folder exists for listings.
+        await _workspace_service.write_file(
+            project.id, f"{DESIGN_DIR}/.keep", b""
+        )
+    return project.id
+
+
+async def _read_json(project_id: uuid.UUID, path: str) -> dict[str, Any] | None:
+    if not await _workspace_service.file_exists(project_id, path):
+        return None
+    raw = await _workspace_service.read_file(project_id, path)
+    try:
+        return json.loads(raw.decode("utf-8"))
+    except json.JSONDecodeError as e:
+        raise HTTPException(
+            status_code=500, detail=f"Corrupt .bsd file at {path}: {e}"
+        ) from e
+
+
+async def _write_json(project_id: uuid.UUID, path: str, data: dict[str, Any]) -> None:
+    payload = json.dumps(data, indent=2, ensure_ascii=False).encode("utf-8")
+    await _workspace_service.write_file(project_id, path, payload)
+
+
+def _screen_path(slug: str) -> str:
+    return f"{SCREEN_DIR}/{slug}{SCREEN_EXT}"
 
 
 # ── DesignSystem endpoints ───────────────────────────────────────────
@@ -117,10 +164,30 @@ async def get_design_system(
     _auth: BSVibeUser = Depends(require_permission(Permission.project_read)),
     db: AsyncSession = Depends(get_db),
 ) -> DesignSystemResponse:
-    """Return (or lazily create) the project's design system."""
-    design_system = await _get_or_create_design_system(db, project_id)
-    await db.commit()
-    return DesignSystemResponse.model_validate(design_system)
+    """Return the project's design system, lazily creating an empty one."""
+    project = await _ensure_project_exists(db, project_id)
+    await _ensure_workspace(project)
+
+    data = await _read_json(project_id, SYSTEM_FILE)
+    if data is None:
+        data = {
+            "name": "Default",
+            "tokens": {},
+            "components": {},
+            "patterns": {},
+            "brand_voice": None,
+        }
+        await _write_json(project_id, SYSTEM_FILE, data)
+
+    return DesignSystemResponse(
+        project_id=project_id,
+        name=data.get("name", "Default"),
+        tokens=data.get("tokens", {}),
+        components=data.get("components", {}),
+        patterns=data.get("patterns", {}),
+        brand_voice=data.get("brand_voice"),
+        path=SYSTEM_FILE,
+    )
 
 
 @router.put("/system", response_model=DesignSystemResponse)
@@ -130,115 +197,147 @@ async def upsert_design_system(
     _auth: BSVibeUser = Depends(require_permission(Permission.project_update)),
     db: AsyncSession = Depends(get_db),
 ) -> DesignSystemResponse:
-    """Replace the project's design system contents."""
-    design_system = await _get_or_create_design_system(db, project_id)
-    design_system.name = body.name
-    design_system.tokens = body.tokens
-    design_system.components = body.components
-    design_system.patterns = body.patterns
-    design_system.brand_voice = body.brand_voice
-    await db.commit()
-    await db.refresh(design_system)
-    return DesignSystemResponse.model_validate(design_system)
+    project = await _ensure_project_exists(db, project_id)
+    await _ensure_workspace(project)
+    data = body.model_dump()
+    await _write_json(project_id, SYSTEM_FILE, data)
+    return DesignSystemResponse(
+        project_id=project_id,
+        path=SYSTEM_FILE,
+        **data,
+    )
 
 
 # ── Screen endpoints ─────────────────────────────────────────────────
 
 
-@router.get("/screens", response_model=list[ScreenResponse])
+@router.get("/screens", response_model=list[ScreenSummary])
 async def list_screens(
     project_id: uuid.UUID,
     _auth: BSVibeUser = Depends(require_permission(Permission.project_read)),
     db: AsyncSession = Depends(get_db),
-) -> list[ScreenResponse]:
-    result = await db.execute(
-        select(models.Screen)
-        .where(models.Screen.project_id == project_id)
-        .order_by(models.Screen.created_at.asc())
-    )
-    return [ScreenResponse.model_validate(s) for s in result.scalars().all()]
+) -> list[ScreenSummary]:
+    project = await _ensure_project_exists(db, project_id)
+    await _ensure_workspace(project)
+
+    if not await _workspace_service.file_exists(project_id, SCREEN_DIR):
+        return []
+
+    files = await _workspace_service.list_files(project_id, SCREEN_DIR, recursive=False)
+    summaries: list[ScreenSummary] = []
+    for f in files:
+        if f.is_dir or not f.path.endswith(SCREEN_EXT):
+            continue
+        data = await _read_json(project_id, f.path)
+        if data is None:
+            continue
+        slug = os.path.basename(f.path)[: -len(SCREEN_EXT)]
+        summaries.append(
+            ScreenSummary(
+                project_id=project_id,
+                slug=slug,
+                path=f.path,
+                name=str(data.get("name") or slug),
+                route=data.get("route"),
+            )
+        )
+    summaries.sort(key=lambda s: s.name.lower())
+    return summaries
 
 
 @router.post("/screens", response_model=ScreenResponse, status_code=201)
 async def create_screen(
     project_id: uuid.UUID,
-    body: ScreenCreate,
+    body: ScreenPayload,
     _auth: BSVibeUser = Depends(require_permission(Permission.project_update)),
     db: AsyncSession = Depends(get_db),
 ) -> ScreenResponse:
-    design_system = await _get_or_create_design_system(db, project_id)
-    screen = models.Screen(
+    project = await _ensure_project_exists(db, project_id)
+    await _ensure_workspace(project)
+
+    slug = _slugify(body.name)
+    path = _screen_path(slug)
+
+    # Avoid silently overwriting an existing screen with the same slug.
+    if await _workspace_service.file_exists(project_id, path):
+        # Append a numeric suffix until we find a free slot.
+        counter = 2
+        while True:
+            candidate = f"{slug}-{counter}"
+            candidate_path = _screen_path(candidate)
+            if not await _workspace_service.file_exists(project_id, candidate_path):
+                slug = candidate
+                path = candidate_path
+                break
+            counter += 1
+
+    data = body.model_dump()
+    await _write_json(project_id, path, data)
+
+    return ScreenResponse(
         project_id=project_id,
-        design_system_id=design_system.id,
-        name=body.name,
-        route=body.route,
-        intent=body.intent,
-        spec=body.spec,
+        slug=slug,
+        path=path,
+        **data,
     )
-    db.add(screen)
-    await db.flush()
-    await db.commit()
-    await db.refresh(screen)
-    return ScreenResponse.model_validate(screen)
 
 
-@router.get("/screens/{screen_id}", response_model=ScreenResponse)
+@router.get("/screens/{slug}", response_model=ScreenResponse)
 async def get_screen(
     project_id: uuid.UUID,
-    screen_id: uuid.UUID,
+    slug: str,
     _auth: BSVibeUser = Depends(require_permission(Permission.project_read)),
     db: AsyncSession = Depends(get_db),
 ) -> ScreenResponse:
-    result = await db.execute(
-        select(models.Screen).where(
-            models.Screen.id == screen_id, models.Screen.project_id == project_id
-        )
-    )
-    screen = result.scalar_one_or_none()
-    if screen is None:
+    await _ensure_project_exists(db, project_id)
+    path = _screen_path(slug)
+    data = await _read_json(project_id, path)
+    if data is None:
         raise HTTPException(status_code=404, detail="Screen not found")
-    return ScreenResponse.model_validate(screen)
+    return ScreenResponse(
+        project_id=project_id,
+        slug=slug,
+        path=path,
+        name=str(data.get("name") or slug),
+        route=data.get("route"),
+        intent=data.get("intent"),
+        spec=data.get("spec") or {},
+        generated_code=data.get("generated_code"),
+    )
 
 
-@router.patch("/screens/{screen_id}", response_model=ScreenResponse)
+@router.put("/screens/{slug}", response_model=ScreenResponse)
 async def update_screen(
     project_id: uuid.UUID,
-    screen_id: uuid.UUID,
-    body: ScreenUpdate,
+    slug: str,
+    body: ScreenPayload,
     _auth: BSVibeUser = Depends(require_permission(Permission.project_update)),
     db: AsyncSession = Depends(get_db),
 ) -> ScreenResponse:
-    result = await db.execute(
-        select(models.Screen).where(
-            models.Screen.id == screen_id, models.Screen.project_id == project_id
-        )
-    )
-    screen = result.scalar_one_or_none()
-    if screen is None:
+    await _ensure_project_exists(db, project_id)
+    path = _screen_path(slug)
+    if not await _workspace_service.file_exists(project_id, path):
         raise HTTPException(status_code=404, detail="Screen not found")
 
-    for field, value in body.model_dump(exclude_unset=True).items():
-        setattr(screen, field, value)
+    data = body.model_dump()
+    await _write_json(project_id, path, data)
+    return ScreenResponse(
+        project_id=project_id,
+        slug=slug,
+        path=path,
+        **data,
+    )
 
-    await db.commit()
-    await db.refresh(screen)
-    return ScreenResponse.model_validate(screen)
 
-
-@router.delete("/screens/{screen_id}", status_code=204)
+@router.delete("/screens/{slug}", status_code=204)
 async def delete_screen(
     project_id: uuid.UUID,
-    screen_id: uuid.UUID,
+    slug: str,
     _auth: BSVibeUser = Depends(require_permission(Permission.project_update)),
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    result = await db.execute(
-        select(models.Screen).where(
-            models.Screen.id == screen_id, models.Screen.project_id == project_id
-        )
-    )
-    screen = result.scalar_one_or_none()
-    if screen is None:
+    await _ensure_project_exists(db, project_id)
+    path = _screen_path(slug)
+    if not await _workspace_service.file_exists(project_id, path):
         raise HTTPException(status_code=404, detail="Screen not found")
-    await db.delete(screen)
-    await db.commit()
+    await _workspace_service.delete_file(project_id, path)

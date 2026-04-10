@@ -112,7 +112,7 @@ function ProjectContent({ projectId }: { projectId: string }) {
           )}
 
           {activeTab === 'timeline' && <TimelineView />}
-          {activeTab === 'design' && <DesignView />}
+          {activeTab === 'design' && <DesignView projectId={projectId} />}
           {activeTab === 'agents' && <ProjectAgentsTab />}
         </div>
 
