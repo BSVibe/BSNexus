@@ -9,6 +9,7 @@ from backend.src.models.executor_config import ExecutorConfig
 from backend.src.models.goal import Goal
 from backend.src.models.phase import Phase, PhaseStatus
 from backend.src.models.project import Project, ProjectStatus, WorkspaceType
+from backend.src.models.project_channel import ProjectChannel
 from backend.src.models.setting import Setting
 from backend.src.models.task import (
     Task,
@@ -45,6 +46,7 @@ __all__ = [
     "Goal",
     "Phase",
     "Project",
+    "ProjectChannel",
     "Screen",
     "Setting",
     "Task",
