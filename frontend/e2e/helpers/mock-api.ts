@@ -7,20 +7,25 @@
  */
 import type { Page } from '@playwright/test'
 import {
-  mockProjects,
-  mockProjectsSummary,
-  mockBoardResponse,
-  mockSessions,
-  mockUser,
+  mockAgentStatusCards,
   mockAgents,
-  mockOrgChart,
-  mockWorkers,
-  mockGoals,
   mockBudgetOverview,
   mockCostRecords,
-  mockGlobalSettings,
+  mockDesignScreens,
+  mockDesignSystem,
   mockExecutorConfigs,
+  mockGlobalSettings,
+  mockGoals,
   mockInstallToken,
+  mockMemories,
+  mockOrgChart,
+  mockPlanTreeResponse,
+  mockProjectChannels,
+  mockProjects,
+  mockProjectsSummary,
+  mockTaskActivity,
+  mockUser,
+  mockWorkers,
 } from './fixtures'
 
 /**
@@ -108,13 +113,91 @@ export async function mockAllApis(page: Page) {
     return route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ detail: 'Not found' }) })
   })
 
-  // Board SSE events endpoint
-  await page.route('**/api/v1/board/proj-*/events', (route) => {
+  // Plan view: tree, agent status, SSE events
+  await page.route('**/api/v1/projects/proj-*/plan-tree/events', (route) => {
     return route.fulfill({
       status: 200,
       contentType: 'text/event-stream',
-      body: 'data: {"event":"connected"}\n\n',
+      body: 'event: connected\ndata: {}\n\n',
     })
+  })
+  await page.route('**/api/v1/projects/proj-*/plan-tree', (route) => {
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockPlanTreeResponse) })
+  })
+  await page.route('**/api/v1/projects/proj-*/agent-status', (route) => {
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockAgentStatusCards) })
+  })
+
+  // Task activity feed
+  await page.route('**/api/v1/tasks/*/activity*', (route) => {
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockTaskActivity) })
+  })
+
+  // Design tool (.bsd workspace files)
+  await page.route('**/api/v1/projects/proj-*/design/system', (route) => {
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockDesignSystem) })
+  })
+  await page.route('**/api/v1/projects/proj-*/design/screens/*', (route) => {
+    if (route.request().method() === 'DELETE') {
+      return route.fulfill({ status: 204, body: '' })
+    }
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ...mockDesignScreens[0],
+        intent: null,
+        spec: { root: { type: 'Form' } },
+        generated_code: null,
+      }),
+    })
+  })
+  await page.route('**/api/v1/projects/proj-*/design/screens', (route) => {
+    if (route.request().method() === 'POST') {
+      return route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ...mockDesignScreens[0],
+          intent: null,
+          spec: {},
+          generated_code: null,
+        }),
+      })
+    }
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockDesignScreens) })
+  })
+
+  // Long-term memory
+  await page.route('**/api/v1/projects/proj-*/memories/*', (route) => {
+    if (route.request().method() === 'DELETE') {
+      return route.fulfill({ status: 204, body: '' })
+    }
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockMemories[0]) })
+  })
+  await page.route('**/api/v1/projects/proj-*/memories*', (route) => {
+    if (route.request().method() === 'POST') {
+      return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(mockMemories[0]) })
+    }
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockMemories) })
+  })
+
+  // Project channels
+  await page.route('**/api/v1/projects/proj-*/channels/*', (route) => {
+    if (route.request().method() === 'DELETE') {
+      return route.fulfill({ status: 204, body: '' })
+    }
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockProjectChannels[0]) })
+  })
+  await page.route('**/api/v1/projects/proj-*/channels', (route) => {
+    if (route.request().method() === 'POST') {
+      return route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify(mockProjectChannels[0]),
+      })
+    }
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockProjectChannels) })
   })
 
   // Project chat SSE events endpoint
@@ -140,55 +223,6 @@ export async function mockAllApis(page: Page) {
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({ dispatched_agents: ['CEO'] }),
-    })
-  })
-
-  // Board snapshot
-  await page.route('**/api/v1/board/proj-*', (route) => {
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockBoardResponse) })
-  })
-
-  // Architect session by project (must be before generic session routes)
-  await page.route('**/api/v1/architect/sessions/by-project/**', (route) => {
-    const url = route.request().url()
-    const projectId = url.split('/').pop()
-    const session = mockSessions.find((s) => s.project_id === projectId)
-    if (session) {
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(session) })
-    }
-    return route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ detail: 'Not found' }) })
-  })
-
-  // Single architect session
-  await page.route('**/api/v1/architect/sessions/session-*', (route) => {
-    const url = route.request().url()
-    const segments = url.split('/')
-    const id = segments.find((s) => s.startsWith('session-'))
-    const session = mockSessions.find((s) => s.id === id)
-    if (session) {
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(session) })
-    }
-    return route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ detail: 'Not found' }) })
-  })
-
-  // Architect sessions list
-  await page.route('**/api/v1/architect/sessions', (route) => {
-    if (route.request().method() === 'GET') {
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockSessions) })
-    }
-    // POST — create session
-    return route.fulfill({
-      status: 201,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        id: 'session-new',
-        project_id: null,
-        name: null,
-        status: 'active',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        messages: [],
-      }),
     })
   })
 
@@ -224,6 +258,33 @@ export async function mockAllApis(page: Page) {
     return route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ detail: 'Not found' }) })
   })
 
+  // Agent templates
+  await page.route('**/api/v1/agent-templates/*/apply', (route) => {
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockAgents) })
+  })
+  await page.route('**/api/v1/agent-templates/*', (route) => {
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        id: 'specialists',
+        name: 'BSNexus Specialists',
+        description: 'Designer / Analyzer / Planner / Memory Keeper',
+        agent_count: 4,
+        agents: [],
+      }),
+    })
+  })
+  await page.route('**/api/v1/agent-templates', (route) => {
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([
+        { id: 'specialists', name: 'BSNexus Specialists', description: '4 specialist agents', agent_count: 4, agents: [] },
+      ]),
+    })
+  })
+
   // Workers
   await page.route('**/api/v1/workers', (route) => {
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockWorkers) })
@@ -257,7 +318,6 @@ export async function mockAllApis(page: Page) {
     if (route.request().method() === 'GET') {
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockExecutorConfigs) })
     }
-    // POST — create
     return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(mockExecutorConfigs[0]) })
   })
   await page.route('**/api/v1/executor-configs/*', (route) => {
@@ -280,13 +340,7 @@ export async function mockAllApis(page: Page) {
     if (route.request().method() === 'GET') {
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockGlobalSettings) })
     }
-    // PUT — update settings
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockGlobalSettings) })
-  })
-
-  // PM control
-  await page.route('**/api/v1/pm/**', (route) => {
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok' }) })
   })
 }
 

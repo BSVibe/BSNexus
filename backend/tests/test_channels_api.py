@@ -170,3 +170,98 @@ async def test_slack_adapter_handles_api_error_gracefully():
     )
     # Must not raise even though Slack rejects the call.
     await adapter.post_message(target, "msg", role="assistant", agent_name=None)
+
+
+# ── Direct-call tests for full coverage ─────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_channels_direct_full_lifecycle(db_session):
+    """Exercise create/list/update/delete handlers without ASGI transport."""
+    from backend.src.api.channels import (
+        ChannelCreate,
+        ChannelUpdate,
+        create_channel,
+        delete_channel,
+        list_channels,
+        update_channel,
+    )
+
+    project = await _make_project(db_session)
+
+    created = await create_channel(
+        project_id=project.id,
+        body=ChannelCreate(
+            kind="slack",
+            external_channel_id="C-direct",
+            display_name="general",
+            credentials={"bot_token": "xoxb-direct"},
+        ),
+        db=db_session,
+    )
+    assert created.kind == "slack"
+    assert created.is_active is True
+
+    listed = await list_channels(project_id=project.id, db=db_session)
+    assert len(listed) == 1
+
+    updated = await update_channel(
+        project_id=project.id,
+        channel_id=created.id,
+        body=ChannelUpdate(display_name="renamed", is_active=False),
+        db=db_session,
+    )
+    assert updated.display_name == "renamed"
+    assert updated.is_active is False
+
+    await delete_channel(project_id=project.id, channel_id=created.id, db=db_session)
+    after = await list_channels(project_id=project.id, db=db_session)
+    assert after == []
+
+
+@pytest.mark.asyncio
+async def test_create_channel_direct_404_for_missing_project(db_session):
+    from fastapi import HTTPException
+
+    from backend.src.api.channels import ChannelCreate, create_channel
+
+    with pytest.raises(HTTPException) as exc:
+        await create_channel(
+            project_id=uuid.uuid4(),
+            body=ChannelCreate(kind="slack", external_channel_id="C1"),
+            db=db_session,
+        )
+    assert exc.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_update_channel_direct_404_for_missing(db_session):
+    from fastapi import HTTPException
+
+    from backend.src.api.channels import ChannelUpdate, update_channel
+
+    project = await _make_project(db_session)
+    with pytest.raises(HTTPException) as exc:
+        await update_channel(
+            project_id=project.id,
+            channel_id=uuid.uuid4(),
+            body=ChannelUpdate(display_name="x"),
+            db=db_session,
+        )
+    assert exc.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_channel_direct_404_for_missing(db_session):
+    from fastapi import HTTPException
+
+    from backend.src.api.channels import delete_channel
+
+    project = await _make_project(db_session)
+    with pytest.raises(HTTPException) as exc:
+        await delete_channel(
+            project_id=project.id,
+            channel_id=uuid.uuid4(),
+            db=db_session,
+        )
+    assert exc.value.status_code == 404

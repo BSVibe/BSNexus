@@ -265,3 +265,115 @@ async def test_agent_status_excludes_inactive_agents(client: AsyncClient, db_ses
 
     resp = await client.get(f"/api/v1/projects/{project.id}/agent-status")
     assert resp.json() == []
+
+
+# ── Direct-call tests for full coverage ─────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_get_plan_tree_direct_with_full_population(db_session):
+    """Walk every branch in get_plan_tree without going through ASGI."""
+    from backend.src.api.plan_tree import get_plan_tree
+    from backend.src.core.tenant_context import DEFAULT_TENANT_ID
+    from backend.src.models import Goal
+
+    project, phase = await _seed_project(db_session, name="Full Plan")
+    agent = await _add_agent(db_session, name="DEV", role="dev")
+    await _add_task(db_session, project, phase, title="Task A", agent_id=agent.id)
+    await _add_task(db_session, project, phase, title="Task B", status=TaskStatus.running)
+
+    db_session.add(
+        Goal(
+            id=uuid.uuid4(),
+            tenant_id=DEFAULT_TENANT_ID,
+            level="project",
+            title="Ship Q3",
+            project_id=project.id,
+            parent_goal_id=None,
+        )
+    )
+    await db_session.commit()
+
+    tree = await get_plan_tree(project_id=project.id, db=db_session)
+    assert tree.project_name == "Full Plan"
+    assert tree.goal == "Ship Q3"
+    assert len(tree.phases) == 1
+    titles = sorted(t.title for t in tree.phases[0].tasks)
+    assert titles == ["Task A", "Task B"]
+    # Agent name resolved on the agent-attached task.
+    task_with_agent = next(t for t in tree.phases[0].tasks if t.title == "Task A")
+    assert task_with_agent.agent_name == "DEV"
+
+
+@pytest.mark.asyncio
+async def test_get_plan_tree_direct_404(db_session):
+    from fastapi import HTTPException
+
+    from backend.src.api.plan_tree import get_plan_tree
+
+    with pytest.raises(HTTPException) as exc:
+        await get_plan_tree(project_id=uuid.uuid4(), db=db_session)
+    assert exc.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_agent_status_direct_all_dot_colors(db_session):
+    """Cover the four-branch _status_dot helper end-to-end."""
+    from backend.src.api.plan_tree import get_agent_status
+    from backend.src.core.tenant_context import DEFAULT_TENANT_ID
+
+    project, phase = await _seed_project(db_session)
+    running_agent = await _add_agent(db_session, name="Worker A", role="worker")
+    idle_agent = await _add_agent(db_session, name="Worker B", role="worker")
+    offline_agent = await _add_agent(db_session, name="Worker C", role="worker")
+    offline_agent.status = "offline"
+
+    await _add_task(
+        db_session, project, phase, title="Run me", status=TaskStatus.running, agent_id=running_agent.id,
+    )
+    await db_session.commit()
+
+    cards = await get_agent_status(
+        project_id=project.id, db=db_session, tenant_id=DEFAULT_TENANT_ID,
+    )
+    by_name = {c.name: c for c in cards}
+    assert by_name["Worker A"].dot == "green"
+    assert by_name["Worker A"].current_task is not None
+    assert by_name["Worker B"].dot == "yellow"
+    assert by_name["Worker C"].dot == "gray"
+
+
+@pytest.mark.asyncio
+async def test_get_agent_status_direct_404(db_session):
+    from fastapi import HTTPException
+
+    from backend.src.api.plan_tree import get_agent_status
+    from backend.src.core.tenant_context import DEFAULT_TENANT_ID
+
+    with pytest.raises(HTTPException) as exc:
+        await get_agent_status(
+            project_id=uuid.uuid4(), db=db_session, tenant_id=DEFAULT_TENANT_ID,
+        )
+    assert exc.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_status_dot_helper_blocked_branch(db_session):
+    """Direct call to _status_dot for the blocked code path."""
+    from backend.src.api.plan_tree import _status_dot
+    from backend.src.models import Task
+
+    blocked_task = Task(
+        id=uuid.uuid4(),
+        project_id=uuid.uuid4(),
+        phase_id=uuid.uuid4(),
+        title="X",
+        status=TaskStatus.blocked,
+        priority=TaskPriority.medium,
+        task_type=TaskType.feature,
+        source=TaskSource.llm,
+        version=1,
+    )
+    agent = await _add_agent(db_session, name="W", role="w")
+    await db_session.commit()
+    assert _status_dot(agent, blocked_task) == "red"

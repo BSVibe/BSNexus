@@ -139,3 +139,82 @@ async def test_delete_missing_memory_returns_404(client: AsyncClient, db_session
     project = await _make_project(db_session)
     resp = await client.delete(f"/api/v1/projects/{project.id}/memories/{uuid.uuid4()}")
     assert resp.status_code == 404
+
+
+# ── Direct-call tests for full coverage ─────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_memory_endpoints_direct_lifecycle(db_session):
+    from backend.src.api.memory import (
+        MemoryCreate,
+        create_memory,
+        delete_memory,
+        list_memories,
+    )
+    from backend.src.core.tenant_context import DEFAULT_TENANT_ID
+    from backend.src.models import Tenant
+
+    db_session.add(
+        Tenant(id=DEFAULT_TENANT_ID, name="T", slug="t", owner_user_id="u")
+    )
+    await db_session.commit()
+    project = await _make_project(db_session)
+
+    created = await create_memory(
+        project_id=project.id,
+        body=MemoryCreate(category="decision", title="Direct", content="Content"),
+        db=db_session,
+        tenant_id=DEFAULT_TENANT_ID,
+    )
+    assert created.title == "Direct"
+
+    listed = await list_memories(
+        project_id=project.id,
+        agent_id=None,
+        category=None,
+        limit=50,
+        db=db_session,
+        tenant_id=DEFAULT_TENANT_ID,
+    )
+    assert len(listed) == 1
+
+    await delete_memory(
+        project_id=project.id,
+        memory_id=created.id,
+        db=db_session,
+        tenant_id=DEFAULT_TENANT_ID,
+    )
+    after = await list_memories(
+        project_id=project.id,
+        agent_id=None,
+        category=None,
+        limit=50,
+        db=db_session,
+        tenant_id=DEFAULT_TENANT_ID,
+    )
+    assert after == []
+
+
+@pytest.mark.asyncio
+async def test_delete_memory_direct_404(db_session):
+    from fastapi import HTTPException
+
+    from backend.src.api.memory import delete_memory
+    from backend.src.core.tenant_context import DEFAULT_TENANT_ID
+    from backend.src.models import Tenant
+
+    db_session.add(
+        Tenant(id=DEFAULT_TENANT_ID, name="T", slug="t", owner_user_id="u")
+    )
+    await db_session.commit()
+    project = await _make_project(db_session)
+
+    with pytest.raises(HTTPException) as exc:
+        await delete_memory(
+            project_id=project.id,
+            memory_id=uuid.uuid4(),
+            db=db_session,
+            tenant_id=DEFAULT_TENANT_ID,
+        )
+    assert exc.value.status_code == 404
