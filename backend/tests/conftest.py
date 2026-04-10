@@ -72,7 +72,7 @@ async def mock_stream_manager():
     """Create a mock RedisStreamManager."""
     manager = AsyncMock()
     manager.publish = AsyncMock(return_value="mock-message-id")
-    manager.publish_board_event = AsyncMock()
+    manager.publish_project_event = AsyncMock()
     manager.consume = AsyncMock(return_value=[])
     manager.acknowledge = AsyncMock()
     manager.initialize_streams = AsyncMock()

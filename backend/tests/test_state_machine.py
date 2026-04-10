@@ -36,7 +36,7 @@ def mock_db() -> AsyncMock:
 def mock_stream() -> AsyncMock:
     manager = AsyncMock()
     manager.publish = AsyncMock(return_value="mock-id")
-    manager.publish_board_event = AsyncMock()
+    manager.publish_project_event = AsyncMock()
     return manager
 
 
@@ -327,16 +327,18 @@ async def test_promote_dependents_skips_when_deps_not_met(
     assert pending_dependent.version == 1  # not promoted
 
 
-# -- Board event publication --------------------------------------------------
+# -- Project event publication ------------------------------------------------
 
 
-async def test_transition_publishes_board_event(
+async def test_transition_publishes_project_event(
     state_machine: TaskStateMachine, mock_db: AsyncMock, mock_stream: AsyncMock
 ) -> None:
     task = make_task(status=TaskStatus.pending)
     await state_machine.transition(task, TaskStatus.running, db_session=mock_db, stream_manager=mock_stream)
-    mock_stream.publish_board_event.assert_called_once()
-    args, _ = mock_stream.publish_board_event.call_args
-    assert args[0] == "task_transition"
-    assert args[1]["from_status"] == "pending"
-    assert args[1]["to_status"] == "running"
+    mock_stream.publish_project_event.assert_called_once()
+    args, _ = mock_stream.publish_project_event.call_args
+    project_id_arg, event_name, payload = args
+    assert project_id_arg == str(task.project_id)
+    assert event_name == "task_transition"
+    assert payload["from_status"] == "pending"
+    assert payload["to_status"] == "running"

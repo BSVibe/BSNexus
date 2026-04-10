@@ -83,13 +83,13 @@ class TaskStateMachine:
             task, old_status, new_status, db_session, stream_manager, reason=reason, **kwargs
         )
 
-        # 5. Publish board event
+        # 5. Publish project event for the Plan view SSE stream
         if stream_manager is not None:
-            await stream_manager.publish_board_event(
+            await stream_manager.publish_project_event(
+                str(task.project_id),
                 "task_transition",
                 {
                     "task_id": str(task.id),
-                    "project_id": str(task.project_id),
                     "from_status": old_status.value,
                     "to_status": new_status.value,
                     "actor": actor,
