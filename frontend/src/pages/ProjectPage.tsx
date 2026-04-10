@@ -7,6 +7,7 @@ import UnifiedChatSidebar from '../components/project/UnifiedChatSidebar'
 import TimelineView from '../components/project/TimelineView'
 import DesignView from '../components/project/DesignView'
 import ProjectAgentsTab from '../components/project/ProjectAgentsTab'
+import ProjectChannelsModal from '../components/project/ProjectChannelsModal'
 import GoalSlogan from '../components/project/GoalSlogan'
 import Header from '../components/layout/Header'
 import PlanView from '../components/plan/PlanView'
@@ -47,6 +48,7 @@ export default function ProjectPage() {
 function ProjectContent({ projectId }: { projectId: string }) {
   const [activeTab, setActiveTab] = useState<TabId>('plan')
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [channelsOpen, setChannelsOpen] = useState(false)
 
   // Project data
   const { data: project } = useQuery({
@@ -66,15 +68,30 @@ function ProjectContent({ projectId }: { projectId: string }) {
           </span>
         }
         action={
-          <button
-            type="button"
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="p-2 rounded-md hover:bg-stitch-surface-container text-text-secondary transition-colors"
-            title={sidebarOpen ? 'Hide chat' : 'Show chat'}
-          >
-            <span className="material-symbols-outlined">{sidebarOpen ? 'right_panel_close' : 'right_panel_open'}</span>
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setChannelsOpen(true)}
+              className="p-2 rounded-md hover:bg-stitch-surface-container text-text-secondary transition-colors"
+              title="Channels"
+            >
+              <span className="material-symbols-outlined">forum</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              className="p-2 rounded-md hover:bg-stitch-surface-container text-text-secondary transition-colors"
+              title={sidebarOpen ? 'Hide chat' : 'Show chat'}
+            >
+              <span className="material-symbols-outlined">{sidebarOpen ? 'right_panel_close' : 'right_panel_open'}</span>
+            </button>
+          </div>
         }
+      />
+      <ProjectChannelsModal
+        open={channelsOpen}
+        projectId={projectId}
+        onClose={() => setChannelsOpen(false)}
       />
 
       {/* Tabs */}

@@ -451,6 +451,7 @@ export default function AgentsPage() {
   const [executorConfigs, setExecutorConfigs] = useState<ExecutorConfig[]>([])
   const [showResetConfirm, setShowResetConfirm] = useState(false)
   const [resetting, setResetting] = useState(false)
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false)
 
   useEffect(() => {
     fetchOrgChart()
@@ -489,12 +490,20 @@ export default function AgentsPage() {
         action={
           <div className="flex items-center gap-2">
             {agents.length > 0 && (
-              <button
-                onClick={() => setShowResetConfirm(true)}
-                className="bg-stitch-surface-highest text-text-secondary px-3 py-1.5 rounded-md text-sm font-semibold hover:text-stitch-error transition-colors"
-              >
-                Reset
-              </button>
+              <>
+                <button
+                  onClick={() => setShowTemplatePicker(true)}
+                  className="bg-stitch-surface-highest text-text-secondary px-3 py-1.5 rounded-md text-sm font-semibold hover:text-stitch-primary transition-colors"
+                >
+                  + Apply template
+                </button>
+                <button
+                  onClick={() => setShowResetConfirm(true)}
+                  className="bg-stitch-surface-highest text-text-secondary px-3 py-1.5 rounded-md text-sm font-semibold hover:text-stitch-error transition-colors"
+                >
+                  Reset
+                </button>
+              </>
             )}
             <button
               onClick={() => setShowCreateModal(true)}
@@ -531,6 +540,41 @@ export default function AgentsPage() {
 
       {/* Create Modal */}
       {showCreateModal && <HireAgentModal onClose={() => setShowCreateModal(false)} agents={agents} executorConfigs={executorConfigs} />}
+
+      {/* Template picker — available even after the org chart is populated */}
+      {showTemplatePicker && (
+        <div
+          className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-6 overflow-y-auto"
+          onClick={() => setShowTemplatePicker(false)}
+        >
+          <div
+            className="bg-stitch-surface-low rounded-xl w-full max-w-4xl p-6 border border-stitch-outline-variant/20"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between mb-4">
+              <h3 className="text-lg font-bold text-text-primary">Apply a template</h3>
+              <button
+                onClick={() => setShowTemplatePicker(false)}
+                className="text-text-tertiary hover:text-text-primary"
+              >
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+            <p className="text-xs text-text-tertiary mb-4">
+              Templates add agents to your existing org chart — they do not replace it.
+              Apply the Specialists template to bring in Designer / Analyzer / Planner /
+              Memory Keeper.
+            </p>
+            <TemplateSelector
+              onApplied={() => {
+                fetchOrgChart()
+                fetchAgents()
+                setShowTemplatePicker(false)
+              }}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Reset confirmation */}
       {showResetConfirm && (
