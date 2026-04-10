@@ -18,7 +18,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.api.settings import verify_install_token
-from backend.src.core.tenant_context import DEFAULT_TENANT_ID
+from backend.src.core.tenant_context import DEFAULT_TENANT_ID, get_tenant_id
 from backend.src.core.worker_dispatch import WorkerDispatcher
 from backend.src.models import Agent, ExecutorConfig, Task, TaskStatus
 from backend.src.models.worker import Worker
@@ -122,6 +122,9 @@ def _worker_description(capabilities: list[str]) -> str:
 
 
 def _make_worker_executor_config(name: str, worker_id: uuid.UUID, capabilities: list[str]) -> ExecutorConfig:
+    # Workers register with an install token (no JWT), so we have no user
+    # context here. Until install tokens carry a tenant id, every worker is
+    # owned by the default tenant.
     return ExecutorConfig(
         tenant_id=DEFAULT_TENANT_ID,
         name=f"Worker: {name}",
@@ -499,9 +502,12 @@ def _compute_status(worker: Worker) -> str:
 
 
 @router.get("", response_model=list[WorkerResponse])
-async def list_workers(db: AsyncSession = Depends(get_db)) -> list[WorkerResponse]:
+async def list_workers(
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+) -> list[WorkerResponse]:
     result = await db.execute(
-        select(Worker).where(Worker.tenant_id == DEFAULT_TENANT_ID, Worker.is_active.is_(True)).order_by(Worker.created_at)
+        select(Worker).where(Worker.tenant_id == tenant_id, Worker.is_active.is_(True)).order_by(Worker.created_at)
     )
     workers = result.scalars().all()
 

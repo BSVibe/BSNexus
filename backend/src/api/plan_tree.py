@@ -29,7 +29,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from backend.src import models
 from backend.src.core.auth import Permission, require_permission
-from backend.src.core.tenant_context import DEFAULT_TENANT_ID
+from backend.src.core.tenant_context import get_tenant_id
 from backend.src.queue.streams import RedisStreamManager
 from backend.src.storage.database import get_db
 
@@ -182,6 +182,7 @@ async def get_agent_status(
     project_id: uuid.UUID,
     _auth: BSVibeUser = Depends(require_permission(Permission.plan_read)),
     db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
 ) -> list[AgentStatusCard]:
     """Return one card per active agent in the tenant.
 
@@ -195,7 +196,7 @@ async def get_agent_status(
 
     agents_result = await db.execute(
         select(models.Agent)
-        .where(models.Agent.tenant_id == DEFAULT_TENANT_ID, models.Agent.is_active.is_(True))
+        .where(models.Agent.tenant_id == tenant_id, models.Agent.is_active.is_(True))
         .order_by(models.Agent.name.asc())
     )
     agents = list(agents_result.scalars().all())

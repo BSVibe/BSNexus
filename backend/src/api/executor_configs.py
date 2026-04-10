@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.src.core.tenant_context import DEFAULT_TENANT_ID
+from backend.src.core.tenant_context import get_tenant_id
 from backend.src.models.executor_config import ExecutorConfig
 from backend.src.schemas.executor_config import (
     EXECUTOR_TYPES,
@@ -23,7 +23,9 @@ router = APIRouter(prefix="/api/v1/executor-configs", tags=["executor-configs"])
 
 @router.post("", response_model=ExecutorConfigResponse, status_code=201)
 async def create_executor_config(
-    body: ExecutorConfigCreate, db: AsyncSession = Depends(get_db)
+    body: ExecutorConfigCreate,
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
 ) -> ExecutorConfigResponse:
     """Register a new executor configuration."""
     if body.executor_type not in EXECUTOR_TYPES:
@@ -37,14 +39,14 @@ async def create_executor_config(
         await db.execute(
             update(ExecutorConfig)
             .where(
-                ExecutorConfig.tenant_id == DEFAULT_TENANT_ID,
+                ExecutorConfig.tenant_id == tenant_id,
                 ExecutorConfig.is_default.is_(True),
             )
             .values(is_default=False)
         )
 
     config = ExecutorConfig(
-        tenant_id=DEFAULT_TENANT_ID,
+        tenant_id=tenant_id,
         name=body.name,
         executor_type=body.executor_type,
         config=body.config,
@@ -59,11 +61,14 @@ async def create_executor_config(
 
 
 @router.get("", response_model=list[ExecutorConfigResponse])
-async def list_executor_configs(db: AsyncSession = Depends(get_db)) -> list[ExecutorConfigResponse]:
+async def list_executor_configs(
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+) -> list[ExecutorConfigResponse]:
     """List all registered executor configurations."""
     result = await db.execute(
         select(ExecutorConfig)
-        .where(ExecutorConfig.tenant_id == DEFAULT_TENANT_ID)
+        .where(ExecutorConfig.tenant_id == tenant_id)
         .order_by(ExecutorConfig.executor_type, ExecutorConfig.name)
     )
     return [ExecutorConfigResponse.model_validate(c) for c in result.scalars().all()]
@@ -82,7 +87,10 @@ async def get_executor_config(
 
 @router.patch("/{config_id}", response_model=ExecutorConfigResponse)
 async def update_executor_config(
-    config_id: uuid.UUID, body: ExecutorConfigUpdate, db: AsyncSession = Depends(get_db)
+    config_id: uuid.UUID,
+    body: ExecutorConfigUpdate,
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
 ) -> ExecutorConfigResponse:
     result = await db.execute(select(ExecutorConfig).where(ExecutorConfig.id == config_id))
     config = result.scalar_one_or_none()
@@ -96,7 +104,7 @@ async def update_executor_config(
         await db.execute(
             update(ExecutorConfig)
             .where(
-                ExecutorConfig.tenant_id == DEFAULT_TENANT_ID,
+                ExecutorConfig.tenant_id == tenant_id,
                 ExecutorConfig.is_default.is_(True),
                 ExecutorConfig.id != config_id,
             )

@@ -9,19 +9,22 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.core.goal_alignment import GoalAlignmentService
+from backend.src.core.tenant_context import get_tenant_id
 from backend.src.models import Goal
 from backend.src.schemas.goal import GoalAncestryResponse, GoalCreate, GoalResponse, GoalUpdate
 from backend.src.storage.database import get_db
 
 router = APIRouter(prefix="/api/v1/goals", tags=["goals"])
 
-_DEFAULT_TENANT_ID = uuid.UUID("00000000-0000-0000-0000-000000000000")
-
 
 @router.post("", response_model=GoalResponse, status_code=201)
-async def create_goal(body: GoalCreate, db: AsyncSession = Depends(get_db)) -> GoalResponse:
+async def create_goal(
+    body: GoalCreate,
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+) -> GoalResponse:
     goal = Goal(
-        tenant_id=_DEFAULT_TENANT_ID,
+        tenant_id=tenant_id,
         title=body.title,
         description=body.description,
         level=body.level,
@@ -41,8 +44,9 @@ async def list_goals(
     level: str | None = None,
     project_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
 ) -> list[GoalResponse]:
-    query = select(Goal).where(Goal.tenant_id == _DEFAULT_TENANT_ID)
+    query = select(Goal).where(Goal.tenant_id == tenant_id)
     if level:
         query = query.where(Goal.level == level)
     if project_id:

@@ -30,6 +30,7 @@ from backend.src.config import Settings, settings as app_settings
 from backend.src.core.global_dispatcher import start_global_dispatcher, stop_global_dispatcher
 from backend.src.core.rate_limiter import RateLimitMiddleware
 from backend.src.core.security_headers import SecurityHeadersMiddleware
+from backend.src.core.tenant_context import TenantMiddleware
 from backend.src.queue.background import start_background_consumer
 from backend.src.queue.streams import RedisStreamManager
 from backend.src.storage.database import init_db, engine
@@ -174,6 +175,9 @@ def create_app(
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Tenant context — stamps request.state.tenant_id from the JWT.
+    _app.add_middleware(TenantMiddleware)
 
     # Health endpoints
     @_app.get("/health")

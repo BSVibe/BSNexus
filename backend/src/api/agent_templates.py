@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.src.core.tenant_context import DEFAULT_TENANT_ID
+from backend.src.core.tenant_context import get_tenant_id
 from backend.src.models import Agent, ExecutorConfig
 from backend.src.repositories.agent_repository import AgentRepository
 from backend.src.schemas.agent import AgentResponse
@@ -280,7 +280,11 @@ async def get_template(template_id: str) -> OrgTemplate:
 
 
 @router.post("/{template_id}/apply", response_model=list[AgentResponse])
-async def apply_template(template_id: str, db: AsyncSession = Depends(get_db)) -> list[AgentResponse]:
+async def apply_template(
+    template_id: str,
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+) -> list[AgentResponse]:
     """Apply a template — creates agents with hierarchy.
 
     All agents use the tenant's default executor config.
@@ -293,7 +297,7 @@ async def apply_template(template_id: str, db: AsyncSession = Depends(get_db)) -
     # Resolve default executor type for display (executor_config_id stays NULL = "Use Default")
     result = await db.execute(
         select(ExecutorConfig).where(
-            ExecutorConfig.tenant_id == DEFAULT_TENANT_ID,
+            ExecutorConfig.tenant_id == tenant_id,
             ExecutorConfig.is_default.is_(True),
         ).limit(1)
     )
@@ -306,7 +310,7 @@ async def apply_template(template_id: str, db: AsyncSession = Depends(get_db)) -
     async def create_tree(templates: list[AgentTemplate], parent_id: uuid.UUID | None) -> None:
         for t in templates:
             agent = Agent(
-                tenant_id=DEFAULT_TENANT_ID,
+                tenant_id=tenant_id,
                 name=t.name,
                 role=t.role,
                 title=t.title,

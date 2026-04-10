@@ -9,15 +9,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sqlalchemy import select
 
+from backend.src.core.tenant_context import get_tenant_id
 from backend.src.models import Agent, ExecutorConfig, Worker
 from backend.src.repositories.agent_repository import AgentRepository
 from backend.src.schemas.agent import AgentCreate, AgentOrgChartResponse, AgentResponse, AgentUpdate
 from backend.src.storage.database import get_db
 
 router = APIRouter(prefix="/api/v1/agents", tags=["agents"])
-
-# Placeholder tenant_id until multi-tenancy middleware is wired (Step 5)
-_DEFAULT_TENANT_ID = uuid.UUID("00000000-0000-0000-0000-000000000000")
 
 
 def _agent_to_response(agent: Agent, *, has_online_worker: bool = False) -> AgentResponse:
@@ -28,11 +26,11 @@ def _agent_to_response(agent: Agent, *, has_online_worker: bool = False) -> Agen
     return response
 
 
-async def _has_online_worker(db: AsyncSession) -> bool:
-    """True if any active worker is online (used for worker-typed agent status)."""
+async def _has_online_worker(db: AsyncSession, tenant_id: uuid.UUID) -> bool:
+    """True if any active worker in the tenant is online."""
     result = await db.execute(
         select(Worker.id).where(
-            Worker.tenant_id == _DEFAULT_TENANT_ID,
+            Worker.tenant_id == tenant_id,
             Worker.is_active.is_(True),
             Worker.status == "online",
         ).limit(1)
@@ -40,7 +38,9 @@ async def _has_online_worker(db: AsyncSession) -> bool:
     return result.scalar_one_or_none() is not None
 
 
-async def _resolve_executor_type(db: AsyncSession, config_id: uuid.UUID | None) -> str:
+async def _resolve_executor_type(
+    db: AsyncSession, config_id: uuid.UUID | None, tenant_id: uuid.UUID
+) -> str:
     """Resolve executor_type from config_id, falling back to tenant default."""
     if config_id:
         result = await db.execute(select(ExecutorConfig).where(ExecutorConfig.id == config_id))
@@ -50,7 +50,7 @@ async def _resolve_executor_type(db: AsyncSession, config_id: uuid.UUID | None) 
     # Fall back to tenant default
     result = await db.execute(
         select(ExecutorConfig).where(
-            ExecutorConfig.tenant_id == _DEFAULT_TENANT_ID,
+            ExecutorConfig.tenant_id == tenant_id,
             ExecutorConfig.is_default.is_(True),
         ).limit(1)
     )
@@ -59,11 +59,15 @@ async def _resolve_executor_type(db: AsyncSession, config_id: uuid.UUID | None) 
 
 
 @router.post("", response_model=AgentResponse, status_code=201)
-async def create_agent(body: AgentCreate, db: AsyncSession = Depends(get_db)) -> AgentResponse:
+async def create_agent(
+    body: AgentCreate,
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+) -> AgentResponse:
     repo = AgentRepository(db)
-    executor_type = await _resolve_executor_type(db, body.executor_config_id)
+    executor_type = await _resolve_executor_type(db, body.executor_config_id, tenant_id)
     agent = Agent(
-        tenant_id=_DEFAULT_TENANT_ID,
+        tenant_id=tenant_id,
         name=body.name,
         role=body.role,
         title=body.title,
@@ -82,7 +86,7 @@ async def create_agent(body: AgentCreate, db: AsyncSession = Depends(get_db)) ->
     await repo.add(agent)
     await repo.commit()
     await repo.refresh(agent)
-    online = await _has_online_worker(db)
+    online = await _has_online_worker(db, tenant_id)
     return _agent_to_response(agent, has_online_worker=online)
 
 
@@ -92,19 +96,23 @@ async def list_agents(
     limit: int = 100,
     offset: int = 0,
     db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
 ) -> list[AgentResponse]:
     repo = AgentRepository(db)
-    agents = await repo.list_by_tenant(_DEFAULT_TENANT_ID, active_only=active_only, limit=limit, offset=offset)
-    online = await _has_online_worker(db)
+    agents = await repo.list_by_tenant(tenant_id, active_only=active_only, limit=limit, offset=offset)
+    online = await _has_online_worker(db, tenant_id)
     return [_agent_to_response(a, has_online_worker=online) for a in agents]
 
 
 @router.get("/org-chart", response_model=list[AgentOrgChartResponse])
-async def get_org_chart(db: AsyncSession = Depends(get_db)) -> list[AgentOrgChartResponse]:
+async def get_org_chart(
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+) -> list[AgentOrgChartResponse]:
     """Return org chart as a tree of root agents with nested children."""
     repo = AgentRepository(db)
-    all_agents = await repo.list_by_tenant(_DEFAULT_TENANT_ID, active_only=True, limit=500)
-    online = await _has_online_worker(db)
+    all_agents = await repo.list_by_tenant(tenant_id, active_only=True, limit=500)
+    online = await _has_online_worker(db, tenant_id)
 
     # Build tree
     by_parent: dict[uuid.UUID | None, list[Agent]] = {}
@@ -125,12 +133,16 @@ async def get_org_chart(db: AsyncSession = Depends(get_db)) -> list[AgentOrgChar
 
 
 @router.get("/{agent_id}", response_model=AgentResponse)
-async def get_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> AgentResponse:
+async def get_agent(
+    agent_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+) -> AgentResponse:
     repo = AgentRepository(db)
     agent = await repo.get_by_id(agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
-    online = await _has_online_worker(db)
+    online = await _has_online_worker(db, tenant_id)
     return _agent_to_response(agent, has_online_worker=online)
 
 
@@ -139,6 +151,7 @@ async def update_agent(
     agent_id: uuid.UUID,
     body: AgentUpdate,
     db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
 ) -> AgentResponse:
     repo = AgentRepository(db)
     agent = await repo.get_by_id(agent_id)
@@ -146,13 +159,15 @@ async def update_agent(
         raise HTTPException(status_code=404, detail="Agent not found")
 
     update_data = body.model_dump(exclude_unset=True)
-    online = await _has_online_worker(db)
+    online = await _has_online_worker(db, tenant_id)
     if not update_data:
         return _agent_to_response(agent, has_online_worker=online)
 
     # Sync executor_type when executor_config_id changes
     if "executor_config_id" in update_data:
-        update_data["executor_type"] = await _resolve_executor_type(db, update_data["executor_config_id"])
+        update_data["executor_type"] = await _resolve_executor_type(
+            db, update_data["executor_config_id"], tenant_id
+        )
 
     updated = await repo.update_fields(agent_id, **update_data)
     await repo.commit()

@@ -318,7 +318,7 @@ async def _execute_create_task_markers(
 
 
 async def _execute_goal_markers(
-    text: str, project_id: uuid.UUID, db: AsyncSession,
+    text: str, project_id: uuid.UUID, db: AsyncSession, tenant_id: uuid.UUID,
 ) -> list[dict[str, Any]]:
     actions: list[dict[str, Any]] = []
     for match in SET_GOAL_RE.finditer(text):
@@ -346,7 +346,7 @@ async def _execute_goal_markers(
             actions.append({"type": "goal_updated", "goal_id": str(existing.id), "title": title})
         else:
             new_goal = models.Goal(
-                tenant_id=DEFAULT_TENANT_ID, level=level, title=title,
+                tenant_id=tenant_id, level=level, title=title,
                 description=description, project_id=project_id,
             )
             db.add(new_goal)
@@ -470,7 +470,11 @@ async def _process_response_text(
     agent: models.Agent, db: AsyncSession, redis: Any,
 ) -> models.ConversationMessage:
     task_actions = await _execute_create_task_markers(response_text, project_id, agent.id, db, redis)
-    goal_actions = await _execute_goal_markers(response_text, project_id, db)
+    # NOTE: agent_chat still scopes to DEFAULT_TENANT_ID because the
+    # background fan-out path runs without a request context. The
+    # multitenancy follow-up will thread tenant_id through the dispatch
+    # closures explicitly.
+    goal_actions = await _execute_goal_markers(response_text, project_id, db, DEFAULT_TENANT_ID)
     cleaned = _strip_all_markers(response_text)
     return await _store_and_publish(
         db, redis, project_id, role="assistant", content=cleaned,
