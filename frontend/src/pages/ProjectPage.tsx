@@ -9,6 +9,7 @@ import DesignView from '../components/project/DesignView'
 import ProjectAgentsTab from '../components/project/ProjectAgentsTab'
 import GoalSlogan from '../components/project/GoalSlogan'
 import Header from '../components/layout/Header'
+import PlanView from '../components/plan/PlanView'
 
 type TabId = 'plan' | 'files' | 'timeline' | 'design' | 'agents'
 
@@ -99,8 +100,8 @@ function ProjectContent({ projectId }: { projectId: string }) {
         {/* Center */}
         <div className="flex-1 flex flex-col overflow-hidden">
           {activeTab === 'plan' && (
-            <div className="flex-1 flex items-center justify-center text-text-tertiary text-sm">
-              Plan view coming soon
+            <div className="flex-1 overflow-hidden">
+              <PlanView projectId={projectId} />
             </div>
           )}
 
