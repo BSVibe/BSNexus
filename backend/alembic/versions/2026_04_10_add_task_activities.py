@@ -29,7 +29,6 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.execute("CREATE TYPE activitylevel AS ENUM ('milestone', 'tool')")
     op.create_table(
         "task_activities",
         sa.Column("id", sa.Uuid(), primary_key=True),
@@ -38,7 +37,7 @@ def upgrade() -> None:
         sa.Column("agent_id", sa.Uuid(), sa.ForeignKey("agents.id", ondelete="SET NULL"), nullable=True),
         sa.Column(
             "level",
-            sa.Enum("milestone", "tool", name="activitylevel", create_type=False),
+            sa.Enum("milestone", "tool", name="activitylevel"),
             nullable=False,
         ),
         sa.Column("event_type", sa.String(64), nullable=False),

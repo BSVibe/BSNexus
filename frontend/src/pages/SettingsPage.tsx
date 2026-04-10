@@ -395,8 +395,9 @@ export default function SettingsPage() {
               </div>
               <div>
                 <p className="text-[10px] uppercase tracking-widest text-text-tertiary font-bold mb-1">2. Register & run</p>
-                <code className="block text-xs text-stitch-primary bg-stitch-surface rounded px-3 py-2 font-mono select-all">
-                  bsnexus-worker register --server {window.location.origin} --token YOUR_TOKEN{'\n'}bsnexus-worker run
+                <code className="block text-xs text-stitch-primary bg-stitch-surface rounded px-3 py-2 font-mono select-all whitespace-pre">
+{`bsnexus-worker register --name "$(hostname)" --server ${window.location.origin} --token YOUR_TOKEN
+bsnexus-worker run`}
                 </code>
                 <p className="text-[10px] text-text-tertiary mt-1.5">
                   To use a specific executor:

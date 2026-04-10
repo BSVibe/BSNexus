@@ -3,10 +3,12 @@
 import enum
 
 from bsvibe_auth import BSVibeUser, BsvibeAuthProvider
-from bsvibe_auth.fastapi import create_auth_dependency
-from fastapi import Depends, HTTPException, status
+from bsvibe_auth.errors import AuthError
+from fastapi import Depends, HTTPException, Request, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.config import settings
+from backend.src.storage.database import get_db
 
 class Role(str, enum.Enum):
     admin = "admin"
@@ -81,7 +83,76 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
 
 
 auth_provider = BsvibeAuthProvider(auth_url=settings.bsvibe_auth_url)
-get_current_user = create_auth_dependency(auth_provider)
+
+
+def _build_e2e_test_user() -> BSVibeUser:
+    """Synthesize a BSVibeUser for the e2e bypass token path."""
+    return BSVibeUser(
+        id=settings.e2e_test_user_id,
+        email=settings.e2e_test_user_email,
+        app_metadata={
+            "tenant_id": settings.e2e_test_user_tenant_id,
+            "role": "admin",
+        },
+        user_metadata={},
+    )
+
+
+async def get_current_user(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> BSVibeUser:
+    """Authenticate the request and upsert the personal tenant row.
+
+    Wraps the bsvibe-auth dependency so every authenticated handler is
+    guaranteed a Tenant row exists for the user's tenant_id before any FK
+    insert (agents, projects, goals, ...) runs. Without this, brand-new
+    users hit ``ForeignKeyViolationError`` on their first mutating call.
+
+    When ``settings.e2e_test_token`` is non-empty AND the request carries
+    that exact bearer token, we short-circuit the bsvibe.dev round-trip
+    and return a synthetic admin user. This powers fresh-DB integration
+    tests and the live frontend e2e suite without any code mutating the
+    production path (the env var is never set in production).
+    """
+    # Local import to avoid circular dependency between auth and tenant_context.
+    from backend.src.core.tenant_context import (
+        DEFAULT_TENANT_ID,
+        _tenant_id_from_user,
+        ensure_personal_tenant,
+    )
+
+    auth_header = request.headers.get("authorization", "")
+    if not auth_header.lower().startswith("bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing bearer token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    raw_token = auth_header.split(" ", 1)[1].strip()
+
+    user: BSVibeUser
+    bypass_token = settings.e2e_test_token
+    if bypass_token and raw_token == bypass_token:
+        user = _build_e2e_test_user()
+    else:
+        try:
+            user = await auth_provider.verify_token(raw_token)
+        except AuthError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=exc.message,
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+    tenant_id = _tenant_id_from_user(user)
+    if tenant_id is not None and tenant_id != DEFAULT_TENANT_ID:
+        await ensure_personal_tenant(db, tenant_id, user)
+        # Stamp on request.state so get_tenant_id sees the right value
+        # even when the middleware ran with a different/no claim.
+        request.state.tenant_id = tenant_id
+
+    return user
 
 
 def require_permission(permission: Permission):

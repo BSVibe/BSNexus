@@ -18,12 +18,37 @@ from backend.src.storage.database import get_db
 router = APIRouter(prefix="/api/v1/agents", tags=["agents"])
 
 
-def _agent_to_response(agent: Agent, *, has_online_worker: bool = False) -> AgentResponse:
+def _agent_to_response(
+    agent: Agent,
+    *,
+    has_online_worker: bool = False,
+    default_executor_type: str | None = None,
+) -> AgentResponse:
     response = AgentResponse.model_validate(agent)
+    # Agents that opted into "use default" inherit the tenant's *current*
+    # default at read time. The cached column on the agent row is updated
+    # eagerly when the default changes (see executor_configs cascade), but
+    # this read-time override is the safety net for agents that existed
+    # before any default was set.
+    if agent.executor_config_id is None and default_executor_type is not None:
+        response.executor_type = default_executor_type
     # Worker-typed agents derive status from worker availability
-    if agent.executor_type == "worker":
+    if response.executor_type == "worker":
         response.status = "online" if has_online_worker else "offline"
     return response
+
+
+async def _tenant_default_executor_type(
+    db: AsyncSession, tenant_id: uuid.UUID
+) -> str | None:
+    """Return the executor_type of the tenant's current default config, or None."""
+    result = await db.execute(
+        select(ExecutorConfig.executor_type).where(
+            ExecutorConfig.tenant_id == tenant_id,
+            ExecutorConfig.is_default.is_(True),
+        ).limit(1)
+    )
+    return result.scalar_one_or_none()
 
 
 async def _has_online_worker(db: AsyncSession, tenant_id: uuid.UUID) -> bool:
@@ -101,7 +126,11 @@ async def list_agents(
     repo = AgentRepository(db)
     agents = await repo.list_by_tenant(tenant_id, active_only=active_only, limit=limit, offset=offset)
     online = await _has_online_worker(db, tenant_id)
-    return [_agent_to_response(a, has_online_worker=online) for a in agents]
+    default_type = await _tenant_default_executor_type(db, tenant_id)
+    return [
+        _agent_to_response(a, has_online_worker=online, default_executor_type=default_type)
+        for a in agents
+    ]
 
 
 @router.get("/org-chart", response_model=list[AgentOrgChartResponse])
@@ -113,6 +142,7 @@ async def get_org_chart(
     repo = AgentRepository(db)
     all_agents = await repo.list_by_tenant(tenant_id, active_only=True, limit=500)
     online = await _has_online_worker(db, tenant_id)
+    default_type = await _tenant_default_executor_type(db, tenant_id)
 
     # Build tree
     by_parent: dict[uuid.UUID | None, list[Agent]] = {}
@@ -123,7 +153,9 @@ async def get_org_chart(
         children = by_parent.get(parent_id, [])
         return [
             AgentOrgChartResponse(
-                agent=_agent_to_response(child, has_online_worker=online),
+                agent=_agent_to_response(
+                    child, has_online_worker=online, default_executor_type=default_type
+                ),
                 children=_build_tree(child.id),
             )
             for child in children
@@ -143,7 +175,10 @@ async def get_agent(
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
     online = await _has_online_worker(db, tenant_id)
-    return _agent_to_response(agent, has_online_worker=online)
+    default_type = await _tenant_default_executor_type(db, tenant_id)
+    return _agent_to_response(
+        agent, has_online_worker=online, default_executor_type=default_type
+    )
 
 
 @router.patch("/{agent_id}", response_model=AgentResponse)
@@ -160,8 +195,11 @@ async def update_agent(
 
     update_data = body.model_dump(exclude_unset=True)
     online = await _has_online_worker(db, tenant_id)
+    default_type = await _tenant_default_executor_type(db, tenant_id)
     if not update_data:
-        return _agent_to_response(agent, has_online_worker=online)
+        return _agent_to_response(
+            agent, has_online_worker=online, default_executor_type=default_type
+        )
 
     # Sync executor_type when executor_config_id changes
     if "executor_config_id" in update_data:
@@ -173,7 +211,9 @@ async def update_agent(
     await repo.commit()
     if not updated:
         raise HTTPException(status_code=404, detail="Agent not found after update")
-    return _agent_to_response(updated, has_online_worker=online)
+    return _agent_to_response(
+        updated, has_online_worker=online, default_executor_type=default_type
+    )
 
 
 @router.delete("/{agent_id}", status_code=204)

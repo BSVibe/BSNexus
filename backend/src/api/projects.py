@@ -16,11 +16,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-# Workspace service singleton — base_dir configurable via env
+# Workspace service singleton — base_dir configurable via env.
+# Default is a path under the current working directory so non-root users in
+# containers can write to it without a pre-mounted volume. Override with the
+# ``WORKSPACE_BASE_DIR`` env var (e.g. ``/data/workspaces`` in production
+# where the volume is owned by the service user).
 import os as _os
 
 _workspace_service = WorkspaceService(
-    LocalStorageBackend(_os.environ.get("WORKSPACE_BASE_DIR", "/data/workspaces"))
+    LocalStorageBackend(_os.environ.get("WORKSPACE_BASE_DIR", "./data/workspaces"))
 )
 
 # -- Helpers -------------------------------------------------------------------

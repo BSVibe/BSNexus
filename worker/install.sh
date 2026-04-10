@@ -144,8 +144,8 @@ printf '  Next steps:\n'
 printf '\n'
 printf '  1. Open a new terminal (or run: source %s)\n' "$SHELL_RC"
 printf '\n'
-printf '  2. Register this worker:\n'
-printf '     %bbsnexus-worker register --name "%s" --server YOUR_SERVER_URL%b\n' "$BOLD" "$(hostname)" "$NC"
+printf '  2. Register this worker (grab YOUR_TOKEN from Settings → Worker Install Token):\n'
+printf '     %bbsnexus-worker register --name "%s" --server %s --token YOUR_TOKEN%b\n' "$BOLD" "$(hostname)" "$SERVER_URL" "$NC"
 printf '\n'
 printf '  3. Start the worker:\n'
 printf '     %bbsnexus-worker run%b\n' "$BOLD" "$NC"

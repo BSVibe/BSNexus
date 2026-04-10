@@ -71,31 +71,56 @@ def get_tenant_id(request: Request) -> uuid.UUID:
 
 
 async def ensure_personal_tenant(db: AsyncSession, tenant_id: uuid.UUID, user: BSVibeUser) -> None:
-    """Insert a personal tenant row if one does not already exist.
+    """Upsert the personal tenant row for an authenticated user.
 
-    Called from the auth dependency the first time we see a user so the
-    rest of the app can rely on the FK existing.
+    Account/tenant identity is owned by ``auth.bsvibe.dev`` — our local
+    ``tenants`` table is a derived projection of whatever the JWT claims
+    say. Every authenticated request runs this so:
+
+      * a brand-new user gets their row inserted on first call
+      * a user whose email or display name changed in bsvibe gets the
+        local row refreshed
+      * concurrent first-touch requests do not race (ON CONFLICT handles
+        the duplicate-key case atomically)
+
+    On PostgreSQL we use ``INSERT ... ON CONFLICT (id) DO UPDATE`` so the
+    upsert is a single statement. On SQLite (used by some unit tests) we
+    fall back to a SELECT + INSERT/UPDATE pair since SQLite needs the
+    sqlite-specific ``insert`` and not all driver versions support it.
     """
     from backend.src.models import Tenant  # local import to dodge cycles
 
-    existing = await db.execute(select(Tenant.id).where(Tenant.id == tenant_id))
-    if existing.scalar_one_or_none() is not None:
-        return
-
     name = (user.email or user.id or "Personal")[:255]
     slug = (user.id or str(tenant_id))[:255]
-    db.add(
-        Tenant(
-            id=tenant_id,
-            name=name,
-            slug=slug,
-            owner_user_id=user.id or "system",
+    owner = user.id or "system"
+
+    dialect = db.bind.dialect.name if db.bind is not None else ""
+    if dialect == "postgresql":
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+        stmt = (
+            pg_insert(Tenant)
+            .values(id=tenant_id, name=name, slug=slug, owner_user_id=owner)
+            .on_conflict_do_update(
+                index_elements=["id"],
+                set_={"name": name, "owner_user_id": owner},
+            )
         )
-    )
+        await db.execute(stmt)
+        await db.commit()
+        return
+
+    # Dialect-agnostic fallback (SQLite tests, etc.)
+    existing = await db.execute(select(Tenant).where(Tenant.id == tenant_id))
+    row = existing.scalar_one_or_none()
+    if row is None:
+        db.add(Tenant(id=tenant_id, name=name, slug=slug, owner_user_id=owner))
+    else:
+        row.name = name
+        row.owner_user_id = owner
     try:
         await db.commit()
     except Exception:  # noqa: BLE001
-        # Two concurrent requests racing the same insert; the row exists now.
         await db.rollback()
 
 
@@ -143,21 +168,80 @@ class TenantMiddleware:
         auth_header = request.headers.get("authorization", "")
         if auth_header.lower().startswith("bearer "):
             token = auth_header.split(" ", 1)[1].strip()
-            tenant_id = _tenant_id_from_token(token)
-            if tenant_id is not None:
+            user_stub, tenant_id = _identify_from_token(token)
+            if tenant_id is not None and tenant_id != DEFAULT_TENANT_ID:
                 request.state.tenant_id = tenant_id
+                # Upsert the Tenant row so subsequent FK inserts (agents,
+                # projects, ...) just work. Account/tenant identity lives
+                # in bsvibe.dev — our local row is a derived projection of
+                # whatever the JWT (or e2e bypass token) claims.
+                if user_stub is not None:
+                    await _upsert_tenant_for_request(tenant_id, user_stub)
 
         await self.app(scope, receive, send)
 
 
-def _tenant_id_from_token(token: str) -> uuid.UUID | None:
-    """Best-effort extraction of tenant_id from a JWT *without* verifying.
+async def _upsert_tenant_for_request(tenant_id: uuid.UUID, user: BSVibeUser) -> None:
+    """Open a short-lived DB session and run the tenant upsert."""
+    # Local imports dodge the import cycle between this module and storage.
+    from backend.src.storage.database import async_session
 
-    Verification still happens in the auth dependency. The middleware
-    only needs the tenant id early so DB queries can scope correctly,
-    and a forged tenant claim is harmless: every query joins through
-    user-bound rows that the auth layer already validates.
+    try:
+        async with async_session() as session:
+            await ensure_personal_tenant(session, tenant_id, user)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("tenant_upsert_middleware_failed", error=str(exc))
+
+
+def _identify_from_token(token: str) -> tuple[BSVibeUser | None, uuid.UUID | None]:
+    """Return ``(user_stub, tenant_id)`` for the supplied bearer token.
+
+    Recognises two token shapes:
+
+    1. The e2e bypass token from ``settings.e2e_test_token`` — only when
+       that env var is non-empty. Returns the synthetic test user.
+    2. A JWT — payload is decoded *without* signature verification, just
+       to extract the tenant id and email/sub. Real signature
+       verification still happens in ``get_current_user`` so a forged
+       token cannot bypass authorization.
     """
+    from backend.src.config import settings
+
+    bypass_token = settings.e2e_test_token
+    if bypass_token and token == bypass_token:
+        try:
+            tid = uuid.UUID(settings.e2e_test_user_tenant_id)
+        except ValueError:
+            return None, None
+        stub = BSVibeUser(
+            id=settings.e2e_test_user_id,
+            email=settings.e2e_test_user_email,
+            app_metadata={"tenant_id": str(tid), "role": "admin"},
+            user_metadata={},
+        )
+        return stub, tid
+
+    payload = _decode_jwt_payload(token)
+    if payload is None:
+        return None, None
+
+    tenant_id = _tenant_id_from_payload(payload)
+    if tenant_id is None:
+        return None, None
+
+    sub = payload.get("sub")
+    email = payload.get("email")
+    role = (payload.get("app_metadata") or {}).get("role", "viewer")
+    stub = BSVibeUser(
+        id=str(sub) if sub else "unknown",
+        email=str(email) if email else None,
+        app_metadata={"tenant_id": str(tenant_id), "role": role},
+        user_metadata={},
+    )
+    return stub, tenant_id
+
+
+def _decode_jwt_payload(token: str) -> dict[str, Any] | None:
     try:
         import base64
         import json
@@ -166,18 +250,19 @@ def _tenant_id_from_token(token: str) -> uuid.UUID | None:
         if len(parts) != 3:
             return None
         payload_b64 = parts[1] + "=" * (-len(parts[1]) % 4)
-        payload = json.loads(base64.urlsafe_b64decode(payload_b64))
+        return json.loads(base64.urlsafe_b64decode(payload_b64))
     except Exception:  # noqa: BLE001
         return None
 
+
+def _tenant_id_from_payload(payload: dict[str, Any]) -> uuid.UUID | None:
     app_meta = payload.get("app_metadata") or {}
     raw = app_meta.get("tenant_id") or app_meta.get("tenantId")
     if isinstance(raw, str):
         try:
             return uuid.UUID(raw)
         except ValueError:
-            pass  # fall through to sub-derived id
-
+            pass
     sub = payload.get("sub")
     if isinstance(sub, str) and sub:
         return derive_personal_tenant_id(sub)

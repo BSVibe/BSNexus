@@ -8,6 +8,8 @@ interface User {
 }
 
 const AUTH_URL = 'https://auth.bsvibe.dev'
+const STORED_TOKEN_KEY = 'bsnexus_access_token'
+const STORED_REFRESH_KEY = 'bsnexus_refresh_token'
 
 interface SessionResponse {
   access_token: string
@@ -17,10 +19,54 @@ interface SessionResponse {
 
 let cachedToken: { value: string; expiresAt: number } | null = null
 
+function isExpired(token: string): boolean {
+  try {
+    const payload = decodeJwt(token) as { exp?: number }
+    if (!payload.exp) return false
+    return Date.now() / 1000 >= payload.exp - 30
+  } catch {
+    return true
+  }
+}
+
+/**
+ * Read tokens from URL hash fragment (#access_token=...&refresh_token=...) and
+ * persist them. Used after redirect from auth.bsvibe.dev/login when running on
+ * a cross-origin host (e.g. bsserver:3001) where session cookies are not
+ * accessible.
+ */
+function consumeHashTokens(): string | null {
+  if (typeof window === 'undefined') return null
+  const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : ''
+  if (!hash) return null
+  const params = new URLSearchParams(hash)
+  const access = params.get('access_token')
+  const refresh = params.get('refresh_token')
+  if (!access) return null
+  localStorage.setItem(STORED_TOKEN_KEY, access)
+  if (refresh) localStorage.setItem(STORED_REFRESH_KEY, refresh)
+  history.replaceState(null, '', window.location.pathname + window.location.search)
+  return access
+}
+
 export async function getAccessToken(): Promise<string | null> {
   if (cachedToken && Date.now() < cachedToken.expiresAt - 30_000) {
     return cachedToken.value
   }
+
+  // 1. Hash fragment (just returned from SSO login on a cross-origin host)
+  const hashToken = consumeHashTokens()
+  if (hashToken && !isExpired(hashToken)) {
+    return hashToken
+  }
+
+  // 2. localStorage fallback (persisted from a previous hash exchange)
+  const stored = typeof window !== 'undefined' ? localStorage.getItem(STORED_TOKEN_KEY) : null
+  if (stored && !isExpired(stored)) {
+    return stored
+  }
+
+  // 3. Cookie-based session (works only on *.bsvibe.dev origins)
   try {
     const res = await fetch(`${AUTH_URL}/api/session`, { credentials: 'include' })
     if (!res.ok) return null
@@ -37,6 +83,10 @@ export async function getAccessToken(): Promise<string | null> {
 
 export function clearTokenCache() {
   cachedToken = null
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem(STORED_TOKEN_KEY)
+    localStorage.removeItem(STORED_REFRESH_KEY)
+  }
 }
 
 function decodeJwt(token: string): Record<string, unknown> {
@@ -74,11 +124,16 @@ export function useAuth() {
   }, [])
 
   function login() {
-    window.location.href = `${AUTH_URL}/login`
+    const redirectUri = `${window.location.origin}/dashboard`
+    window.location.href = `${AUTH_URL}/login?redirect_uri=${encodeURIComponent(redirectUri)}`
   }
 
   async function logout() {
-    await fetch(`${AUTH_URL}/api/session`, { method: 'DELETE', credentials: 'include' })
+    try {
+      await fetch(`${AUTH_URL}/api/session`, { method: 'DELETE', credentials: 'include' })
+    } catch {
+      /* cross-origin logout best-effort */
+    }
     clearTokenCache()
     setUser(null)
     window.location.href = 'https://bsvibe.dev/'

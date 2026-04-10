@@ -88,5 +88,15 @@ class Settings(BaseSettings):
     log_dir: str = "logs"
     log_level: str = "INFO"
 
+    # E2E test bypass — when set to a non-empty string, the auth dependency
+    # accepts a single bearer token equal to this value and returns a synthetic
+    # admin user. Used for fresh-DB integration tests and live frontend e2e
+    # specs that need to skip the real bsvibe.dev round-trip without any code
+    # mutating the production code path. NEVER set in production.
+    e2e_test_token: str = ""
+    e2e_test_user_id: str = "e2e-test-user"
+    e2e_test_user_email: str = "e2e@bsnexus.test"
+    e2e_test_user_tenant_id: str = "11111111-1111-4111-8111-111111111111"
+
 
 settings = Settings()

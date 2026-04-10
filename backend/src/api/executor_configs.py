@@ -9,6 +9,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.core.tenant_context import get_tenant_id
+from backend.src.models.agent import Agent
 from backend.src.models.executor_config import ExecutorConfig
 from backend.src.schemas.executor_config import (
     EXECUTOR_TYPES,
@@ -19,6 +20,28 @@ from backend.src.schemas.executor_config import (
 from backend.src.storage.database import get_db
 
 router = APIRouter(prefix="/api/v1/executor-configs", tags=["executor-configs"])
+
+
+async def _cascade_default_to_using_agents(
+    db: AsyncSession, tenant_id: uuid.UUID, executor_type: str
+) -> None:
+    """Update every "use default" agent in the tenant to the new default's type.
+
+    Agents with ``executor_config_id IS NULL`` mean *"whatever the tenant
+    default is right now"*. The agent row caches the resolved ``executor_type``
+    so dispatcher / status code can read it without joining ``executor_configs``
+    on every read; that cache must be re-synced any time the tenant default
+    changes, otherwise the agent stays frozen at whatever default existed at
+    creation time and never picks up a newly registered worker.
+    """
+    await db.execute(
+        update(Agent)
+        .where(
+            Agent.tenant_id == tenant_id,
+            Agent.executor_config_id.is_(None),
+        )
+        .values(executor_type=executor_type)
+    )
 
 
 @router.post("", response_model=ExecutorConfigResponse, status_code=201)
@@ -55,6 +78,8 @@ async def create_executor_config(
     )
     db.add(config)
     await db.flush()
+    if body.is_default:
+        await _cascade_default_to_using_agents(db, tenant_id, body.executor_type)
     await db.commit()
     await db.refresh(config)
     return ExecutorConfigResponse.model_validate(config)
@@ -115,6 +140,9 @@ async def update_executor_config(
         setattr(config, key, value)
 
     await db.flush()
+    if update_data.get("is_default"):
+        # Re-sync every "use default" agent to the new default's executor type.
+        await _cascade_default_to_using_agents(db, tenant_id, config.executor_type)
     await db.commit()
     await db.refresh(config)
     return ExecutorConfigResponse.model_validate(config)

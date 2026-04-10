@@ -15,8 +15,14 @@ from backend.src.core.tenant_context import (
     TenantMiddleware,
     derive_personal_tenant_id,
     ensure_personal_tenant,
-    _tenant_id_from_token,
+    _identify_from_token,
 )
+
+
+def _tenant_id_from_token(token: str):
+    """Test shim around the new ``_identify_from_token`` helper."""
+    _, tenant_id = _identify_from_token(token)
+    return tenant_id
 from backend.src.models import Tenant
 
 

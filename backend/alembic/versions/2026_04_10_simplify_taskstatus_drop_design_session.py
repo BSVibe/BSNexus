@@ -43,6 +43,7 @@ def upgrade() -> None:
     op.execute("DROP TYPE IF EXISTS messagetype")
 
     # 3. Re-create tasksource enum with 'llm' instead of 'architect'.
+    op.execute("ALTER TABLE tasks ALTER COLUMN source DROP DEFAULT")
     op.execute("ALTER TABLE tasks ALTER COLUMN source TYPE VARCHAR(20)")
     op.execute("UPDATE tasks SET source = 'llm' WHERE source = 'architect'")
     op.execute("DROP TYPE IF EXISTS tasksource")
@@ -52,6 +53,7 @@ def upgrade() -> None:
 
     # 4. Collapse TaskStatus to the 4-state model.
     #    Cast to VARCHAR, rewrite values, recreate enum, cast back.
+    op.execute("ALTER TABLE tasks ALTER COLUMN status DROP DEFAULT")
     op.execute("ALTER TABLE tasks ALTER COLUMN status TYPE VARCHAR(20)")
     op.execute("ALTER TABLE task_history ALTER COLUMN from_status TYPE VARCHAR(50)")
     op.execute("ALTER TABLE task_history ALTER COLUMN to_status TYPE VARCHAR(50)")
