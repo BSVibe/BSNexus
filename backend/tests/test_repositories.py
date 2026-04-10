@@ -253,7 +253,7 @@ class TestTaskRepository:
         repo = TaskRepository(db_session)
         counts = await repo.count_by_status(project.id)
 
-        assert counts.get("ready") == 2
+        assert counts.get("pending") == 2
         assert counts.get("done") == 1
 
     async def test_list_ready_by_priority(self, db_session):
@@ -285,11 +285,11 @@ class TestTaskRepository:
         assert count == 2
 
     async def test_list_waiting_in_phase(self, db_session):
-        """list_waiting_in_phase returns only waiting tasks."""
+        """list_waiting_in_phase returns only pending tasks (not done)."""
         project = await make_project(db_session)
         phase = await make_phase(db_session, project.id)
         await make_task(db_session, project.id, phase.id, status=TaskStatus.pending)
-        await make_task(db_session, project.id, phase.id, status=TaskStatus.pending)
+        await make_task(db_session, project.id, phase.id, status=TaskStatus.done)
         await db_session.commit()
 
         repo = TaskRepository(db_session)
@@ -573,14 +573,3 @@ class TestTaskRepositoryEdgeCases:
         assert is_circular is False
 
 
-# -- DesignSessionRepository additional coverage ------------------------------
-
-
-class TestDesignSessionRepository:
-    async def test_get_by_project_id_not_found(self, db_session):
-        """get_by_project_id returns None when no project-bound session exists."""
-        from backend.src.repositories.design_session_repository import DesignSessionRepository
-
-        repo = DesignSessionRepository(db_session)
-        result = await repo.get_by_project_id(uuid.uuid4())
-        assert result is None

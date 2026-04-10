@@ -94,7 +94,7 @@ async def test_projects_summary_with_data(client: AsyncClient, db_session) -> No
     assert summary["status"] == "active"
     assert summary["current_phase"] == "Phase 1"
     assert summary["bug_count"] == 1
-    assert summary["task_counts"]["ready"] == 3
+    assert summary["task_counts"]["pending"] == 3
     assert summary["task_counts"]["done"] == 1
 
 
@@ -323,7 +323,7 @@ async def test_projects_summary_bug_count_aggregation(client: AsyncClient, db_se
     data = resp.json()
     assert len(data) == 1
     assert data[0]["bug_count"] == 3
-    assert data[0]["task_counts"]["ready"] == 5
+    assert data[0]["task_counts"]["pending"] == 5
 
 
 async def test_projects_summary_multiple_projects_with_tasks(client: AsyncClient, db_session) -> None:
@@ -429,11 +429,11 @@ async def test_projects_summary_multiple_projects_with_tasks(client: AsyncClient
 
     assert by_name["P1"]["bug_count"] == 1
     assert by_name["P1"]["task_counts"]["done"] == 1
-    assert by_name["P1"]["task_counts"]["ready"] == 1
+    assert by_name["P1"]["task_counts"]["pending"] == 1
     assert by_name["P1"]["current_phase"] == "Ph1"
 
     assert by_name["P2"]["bug_count"] == 0
-    assert by_name["P2"]["task_counts"]["waiting"] == 1
+    assert by_name["P2"]["task_counts"]["pending"] == 1
     assert by_name["P2"]["current_phase"] is None  # pending phase, not active
 
 
@@ -579,7 +579,7 @@ async def test_get_projects_summary_direct_with_tasks_and_bugs(db_session) -> No
     s = result[0]
     assert s.name == "Full"
     assert s.current_phase == "Active Phase"
-    assert s.task_counts == {"ready": 2, "done": 1, "in_progress": 1}
+    assert s.task_counts == {"pending": 2, "done": 1, "running": 1}
     assert s.bug_count == 2
     assert s.last_activity is not None
 
@@ -671,7 +671,7 @@ async def test_get_projects_summary_direct_multiple_projects(db_session) -> None
     by_name = {s.name: s for s in result}
 
     assert by_name["P1"].bug_count == 1
-    assert by_name["P1"].task_counts == {"ready": 1, "done": 1}
+    assert by_name["P1"].task_counts == {"pending": 1, "done": 1}
     assert by_name["P1"].current_phase == "Ph1"
     assert by_name["P1"].last_activity is not None
 

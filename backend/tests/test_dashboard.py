@@ -108,8 +108,8 @@ async def test_dashboard_stats_with_data(client: AsyncClient, db_session) -> Non
 
     # Task counts
     assert data["total_tasks"] == 5
-    # active = ready(2) + in_progress(1) = 3 (waiting is not "active")
-    assert data["active_tasks"] == 3
+    # active = pending(3) + running(1) = 4
+    assert data["active_tasks"] == 4
     assert data["in_progress_tasks"] == 1
     assert data["done_tasks"] == 1
     # completion_rate = 1/5 * 100 = 20.0
@@ -222,15 +222,15 @@ async def test_get_dashboard_stats_direct_with_data(db_session) -> None:
     db_session.add(phase)
     await db_session.flush()
 
-    # Create tasks covering all counted statuses: ready, in_progress, review, done, waiting
+    # 3 pending + 2 running + 2 done = 7 total
     for ts in [
         TaskStatus.pending,
         TaskStatus.pending,
-        TaskStatus.running,
-        TaskStatus.running,
-        TaskStatus.done,
-        TaskStatus.done,
         TaskStatus.pending,
+        TaskStatus.running,
+        TaskStatus.running,
+        TaskStatus.done,
+        TaskStatus.done,
     ]:
         db_session.add(
             Task(
@@ -253,9 +253,9 @@ async def test_get_dashboard_stats_direct_with_data(db_session) -> None:
     assert result.active_projects == 1
     assert result.completed_projects == 1
     assert result.total_tasks == 7
-    # active = ready(2) + in_progress(1) + review(1) = 4
-    assert result.active_tasks == 4
-    assert result.in_progress_tasks == 1
+    # active = pending(3) + running(2) = 5
+    assert result.active_tasks == 5
+    assert result.in_progress_tasks == 2
     assert result.done_tasks == 2
     # completion_rate = 2/7 * 100 = 28.6
     assert result.completion_rate == 28.6
@@ -315,13 +315,15 @@ async def test_get_dashboard_stats_direct_all_done(db_session) -> None:
     assert result.completed_projects == 1
 
 
-async def test_dashboard_stats_review_and_blocked_counted_as_active(client: AsyncClient, db_session) -> None:
-    """review tasks are counted as active_tasks; blocked/waiting/done are not."""
+async def test_dashboard_stats_pending_and_running_counted_as_active(
+    client: AsyncClient, db_session
+) -> None:
+    """pending + running tasks are counted as active_tasks; blocked/done are not."""
     now = datetime.now(timezone.utc)
 
     project = Project(
         id=uuid.uuid4(),
-        name="Review Project",
+        name="Active Project",
         description="Test",
         repo_path="/test",
         status=ProjectStatus.active,
@@ -344,8 +346,14 @@ async def test_dashboard_stats_review_and_blocked_counted_as_active(client: Asyn
     db_session.add(phase)
     await db_session.flush()
 
-    # review(1) + in_progress(1) + ready(1) = 3 active; done(1) + waiting(1) not active
-    for ts in [TaskStatus.running, TaskStatus.running, TaskStatus.pending, TaskStatus.done, TaskStatus.pending]:
+    # pending(2) + running(1) = 3 active; blocked(1) + done(1) not active
+    for ts in [
+        TaskStatus.pending,
+        TaskStatus.pending,
+        TaskStatus.running,
+        TaskStatus.blocked,
+        TaskStatus.done,
+    ]:
         db_session.add(
             Task(
                 id=uuid.uuid4(),
@@ -366,7 +374,7 @@ async def test_dashboard_stats_review_and_blocked_counted_as_active(client: Asyn
     data = resp.json()
 
     assert data["total_tasks"] == 5
-    assert data["active_tasks"] == 3  # ready + in_progress + review
+    assert data["active_tasks"] == 3
     assert data["in_progress_tasks"] == 1
     assert data["done_tasks"] == 1
     assert data["completion_rate"] == 20.0

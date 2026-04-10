@@ -77,25 +77,12 @@ async def test_invalid_transition_rejected(client: AsyncClient, db_session: Asyn
     """Try invalid transitions and verify 400 response."""
     project_id, phase_id = await _create_project_and_phase(client, db_session)
 
-    # Create a task that starts as waiting (has a dependency)
-    dep_task = await _create_task(client, project_id, phase_id, "Dep Task")
-    waiting_task = await _create_task(client, project_id, phase_id, "Waiting Task", depends_on=[dep_task["id"]])
-    assert waiting_task["status"] == "waiting"
-
-    # Try invalid transition: waiting -> in_progress (should be waiting -> ready)
-    response = await client.post(
-        f"/api/v1/tasks/{waiting_task['id']}/transition",
-        json={"new_status": "in_progress", "actor": "test"},
-    )
-    assert response.status_code == 400
-    assert "Invalid transition" in response.json()["detail"]
-
-    # Create a ready task and try ready -> done (invalid, must go through in_progress first)
-    ready_task = await _create_task(client, project_id, phase_id, "Ready Task")
-    assert ready_task["status"] == "ready"
+    # pending -> done is invalid; tasks must go through running first.
+    pending_task = await _create_task(client, project_id, phase_id, "Pending Task")
+    assert pending_task["status"] == "pending"
 
     response = await client.post(
-        f"/api/v1/tasks/{ready_task['id']}/transition",
+        f"/api/v1/tasks/{pending_task['id']}/transition",
         json={"new_status": "done", "actor": "test"},
     )
     assert response.status_code == 400
@@ -111,7 +98,7 @@ async def test_optimistic_locking_conflict(client: AsyncClient, db_session: Asyn
     # Try transition with wrong version
     response = await client.post(
         f"/api/v1/tasks/{task['id']}/transition",
-        json={"new_status": "in_progress", "actor": "test", "expected_version": 999},
+        json={"new_status": "running", "actor": "test", "expected_version": 999},
     )
     assert response.status_code == 409
     detail = response.json()["detail"]
@@ -122,16 +109,16 @@ async def test_optimistic_locking_conflict(client: AsyncClient, db_session: Asyn
     # Verify correct version works
     response = await client.post(
         f"/api/v1/tasks/{task['id']}/transition",
-        json={"new_status": "in_progress", "actor": "test", "expected_version": task["version"]},
+        json={"new_status": "running", "actor": "test", "expected_version": task["version"]},
     )
     assert response.status_code == 200
-    assert response.json()["status"] == "in_progress"
+    assert response.json()["status"] == "running"
 
     # Verify update with wrong version also returns 409
     # First create a waiting task (updatable status)
     dep_task = await _create_task(client, project_id, phase_id, "Dep For Update")
     updatable_task = await _create_task(client, project_id, phase_id, "Updatable Task", depends_on=[dep_task["id"]])
-    assert updatable_task["status"] == "waiting"
+    assert updatable_task["status"] == "pending"
 
     response = await client.patch(
         f"/api/v1/tasks/{updatable_task['id']}",
@@ -145,27 +132,27 @@ async def test_execution_failure_auto_retry_via_api(client: AsyncClient, db_sess
     """Test the in_progress -> ready transition for execution failure auto-retry."""
     project_id, phase_id = await _create_project_and_phase(client, db_session)
     task = await _create_task(client, project_id, phase_id, "Retry Task")
-    assert task["status"] == "ready"
+    assert task["status"] == "pending"
 
     # Move to: ready -> in_progress
     await client.post(
         f"/api/v1/tasks/{task['id']}/transition",
-        json={"new_status": "in_progress", "actor": "test"},
+        json={"new_status": "running", "actor": "test"},
     )
 
     # Execution failure: in_progress -> ready (auto-retry path)
     retry_resp = await client.post(
         f"/api/v1/tasks/{task['id']}/transition",
-        json={"new_status": "ready", "actor": "pm", "reason": "Execution failed, retrying"},
+        json={"new_status": "pending", "actor": "pm", "reason": "Execution failed, retrying"},
     )
     assert retry_resp.status_code == 200
-    assert retry_resp.json()["status"] == "ready"
+    assert retry_resp.json()["status"] == "pending"
 
     # Verify task is back to ready state and execution fields are reset
     task_resp = await client.get(f"/api/v1/tasks/{task['id']}")
     assert task_resp.status_code == 200
     final_task = task_resp.json()
-    assert final_task["status"] == "ready"
+    assert final_task["status"] == "pending"
     assert final_task["error_message"] is None
 
 
@@ -173,15 +160,15 @@ async def test_ready_to_in_progress_valid(client: AsyncClient, db_session: Async
     """Verify that ready -> in_progress is a valid transition."""
     project_id, phase_id = await _create_project_and_phase(client, db_session)
     task = await _create_task(client, project_id, phase_id, "Direct Exec Task")
-    assert task["status"] == "ready"
+    assert task["status"] == "pending"
 
     response = await client.post(
         f"/api/v1/tasks/{task['id']}/transition",
-        json={"new_status": "in_progress", "actor": "pm"},
+        json={"new_status": "running", "actor": "pm"},
     )
     assert response.status_code == 200
     data = response.json()
-    assert data["status"] == "in_progress"
+    assert data["status"] == "running"
 
 
 async def test_review_to_ready_retry(client: AsyncClient, db_session: AsyncSession):
@@ -190,16 +177,16 @@ async def test_review_to_ready_retry(client: AsyncClient, db_session: AsyncSessi
     task = await _create_task(client, project_id, phase_id, "QA Retry Task")
 
     # Move through: ready -> in_progress -> review
-    await client.post(f"/api/v1/tasks/{task['id']}/transition", json={"new_status": "in_progress", "actor": "test"})
-    await client.post(f"/api/v1/tasks/{task['id']}/transition", json={"new_status": "review", "actor": "test"})
+    await client.post(f"/api/v1/tasks/{task['id']}/transition", json={"new_status": "running", "actor": "test"})
+    await client.post(f"/api/v1/tasks/{task['id']}/transition", json={"new_status": "running", "actor": "test"})
 
     # QA failure retry: review -> ready
     response = await client.post(
         f"/api/v1/tasks/{task['id']}/transition",
-        json={"new_status": "ready", "actor": "pm", "reason": "QA failed, retrying"},
+        json={"new_status": "pending", "actor": "pm", "reason": "QA failed, retrying"},
     )
     assert response.status_code == 200
-    assert response.json()["status"] == "ready"
+    assert response.json()["status"] == "pending"
 
 
 async def test_done_is_terminal(client: AsyncClient, db_session: AsyncSession):
@@ -208,14 +195,14 @@ async def test_done_is_terminal(client: AsyncClient, db_session: AsyncSession):
     task = await _create_task(client, project_id, phase_id, "Terminal Task")
 
     # Move through: ready -> in_progress -> review -> done
-    await client.post(f"/api/v1/tasks/{task['id']}/transition", json={"new_status": "in_progress", "actor": "test"})
-    await client.post(f"/api/v1/tasks/{task['id']}/transition", json={"new_status": "review", "actor": "test"})
+    await client.post(f"/api/v1/tasks/{task['id']}/transition", json={"new_status": "running", "actor": "test"})
+    await client.post(f"/api/v1/tasks/{task['id']}/transition", json={"new_status": "running", "actor": "test"})
     await client.post(f"/api/v1/tasks/{task['id']}/transition", json={"new_status": "done", "actor": "test"})
 
     # Try to transition done -> anything (should fail)
     response = await client.post(
         f"/api/v1/tasks/{task['id']}/transition",
-        json={"new_status": "ready", "actor": "test"},
+        json={"new_status": "pending", "actor": "test"},
     )
     assert response.status_code == 400
     assert "Invalid transition" in response.json()["detail"]

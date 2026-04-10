@@ -23,7 +23,7 @@ class TestRolePermissions:
         viewer_perms = ROLE_PERMISSIONS[Role.viewer]
         assert Permission.project_read in viewer_perms
         assert Permission.task_read in viewer_perms
-        assert Permission.board_read in viewer_perms
+        assert Permission.plan_read in viewer_perms
         assert Permission.project_create not in viewer_perms
         assert Permission.task_create not in viewer_perms
         assert Permission.admin_settings not in viewer_perms

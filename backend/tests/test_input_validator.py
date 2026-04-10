@@ -165,63 +165,8 @@ class TestSchemaPathTraversalValidation:
         p = ProjectCreate(name="test", description="test", repo_path="/workspace/projects/myapp")
         assert p.repo_path == "/workspace/projects/myapp"
 
-    def test_finalize_request_rejects_traversal(self):
-        from pydantic import ValidationError
-        from backend.src.schemas import FinalizeRequest
-
-        with pytest.raises(ValidationError, match="Path traversal"):
-            FinalizeRequest(repo_path="../../../etc/shadow")
-
-    def test_finalize_request_allows_normal_path(self):
-        from backend.src.schemas import FinalizeRequest
-
-        f = FinalizeRequest(repo_path="/workspace/repos/project")
-        assert f.repo_path == "/workspace/repos/project"
-
-
 class TestSchemaSSRFValidation:
     """Test SSRF prevention in Pydantic schemas."""
-
-    def test_llm_config_rejects_localhost(self):
-        from pydantic import ValidationError
-        from backend.src.schemas import LLMConfigInput
-
-        with pytest.raises(ValidationError, match="localhost"):
-            LLMConfigInput(api_key="sk-test", base_url="http://localhost:5432/")
-
-    def test_llm_config_rejects_loopback(self):
-        from pydantic import ValidationError
-        from backend.src.schemas import LLMConfigInput
-
-        with pytest.raises(ValidationError, match="private or internal"):
-            LLMConfigInput(api_key="sk-test", base_url="http://127.0.0.1:6379/")
-
-    def test_llm_config_rejects_loopback_shorthand(self):
-        """127.1 is shorthand for 127.0.0.1 — must be blocked."""
-        from pydantic import ValidationError
-        from backend.src.schemas import LLMConfigInput
-
-        with pytest.raises(ValidationError, match="private or internal"):
-            LLMConfigInput(api_key="sk-test", base_url="http://127.1/v1")
-
-    def test_llm_config_rejects_private_network(self):
-        from pydantic import ValidationError
-        from backend.src.schemas import LLMConfigInput
-
-        with pytest.raises(ValidationError, match="private or internal"):
-            LLMConfigInput(api_key="sk-test", base_url="http://192.168.1.1:8080/")
-
-    def test_llm_config_allows_public_url(self):
-        from backend.src.schemas import LLMConfigInput
-
-        c = LLMConfigInput(api_key="sk-test", base_url="https://api.openai.com/v1")
-        assert c.base_url == "https://api.openai.com/v1"
-
-    def test_llm_config_allows_none_base_url(self):
-        from backend.src.schemas import LLMConfigInput
-
-        c = LLMConfigInput(api_key="sk-test")
-        assert c.base_url is None
 
     def test_global_settings_rejects_localhost(self):
         from pydantic import ValidationError
@@ -229,3 +174,36 @@ class TestSchemaSSRFValidation:
 
         with pytest.raises(ValidationError, match="localhost"):
             GlobalSettingsUpdate(llm_base_url="http://localhost:5432/")
+
+    def test_global_settings_rejects_loopback(self):
+        from pydantic import ValidationError
+        from backend.src.schemas import GlobalSettingsUpdate
+
+        with pytest.raises(ValidationError, match="private or internal"):
+            GlobalSettingsUpdate(llm_base_url="http://127.0.0.1:6379/")
+
+    def test_global_settings_rejects_loopback_shorthand(self):
+        from pydantic import ValidationError
+        from backend.src.schemas import GlobalSettingsUpdate
+
+        with pytest.raises(ValidationError, match="private or internal"):
+            GlobalSettingsUpdate(llm_base_url="http://127.1/v1")
+
+    def test_global_settings_rejects_private_network(self):
+        from pydantic import ValidationError
+        from backend.src.schemas import GlobalSettingsUpdate
+
+        with pytest.raises(ValidationError, match="private or internal"):
+            GlobalSettingsUpdate(llm_base_url="http://192.168.1.1:8080/")
+
+    def test_global_settings_allows_public_url(self):
+        from backend.src.schemas import GlobalSettingsUpdate
+
+        c = GlobalSettingsUpdate(llm_base_url="https://api.openai.com/v1")
+        assert c.llm_base_url == "https://api.openai.com/v1"
+
+    def test_global_settings_allows_none_base_url(self):
+        from backend.src.schemas import GlobalSettingsUpdate
+
+        c = GlobalSettingsUpdate()
+        assert c.llm_base_url is None

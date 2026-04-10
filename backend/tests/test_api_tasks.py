@@ -73,7 +73,7 @@ async def test_create_task_success(client: AsyncClient, db_session):
     assert response.status_code == 201
     data = response.json()
     assert data["title"] == "Test Task"
-    assert data["status"] == "ready"  # No dependencies means READY
+    assert data["status"] == "pending"  # No dependencies means READY
     assert data["priority"] == "medium"
     assert data["project_id"] == str(project.id)
     assert data["phase_id"] == str(phase.id)
@@ -175,7 +175,7 @@ async def test_update_task_waiting_status(client: AsyncClient, db_session):
         },
     )
     task_id = create_response.json()["id"]
-    assert create_response.json()["status"] == "waiting"
+    assert create_response.json()["status"] == "pending"
 
     response = await client.patch(
         f"/api/v1/tasks/{task_id}",
@@ -214,7 +214,7 @@ async def test_update_task_in_progress_400(client: AsyncClient, db_session):
     )
 
     assert response.status_code == 400
-    assert "waiting or ready" in response.json()["detail"]
+    assert "pending" in response.json()["detail"]
 
 
 async def test_transition_task_valid(client: AsyncClient, db_session):
@@ -236,18 +236,18 @@ async def test_transition_task_valid(client: AsyncClient, db_session):
         },
     )
     task_id = create_response.json()["id"]
-    assert create_response.json()["status"] == "ready"
+    assert create_response.json()["status"] == "pending"
 
     # Transition READY -> IN_PROGRESS
     response = await client.post(
         f"/api/v1/tasks/{task_id}/transition",
-        json={"new_status": "in_progress", "actor": "test"},
+        json={"new_status": "running", "actor": "test"},
     )
 
     assert response.status_code == 200
     data = response.json()
-    assert data["status"] == "in_progress"
-    assert data["previous_status"] == "ready"
+    assert data["status"] == "running"
+    assert data["previous_status"] == "pending"
 
 
 async def test_transition_task_invalid_400(client: AsyncClient, db_session):
@@ -332,11 +332,11 @@ async def test_transition_with_matching_version(client: AsyncClient, db_session)
 
     response = await client.post(
         f"/api/v1/tasks/{task_id}/transition",
-        json={"new_status": "in_progress", "actor": "test", "expected_version": version},
+        json={"new_status": "running", "actor": "test", "expected_version": version},
     )
 
     assert response.status_code == 200
-    assert response.json()["status"] == "in_progress"
+    assert response.json()["status"] == "running"
 
 
 async def test_transition_with_mismatched_version_409(client: AsyncClient, db_session):
@@ -360,7 +360,7 @@ async def test_transition_with_mismatched_version_409(client: AsyncClient, db_se
 
     response = await client.post(
         f"/api/v1/tasks/{task_id}/transition",
-        json={"new_status": "in_progress", "actor": "test", "expected_version": 999},
+        json={"new_status": "running", "actor": "test", "expected_version": 999},
     )
 
     assert response.status_code == 409
@@ -389,7 +389,7 @@ async def test_transition_without_expected_version(client: AsyncClient, db_sessi
 
     response = await client.post(
         f"/api/v1/tasks/{task_id}/transition",
-        json={"new_status": "in_progress", "actor": "test"},
+        json={"new_status": "running", "actor": "test"},
     )
 
     assert response.status_code == 200
@@ -490,11 +490,11 @@ async def test_list_tasks_with_status_filter(client: AsyncClient, db_session):
     db_session.add(done_task)
     await db_session.commit()
 
-    response = await client.get(f"/api/v1/tasks/by-project/{project.id}?status=ready")
+    response = await client.get(f"/api/v1/tasks/by-project/{project.id}?status=pending")
 
     assert response.status_code == 200
     data = response.json()
-    assert all(t["status"] == "ready" for t in data)
+    assert all(t["status"] == "pending" for t in data)
     assert len(data) == 1
 
 
@@ -587,7 +587,7 @@ async def test_409_response_contains_current_version(client: AsyncClient, db_ses
 
     response = await client.post(
         f"/api/v1/tasks/{task_id}/transition",
-        json={"new_status": "in_progress", "actor": "test", "expected_version": 999},
+        json={"new_status": "running", "actor": "test", "expected_version": 999},
     )
 
     assert response.status_code == 409
@@ -893,7 +893,7 @@ async def test_update_task_non_editable_status_direct(db_session):
     with pytest.raises(HTTPException) as exc_info:
         await update_task(task.id, schemas.TaskUpdate(title="No"), db=db_session)
     assert exc_info.value.status_code == 400
-    assert "waiting or ready" in exc_info.value.detail
+    assert "pending" in exc_info.value.detail
 
 
 async def test_update_task_done_status_direct(db_session):
@@ -1113,7 +1113,7 @@ async def test_list_project_tasks_with_filters_direct(db_session):
 
     result = await list_project_tasks(
         project.id,
-        status="ready",
+        status="pending",
         phase_id=None,
         priority="high",
         limit=50,

@@ -150,7 +150,7 @@ class TestPlannerFullWorkflow:
         assert approve_resp.status_code == 200
         task_data = approve_resp.json()
         assert task_data["title"] == "Add authentication"
-        assert task_data["status"] == "ready"
+        assert task_data["status"] == "pending"
         assert task_data["phase_id"] == phase["id"]
 
         # 5. Reject second suggestion

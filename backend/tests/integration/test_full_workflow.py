@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import uuid as uuid_mod
-from unittest.mock import AsyncMock, MagicMock
 
 from httpx import AsyncClient
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.src.main import app
 from backend.src.models import Phase, PhaseStatus
 
 
@@ -127,28 +125,24 @@ async def test_project_lifecycle(client: AsyncClient, db_session: AsyncSession):
 
     # 6. Create task (no deps + active phase -> starts as ready)
     task = await _create_task(client, project["id"], phase["id"], "Lifecycle Task")
-    assert task["status"] == "ready"
+    assert task["status"] == "pending"
     assert task["version"] == 1
 
-    # 7. Transition through full lifecycle: ready -> in_progress -> review -> done
-    transition = await _transition_task(client, task["id"], "in_progress")
-    assert transition["status"] == "in_progress"
-    assert transition["previous_status"] == "ready"
-
-    transition = await _transition_task(client, task["id"], "review")
-    assert transition["status"] == "review"
-    assert transition["previous_status"] == "in_progress"
+    # 7. Transition through the simplified lifecycle: pending -> running -> done
+    transition = await _transition_task(client, task["id"], "running")
+    assert transition["status"] == "running"
+    assert transition["previous_status"] == "pending"
 
     transition = await _transition_task(client, task["id"], "done")
     assert transition["status"] == "done"
-    assert transition["previous_status"] == "review"
+    assert transition["previous_status"] == "running"
 
     # 8. Verify final task state
     final_resp = await client.get(f"/api/v1/tasks/{task['id']}")
     assert final_resp.status_code == 200
     final_task = final_resp.json()
     assert final_task["status"] == "done"
-    assert final_task["version"] == 4  # initial 1 + 3 transitions
+    assert final_task["version"] == 3  # initial 1 + 2 transitions
 
 
 async def test_dependency_chain(client: AsyncClient, db_session: AsyncSession):
@@ -159,90 +153,37 @@ async def test_dependency_chain(client: AsyncClient, db_session: AsyncSession):
 
     # Create Task A (no deps + active phase -> ready)
     task_a = await _create_task(client, project["id"], phase["id"], "Task A")
-    assert task_a["status"] == "ready"
+    assert task_a["status"] == "pending"
 
     # Create Task B (depends on A -> waiting)
     task_b = await _create_task(client, project["id"], phase["id"], "Task B", depends_on=[task_a["id"]])
-    assert task_b["status"] == "waiting"
+    assert task_b["status"] == "pending"
 
     # Create Task C (depends on B -> waiting)
     task_c = await _create_task(client, project["id"], phase["id"], "Task C", depends_on=[task_b["id"]])
-    assert task_c["status"] == "waiting"
+    assert task_c["status"] == "pending"
 
-    # Complete Task A: ready -> in_progress -> review -> done
-    await _transition_task(client, task_a["id"], "in_progress")
-    await _transition_task(client, task_a["id"], "review")
+    # Complete Task A: pending -> running -> done
+    await _transition_task(client, task_a["id"], "running")
     await _transition_task(client, task_a["id"], "done")
 
     # After A is done, B should be promoted to ready
     task_b_resp = await client.get(f"/api/v1/tasks/{task_b['id']}")
     assert task_b_resp.status_code == 200
-    assert task_b_resp.json()["status"] == "ready"
+    assert task_b_resp.json()["status"] == "pending"
 
     # C should still be waiting (B not done yet)
     task_c_resp = await client.get(f"/api/v1/tasks/{task_c['id']}")
     assert task_c_resp.status_code == 200
-    assert task_c_resp.json()["status"] == "waiting"
+    assert task_c_resp.json()["status"] == "pending"
 
     # Complete Task B
-    await _transition_task(client, task_b["id"], "in_progress")
-    await _transition_task(client, task_b["id"], "review")
+    await _transition_task(client, task_b["id"], "running")
     await _transition_task(client, task_b["id"], "done")
 
     # After B is done, C should be promoted to ready
     task_c_resp = await client.get(f"/api/v1/tasks/{task_c['id']}")
     assert task_c_resp.status_code == 200
-    assert task_c_resp.json()["status"] == "ready"
+    assert task_c_resp.json()["status"] == "pending"
 
 
-async def test_board_snapshot(client: AsyncClient, db_session: AsyncSession, mock_stream_manager):
-    """Create project with tasks in different states, verify board endpoint returns correct structure."""
-    # Board endpoint requires app.state.redis, so we need to set a mock
-    mock_redis = AsyncMock()
-    mock_redis.scan_iter = MagicMock(return_value=_async_iter([]))
-    mock_redis.hgetall = AsyncMock(return_value={})
-    app.state.redis = mock_redis
-
-    project = await _create_project(client)
-    phase = await _create_phase(client, project["id"])
-    await _activate_phase(db_session, phase["id"])
-
-    # Create task in ready state (no deps + active phase)
-    task_ready = await _create_task(client, project["id"], phase["id"], "Ready Task")
-    assert task_ready["status"] == "ready"
-
-    # Create a task and move to in_progress
-    task_active = await _create_task(client, project["id"], phase["id"], "Active Task")
-    await _transition_task(client, task_active["id"], "in_progress")
-
-    # Create a task with dependency (waiting)
-    task_waiting = await _create_task(client, project["id"], phase["id"], "Waiting Task", depends_on=[task_ready["id"]])
-    assert task_waiting["status"] == "waiting"
-
-    # Get board state
-    board_resp = await client.get(f"/api/v1/board/{project['id']}")
-    assert board_resp.status_code == 200
-    board = board_resp.json()
-
-    # Verify structure
-    assert board["project_id"] == project["id"]
-    assert "columns" in board
-    assert "stats" in board
-
-    # Verify columns contain tasks in correct states (BoardColumn format)
-    columns = board["columns"]
-    assert len(columns["ready"]["tasks"]) == 1
-    assert columns["ready"]["tasks"][0]["title"] == "Ready Task"
-
-    assert len(columns["in_progress"]["tasks"]) == 1
-    assert columns["in_progress"]["tasks"][0]["title"] == "Active Task"
-
-    assert len(columns["waiting"]["tasks"]) == 1
-    assert columns["waiting"]["tasks"][0]["title"] == "Waiting Task"
-
-    # Verify stats
-    stats = board["stats"]
-    assert stats["total"] == 3
-    assert stats["ready"] == 1
-    assert stats["in_progress"] == 1
-    assert stats["waiting"] == 1
