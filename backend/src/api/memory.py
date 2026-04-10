@@ -1,7 +1,8 @@
 """Agent long-term memory API.
 
-Routes for the local provider. Projects that opt into BSage will swap
-in a different ``MemoryProvider`` implementation behind these endpoints.
+Routes auto-select the right backend per tenant: LocalMemoryProvider
+by default, BSageMemoryProvider when the active tenant has BSage
+credentials in its settings.
 """
 
 from __future__ import annotations
@@ -12,13 +13,23 @@ from typing import Any
 from bsvibe_auth import BSVibeUser
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.core.auth import Permission, require_permission
-from backend.src.core.memory import LocalMemoryProvider, MemoryRecord
+from backend.src.core.memory import MemoryProvider, MemoryRecord, make_memory_provider
+from backend.src.core.tenant_context import get_tenant_id
+from backend.src.models import Tenant
 from backend.src.storage.database import get_db
 
 router = APIRouter(prefix="/api/v1/projects/{project_id}/memories", tags=["memory"])
+
+
+async def _resolve_provider(db: AsyncSession, tenant_id: uuid.UUID) -> MemoryProvider:
+    result = await db.execute(select(Tenant).where(Tenant.id == tenant_id))
+    tenant = result.scalar_one_or_none()
+    settings = tenant.settings if tenant else None
+    return make_memory_provider(db, settings)
 
 
 class MemoryCreate(BaseModel):
@@ -59,8 +70,9 @@ async def list_memories(
     limit: int = Query(50, ge=1, le=200),
     _auth: BSVibeUser = Depends(require_permission(Permission.project_read)),
     db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
 ) -> list[MemoryResponse]:
-    provider = LocalMemoryProvider(db)
+    provider = await _resolve_provider(db, tenant_id)
     records = await provider.recall(project_id, agent_id=agent_id, category=category, limit=limit)
     return [_to_response(r) for r in records]
 
@@ -71,8 +83,9 @@ async def create_memory(
     body: MemoryCreate,
     _auth: BSVibeUser = Depends(require_permission(Permission.project_update)),
     db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
 ) -> MemoryResponse:
-    provider = LocalMemoryProvider(db)
+    provider = await _resolve_provider(db, tenant_id)
     record = await provider.remember(
         project_id,
         body.agent_id,
@@ -91,8 +104,9 @@ async def delete_memory(
     memory_id: uuid.UUID,
     _auth: BSVibeUser = Depends(require_permission(Permission.project_update)),
     db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
 ) -> None:
-    provider = LocalMemoryProvider(db)
+    provider = await _resolve_provider(db, tenant_id)
     deleted = await provider.forget(memory_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Memory not found")
