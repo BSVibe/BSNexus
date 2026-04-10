@@ -27,6 +27,7 @@ from backend.src.api import (
     workspace,
 )
 from backend.src.config import Settings, settings as app_settings
+from backend.src.core.global_dispatcher import start_global_dispatcher, stop_global_dispatcher
 from backend.src.core.rate_limiter import RateLimitMiddleware
 from backend.src.core.security_headers import SecurityHeadersMiddleware
 from backend.src.queue.background import start_background_consumer
@@ -104,10 +105,12 @@ async def lifespan(app: FastAPI):
     app.state.redis = redis
     app.state.stream_manager = stream_manager
     await start_background_consumer(app)
+    await start_global_dispatcher(app)
 
     yield
 
     # Shutdown
+    await stop_global_dispatcher(app)
     await close_redis()
 
 
