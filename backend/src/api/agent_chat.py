@@ -197,6 +197,17 @@ def _build_system_prompt(
         parts.append(f"Job description: {agent.job_description}")
     if agent.system_prompt:
         parts.append(agent.system_prompt)
+    # Inject skill prompt fragments. Skills are reusable capability modules
+    # (design, analyze, plan, memory_keeping) derived from
+    # ``agent.capabilities`` via ``CAPABILITY_TO_SKILLS`` — that way a
+    # custom agent created through the Hire Agent form picks up the right
+    # skills automatically based on the capabilities the user checked,
+    # without any role-based hardcoding.
+    from backend.src.prompts.skills import render_skills_for_capabilities
+
+    skill_block = render_skills_for_capabilities(agent.capabilities)
+    if skill_block:
+        parts.append(skill_block)
     parts.append(build_project_context(project))
 
     colleagues = [a for a in all_agents if a.id != agent.id and a.is_active]

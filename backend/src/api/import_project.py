@@ -120,18 +120,33 @@ async def _seed_analyzer_task(
     metadata,
     tenant_id: uuid.UUID,
 ) -> None:
-    """Create a kickoff task for the Analyzer agent (if one is registered)."""
-    analyzer_result = await db.execute(
+    """Create a kickoff task for an agent that holds the ``analyze`` capability.
+
+    Capabilities double as skill triggers (see
+    ``backend/src/prompts/skills.py``); any agent whose
+    ``capabilities`` includes ``analyze`` (or its alias ``analysis`` /
+    ``coding``) can run this kickoff. We pick the first such agent in
+    the tenant, otherwise skip seeding rather than attribute the task to
+    an unrelated agent.
+    """
+    candidates_result = await db.execute(
         select(models.Agent).where(
             models.Agent.tenant_id == tenant_id,
-            models.Agent.role == "analyzer",
             models.Agent.is_active.is_(True),
-        ).limit(1)
+        )
     )
-    analyzer = analyzer_result.scalar_one_or_none()
+    candidates = list(candidates_result.scalars().all())
+    if not candidates:
+        return
+
+    def _has_analyze_capability(agent: models.Agent) -> bool:
+        return bool(
+            agent.capabilities
+            and any((c or "").strip().lower() == "analyze" for c in agent.capabilities)
+        )
+
+    analyzer = next((a for a in candidates if _has_analyze_capability(a)), None)
     if analyzer is None:
-        # No analyzer agent yet — skip seeding. The user can apply the
-        # 'specialists' template and re-run the import.
         return
 
     # Make sure the project has a phase to attach the task to.

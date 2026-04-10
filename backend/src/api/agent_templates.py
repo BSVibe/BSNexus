@@ -11,12 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.core.tenant_context import get_tenant_id
 from backend.src.models import Agent, ExecutorConfig
-from backend.src.prompts.specialists import (
-    ANALYZER_SYSTEM_PROMPT,
-    DESIGNER_SYSTEM_PROMPT,
-    MEMORY_KEEPER_SYSTEM_PROMPT,
-    PLANNER_SYSTEM_PROMPT,
-)
 from backend.src.repositories.agent_repository import AgentRepository
 from backend.src.schemas.agent import AgentResponse
 from backend.src.storage.database import get_db
@@ -30,6 +24,11 @@ class AgentTemplate(BaseModel):
     title: str
     job_description: str
     executor_type: str
+    # Capabilities double as the skill source: tokens like ``plan`` /
+    # ``analyze`` / ``design`` get resolved through CAPABILITY_TO_SKILLS
+    # in ``backend.src.prompts.skills`` at chat dispatch time, so any
+    # agent with the same capability list — template or custom — picks
+    # up the same skill prompt fragments.
     capabilities: list[str]
     system_prompt: str | None = None
     monthly_budget_cents: int | None = None
@@ -50,6 +49,16 @@ class OrgTemplate(BaseModel):
 # QA: moderate (review + test runs)                   → $30
 # PM / Marketer / Designer / Writer: text generation  → $15
 
+# ─── Capability tokens ──────────────────────────────────────────────
+# Tokens that map to skill prompt fragments via
+# ``backend.src.prompts.skills.CAPABILITY_TO_SKILLS``:
+#   - ``plan``    → planning skill (CEO, leads, PMs)
+#   - ``analyze`` → codebase analysis skill (CTO, engineers)
+#   - ``design``  → design system skill (Designer, CMO)
+# Existing free-form descriptors (writing, marketing, research, general,
+# coding, analysis) are preserved for filtering/UX. ``memory_keeping``
+# is appended automatically by the prompt builder for every agent.
+
 TEMPLATES: dict[str, OrgTemplate] = {
     "startup": OrgTemplate(
         id="startup",
@@ -63,7 +72,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                 title="Chief Executive Officer",
                 job_description="Sets company vision, makes strategic decisions, coordinates all departments",
                 executor_type="claude_api",
-                capabilities=["analysis", "writing", "general"],
+                capabilities=["plan", "analyze", "writing", "general"],
                 monthly_budget_cents=2000,
                 children=[
                     AgentTemplate(
@@ -72,7 +81,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                         title="Chief Technology Officer",
                         job_description="Leads technical architecture and engineering team",
                         executor_type="claude_api",
-                        capabilities=["coding", "analysis"],
+                        capabilities=["plan", "analyze", "coding"],
                         monthly_budget_cents=2000,
                         children=[
                             AgentTemplate(
@@ -81,7 +90,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                                 title="Full-Stack Engineer",
                                 job_description="Implements features, fixes bugs, writes tests, deploys code",
                                 executor_type="claude_code",
-                                capabilities=["coding"],
+                                capabilities=["analyze", "coding"],
                                 monthly_budget_cents=5000,
                             ),
                             AgentTemplate(
@@ -90,7 +99,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                                 title="QA Engineer",
                                 job_description="Reviews code quality, runs tests, validates requirements, reports bugs",
                                 executor_type="claude_api",
-                                capabilities=["coding", "analysis"],
+                                capabilities=["analyze", "coding"],
                                 monthly_budget_cents=3000,
                             ),
                         ],
@@ -101,7 +110,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                         title="Product Manager",
                         job_description="Defines product requirements, prioritizes backlog, manages roadmap",
                         executor_type="generic_llm",
-                        capabilities=["analysis", "writing", "general"],
+                        capabilities=["plan", "writing", "general"],
                         monthly_budget_cents=1500,
                     ),
                     AgentTemplate(
@@ -110,7 +119,10 @@ TEMPLATES: dict[str, OrgTemplate] = {
                         title="Growth Marketer",
                         job_description="Creates marketing content, manages campaigns, analyzes metrics",
                         executor_type="generic_llm",
-                        capabilities=["marketing", "writing", "research"],
+                        # Marketers need design awareness for landing pages,
+                        # social posts, brand assets — give them the design
+                        # skill so they can touch the design system directly.
+                        capabilities=["design", "marketing", "writing", "research"],
                         monthly_budget_cents=1500,
                     ),
                     AgentTemplate(
@@ -119,7 +131,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                         title="Product Designer",
                         job_description="Designs user interfaces, creates prototypes, maintains design system",
                         executor_type="generic_llm",
-                        capabilities=["writing", "analysis"],
+                        capabilities=["design", "writing"],
                         monthly_budget_cents=1500,
                     ),
                 ],
@@ -138,7 +150,10 @@ TEMPLATES: dict[str, OrgTemplate] = {
                 title="Team Lead",
                 job_description="Leads the team, makes decisions, reviews work",
                 executor_type="claude_api",
-                capabilities=["coding", "analysis", "general"],
+                # Lead is the only senior in the room — give them every
+                # skill so a 2-person team can ship UI + plan + audit
+                # without adding a Designer.
+                capabilities=["plan", "analyze", "design", "coding", "general"],
                 monthly_budget_cents=2000,
                 children=[
                     AgentTemplate(
@@ -147,7 +162,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                         title="Developer",
                         job_description="Implements features and fixes bugs",
                         executor_type="claude_code",
-                        capabilities=["coding"],
+                        capabilities=["analyze", "coding"],
                         monthly_budget_cents=5000,
                     ),
                 ],
@@ -166,7 +181,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                 title="Chief Executive Officer",
                 job_description="Sets company vision and strategy",
                 executor_type="claude_api",
-                capabilities=["analysis", "writing", "general"],
+                capabilities=["plan", "analyze", "writing", "general"],
                 monthly_budget_cents=2000,
                 children=[
                     AgentTemplate(
@@ -175,7 +190,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                         title="Chief Technology Officer",
                         job_description="Technical architecture and engineering leadership",
                         executor_type="claude_api",
-                        capabilities=["coding", "analysis"],
+                        capabilities=["plan", "analyze", "coding"],
                         monthly_budget_cents=2000,
                         children=[
                             AgentTemplate(
@@ -184,7 +199,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                                 title="Senior Backend Engineer",
                                 job_description="Backend API development, database design, infrastructure",
                                 executor_type="claude_code",
-                                capabilities=["coding"],
+                                capabilities=["analyze", "coding"],
                                 monthly_budget_cents=5000,
                             ),
                             AgentTemplate(
@@ -193,7 +208,9 @@ TEMPLATES: dict[str, OrgTemplate] = {
                                 title="Senior Frontend Engineer",
                                 job_description="Frontend UI development, component design, performance",
                                 executor_type="claude_code",
-                                capabilities=["coding"],
+                                # Frontend touches the design system from
+                                # the implementation side too.
+                                capabilities=["analyze", "design", "coding"],
                                 monthly_budget_cents=5000,
                             ),
                             AgentTemplate(
@@ -202,7 +219,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                                 title="DevOps Engineer",
                                 job_description="CI/CD pipelines, infrastructure, monitoring, deployment",
                                 executor_type="claude_code",
-                                capabilities=["coding"],
+                                capabilities=["analyze", "coding"],
                                 monthly_budget_cents=3000,
                             ),
                             AgentTemplate(
@@ -211,7 +228,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                                 title="QA Lead",
                                 job_description="Test strategy, code review, quality standards, bug triage",
                                 executor_type="claude_api",
-                                capabilities=["coding", "analysis"],
+                                capabilities=["plan", "analyze", "coding"],
                                 monthly_budget_cents=3000,
                             ),
                         ],
@@ -222,7 +239,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                         title="Chief Product Officer",
                         job_description="Product strategy, roadmap, user research",
                         executor_type="generic_llm",
-                        capabilities=["analysis", "writing", "research"],
+                        capabilities=["plan", "writing", "research"],
                         monthly_budget_cents=2000,
                         children=[
                             AgentTemplate(
@@ -231,7 +248,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                                 title="Product Manager",
                                 job_description="Feature specs, backlog grooming, stakeholder communication",
                                 executor_type="generic_llm",
-                                capabilities=["analysis", "writing"],
+                                capabilities=["plan", "writing"],
                                 monthly_budget_cents=1500,
                             ),
                             AgentTemplate(
@@ -240,7 +257,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                                 title="Product Designer",
                                 job_description="UI/UX design, prototyping, design system",
                                 executor_type="generic_llm",
-                                capabilities=["writing", "analysis"],
+                                capabilities=["design", "writing"],
                                 monthly_budget_cents=1500,
                             ),
                         ],
@@ -251,7 +268,8 @@ TEMPLATES: dict[str, OrgTemplate] = {
                         title="Chief Marketing Officer",
                         job_description="Marketing strategy, brand, content, growth",
                         executor_type="generic_llm",
-                        capabilities=["marketing", "writing", "research"],
+                        # Marketing owns brand voice → design ownership too.
+                        capabilities=["plan", "design", "marketing", "writing", "research"],
                         monthly_budget_cents=2000,
                         children=[
                             AgentTemplate(
@@ -260,78 +278,15 @@ TEMPLATES: dict[str, OrgTemplate] = {
                                 title="Content Writer",
                                 job_description="Blog posts, documentation, copywriting",
                                 executor_type="generic_llm",
-                                capabilities=["writing", "marketing"],
+                                # Same reasoning as Marketer above — content
+                                # writers ship visual artifacts, so they own
+                                # the design skill too.
+                                capabilities=["design", "writing", "marketing"],
                                 monthly_budget_cents=1500,
                             ),
                         ],
                     ),
                 ],
-            ),
-        ],
-    ),
-    "specialists": OrgTemplate(
-        id="specialists",
-        name="BSNexus Specialists",
-        description=(
-            "The four bundled specialist agents: Designer (workspace/.bsd "
-            "files), Analyzer (codebase audits), Planner (phases + tasks), "
-            "and Memory Keeper (cross-session learnings). Add this template "
-            "alongside any human-shaped team to give them the workflow "
-            "support they expect."
-        ),
-        agent_count=4,
-        agents=[
-            AgentTemplate(
-                name="Designer",
-                role="designer",
-                title="UI Designer",
-                job_description=(
-                    "Owns the project design system and produces .bsd "
-                    "screen specs in the workspace."
-                ),
-                executor_type="claude_code",
-                capabilities=["design", "writing"],
-                system_prompt=DESIGNER_SYSTEM_PROMPT,
-                monthly_budget_cents=3000,
-            ),
-            AgentTemplate(
-                name="Analyzer",
-                role="analyzer",
-                title="Codebase Analyzer",
-                job_description=(
-                    "Reads imported codebases and reports languages, "
-                    "frameworks, architecture, and risk areas."
-                ),
-                executor_type="claude_code",
-                capabilities=["analysis", "coding"],
-                system_prompt=ANALYZER_SYSTEM_PROMPT,
-                monthly_budget_cents=3000,
-            ),
-            AgentTemplate(
-                name="Planner",
-                role="planner",
-                title="Project Planner",
-                job_description=(
-                    "Turns user goals or analyzer reports into concrete "
-                    "phases and tasks for the rest of the team."
-                ),
-                executor_type="claude_api",
-                capabilities=["analysis", "writing"],
-                system_prompt=PLANNER_SYSTEM_PROMPT,
-                monthly_budget_cents=2000,
-            ),
-            AgentTemplate(
-                name="MemoryKeeper",
-                role="memory_keeper",
-                title="Memory Keeper",
-                job_description=(
-                    "Reviews recent chat and decides what to persist as "
-                    "long-term project memory."
-                ),
-                executor_type="claude_api",
-                capabilities=["analysis", "writing"],
-                system_prompt=MEMORY_KEEPER_SYSTEM_PROMPT,
-                monthly_budget_cents=1000,
             ),
         ],
     ),

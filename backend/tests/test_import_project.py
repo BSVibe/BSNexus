@@ -181,7 +181,12 @@ async def test_import_project_git_storage_requires_remote(client: AsyncClient, t
 async def test_import_project_seeds_analyzer_task_when_agent_present(
     client: AsyncClient, db_session, tmp_path: Path, monkeypatch
 ) -> None:
-    """When an analyzer agent exists, importing a project queues a kickoff task."""
+    """When any agent holds the ``analyze`` skill, importing a project queues a kickoff task.
+
+    The legacy model used a dedicated ``analyzer`` role; the new model
+    treats ``analyze`` as a *skill* that any agent can opt into. The
+    seed-task path picks the first eligible agent in the tenant.
+    """
     from datetime import datetime, timezone
 
     from backend.src.core.tenant_context import DEFAULT_TENANT_ID
@@ -196,11 +201,14 @@ async def test_import_project_seeds_analyzer_task_when_agent_present(
         Agent(
             id=uuid.uuid4(),
             tenant_id=DEFAULT_TENANT_ID,
-            name="Analyzer",
-            role="analyzer",
+            name="CTO",
+            role="cto",
             executor_type="claude_code",
             executor_config={},
-            capabilities=[],
+            # The new model derives skills from capabilities — the
+            # ``analyze`` token is what marks this agent as eligible to
+            # be picked as the kickoff target.
+            capabilities=["plan", "analyze", "coding"],
             status="online",
             is_active=True,
             created_at=now,
