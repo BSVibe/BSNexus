@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.src.api.settings import verify_install_token
+from backend.src.api.settings import resolve_install_token_tenant
 from backend.src.core.tenant_context import DEFAULT_TENANT_ID, get_tenant_id
 from backend.src.core.worker_dispatch import WorkerDispatcher
 from backend.src.models import Agent, ExecutorConfig, Task, TaskStatus
@@ -121,12 +121,11 @@ def _worker_description(capabilities: list[str]) -> str:
     return f"Self-hosted worker ({', '.join(capabilities)})"
 
 
-def _make_worker_executor_config(name: str, worker_id: uuid.UUID, capabilities: list[str]) -> ExecutorConfig:
-    # Workers register with an install token (no JWT), so we have no user
-    # context here. Until install tokens carry a tenant id, every worker is
-    # owned by the default tenant.
+def _make_worker_executor_config(
+    name: str, worker_id: uuid.UUID, capabilities: list[str], tenant_id: uuid.UUID
+) -> ExecutorConfig:
     return ExecutorConfig(
-        tenant_id=DEFAULT_TENANT_ID,
+        tenant_id=tenant_id,
         name=f"Worker: {name}",
         executor_type="worker",
         config={"worker_id": str(worker_id)},
@@ -140,17 +139,41 @@ async def register_worker(
     x_install_token: str = Header("", alias="X-Install-Token"),
     db: AsyncSession = Depends(get_db),
 ) -> WorkerRegisterResponse:
-    """Register or re-register a worker. Same name = update existing."""
-    if not await verify_install_token(x_install_token, db):
-        raise HTTPException(status_code=401, detail="Invalid install token. Generate one in Settings.")
+    """Register or re-register a worker. Same name (within tenant) = update existing.
+
+    The install token determines the worker's tenant. Tokens are minted
+    via Settings → Install Token by an admin of the target tenant.
+    """
+    install_tenant_id: uuid.UUID | None = None
+    if x_install_token:
+        install_tenant_id = await resolve_install_token_tenant(x_install_token, db)
+        if install_tenant_id is None:
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid install token. Generate one in Settings → Install Token.",
+            )
+    else:
+        # Open-mode fallback: no token at all means single-tenant dev. We
+        # only allow this when the default tenant has not minted its own
+        # token yet (otherwise the admin clearly wants tokens enforced).
+        from backend.src.models import Tenant
+
+        result = await db.execute(select(Tenant).where(Tenant.id == DEFAULT_TENANT_ID))
+        default_tenant = result.scalar_one_or_none()
+        if default_tenant is None or default_tenant.worker_install_token_hash is not None:
+            raise HTTPException(
+                status_code=401,
+                detail="Install token required. Generate one in Settings → Install Token.",
+            )
+        install_tenant_id = DEFAULT_TENANT_ID
 
     token = secrets.token_urlsafe(32)
     now = datetime.now(timezone.utc)
 
-    # Check for existing workers with same name (keep most recently active)
+    # Check for existing workers with same name in the same tenant
     result = await db.execute(
         select(Worker).where(
-            Worker.tenant_id == DEFAULT_TENANT_ID,
+            Worker.tenant_id == install_tenant_id,
             Worker.name == body.name,
         ).order_by(Worker.last_heartbeat.desc().nulls_last())
     )
@@ -192,11 +215,15 @@ async def register_worker(
         if exec_config:
             exec_config.description = _worker_description(body.capabilities)
         else:
-            db.add(_make_worker_executor_config(body.name, worker.id, body.capabilities))
+            db.add(
+                _make_worker_executor_config(
+                    body.name, worker.id, body.capabilities, install_tenant_id
+                )
+            )
     else:
         # New registration
         worker = Worker(
-            tenant_id=DEFAULT_TENANT_ID,
+            tenant_id=install_tenant_id,
             name=body.name,
             labels=body.labels,
             capabilities=body.capabilities,
@@ -208,7 +235,11 @@ async def register_worker(
         await db.flush()
         await db.refresh(worker)
 
-        db.add(_make_worker_executor_config(body.name, worker.id, body.capabilities))
+        db.add(
+            _make_worker_executor_config(
+                body.name, worker.id, body.capabilities, install_tenant_id
+            )
+        )
 
     await db.commit()
     return WorkerRegisterResponse(id=worker.id, token=token)
