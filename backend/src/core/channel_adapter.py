@@ -133,6 +133,11 @@ class ChannelFanout:
                 logger.exception("chat_tail_failed", project_id=str(self.project_id))
                 await asyncio.sleep(1)
                 continue
+            # Yield to the event loop so cooperative cancellation can fire
+            # even when tail() returns instantly (e.g. tests with mocked
+            # streams or genuinely empty Redis streams).
+            if not entries:
+                await asyncio.sleep(0)
             for entry in entries:
                 last_id = entry.pop("_message_id", last_id)
                 if entry.get("event") != "message_created":
