@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthContext } from '../components/auth/AuthContext'
 
@@ -22,6 +23,12 @@ const features = [
 export default function LandingPage() {
   const { user, login } = useAuthContext()
   const navigate = useNavigate()
+
+  useEffect(() => {
+    if (user) {
+      navigate('/dashboard', { replace: true })
+    }
+  }, [user, navigate])
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-stitch-surface relative overflow-hidden">
