@@ -33,7 +33,7 @@ from backend.src.core.task_markers import CREATE_TASK_RE, build_project_context,
 from backend.src.core.auth import Permission, require_permission
 from backend.src.core.goal_alignment import GoalAlignmentService
 from backend.src.core.llm_client import LLMClient, LLMConfig
-from backend.src.core.tenant_context import DEFAULT_TENANT_ID
+from backend.src.core.tenant_context import get_tenant_id
 from backend.src.core.worker_dispatch import WorkerDispatcher
 from backend.src.queue.streams import RedisStreamManager
 from backend.src.repositories.conversation_repository import ConversationRepository
@@ -180,9 +180,11 @@ def _build_system_prompt(
     project: models.Project,
     goal_context: str,
     all_agents: list[models.Agent],
-    memory_context: str = "",
+    org_context: str = "",
 ) -> str:
     parts: list[str] = []
+    if org_context:
+        parts.append(org_context)
     if goal_context:
         parts.append(goal_context)
     parts.append(
@@ -195,8 +197,6 @@ def _build_system_prompt(
         parts.append(f"Job description: {agent.job_description}")
     if agent.system_prompt:
         parts.append(agent.system_prompt)
-    if memory_context:
-        parts.append(memory_context)
     parts.append(build_project_context(project))
 
     colleagues = [a for a in all_agents if a.id != agent.id and a.is_active]
@@ -442,17 +442,29 @@ async def _resolve_llm_config(agent: models.Agent, db: AsyncSession) -> LLMConfi
     )
 
 
-async def _build_memory_context(agent_id: uuid.UUID, project_id: uuid.UUID, db: AsyncSession) -> str:
-    """Pull recent long-term memories for this agent and format them for the prompt."""
-    from backend.src.core.memory import LocalMemoryProvider
+async def _build_org_context(tenant_id: uuid.UUID, db: AsyncSession) -> str:
+    """Load tenant-level mission goals and format them for the prompt.
 
-    provider = LocalMemoryProvider(db)
-    records = await provider.recall(project_id, agent_id=agent_id, limit=10)
-    if not records:
+    Org-level goals are the stable cross-session context every agent
+    must keep in mind. They live above any project — typically the
+    company mission, top-level OKRs, or principles the founder set.
+    Loading them on every turn replaces the noisier "dump the latest
+    N memories" approach we tried first.
+    """
+    result = await db.execute(
+        select(models.Goal).where(
+            models.Goal.tenant_id == tenant_id,
+            models.Goal.level == "mission",
+        ).order_by(models.Goal.created_at.asc())
+    )
+    org_goals = list(result.scalars().all())
+    if not org_goals:
         return ""
-    lines = ["Long-term memory (most recent first):"]
-    for r in records:
-        lines.append(f"- [{r.category}] {r.title}: {r.content}")
+    lines = ["[Organization mission — keep this in mind on every turn]"]
+    for goal in org_goals:
+        lines.append(f"- {goal.title}")
+        if goal.description:
+            lines.append(f"  {goal.description}")
     return "\n".join(lines)
 
 
@@ -460,6 +472,7 @@ async def _build_chat_context(
     agent: models.Agent, project: models.Project, project_id: uuid.UUID,
     history: list[models.ConversationMessage], user_message: str,
     db: AsyncSession, all_agents: list[models.Agent],
+    *, tenant_id: uuid.UUID,
 ) -> tuple[str, list[dict[str, str]]]:
     goal_svc = GoalAlignmentService(db)
     goal_result = await db.execute(
@@ -471,9 +484,9 @@ async def _build_chat_context(
     project_goal = goal_result.scalar_one_or_none()
     goal_context = await goal_svc.build_goal_context(project_goal.id) if project_goal else ""
 
-    memory_context = await _build_memory_context(agent.id, project_id, db)
+    org_context = await _build_org_context(tenant_id, db)
     system_prompt = _build_system_prompt(
-        agent, project, goal_context, all_agents=all_agents, memory_context=memory_context
+        agent, project, goal_context, all_agents=all_agents, org_context=org_context
     )
     messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
     for h in history:
@@ -488,13 +501,10 @@ async def _build_chat_context(
 async def _process_response_text(
     response_text: str, project: models.Project, project_id: uuid.UUID,
     agent: models.Agent, db: AsyncSession, redis: Any,
+    *, tenant_id: uuid.UUID,
 ) -> models.ConversationMessage:
     task_actions = await _execute_create_task_markers(response_text, project_id, agent.id, db, redis)
-    # NOTE: agent_chat still scopes to DEFAULT_TENANT_ID because the
-    # background fan-out path runs without a request context. The
-    # multitenancy follow-up will thread tenant_id through the dispatch
-    # closures explicitly.
-    goal_actions = await _execute_goal_markers(response_text, project_id, db, DEFAULT_TENANT_ID)
+    goal_actions = await _execute_goal_markers(response_text, project_id, db, tenant_id)
     cleaned = _strip_all_markers(response_text)
     return await _store_and_publish(
         db, redis, project_id, role="assistant", content=cleaned,
@@ -506,18 +516,24 @@ async def _call_via_llm(
     agent: models.Agent, project: models.Project, project_id: uuid.UUID,
     history: list[models.ConversationMessage], user_message: str,
     db: AsyncSession, redis: Any, all_agents: list[models.Agent],
+    *, tenant_id: uuid.UUID,
 ) -> models.ConversationMessage:
     llm_config = await _resolve_llm_config(agent, db)
-    _, messages = await _build_chat_context(agent, project, project_id, history, user_message, db, all_agents)
+    _, messages = await _build_chat_context(
+        agent, project, project_id, history, user_message, db, all_agents, tenant_id=tenant_id
+    )
     client = LLMClient(llm_config)
     response_text = await client.chat(messages)
-    return await _process_response_text(response_text, project, project_id, agent, db, redis)
+    return await _process_response_text(
+        response_text, project, project_id, agent, db, redis, tenant_id=tenant_id
+    )
 
 
 async def _call_via_worker(
     agent: models.Agent, project: models.Project, project_id: uuid.UUID,
     history: list[models.ConversationMessage], user_message: str,
     db: AsyncSession, redis: Any, all_agents: list[models.Agent],
+    *, tenant_id: uuid.UUID,
 ) -> models.ConversationMessage:
     if redis is None:
         raise HTTPException(status_code=500, detail="Redis not available for worker dispatch")
@@ -547,7 +563,7 @@ async def _call_via_worker(
             raise HTTPException(status_code=503, detail="No online worker available.")
 
     system_prompt, _ = await _build_chat_context(
-        agent, project, project_id, history, user_message, db, all_agents,
+        agent, project, project_id, history, user_message, db, all_agents, tenant_id=tenant_id,
     )
     flat_history: list[dict[str, str]] = []
     for h in history:
@@ -573,6 +589,7 @@ async def _call_via_worker(
                 raise HTTPException(status_code=502, detail=f"Worker error: {payload.get('error_message', 'failed')}")
             return await _process_response_text(
                 payload.get("output", ""), project, project_id, agent, db, redis,
+                tenant_id=tenant_id,
             )
         await asyncio.sleep(0.5)
         waited += 0.5
@@ -584,19 +601,29 @@ async def _call_agent(
     agent: models.Agent, project: models.Project, project_id: uuid.UUID,
     history: list[models.ConversationMessage], user_message: str,
     db: AsyncSession, redis: Any, all_agents: list[models.Agent],
+    *, tenant_id: uuid.UUID,
 ) -> models.ConversationMessage:
     """Route to executor; fall back to worker if LLM is unconfigured."""
     if agent.executor_type == "worker":
-        return await _call_via_worker(agent, project, project_id, history, user_message, db, redis, all_agents)
+        return await _call_via_worker(
+            agent, project, project_id, history, user_message, db, redis, all_agents,
+            tenant_id=tenant_id,
+        )
     try:
-        return await _call_via_llm(agent, project, project_id, history, user_message, db, redis, all_agents)
+        return await _call_via_llm(
+            agent, project, project_id, history, user_message, db, redis, all_agents,
+            tenant_id=tenant_id,
+        )
     except HTTPException as e:
         if e.status_code == 400 and "No LLM API key" in str(e.detail):
             stream_manager = RedisStreamManager(redis) if redis else None
             dispatcher = WorkerDispatcher(stream_manager) if stream_manager else None
             worker = await dispatcher.find_available_worker(db) if dispatcher else None
             if worker:
-                return await _call_via_worker(agent, project, project_id, history, user_message, db, redis, all_agents)
+                return await _call_via_worker(
+                    agent, project, project_id, history, user_message, db, redis, all_agents,
+                    tenant_id=tenant_id,
+                )
         raise
 
 
@@ -610,6 +637,7 @@ async def _process_agent_in_background(
     redis: Any,
     all_agent_ids: list[uuid.UUID],
     called_ids: set[uuid.UUID],
+    tenant_id: uuid.UUID,
     depth: int = 0,
 ) -> None:
     """Run a single agent in the background. Fresh DB session, publishes via SSE.
@@ -631,7 +659,7 @@ async def _process_agent_in_background(
 
             agents_result = await db.execute(
                 select(models.Agent).where(
-                    models.Agent.tenant_id == DEFAULT_TENANT_ID,
+                    models.Agent.tenant_id == tenant_id,
                     models.Agent.is_active.is_(True),
                 )
             )
@@ -643,7 +671,10 @@ async def _process_agent_in_background(
             await _publish_agent_status(redis, project_id, agent, "busy")
 
             history = await ConversationRepository(db).list_by_project(project_id, limit=MAX_HISTORY)
-            msg = await _call_agent(agent, project, project_id, history, user_message, db, redis, all_agents)
+            msg = await _call_agent(
+                agent, project, project_id, history, user_message, db, redis, all_agents,
+                tenant_id=tenant_id,
+            )
 
             await _publish_agent_status(redis, project_id, agent, "online")
 
@@ -654,7 +685,7 @@ async def _process_agent_in_background(
                     called_ids.add(delegate.id)
                     asyncio.create_task(_process_agent_in_background(
                         project_id, delegate.id, msg.content, redis,
-                        all_agent_ids, called_ids, depth + 1,
+                        all_agent_ids, called_ids, tenant_id, depth + 1,
                     ))
 
         except Exception as e:
@@ -690,6 +721,7 @@ async def chat_with_agent(
     request: Request,
     _auth: BSVibeUser = Depends(require_permission(Permission.project_update)),
     db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
 ) -> ChatDispatchResponse:
     """Fire-and-forget: store user message, dispatch agents, return immediately."""
     redis = getattr(request.app.state, "redis", None)
@@ -704,7 +736,7 @@ async def chat_with_agent(
     # Load agents
     agents_result = await db.execute(
         select(models.Agent).where(
-            models.Agent.tenant_id == DEFAULT_TENANT_ID,
+            models.Agent.tenant_id == tenant_id,
             models.Agent.is_active.is_(True),
         )
     )
@@ -729,6 +761,7 @@ async def chat_with_agent(
     for agent in mentioned:
         asyncio.create_task(_process_agent_in_background(
             project_id, agent.id, body.message, redis, all_agent_ids, called_ids,
+            tenant_id,
         ))
 
     return ChatDispatchResponse(dispatched_agents=[a.name for a in mentioned])
