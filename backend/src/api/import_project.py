@@ -23,6 +23,7 @@ from typing import Literal
 from bsvibe_auth import BSVibeUser
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src import models
@@ -34,6 +35,7 @@ from backend.src.core.import_sources import (
     LocalPathSource,
     TarballSource,
 )
+from backend.src.core.tenant_context import get_tenant_id
 from backend.src.core.workspace_storage import (
     GitWorkspaceStorage,
     LocalWorkspaceStorage,
@@ -104,16 +106,79 @@ def _workspace_root() -> Path:
 # ── Endpoint ─────────────────────────────────────────────────────────
 
 
+_ANALYZER_PROMPT = (
+    "A new codebase has just been imported into this project's workspace at "
+    "`{workspace}`. Detected language: {language}. {file_count} files total. "
+    "Run the analyzer workflow described in your system prompt and report "
+    "back. End with [CREATE_TASK] markers for any high-priority gaps."
+)
+
+
+async def _seed_analyzer_task(
+    db: AsyncSession,
+    project: models.Project,
+    metadata,
+    tenant_id: uuid.UUID,
+) -> None:
+    """Create a kickoff task for the Analyzer agent (if one is registered)."""
+    analyzer_result = await db.execute(
+        select(models.Agent).where(
+            models.Agent.tenant_id == tenant_id,
+            models.Agent.role == "analyzer",
+            models.Agent.is_active.is_(True),
+        ).limit(1)
+    )
+    analyzer = analyzer_result.scalar_one_or_none()
+    if analyzer is None:
+        # No analyzer agent yet — skip seeding. The user can apply the
+        # 'specialists' template and re-run the import.
+        return
+
+    # Make sure the project has a phase to attach the task to.
+    phase = models.Phase(
+        project_id=project.id,
+        name="Phase 1: Analyze",
+        description="Initial codebase audit",
+        branch_name="phase/analyze",
+        order=1,
+        status=models.PhaseStatus.active,
+    )
+    db.add(phase)
+    await db.flush()
+
+    prompt = _ANALYZER_PROMPT.format(
+        workspace=project.workspace_dir,
+        language=metadata.detected_language or "unknown",
+        file_count=metadata.files_count,
+    )
+    task = models.Task(
+        project_id=project.id,
+        phase_id=phase.id,
+        title="Analyze imported codebase",
+        description=prompt,
+        status=models.TaskStatus.pending,
+        priority=models.TaskPriority.high,
+        task_type=models.TaskType.chore,
+        source=models.TaskSource.llm,
+        agent_id=analyzer.id,
+        worker_prompt={"prompt": prompt},
+        qa_prompt={"prompt": "Verify the analyzer report covers languages, frameworks, architecture, and risks."},
+    )
+    db.add(task)
+
+
 @router.post("", response_model=ImportProjectResponse, status_code=201)
 async def import_project(
     body: ImportProjectRequest,
     _auth: BSVibeUser = Depends(require_permission(Permission.project_create)),
     db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
 ) -> ImportProjectResponse:
     """Pull an existing codebase into BSNexus and create the Project row.
 
-    The analyzer + plan generation worker tasks are dispatched
-    asynchronously by the global dispatcher once the project exists.
+    On success the endpoint also seeds an Analyzer task in Phase 1 so
+    the global dispatcher will hand the codebase audit to whichever
+    worker matches the analyzer role on the next tick.
     """
     source = _make_source(body)
     storage = _make_storage(body, _workspace_root())
@@ -137,9 +202,12 @@ async def import_project(
         workspace_type=models.WorkspaceType.local_import,
         workspace_dir=str(location.local_path),
         github_repo_url=location.remote_url,
-        status=models.ProjectStatus.design,
+        status=models.ProjectStatus.active,
     )
     db.add(project)
+    await db.flush()
+
+    await _seed_analyzer_task(db, project, metadata, tenant_id)
     await db.commit()
     await db.refresh(project)
 

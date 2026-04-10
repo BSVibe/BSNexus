@@ -11,6 +11,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.core.tenant_context import get_tenant_id
 from backend.src.models import Agent, ExecutorConfig
+from backend.src.prompts.specialists import (
+    ANALYZER_SYSTEM_PROMPT,
+    DESIGNER_SYSTEM_PROMPT,
+    MEMORY_KEEPER_SYSTEM_PROMPT,
+    PLANNER_SYSTEM_PROMPT,
+)
 from backend.src.repositories.agent_repository import AgentRepository
 from backend.src.schemas.agent import AgentResponse
 from backend.src.storage.database import get_db
@@ -25,6 +31,7 @@ class AgentTemplate(BaseModel):
     job_description: str
     executor_type: str
     capabilities: list[str]
+    system_prompt: str | None = None
     monthly_budget_cents: int | None = None
     children: list["AgentTemplate"] = []
 
@@ -262,6 +269,72 @@ TEMPLATES: dict[str, OrgTemplate] = {
             ),
         ],
     ),
+    "specialists": OrgTemplate(
+        id="specialists",
+        name="BSNexus Specialists",
+        description=(
+            "The four bundled specialist agents: Designer (workspace/.bsd "
+            "files), Analyzer (codebase audits), Planner (phases + tasks), "
+            "and Memory Keeper (cross-session learnings). Add this template "
+            "alongside any human-shaped team to give them the workflow "
+            "support they expect."
+        ),
+        agent_count=4,
+        agents=[
+            AgentTemplate(
+                name="Designer",
+                role="designer",
+                title="UI Designer",
+                job_description=(
+                    "Owns the project design system and produces .bsd "
+                    "screen specs in the workspace."
+                ),
+                executor_type="claude_code",
+                capabilities=["design", "writing"],
+                system_prompt=DESIGNER_SYSTEM_PROMPT,
+                monthly_budget_cents=3000,
+            ),
+            AgentTemplate(
+                name="Analyzer",
+                role="analyzer",
+                title="Codebase Analyzer",
+                job_description=(
+                    "Reads imported codebases and reports languages, "
+                    "frameworks, architecture, and risk areas."
+                ),
+                executor_type="claude_code",
+                capabilities=["analysis", "coding"],
+                system_prompt=ANALYZER_SYSTEM_PROMPT,
+                monthly_budget_cents=3000,
+            ),
+            AgentTemplate(
+                name="Planner",
+                role="planner",
+                title="Project Planner",
+                job_description=(
+                    "Turns user goals or analyzer reports into concrete "
+                    "phases and tasks for the rest of the team."
+                ),
+                executor_type="claude_api",
+                capabilities=["analysis", "writing"],
+                system_prompt=PLANNER_SYSTEM_PROMPT,
+                monthly_budget_cents=2000,
+            ),
+            AgentTemplate(
+                name="MemoryKeeper",
+                role="memory_keeper",
+                title="Memory Keeper",
+                job_description=(
+                    "Reviews recent chat and decides what to persist as "
+                    "long-term project memory."
+                ),
+                executor_type="claude_api",
+                capabilities=["analysis", "writing"],
+                system_prompt=MEMORY_KEEPER_SYSTEM_PROMPT,
+                monthly_budget_cents=1000,
+            ),
+        ],
+    ),
 }
 
 
@@ -318,6 +391,7 @@ async def apply_template(
                 executor_config_id=None,  # Use Default
                 executor_type=default_executor_type,
                 capabilities=t.capabilities,
+                system_prompt=t.system_prompt,
                 monthly_budget_cents=t.monthly_budget_cents,
                 parent_agent_id=parent_id,
             )

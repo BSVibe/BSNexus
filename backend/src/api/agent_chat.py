@@ -180,6 +180,7 @@ def _build_system_prompt(
     project: models.Project,
     goal_context: str,
     all_agents: list[models.Agent],
+    memory_context: str = "",
 ) -> str:
     parts: list[str] = []
     if goal_context:
@@ -194,6 +195,8 @@ def _build_system_prompt(
         parts.append(f"Job description: {agent.job_description}")
     if agent.system_prompt:
         parts.append(agent.system_prompt)
+    if memory_context:
+        parts.append(memory_context)
     parts.append(build_project_context(project))
 
     colleagues = [a for a in all_agents if a.id != agent.id and a.is_active]
@@ -439,6 +442,20 @@ async def _resolve_llm_config(agent: models.Agent, db: AsyncSession) -> LLMConfi
     )
 
 
+async def _build_memory_context(agent_id: uuid.UUID, project_id: uuid.UUID, db: AsyncSession) -> str:
+    """Pull recent long-term memories for this agent and format them for the prompt."""
+    from backend.src.core.memory import LocalMemoryProvider
+
+    provider = LocalMemoryProvider(db)
+    records = await provider.recall(project_id, agent_id=agent_id, limit=10)
+    if not records:
+        return ""
+    lines = ["Long-term memory (most recent first):"]
+    for r in records:
+        lines.append(f"- [{r.category}] {r.title}: {r.content}")
+    return "\n".join(lines)
+
+
 async def _build_chat_context(
     agent: models.Agent, project: models.Project, project_id: uuid.UUID,
     history: list[models.ConversationMessage], user_message: str,
@@ -454,7 +471,10 @@ async def _build_chat_context(
     project_goal = goal_result.scalar_one_or_none()
     goal_context = await goal_svc.build_goal_context(project_goal.id) if project_goal else ""
 
-    system_prompt = _build_system_prompt(agent, project, goal_context, all_agents=all_agents)
+    memory_context = await _build_memory_context(agent.id, project_id, db)
+    system_prompt = _build_system_prompt(
+        agent, project, goal_context, all_agents=all_agents, memory_context=memory_context
+    )
     messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
     for h in history:
         content = h.content

@@ -176,3 +176,104 @@ async def test_import_project_git_storage_requires_remote(client: AsyncClient, t
     )
     assert resp.status_code == 400
     assert "storage_remote_url" in resp.json()["detail"]
+
+
+async def test_import_project_seeds_analyzer_task_when_agent_present(
+    client: AsyncClient, db_session, tmp_path: Path, monkeypatch
+) -> None:
+    """When an analyzer agent exists, importing a project queues a kickoff task."""
+    from datetime import datetime, timezone
+
+    from backend.src.core.tenant_context import DEFAULT_TENANT_ID
+    from backend.src.models import Agent, Task, Tenant
+
+    db_session.add(
+        Tenant(id=DEFAULT_TENANT_ID, name="Test", slug="test", owner_user_id="test-user")
+    )
+    await db_session.commit()
+    now = datetime.now(timezone.utc)
+    db_session.add(
+        Agent(
+            id=uuid.uuid4(),
+            tenant_id=DEFAULT_TENANT_ID,
+            name="Analyzer",
+            role="analyzer",
+            executor_type="claude_code",
+            executor_config={},
+            capabilities=[],
+            status="online",
+            is_active=True,
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    await db_session.commit()
+
+    src = tmp_path / "demo"
+    src.mkdir()
+    (src / "main.py").write_text("print('hi')")
+    monkeypatch.setattr(
+        "backend.src.api.import_project._workspace_root",
+        lambda: tmp_path / "ws",
+    )
+
+    resp = await client.post(
+        "/api/v1/projects/import",
+        json={
+            "name": "Imported",
+            "source_type": "local",
+            "source_uri": str(src),
+            "storage_type": "local",
+        },
+    )
+    assert resp.status_code == 201
+    project_id = uuid.UUID(resp.json()["project_id"])
+
+    from sqlalchemy import select
+
+    result = await db_session.execute(
+        select(Task).where(Task.project_id == project_id)
+    )
+    tasks = list(result.scalars().all())
+    assert len(tasks) == 1
+    seeded = tasks[0]
+    assert seeded.title == "Analyze imported codebase"
+    assert seeded.task_type.value == "chore"
+    assert seeded.worker_prompt is not None
+    prompt_text = seeded.worker_prompt["prompt"]
+    assert str(project_id) in prompt_text or seeded.description == prompt_text
+    assert "python" in prompt_text.lower()
+
+
+async def test_import_project_skips_seed_when_no_analyzer_agent(
+    client: AsyncClient, db_session, tmp_path: Path, monkeypatch
+) -> None:
+    """Without an analyzer agent the import still succeeds but no task is queued."""
+    src = tmp_path / "demo"
+    src.mkdir()
+    (src / "main.py").write_text("")
+    monkeypatch.setattr(
+        "backend.src.api.import_project._workspace_root",
+        lambda: tmp_path / "ws2",
+    )
+
+    resp = await client.post(
+        "/api/v1/projects/import",
+        json={
+            "name": "No Analyzer",
+            "source_type": "local",
+            "source_uri": str(src),
+            "storage_type": "local",
+        },
+    )
+    assert resp.status_code == 201
+    project_id = uuid.UUID(resp.json()["project_id"])
+
+    from sqlalchemy import select
+
+    from backend.src.models import Task
+
+    result = await db_session.execute(
+        select(Task).where(Task.project_id == project_id)
+    )
+    assert result.scalars().all() == []
