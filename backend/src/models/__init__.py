@@ -17,12 +17,14 @@ from backend.src.models.task import (
     TaskType,
     task_dependencies,
 )
+from backend.src.models.task_activity import ActivityLevel, TaskActivity
 from backend.src.models.task_suggestion import SuggestionStatus, TaskSuggestion
 from backend.src.models.tenant import Tenant, TenantMember
 from backend.src.models.worker import Worker
 
 __all__ = [
     # Enums
+    "ActivityLevel",
     "PhaseStatus",
     "ProjectStatus",
     "SuggestionStatus",
@@ -41,6 +43,7 @@ __all__ = [
     "Project",
     "Setting",
     "Task",
+    "TaskActivity",
     "TaskHistory",
     "TaskSuggestion",
     "Tenant",

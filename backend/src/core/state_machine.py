@@ -9,7 +9,15 @@ from typing import TYPE_CHECKING, Any, Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.src.models import Phase, PhaseStatus, Task, TaskHistory, TaskStatus
+from backend.src.models import (
+    ActivityLevel,
+    Phase,
+    PhaseStatus,
+    Task,
+    TaskActivity,
+    TaskHistory,
+    TaskStatus,
+)
 from backend.src.queue.streams import RedisStreamManager
 from backend.src.repositories.task_repository import TaskRepository
 
@@ -62,7 +70,7 @@ class TaskStateMachine:
             "Task %s: %s -> %s (actor=%s, reason=%s)", task.id, old_status.value, new_status.value, actor, reason
         )
 
-        # 2. Record history (requires db_session)
+        # 2. Record history + milestone activity (requires db_session)
         if db_session is not None:
             history = TaskHistory(
                 task_id=task.id,
@@ -73,6 +81,23 @@ class TaskStateMachine:
                 extra_metadata=kwargs if kwargs else None,
             )
             db_session.add(history)
+
+            db_session.add(
+                TaskActivity(
+                    task_id=task.id,
+                    project_id=task.project_id,
+                    agent_id=task.agent_id,
+                    level=ActivityLevel.milestone,
+                    event_type=_milestone_event_type(new_status),
+                    summary=_milestone_summary(new_status, actor, reason),
+                    detail={
+                        "from_status": old_status.value,
+                        "to_status": new_status.value,
+                        "actor": actor,
+                        **({"reason": reason} if reason else {}),
+                    },
+                )
+            )
 
         # 3. Update task status + version (optimistic locking)
         task.status = new_status
@@ -234,3 +259,30 @@ class TaskStateMachine:
         """Promote WAITING tasks that depend on the completed task to READY (public API)."""
         repo = TaskRepository(db_session)
         return await self._promote_dependents(task, repo, db_session)
+
+
+# -- Milestone helpers --------------------------------------------------------
+
+
+_MILESTONE_EVENT_TYPES: dict[TaskStatus, str] = {
+    TaskStatus.pending: "task_reset",
+    TaskStatus.running: "task_started",
+    TaskStatus.done: "task_completed",
+    TaskStatus.blocked: "task_blocked",
+}
+
+
+def _milestone_event_type(new_status: TaskStatus) -> str:
+    return _MILESTONE_EVENT_TYPES.get(new_status, "task_transition")
+
+
+def _milestone_summary(new_status: TaskStatus, actor: str, reason: Optional[str]) -> str:
+    label = {
+        TaskStatus.pending: "Reset to pending",
+        TaskStatus.running: "Started",
+        TaskStatus.done: "Completed",
+        TaskStatus.blocked: "Blocked",
+    }.get(new_status, f"Transitioned to {new_status.value}")
+    if reason:
+        return f"{label} by {actor}: {reason}"
+    return f"{label} by {actor}"

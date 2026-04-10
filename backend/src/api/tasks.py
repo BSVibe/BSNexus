@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 import uuid
-from typing import Optional
+from typing import Any, Optional
 
 from bsvibe_auth import BSVibeUser
 from backend.src import models, schemas
 from backend.src.core.auth import Permission, require_permission
 from backend.src.core.state_machine import TaskStateMachine
-from backend.src.models import Task
+from backend.src.models import ActivityLevel, Task, TaskActivity, TaskHistory
 from backend.src.repositories.task_repository import TaskRepository
 from backend.src.storage.database import get_db
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(prefix="/api/v1/tasks", tags=["tasks"])
@@ -261,3 +263,94 @@ async def list_project_tasks(
     )
 
     return [build_task_response(task) for task in tasks]
+
+
+# -- Task activity feed -------------------------------------------------------
+
+
+class ActivityEntry(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    task_id: uuid.UUID
+    level: ActivityLevel
+    event_type: str
+    summary: str
+    detail: dict[str, Any] | None = None
+    created_at: str
+
+
+class ActivityFeedResponse(BaseModel):
+    task_id: uuid.UUID
+    entries: list[ActivityEntry] = Field(default_factory=list)
+
+
+@router.get("/{task_id}/activity", response_model=ActivityFeedResponse)
+async def get_task_activity(
+    task_id: uuid.UUID,
+    level: str = Query("milestone", pattern="^(milestone|all)$"),
+    limit: int = Query(200, le=1000),
+    _auth: BSVibeUser = Depends(require_permission(Permission.task_read)),
+    db: AsyncSession = Depends(get_db),
+) -> ActivityFeedResponse:
+    """Return the activity feed for a task.
+
+    ``level=milestone`` (default) returns user-facing milestones plus
+    state machine transitions. ``level=all`` additionally includes raw
+    tool log entries that workers attached to the task.
+    """
+    repo = TaskRepository(db)
+    task = await repo.get_by_id(task_id, load_depends=False)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    activity_query = select(TaskActivity).where(TaskActivity.task_id == task_id)
+    if level == "milestone":
+        activity_query = activity_query.where(TaskActivity.level == ActivityLevel.milestone)
+    activity_query = activity_query.order_by(TaskActivity.created_at.asc()).limit(limit)
+    activity_rows = (await db.execute(activity_query)).scalars().all()
+
+    history_query = (
+        select(TaskHistory)
+        .where(TaskHistory.task_id == task_id)
+        .order_by(TaskHistory.timestamp.asc())
+        .limit(limit)
+    )
+    history_rows = (await db.execute(history_query)).scalars().all()
+
+    entries: list[ActivityEntry] = []
+    for row in activity_rows:
+        entries.append(
+            ActivityEntry(
+                id=row.id,
+                task_id=row.task_id,
+                level=row.level,
+                event_type=row.event_type,
+                summary=row.summary,
+                detail=row.detail,
+                created_at=row.created_at.isoformat() if row.created_at else "",
+            )
+        )
+
+    # Fold legacy TaskHistory rows in as milestone entries so older tasks
+    # (created before TaskActivity existed) still show their transition log.
+    for row in history_rows:
+        entries.append(
+            ActivityEntry(
+                id=row.id,
+                task_id=row.task_id,
+                level=ActivityLevel.milestone,
+                event_type="state_transition",
+                summary=f"{row.from_status} -> {row.to_status} (by {row.actor})",
+                detail={
+                    "from_status": row.from_status,
+                    "to_status": row.to_status,
+                    "actor": row.actor,
+                    "reason": row.reason,
+                },
+                created_at=row.timestamp.isoformat() if row.timestamp else "",
+            )
+        )
+
+    entries.sort(key=lambda e: e.created_at)
+    return ActivityFeedResponse(task_id=task_id, entries=entries)

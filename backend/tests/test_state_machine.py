@@ -249,20 +249,28 @@ async def test_version_increments_per_transition(
     assert task.version == 3
 
 
-async def test_history_recorded(
+async def test_history_and_activity_recorded(
     state_machine: TaskStateMachine, mock_db: AsyncMock, mock_stream: AsyncMock
 ) -> None:
+    """Each transition writes both a TaskHistory row and a milestone TaskActivity row."""
+    from backend.src.models import ActivityLevel, TaskActivity
+
     task = make_task(status=TaskStatus.pending)
     await state_machine.transition(
         task, TaskStatus.running, actor="test-user", reason="dispatched", db_session=mock_db, stream_manager=mock_stream
     )
-    mock_db.add.assert_called_once()
-    added_obj = mock_db.add.call_args[0][0]
-    assert isinstance(added_obj, TaskHistory)
-    assert added_obj.from_status == "pending"
-    assert added_obj.to_status == "running"
-    assert added_obj.actor == "test-user"
-    assert added_obj.reason == "dispatched"
+    added_objs = [c.args[0] for c in mock_db.add.call_args_list]
+    history_rows = [o for o in added_objs if isinstance(o, TaskHistory)]
+    activity_rows = [o for o in added_objs if isinstance(o, TaskActivity)]
+    assert len(history_rows) == 1
+    assert history_rows[0].from_status == "pending"
+    assert history_rows[0].to_status == "running"
+    assert history_rows[0].actor == "test-user"
+    assert history_rows[0].reason == "dispatched"
+    assert len(activity_rows) == 1
+    assert activity_rows[0].level == ActivityLevel.milestone
+    assert activity_rows[0].event_type == "task_started"
+    assert "test-user" in activity_rows[0].summary
 
 
 # -- Dependent promotion ------------------------------------------------------

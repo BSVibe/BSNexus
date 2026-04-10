@@ -343,6 +343,52 @@ async def submit_result(
             task.output_data = body.output_data
         if body.error_message:
             task.error_message = body.error_message
+
+        # Emit a milestone TaskActivity row so the Plan detail panel sees the result.
+        from backend.src.models import ActivityLevel as _ActivityLevel
+        from backend.src.models import TaskActivity as _TaskActivity
+        if body.success:
+            summary = "Worker reported success"
+        else:
+            summary = body.error_message or "Worker reported failure"
+        db.add(
+            _TaskActivity(
+                task_id=task.id,
+                project_id=task.project_id,
+                agent_id=task.agent_id,
+                level=_ActivityLevel.milestone,
+                event_type="worker_result",
+                summary=summary[:2000],
+                detail={
+                    "success": body.success,
+                    "worker_id": str(worker.id),
+                    **({"output_data": body.output_data} if body.output_data else {}),
+                    **({"error_message": body.error_message} if body.error_message else {}),
+                },
+            )
+        )
+
+        # If the worker reported individual tool calls, store them as ``tool``
+        # activity rows so the detail panel can reveal them on demand.
+        tool_log = (body.output_data or {}).get("tool_log") if body.output_data else None
+        if isinstance(tool_log, list):
+            for entry in tool_log:
+                if not isinstance(entry, dict):
+                    continue
+                event_type = str(entry.get("type") or entry.get("tool") or "tool_call")[:64]
+                summary = str(entry.get("summary") or entry.get("description") or event_type)[:2000]
+                db.add(
+                    _TaskActivity(
+                        task_id=task.id,
+                        project_id=task.project_id,
+                        agent_id=task.agent_id,
+                        level=_ActivityLevel.tool,
+                        event_type=event_type,
+                        summary=summary,
+                        detail=entry,
+                    )
+                )
+
         await db.commit()
 
     stream_manager = getattr(request.app.state, "stream_manager", None)
