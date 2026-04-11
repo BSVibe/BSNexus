@@ -44,6 +44,7 @@ logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v1/projects/{project_id}/chat", tags=["agent-chat"])
 
 SET_GOAL_RE = re.compile(r"\[SET_GOAL\](.*?)\[/SET_GOAL\]", re.DOTALL)
+STATUS_RE = re.compile(r"^\[STATUS\]\s*(.+?)$", re.MULTILINE)
 MAX_HISTORY = 100
 # Per-agent timeout for waiting on a worker chat result. This is NOT a
 # chain-wide limit — each agent's _call_via_worker polls independently.
@@ -103,35 +104,56 @@ def _parse_mentions(message: str, agents: list[models.Agent]) -> list[models.Age
 _MENTION_RE = re.compile(r"@\S+")
 
 
-def _summarize_activity(message: str, agent_name: str = "", max_len: int = 60) -> str:
-    """Extract a short activity summary from a chat message.
+def _summarize_activity(message: str, agent_name: str = "", max_len: int = 50) -> str:
+    """Build a short "doing what" activity label from a chat message.
 
-    For the initial user message: strips @mentions, takes first
-    ``max_len`` chars → "시장 조사해서 CEO에게 보고해".
+    Examples:
+      "@CMO 시장 조사해서 CEO에게 보고해"
+        → "시장 조사해서 CEO에게 보고해"
 
-    For delegation chains: the ``message`` is the previous agent's full
-    response (hundreds of lines). In that case, find the sentence that
-    mentions ``@agent_name`` and summarize around it. If no mention
-    found, fall back to the first ``max_len`` chars.
+      (CEO's long response containing "@CTO 님께 — 기술 스택 및 아키텍처 방향...")
+        → "기술 스택 및 아키텍처 방향 검토 중"
+
+    Strategy:
+    1. For delegation chains (message > 200 chars): find the line that
+       mentions @agent_name and extract the request from that line.
+    2. For direct user messages: strip @mentions.
+    3. Append "중" (Korean "in progress") suffix if the text looks like
+       a verb phrase, making it read as "시장 조사 중" not "시장 조사".
     """
+    raw = ""
+
     # For delegation: find the line mentioning this agent.
     if agent_name and len(message) > 200:
         for line in message.split("\n"):
             if f"@{agent_name}" in line:
-                stripped = _MENTION_RE.sub("", line).strip()
-                stripped = " ".join(stripped.split())
-                if stripped:
-                    if len(stripped) <= max_len:
-                        return stripped
-                    return stripped[:max_len].rstrip() + "..."
+                raw = line
+                break
 
-    stripped = _MENTION_RE.sub("", message).strip()
+    if not raw:
+        raw = message
+
+    # Strip @mentions, markdown cruft, collapse whitespace.
+    stripped = _MENTION_RE.sub("", raw).strip()
+    stripped = stripped.lstrip("-—·•#>").strip()
     stripped = " ".join(stripped.split())
+
     if not stripped:
         return ""
-    if len(stripped) <= max_len:
-        return stripped
-    return stripped[:max_len].rstrip() + "..."
+
+    # Truncate.
+    if len(stripped) > max_len:
+        stripped = stripped[:max_len].rstrip() + "..."
+
+    # Append "중" if the text doesn't already end with it and looks
+    # like a Korean verb phrase (ends in 하다/해/요/줘/etc patterns).
+    # Simple heuristic: if it contains Korean characters and doesn't
+    # already end with "중" or "...", append " 중".
+    has_korean = any("\uac00" <= ch <= "\ud7a3" for ch in stripped)
+    if has_korean and not stripped.endswith("중") and not stripped.endswith("..."):
+        stripped += " 중"
+
+    return stripped
 
 
 def _find_org_root(agents: list[models.Agent]) -> models.Agent | None:
@@ -257,6 +279,14 @@ def _build_system_prompt(
         parts.append("\n".join(lines))
 
     parts.append(
+        "## Response format rules\n\n"
+        "**Status line (REQUIRED)**: Start EVERY response with a single `[STATUS]` line that "
+        "summarises what you are about to do in ≤10 words. This line is shown in the UI "
+        "while you work, so write it as a present-tense action:\n"
+        "  [STATUS] 시장 트렌드 보고서 작성\n"
+        "  [STATUS] Reviewing CTO's architecture proposal\n"
+        "  [STATUS] 기술 스택 비교 분석\n"
+        "The rest of your response follows after the status line.\n\n"
         "You can create tasks by including markers in your response:\n"
         '[CREATE_TASK]{"title": "...", "description": "...", "priority": "medium", '
         '"task_type": "feature", "worker_prompt": "...", "qa_prompt": "..."}[/CREATE_TASK]\n\n'
@@ -268,9 +298,16 @@ def _build_system_prompt(
     return "\n\n".join(parts)
 
 
+def _extract_status(text: str) -> str:
+    """Pull the [STATUS] line from a response. Returns empty if absent."""
+    m = STATUS_RE.search(text)
+    return m.group(1).strip()[:80] if m else ""
+
+
 def _strip_all_markers(text: str) -> str:
     text = strip_action_markers(text)
     text = SET_GOAL_RE.sub("", text).strip()
+    text = STATUS_RE.sub("", text).strip()
     return re.sub(r"^\[.*?\]\s*", "", text, count=1)
 
 
