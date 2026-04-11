@@ -37,6 +37,10 @@ export default function UnifiedChatSidebar({ projectId }: Props) {
   const { data: agents = [] } = useQuery({
     queryKey: ['agents'],
     queryFn: () => agentsApi.list(),
+    // Refetch frequently so blue-dot (thinking) state from Redis is
+    // picked up even after a page refresh when there is no client-side
+    // pendingMessage to derive typing indicators from.
+    refetchInterval: 5000,
   })
 
   // SSE: real-time chat events from server
@@ -292,22 +296,50 @@ export default function UnifiedChatSidebar({ projectId }: Props) {
             />
           )}
 
-          {/* Typing indicators — one per dispatched agent still waiting */}
-          {activeTypingAgents.map((agentName) => (
-            <ChatMessage
-              key={`typing-${agentName}`}
-              message={{
-                id: `__typing_${agentName}`,
-                role: 'assistant',
-                content: '​',
-                agent_id: null,
-                agent_name: agentName === '...' ? null : agentName,
-                created_at: new Date().toISOString(),
-                actions: [],
-              }}
-              typing
-            />
-          ))}
+          {/* Typing indicators — combine:
+              1. Client-side: agents we just dispatched (activeTypingAgents)
+              2. Server-side: agents with dot=blue from the agents query
+                 (survives page refresh because it's Redis-backed)
+              Dedup by name so an agent doesn't show two typing bubbles. */}
+          {(() => {
+            const shown = new Set<string>()
+            const typingBubbles: Array<{ name: string; activity?: string }> = []
+
+            // Client-side pending (immediate, before server catches up)
+            for (const name of activeTypingAgents) {
+              if (name === '...') {
+                typingBubbles.push({ name: '...' })
+                shown.add('...')
+              } else if (!shown.has(name)) {
+                shown.add(name)
+                typingBubbles.push({ name })
+              }
+            }
+
+            // Server-side busy agents (survives refresh)
+            for (const a of agents) {
+              if (a.dot === 'blue' && !shown.has(a.name)) {
+                shown.add(a.name)
+                typingBubbles.push({ name: a.name, activity: a.activity })
+              }
+            }
+
+            return typingBubbles.map(({ name, activity }) => (
+              <ChatMessage
+                key={`typing-${name}`}
+                message={{
+                  id: `__typing_${name}`,
+                  role: 'assistant',
+                  content: activity || '​',
+                  agent_id: null,
+                  agent_name: name === '...' ? null : name,
+                  created_at: new Date().toISOString(),
+                  actions: [],
+                }}
+                typing
+              />
+            ))
+          })()}
 
           <div ref={messagesEndRef} />
         </div>
