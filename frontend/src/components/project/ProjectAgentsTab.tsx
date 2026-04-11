@@ -6,6 +6,7 @@ export default function ProjectAgentsTab() {
   const { data: agents = [] } = useQuery({
     queryKey: ['agents'],
     queryFn: () => agentsApi.list(),
+    refetchInterval: 5000,
   })
 
   if (agents.length === 0) {
@@ -44,7 +45,7 @@ export default function ProjectAgentsTab() {
               <p className="text-xs text-text-tertiary mb-2">{agent.title || agent.role}</p>
 
               {/* Status — show activity summary if available, else label */}
-              <p className="text-xs text-text-tertiary mb-2 truncate">
+              <p className="text-xs text-text-tertiary mb-2 truncate" title={agent.activity || AGENT_STATUS_LABELS[agent.status] || agent.status}>
                 {agent.activity || AGENT_STATUS_LABELS[agent.status] || agent.status}
               </p>
 

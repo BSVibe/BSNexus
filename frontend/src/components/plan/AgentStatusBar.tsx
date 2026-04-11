@@ -98,7 +98,7 @@ function AgentCard({ agent, highlighted, onToggle }: AgentCardProps) {
       <span className={`h-2 w-2 shrink-0 rounded-full ${dotClass}`} />
       <div className="min-w-0 flex flex-col">
         <span className="text-xs font-bold text-text-primary truncate">{agent.name}</span>
-        <span className="text-[10px] text-text-tertiary truncate max-w-[180px]">
+        <span className="text-[10px] text-text-tertiary truncate max-w-[180px]" title={subtitle}>
           {subtitle}
         </span>
       </div>
