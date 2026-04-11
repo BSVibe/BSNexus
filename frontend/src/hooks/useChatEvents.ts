@@ -66,6 +66,9 @@ export function useChatEvents(projectId: string | undefined) {
         if (actions.some((a) => a.type === 'decision_created')) {
           queryClient.invalidateQueries({ queryKey: ['plan-tree', projectId] })
         }
+        if (actions.some((a) => a.type === 'proposal_created')) {
+          queryClient.invalidateQueries({ queryKey: ['proposals', projectId] })
+        }
       } catch {
         /* ignore parse errors */
       }
