@@ -13,13 +13,7 @@ import '@xyflow/react/dist/style.css'
 import type { Agent, AgentOrgChartNode } from '../../types/agent'
 import { useAgentStore } from '../../stores/agentStore'
 
-// Unified with Plan view's AgentStatusBar dot colours.
-const STATUS_COLORS: Record<string, string> = {
-  online: '#fbbf24',       // amber-400 — idle
-  busy: '#38bdf8',         // sky-400 — thinking
-  offline: '#6b7280',      // gray-500
-  budget_exceeded: '#ef4444',
-}
+import { AGENT_STATUS_COLORS, AGENT_STATUS_FALLBACK_COLOR } from '../../constants/agentStatus'
 
 const EXECUTOR_LABELS: Record<string, string> = {
   claude_code: 'Claude Code',
@@ -48,7 +42,7 @@ function AgentNode({ data }: NodeProps) {
         <div className="flex items-center gap-2 mb-1.5">
           <div
             className="w-2.5 h-2.5 rounded-full shrink-0"
-            style={{ backgroundColor: STATUS_COLORS[agent.status] || '#6b7280' }}
+            style={{ backgroundColor: AGENT_STATUS_COLORS[agent.status] || AGENT_STATUS_FALLBACK_COLOR }}
           />
           <span className="text-sm font-bold text-[#e3e2e8] truncate">{agent.name}</span>
         </div>

@@ -29,14 +29,14 @@ function renderWithMentions(text: string) {
 }
 
 /**
- * Pre-process markdown to wrap @mentions in styled <span> tags.
- * ReactMarkdown will pass raw HTML through if we use rehype-raw,
- * but simpler to use a custom remark-like text transform.
- * We inject a zero-width wrapper that ReactMarkdown renders as inline code-like element.
+ * Pre-process markdown to wrap @mentions in a marker that the custom
+ * ReactMarkdown ``strong`` renderer can pick up and style blue.
+ * The pattern ``**@Name**`` is already markdown-safe bold, and the
+ * custom component override below checks whether the bold text starts
+ * with ``@`` and renders it as a ``text-stitch-primary`` span instead
+ * of a plain ``<strong>``.
  */
 function highlightMentionsInMarkdown(content: string): string {
-  // Wrap @Name (including multi-word like @Product Manager matched greedily)
-  // Use a markdown-safe format: **`@Name`** renders as bold code
   return content.replace(/@([A-Za-z가-힣][\w\s가-힣]*?)(?=[\s,.)：:;!?]|$)/g, '**@$1**')
 }
 
@@ -113,6 +113,19 @@ export default function ChatMessage({ message, typing }: { message: ChatMessageO
                         {children}
                       </td>
                     )
+                  },
+                  // @mentions are pre-processed into **@Name** (markdown
+                  // bold). This override checks whether the bold text
+                  // starts with @ and renders it as a blue span so
+                  // mentions look the same in user and assistant bubbles.
+                  strong({ children }) {
+                    const text = typeof children === 'string'
+                      ? children
+                      : Array.isArray(children) ? children.map(String).join('') : String(children ?? '')
+                    if (text.startsWith('@')) {
+                      return <span className="font-semibold text-stitch-primary">{text}</span>
+                    }
+                    return <strong>{children}</strong>
                   },
                   code({ className, children, ...props }) {
                     const match = /language-(\w+)/.exec(className || '')

@@ -1,11 +1,6 @@
 import type { Agent } from '../../types/agent'
 
-const STATUS_COLORS: Record<string, string> = {
-  online: '#fbbf24',       // amber-400 — idle
-  busy: '#38bdf8',         // sky-400 — thinking
-  offline: '#6b7280',
-  budget_exceeded: '#ef4444',
-}
+import { AGENT_STATUS_COLORS, AGENT_STATUS_FALLBACK_COLOR } from '../../constants/agentStatus'
 
 interface Props {
   agents: Agent[]
@@ -40,7 +35,7 @@ export default function MentionAutocomplete({ agents, query, selectedIndex, onSe
         >
           <div
             className="w-2 h-2 rounded-full shrink-0"
-            style={{ backgroundColor: STATUS_COLORS[agent.status] || '#6b7280' }}
+            style={{ backgroundColor: AGENT_STATUS_COLORS[agent.status] || AGENT_STATUS_FALLBACK_COLOR }}
           />
           <span className="font-medium truncate">{agent.name}</span>
           <span className="text-[10px] text-text-tertiary ml-auto shrink-0">{agent.role}</span>

@@ -3,8 +3,6 @@ import { useQueryClient } from '@tanstack/react-query'
 import type { ChatHistoryResponse, ChatMessageOut } from '../api/agentChat'
 import { getAccessToken } from './useAuth'
 
-const MAX_RETRIES = 5
-
 /**
  * Subscribe to a project's chat SSE stream.
  *
@@ -12,16 +10,32 @@ const MAX_RETRIES = 5
  *   - `message_created`: append to chat history cache
  *   - `history_cleared`: empty the cache
  *   - `agent_status`: invalidate agents cache so UI reflects busy/online
+ *
+ * Key design points:
+ *   - `getAccessToken()` is async, so `connect()` is async. A
+ *     cancellation guard prevents orphaned EventSources when the
+ *     effect cleans up while the token fetch is in flight.
+ *   - Retries reset on `visibilitychange` so a backgrounded tab
+ *     that kills the TCP connection can always reconnect when the
+ *     user comes back.
+ *   - `retriesRef` is reset on every successful `onopen`, so
+ *     transient mid-session errors don't permanently exhaust the
+ *     retry budget.
  */
+
+const MAX_RETRIES = 10
+
 export function useChatEvents(projectId: string | undefined) {
   const queryClient = useQueryClient()
   const sourceRef = useRef<EventSource | null>(null)
   const retriesRef = useRef(0)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const cancelledRef = useRef(false)
 
   useEffect(() => {
     if (!projectId) return
 
+    cancelledRef.current = false
     const queryKey = ['project-chat', projectId]
 
     const appendMessage = (msg: ChatMessageOut) => {
@@ -47,7 +61,9 @@ export function useChatEvents(projectId: string | undefined) {
         if (actions.some((a) => a.type.startsWith('goal_'))) {
           queryClient.invalidateQueries({ queryKey: ['goals', projectId] })
         }
-      } catch { /* ignore parse errors */ }
+      } catch {
+        /* ignore parse errors */
+      }
     }
 
     const handleHistoryCleared = () => {
@@ -56,25 +72,25 @@ export function useChatEvents(projectId: string | undefined) {
 
     const handleAgentStatus = () => {
       queryClient.invalidateQueries({ queryKey: ['agents'] })
-      // Plan view's agent status bar reads a different query — invalidate
-      // it too so the dot flips to ``thinking`` the moment chat dispatches
-      // an agent.
       queryClient.invalidateQueries({ queryKey: ['agent-status', projectId] })
     }
 
-    let cancelled = false
-    const connect = async () => {
+    const close = () => {
       if (sourceRef.current) {
         sourceRef.current.close()
         sourceRef.current = null
       }
+    }
 
-      // EventSource has no header API — pass the bearer token via the
-      // ``?token=`` query string the backend accepts as an alias for
-      // ``Authorization: Bearer ...``. Without this the SSE request is
-      // rejected with 401 the moment auth is required on the route.
+    const connect = async () => {
+      // Guard: if effect cleaned up while we were awaiting, bail.
+      if (cancelledRef.current) return
+
+      close()
+
       const token = await getAccessToken()
-      if (cancelled) return
+      if (cancelledRef.current) return
+
       const url = token
         ? `/api/v1/projects/${projectId}/chat/events?token=${encodeURIComponent(token)}`
         : `/api/v1/projects/${projectId}/chat/events`
@@ -91,6 +107,7 @@ export function useChatEvents(projectId: string | undefined) {
       source.onerror = () => {
         source.close()
         sourceRef.current = null
+        if (cancelledRef.current) return
         if (retriesRef.current < MAX_RETRIES) {
           const delay = Math.min(1000 * Math.pow(2, retriesRef.current), 30000)
           retriesRef.current += 1
@@ -103,16 +120,30 @@ export function useChatEvents(projectId: string | undefined) {
 
     void connect()
 
+    // When the tab comes back into focus, force-reconnect if the SSE
+    // stream died while backgrounded. Reset retry count so exhausted
+    // retries from the background period don't block recovery.
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible' && !sourceRef.current) {
+        retriesRef.current = 0
+        void connect()
+      }
+      // Also refetch chat history in case SSE messages were lost while
+      // the tab was inactive.
+      if (document.visibilityState === 'visible') {
+        queryClient.invalidateQueries({ queryKey: queryKey })
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+
     return () => {
-      cancelled = true
+      cancelledRef.current = true
+      document.removeEventListener('visibilitychange', onVisibility)
       if (reconnectTimerRef.current) {
         clearTimeout(reconnectTimerRef.current)
         reconnectTimerRef.current = null
       }
-      if (sourceRef.current) {
-        sourceRef.current.close()
-        sourceRef.current = null
-      }
+      close()
     }
   }, [projectId, queryClient])
 }

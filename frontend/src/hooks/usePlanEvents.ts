@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import type { PlanTreeResponse, TaskStatus } from '../api/planTree'
 import { getAccessToken } from './useAuth'
 
-const MAX_RETRIES = 5
+const MAX_RETRIES = 10
 
 interface TaskTransitionPayload {
   task_id: string
@@ -15,19 +15,20 @@ interface TaskTransitionPayload {
 /**
  * Subscribe to a project's plan SSE stream.
  *
- * Patches the plan-tree query cache directly so the tree updates without a
- * refetch. Falls back to invalidating the cache on phase advance / agent
- * status events.
+ * Same lifecycle pattern as useChatEvents — see that hook for the
+ * rationale on cancelledRef, visibilitychange recovery, and retry reset.
  */
 export function usePlanEvents(projectId: string | undefined) {
   const queryClient = useQueryClient()
   const sourceRef = useRef<EventSource | null>(null)
   const retriesRef = useRef(0)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const cancelledRef = useRef(false)
 
   useEffect(() => {
     if (!projectId) return
 
+    cancelledRef.current = false
     const treeKey = ['plan-tree', projectId]
     const agentKey = ['agent-status', projectId]
 
@@ -44,7 +45,6 @@ export function usePlanEvents(projectId: string | undefined) {
           })),
         }
       })
-      // Agent status dot depends on whether any task is running for the agent.
       queryClient.invalidateQueries({ queryKey: agentKey })
     }
 
@@ -65,18 +65,20 @@ export function usePlanEvents(projectId: string | undefined) {
       queryClient.invalidateQueries({ queryKey: agentKey })
     }
 
-    let cancelled = false
-    const connect = async () => {
+    const close = () => {
       if (sourceRef.current) {
         sourceRef.current.close()
         sourceRef.current = null
       }
+    }
 
-      // EventSource cannot send custom headers; pipe the bearer token
-      // through ``?token=`` instead. See useChatEvents for the same
-      // pattern + rationale.
+    const connect = async () => {
+      if (cancelledRef.current) return
+      close()
+
       const token = await getAccessToken()
-      if (cancelled) return
+      if (cancelledRef.current) return
+
       const url = token
         ? `/api/v1/projects/${projectId}/plan-tree/events?token=${encodeURIComponent(token)}`
         : `/api/v1/projects/${projectId}/plan-tree/events`
@@ -93,6 +95,7 @@ export function usePlanEvents(projectId: string | undefined) {
       source.onerror = () => {
         source.close()
         sourceRef.current = null
+        if (cancelledRef.current) return
         if (retriesRef.current < MAX_RETRIES) {
           const delay = Math.min(1000 * Math.pow(2, retriesRef.current), 30000)
           retriesRef.current += 1
@@ -105,16 +108,26 @@ export function usePlanEvents(projectId: string | undefined) {
 
     void connect()
 
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible' && !sourceRef.current) {
+        retriesRef.current = 0
+        void connect()
+      }
+      if (document.visibilityState === 'visible') {
+        queryClient.invalidateQueries({ queryKey: treeKey })
+        queryClient.invalidateQueries({ queryKey: agentKey })
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+
     return () => {
-      cancelled = true
+      cancelledRef.current = true
+      document.removeEventListener('visibilitychange', onVisibility)
       if (reconnectTimerRef.current) {
         clearTimeout(reconnectTimerRef.current)
         reconnectTimerRef.current = null
       }
-      if (sourceRef.current) {
-        sourceRef.current.close()
-        sourceRef.current = null
-      }
+      close()
     }
   }, [projectId, queryClient])
 }

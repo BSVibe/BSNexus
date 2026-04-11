@@ -1,21 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { agentsApi } from '../../api/agents'
-
-// Unified with Plan view's AgentStatusBar dot colours so both tabs
-// agree on what each state looks like.
-const STATUS_COLORS: Record<string, string> = {
-  online: '#fbbf24',       // amber-400 — idle (matches Plan view yellow dot)
-  busy: '#38bdf8',         // sky-400 — thinking/working (matches Plan view blue dot)
-  offline: '#6b7280',      // gray-500
-  budget_exceeded: '#ef4444',
-}
-
-const STATUS_LABELS: Record<string, string> = {
-  online: 'idle',
-  busy: 'thinking',
-  offline: 'offline',
-  budget_exceeded: 'budget exceeded',
-}
+import { AGENT_STATUS_COLORS, AGENT_STATUS_FALLBACK_COLOR, AGENT_STATUS_LABELS } from '../../constants/agentStatus'
 
 export default function ProjectAgentsTab() {
   const { data: agents = [] } = useQuery({
@@ -50,7 +35,7 @@ export default function ProjectAgentsTab() {
               <div className="flex items-center gap-2 mb-2">
                 <div
                   className="w-2.5 h-2.5 rounded-full shrink-0"
-                  style={{ backgroundColor: STATUS_COLORS[agent.status] || '#6b7280' }}
+                  style={{ backgroundColor: AGENT_STATUS_COLORS[agent.status] || AGENT_STATUS_FALLBACK_COLOR }}
                 />
                 <span className="text-sm font-bold text-text-primary truncate">{agent.name}</span>
               </div>
@@ -60,7 +45,7 @@ export default function ProjectAgentsTab() {
 
               {/* Status */}
               <p className="text-xs text-text-tertiary mb-2">
-                {STATUS_LABELS[agent.status] || agent.status}
+                {AGENT_STATUS_LABELS[agent.status] || agent.status}
               </p>
 
               {/* Budget bar */}

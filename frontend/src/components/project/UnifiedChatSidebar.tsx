@@ -96,15 +96,19 @@ export default function UnifiedChatSidebar({ projectId }: Props) {
     },
   })
 
-  // Auto-clear pending state once all agents have responded (derived check in render)
+  // Auto-clear pending state once all agents have responded. Using
+  // useEffect instead of a render-time microtask so React does not
+  // clear pendingMessage/pendingAgents during the same render pass
+  // that computed them (which caused the typing indicator to flash
+  // away before the user saw it, and the optimistic user bubble to
+  // vanish before the real SSE message arrived).
   const allDone = pendingAgents.length > 0 && activeTypingAgents.length === 0 && !showPendingUser
-  if (allDone && pendingMessage) {
-    // Schedule clear for next tick to avoid setState during render warning
-    queueMicrotask(() => {
+  useEffect(() => {
+    if (allDone && pendingMessage) {
       setPendingMessage(null)
       setPendingAgents([])
-    })
-  }
+    }
+  }, [allDone, pendingMessage])
 
   // Safety net: if the backend never publishes a response within
   // PENDING_TIMEOUT_MS we force-clear and toast the user. Without this,
