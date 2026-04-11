@@ -45,7 +45,6 @@ router = APIRouter(prefix="/api/v1/projects/{project_id}/chat", tags=["agent-cha
 
 SET_GOAL_RE = re.compile(r"\[SET_GOAL\](.*?)\[/SET_GOAL\]", re.DOTALL)
 MAX_HISTORY = 100
-MAX_DELEGATION_DEPTH = 3
 WORKER_RESULT_TIMEOUT = 120.0
 ROUTING_TIMEOUT = 30.0
 
@@ -664,15 +663,14 @@ async def _process_agent_in_background(
     agent_id: uuid.UUID,
     user_message: str,
     redis: Any,
-    all_agent_ids: list[uuid.UUID],
-    called_ids: set[uuid.UUID],
     tenant_id: uuid.UUID,
-    depth: int = 0,
 ) -> None:
     """Run a single agent in the background. Fresh DB session, publishes via SSE.
 
     Handles delegation chains: if the agent's response @mentions others,
-    they are dispatched as further background tasks (up to MAX_DELEGATION_DEPTH).
+    they are dispatched as further background tasks. There is no depth
+    limit — agents collaborate freely. Loop prevention is a prompt-level
+    concern, not an infrastructure one.
     """
     from backend.src.core.agent_activity import clear_agent_busy, mark_agent_busy
 
@@ -714,15 +712,15 @@ async def _process_agent_in_background(
 
             await _publish_agent_status(redis, project_id, agent, "online")
 
-            # Delegation: dispatch further agents @mentioned in this response
-            if depth < MAX_DELEGATION_DEPTH:
-                delegated = _parse_mentions(msg.content, [a for a in all_agents if a.id not in called_ids])
-                for delegate in delegated:
-                    called_ids.add(delegate.id)
-                    asyncio.create_task(_process_agent_in_background(
-                        project_id, delegate.id, msg.content, redis,
-                        all_agent_ids, called_ids, tenant_id, depth + 1,
-                    ))
+            # Delegation: dispatch further agents @mentioned in this response.
+            # No depth limit, no called_ids dedup — the same agent CAN be
+            # called again if a different colleague mentions them with a new
+            # request. Loop prevention is a prompt responsibility.
+            delegated = _parse_mentions(msg.content, all_agents)
+            for delegate in delegated:
+                asyncio.create_task(_process_agent_in_background(
+                    project_id, delegate.id, msg.content, redis, tenant_id,
+                ))
 
         except Exception as e:
             logger.error("background_agent_failed", agent_id=str(agent_id), error=str(e))
@@ -803,13 +801,11 @@ async def chat_with_agent(
     # Persist user message + publish to SSE
     await _store_and_publish(db, redis, project_id, role="user", content=body.message)
 
-    # Dispatch all agents in parallel as background tasks
-    called_ids: set[uuid.UUID] = {a.id for a in mentioned}
-    all_agent_ids = [a.id for a in all_agents]
+    # Dispatch all agents in parallel as background tasks.
+    # No called_ids tracking — delegation is unlimited.
     for agent in mentioned:
         asyncio.create_task(_process_agent_in_background(
-            project_id, agent.id, body.message, redis, all_agent_ids, called_ids,
-            tenant_id,
+            project_id, agent.id, body.message, redis, tenant_id,
         ))
 
     return ChatDispatchResponse(dispatched_agents=[a.name for a in mentioned])
