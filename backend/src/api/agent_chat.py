@@ -752,56 +752,65 @@ async def _process_response_text(
 async def _call_via_llm(
     agent: models.Agent, project: models.Project, project_id: uuid.UUID,
     history: list[models.ConversationMessage], user_message: str,
-    db: AsyncSession, redis: Any, all_agents: list[models.Agent],
+    db: AsyncSession | None, redis: Any, all_agents: list[models.Agent],
     *, tenant_id: uuid.UUID,
 ) -> models.ConversationMessage:
-    llm_config = await _resolve_llm_config(agent, db)
-    _, messages = await _build_chat_context(
-        agent, project, project_id, history, user_message, db, all_agents, tenant_id=tenant_id
-    )
+    """Call the agent via direct LLM API. Opens its own DB sessions."""
+    async with async_session() as llm_db:
+        llm_config = await _resolve_llm_config(agent, llm_db)
+        _, messages = await _build_chat_context(
+            agent, project, project_id, history, user_message, llm_db, all_agents, tenant_id=tenant_id
+        )
+    # Session closed — LLM call is pure network I/O, no DB needed.
     client = LLMClient(llm_config)
     response_text = await client.chat(messages)
-    return await _process_response_text(
-        response_text, project, project_id, agent, db, redis, tenant_id=tenant_id
-    )
+    async with async_session() as result_db:
+        return await _process_response_text(
+            response_text, project, project_id, agent, result_db, redis, tenant_id=tenant_id
+        )
 
 
 async def _call_via_worker(
     agent: models.Agent, project: models.Project, project_id: uuid.UUID,
     history: list[models.ConversationMessage], user_message: str,
-    db: AsyncSession, redis: Any, all_agents: list[models.Agent],
+    db: AsyncSession | None, redis: Any, all_agents: list[models.Agent],
     *, tenant_id: uuid.UUID,
 ) -> models.ConversationMessage:
+    """Dispatch to a worker. Opens short-lived DB sessions for setup and
+    result processing so no connection is held during the long poll."""
     if redis is None:
         raise HTTPException(status_code=500, detail="Redis not available for worker dispatch")
 
-    worker_id: uuid.UUID | None = None
-    if agent.executor_config_id:
-        result = await db.execute(
-            select(models.ExecutorConfig).where(models.ExecutorConfig.id == agent.executor_config_id)
+    # Phase A: short-lived session for worker lookup + prompt build.
+    async with async_session() as setup_db:
+        worker_id: uuid.UUID | None = None
+        if agent.executor_config_id:
+            result = await setup_db.execute(
+                select(models.ExecutorConfig).where(models.ExecutorConfig.id == agent.executor_config_id)
+            )
+            exec_cfg = result.scalar_one_or_none()
+            if exec_cfg and exec_cfg.config.get("worker_id"):
+                worker_id = uuid.UUID(exec_cfg.config["worker_id"])
+
+        stream_manager = RedisStreamManager(redis)
+        dispatcher = WorkerDispatcher(stream_manager)
+
+        if worker_id:
+            result = await setup_db.execute(
+                select(models.Worker).where(models.Worker.id == worker_id, models.Worker.is_active.is_(True))
+            )
+            worker = result.scalar_one_or_none()
+            if not worker or worker.status != "online":
+                raise HTTPException(status_code=503, detail=f"Worker offline: {worker.name if worker else 'unknown'}")
+        else:
+            worker = await dispatcher.find_available_worker(setup_db)
+            if not worker:
+                raise HTTPException(status_code=503, detail="No online worker available.")
+
+        system_prompt, _ = await _build_chat_context(
+            agent, project, project_id, history, user_message, setup_db, all_agents, tenant_id=tenant_id,
         )
-        exec_cfg = result.scalar_one_or_none()
-        if exec_cfg and exec_cfg.config.get("worker_id"):
-            worker_id = uuid.UUID(exec_cfg.config["worker_id"])
-
-    stream_manager = RedisStreamManager(redis)
-    dispatcher = WorkerDispatcher(stream_manager)
-
-    if worker_id:
-        result = await db.execute(
-            select(models.Worker).where(models.Worker.id == worker_id, models.Worker.is_active.is_(True))
-        )
-        worker = result.scalar_one_or_none()
-        if not worker or worker.status != "online":
-            raise HTTPException(status_code=503, detail=f"Worker offline: {worker.name if worker else 'unknown'}")
-    else:
-        worker = await dispatcher.find_available_worker(db)
-        if not worker:
-            raise HTTPException(status_code=503, detail="No online worker available.")
-
-    system_prompt, _ = await _build_chat_context(
-        agent, project, project_id, history, user_message, db, all_agents, tenant_id=tenant_id,
-    )
+    # setup_db CLOSED — connection returned to pool.
     flat_history: list[dict[str, str]] = []
     for h in history:
         content = h.content
@@ -845,10 +854,14 @@ async def _call_via_worker(
 async def _call_agent(
     agent: models.Agent, project: models.Project, project_id: uuid.UUID,
     history: list[models.ConversationMessage], user_message: str,
-    db: AsyncSession, redis: Any, all_agents: list[models.Agent],
+    db: AsyncSession | None, redis: Any, all_agents: list[models.Agent],
     *, tenant_id: uuid.UUID,
 ) -> models.ConversationMessage:
-    """Route to executor; fall back to worker if LLM is unconfigured."""
+    """Route to executor; fall back to worker if LLM is unconfigured.
+
+    ``db`` may be None — internal functions open their own short-lived
+    sessions so no connection is held during the long worker poll.
+    """
     if agent.executor_type == "worker":
         return await _call_via_worker(
             agent, project, project_id, history, user_message, db, redis, all_agents,
@@ -863,7 +876,11 @@ async def _call_agent(
         if e.status_code == 400 and "No LLM API key" in str(e.detail):
             stream_manager = RedisStreamManager(redis) if redis else None
             dispatcher = WorkerDispatcher(stream_manager) if stream_manager else None
-            worker = await dispatcher.find_available_worker(db) if dispatcher else None
+            if dispatcher:
+                async with async_session() as fallback_db:
+                    worker = await dispatcher.find_available_worker(fallback_db)
+            else:
+                worker = None
             if worker:
                 return await _call_via_worker(
                     agent, project, project_id, history, user_message, db, redis, all_agents,
@@ -933,24 +950,22 @@ async def _process_agent_in_background(
     # setup_db is now CLOSED — connection returned to pool.
 
     # Phase 2: call agent (may block for minutes on worker polling).
-    # _call_via_worker opens its own fresh session for response processing.
-    # _call_via_llm is fast (seconds) but also uses a fresh session via
-    # the passed db — we open a short-lived one here.
+    # Each internal function opens its own short-lived session so no
+    # connection is held during the long worker poll.
     try:
-        async with async_session() as call_db:
-            msg = await _call_agent(
-                agent, project, project_id, history, user_message, call_db, redis, all_agents,
-                tenant_id=tenant_id,
-            )
+        msg = await _call_agent(
+            agent, project, project_id, history, user_message, None, redis, all_agents,
+            tenant_id=tenant_id,
+        )
 
-            await _publish_agent_status(redis, project_id, agent, "online")
+        await _publish_agent_status(redis, project_id, agent, "online")
 
-            # Delegation: dispatch further agents @mentioned in this response.
-            delegated = _parse_mentions(msg.content, all_agents)
-            for delegate in delegated:
-                asyncio.create_task(_process_agent_in_background(
-                    project_id, delegate.id, msg.content, redis, tenant_id,
-                ))
+        # Delegation: dispatch further agents @mentioned in this response.
+        delegated = _parse_mentions(msg.content, all_agents)
+        for delegate in delegated:
+            asyncio.create_task(_process_agent_in_background(
+                project_id, delegate.id, msg.content, redis, tenant_id,
+            ))
 
     except Exception as e:
         logger.error("background_agent_failed", agent_id=str(agent_id), error=str(e))
