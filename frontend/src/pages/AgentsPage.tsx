@@ -475,6 +475,42 @@ function AgentDetailSidebar({ agent, onClose, onDelete, executorConfigs }: { age
   )
 }
 
+// ── Team capability coverage check ──────────────────────────────────
+
+const REQUIRED_CAPABILITIES: Array<{
+  id: string
+  label: string
+  why: string
+}> = [
+  { id: 'plan', label: 'Plan', why: 'No agent can make project decisions or create task plans.' },
+  { id: 'analyze', label: 'Analyze', why: 'No agent can audit codebases or run import analysis.' },
+  { id: 'design', label: 'Design', why: 'No agent can manage the design system (.bsd files).' },
+]
+
+function TeamCoverageWarnings({ agents }: { agents: Agent[] }) {
+  const allCaps = new Set(agents.flatMap((a) => a.capabilities ?? []).map((c) => c.toLowerCase()))
+  const missing = REQUIRED_CAPABILITIES.filter((r) => !allCaps.has(r.id))
+
+  if (missing.length === 0) return null
+
+  return (
+    <div className="mx-2 mb-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2">
+      <p className="text-[11px] font-bold text-amber-400 mb-1">
+        ⚠ Missing team capabilities
+      </p>
+      {missing.map((m) => (
+        <p key={m.id} className="text-[11px] text-text-secondary">
+          <span className="font-medium text-amber-400/80">{m.label}</span> — {m.why}
+        </p>
+      ))}
+      <p className="text-[10px] text-text-tertiary mt-1">
+        Add these capabilities to existing agents via edit, or hire a new agent.
+      </p>
+    </div>
+  )
+}
+
+
 function TemplateSelector({ onApplied }: { onApplied: () => void }) {
   const [templates, setTemplates] = useState<OrgTemplate[]>([])
   const [applying, setApplying] = useState<string | null>(null)
@@ -613,6 +649,9 @@ export default function AgentsPage() {
         }
       />
       <div className="flex-1 flex flex-col p-4 pb-0 overflow-hidden">
+      {/* Team capability coverage warnings */}
+      {agents.length > 0 && <TeamCoverageWarnings agents={agents} />}
+
       <p className="text-xs text-text-secondary mb-2 px-2">
         {agents.length} agents · {agents.filter((a) => a.status === 'online').length} online
       </p>
