@@ -35,7 +35,7 @@ export default function ProjectAgentsTab() {
               <div className="flex items-center gap-2 mb-2">
                 <div
                   className="w-2.5 h-2.5 rounded-full shrink-0"
-                  style={{ backgroundColor: AGENT_STATUS_COLORS[agent.status] || AGENT_STATUS_FALLBACK_COLOR }}
+                  style={{ backgroundColor: AGENT_STATUS_COLORS[agent.dot] || AGENT_STATUS_COLORS[agent.status] || AGENT_STATUS_FALLBACK_COLOR }}
                 />
                 <span className="text-sm font-bold text-text-primary truncate">{agent.name}</span>
               </div>
@@ -43,9 +43,9 @@ export default function ProjectAgentsTab() {
               {/* Role */}
               <p className="text-xs text-text-tertiary mb-2">{agent.title || agent.role}</p>
 
-              {/* Status */}
-              <p className="text-xs text-text-tertiary mb-2">
-                {AGENT_STATUS_LABELS[agent.status] || agent.status}
+              {/* Status — show activity summary if available, else label */}
+              <p className="text-xs text-text-tertiary mb-2 truncate">
+                {agent.activity || AGENT_STATUS_LABELS[agent.status] || agent.status}
               </p>
 
               {/* Budget bar */}

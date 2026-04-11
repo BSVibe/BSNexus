@@ -7,7 +7,7 @@ import { usePlanStore } from '../../stores/planStore'
 // (single source of truth). These classes just map the value to Tailwind.
 const DOT_CLASSES: Record<string, string> = {
   green: 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)]',
-  blue: 'bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.6)]',
+  blue: 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)]',
   yellow: 'bg-amber-400',
   red: 'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.6)]',
   gray: 'bg-stitch-outline-variant/40',
@@ -15,7 +15,7 @@ const DOT_CLASSES: Record<string, string> = {
 
 const DOT_LABELS: Record<string, string> = {
   green: 'running',
-  blue: 'thinking',
+  blue: 'working',
   yellow: 'idle',
   red: 'blocked',
   gray: 'offline',

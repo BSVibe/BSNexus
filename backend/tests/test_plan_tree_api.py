@@ -346,7 +346,7 @@ async def test_get_agent_status_marks_busy_agent_blue_from_redis(db_session):
         tenant_id=DEFAULT_TENANT_ID,
     )
     by_id = {c.agent_id: c for c in cards}
-    assert by_id[busy_agent.id].dot == "blue"
+    assert by_id[busy_agent.id].dot == "green"
 
 
 @pytest.mark.asyncio

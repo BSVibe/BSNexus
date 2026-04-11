@@ -318,7 +318,7 @@ export default function UnifiedChatSidebar({ projectId }: Props) {
 
             // Server-side busy agents (survives refresh)
             for (const a of agents) {
-              if (a.dot === 'blue' && !shown.has(a.name)) {
+              if (a.dot === 'green' && !shown.has(a.name)) {
                 shown.add(a.name)
                 typingBubbles.push({ name: a.name, activity: a.activity })
               }

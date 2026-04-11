@@ -67,7 +67,7 @@ def test_dot_running_task_wins_over_busy() -> None:
 
 def test_dot_busy_without_task_is_blue() -> None:
     agent = _agent(status="online")
-    assert resolve_agent_status_dot(agent, is_busy=True) == "blue"
+    assert resolve_agent_status_dot(agent, is_busy=True) == "green"
 
 
 def test_dot_online_without_task_is_yellow() -> None:
@@ -95,7 +95,7 @@ def test_dot_offline_worker_with_online_pool_is_yellow() -> None:
 def test_dot_status_busy_column_maps_to_blue() -> None:
     """Persistent ``busy`` from the heartbeat lifecycle should not show as idle."""
     agent = _agent(status="busy")
-    assert resolve_agent_status_dot(agent) == "blue"
+    assert resolve_agent_status_dot(agent) == "green"
 
 
 # ── resolve_agent_runtime_status ─────────────────────────────────────

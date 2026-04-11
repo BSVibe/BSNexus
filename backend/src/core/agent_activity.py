@@ -165,7 +165,7 @@ def resolve_agent_status_dot(
         return "green"
 
     if is_busy:
-        return "blue"
+        return "green"
 
     own_status = (agent.status or "").lower()
     if own_status == "online":
@@ -173,7 +173,7 @@ def resolve_agent_status_dot(
     if own_status == "busy":
         # Persistent busy from heartbeat/executor lifecycle — show as
         # active rather than idle, but it's not a chat-turn.
-        return "blue"
+        return "green"
     if agent.executor_type == "worker" and online_worker_available:
         return "yellow"
     return "gray"
