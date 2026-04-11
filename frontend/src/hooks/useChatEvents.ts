@@ -55,11 +55,16 @@ export function useChatEvents(projectId: string | undefined) {
         const data = JSON.parse(event.data) as ChatMessageOut
         appendMessage(data)
         const actions = data.actions || []
-        if (actions.some((a) => a.type === 'task_created')) {
-          queryClient.invalidateQueries({ queryKey: ['board', projectId] })
+        if (actions.some((a) =>
+          a.type === 'task_created' || a.type === 'phase_created'
+        )) {
+          queryClient.invalidateQueries({ queryKey: ['plan-tree', projectId] })
         }
         if (actions.some((a) => a.type.startsWith('goal_'))) {
           queryClient.invalidateQueries({ queryKey: ['goals', projectId] })
+        }
+        if (actions.some((a) => a.type === 'decision_created')) {
+          queryClient.invalidateQueries({ queryKey: ['plan-tree', projectId] })
         }
       } catch {
         /* ignore parse errors */
