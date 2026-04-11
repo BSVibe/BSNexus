@@ -53,13 +53,23 @@ def _busy_key(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> str:
 
 
 async def mark_agent_busy(
-    redis: Any | None, tenant_id: uuid.UUID, agent_id: uuid.UUID
+    redis: Any | None,
+    tenant_id: uuid.UUID,
+    agent_id: uuid.UUID,
+    activity: str = "",
 ) -> None:
-    """Stamp the agent as actively chatting. Safe to call without redis."""
+    """Stamp the agent as actively chatting, with an optional activity summary.
+
+    ``activity`` is a short human-readable string describing what the
+    agent is doing ("시장 조사 중...", "코드 리뷰 진행 중..."). The
+    frontend reads it from the ``activity`` field on ``AgentResponse``
+    and displays it in the status bar instead of a generic "thinking".
+    """
     if redis is None:
         return
+    value = activity[:120] if activity else "1"
     try:
-        await redis.set(_busy_key(tenant_id, agent_id), "1", ex=BUSY_TTL_SECONDS)
+        await redis.set(_busy_key(tenant_id, agent_id), value, ex=BUSY_TTL_SECONDS)
     except Exception:  # noqa: BLE001 — best-effort transient state
         pass
 
@@ -75,25 +85,35 @@ async def clear_agent_busy(
         pass
 
 
-async def busy_agent_ids(
+async def busy_agent_activities(
     redis: Any | None, tenant_id: uuid.UUID, agent_ids: list[uuid.UUID]
-) -> set[uuid.UUID]:
-    """Return the subset of ``agent_ids`` that are currently chat-busy.
+) -> dict[uuid.UUID, str]:
+    """Return ``{agent_id: activity_summary}`` for agents that are currently busy.
 
     A single MGET keeps this O(1) on the wire regardless of N.
+    The activity string is whatever was passed to ``mark_agent_busy``;
+    it may be ``"1"`` for legacy callers that didn't supply a summary.
     """
     if redis is None or not agent_ids:
-        return set()
+        return {}
     keys = [_busy_key(tenant_id, aid) for aid in agent_ids]
     try:
         values = await redis.mget(keys)
     except Exception:  # noqa: BLE001
-        return set()
-    busy: set[uuid.UUID] = set()
+        return {}
+    result: dict[uuid.UUID, str] = {}
     for aid, value in zip(agent_ids, values, strict=True):
         if value is not None:
-            busy.add(aid)
-    return busy
+            decoded = value.decode() if isinstance(value, bytes) else str(value)
+            result[aid] = decoded
+    return result
+
+
+async def busy_agent_ids(
+    redis: Any | None, tenant_id: uuid.UUID, agent_ids: list[uuid.UUID]
+) -> set[uuid.UUID]:
+    """Backward-compat wrapper — returns just the set of busy ids."""
+    return set((await busy_agent_activities(redis, tenant_id, agent_ids)).keys())
 
 
 # ── Worker availability ─────────────────────────────────────────────

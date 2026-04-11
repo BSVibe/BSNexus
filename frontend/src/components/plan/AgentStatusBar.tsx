@@ -76,8 +76,14 @@ interface AgentCardProps {
 function AgentCard({ agent, highlighted, onToggle }: AgentCardProps) {
   const dot = agent.dot || 'gray'
   const currentTask = agent.current_task
+  const activity = agent.activity
   const dotClass = DOT_CLASSES[dot] || DOT_CLASSES.gray
   const dotLabel = DOT_LABELS[dot] || dot
+
+  // Priority: current_task title > activity summary > dot label
+  const subtitle = currentTask
+    ? currentTask.title
+    : activity || dotLabel
 
   return (
     <button
@@ -92,8 +98,8 @@ function AgentCard({ agent, highlighted, onToggle }: AgentCardProps) {
       <span className={`h-2 w-2 shrink-0 rounded-full ${dotClass}`} />
       <div className="min-w-0 flex flex-col">
         <span className="text-xs font-bold text-text-primary truncate">{agent.name}</span>
-        <span className="text-[10px] text-text-tertiary truncate">
-          {currentTask ? currentTask.title : dotLabel}
+        <span className="text-[10px] text-text-tertiary truncate max-w-[180px]">
+          {subtitle}
         </span>
       </div>
     </button>

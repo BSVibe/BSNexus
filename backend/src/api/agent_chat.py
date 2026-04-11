@@ -97,6 +97,26 @@ def _parse_mentions(message: str, agents: list[models.Agent]) -> list[models.Age
     return mentioned
 
 
+_MENTION_RE = re.compile(r"@\S+")
+
+
+def _summarize_activity(message: str, max_len: int = 60) -> str:
+    """Extract a short activity summary from a chat message.
+
+    Strips @mentions and trims to ``max_len`` characters so the Plan
+    view status bar can show "시장 조사 후 보고해..." instead of a
+    generic "thinking".
+    """
+    stripped = _MENTION_RE.sub("", message).strip()
+    # Collapse multiple spaces left behind by mention removal.
+    stripped = " ".join(stripped.split())
+    if not stripped:
+        return ""
+    if len(stripped) <= max_len:
+        return stripped
+    return stripped[:max_len].rstrip() + "..."
+
+
 def _find_org_root(agents: list[models.Agent]) -> models.Agent | None:
     """Top-level agent (no parent) — used as final fallback."""
     if not agents:
@@ -674,10 +694,10 @@ async def _process_agent_in_background(
     """
     from backend.src.core.agent_activity import clear_agent_busy, mark_agent_busy
 
-    # Mark busy upfront so the Plan view + Agents tab pick up the
-    # transient state even if the agent lookup below stalls. Cleared in
-    # the finally block so a crash never leaves the indicator stuck.
-    await mark_agent_busy(redis, tenant_id, agent_id)
+    # Build a short activity summary from the message so the UI can
+    # show "시장 조사 중..." instead of a generic "thinking".
+    activity = _summarize_activity(user_message)
+    await mark_agent_busy(redis, tenant_id, agent_id, activity=activity)
     agent: models.Agent | None = None
     async with async_session() as db:
         try:

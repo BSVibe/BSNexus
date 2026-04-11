@@ -226,6 +226,7 @@ export const mockAgentStatusCards = [
     title: 'Senior Engineer',
     dot: 'green',
     current_task: { id: 'task-ip1', title: 'Build agent status bar', status: 'running' },
+    activity: '',
   },
 ]
 
@@ -266,6 +267,7 @@ export const mockAgents = [
     status: 'online',
     dot: 'yellow',
     current_task: null,
+    activity: '',
     is_active: true,
     created_at: '2026-04-01T00:00:00Z',
     updated_at: '2026-04-05T10:00:00Z',
@@ -291,6 +293,7 @@ export const mockAgents = [
     status: 'busy',
     dot: 'green',
     current_task: { id: 'task-ip1', title: 'Build agent status bar', status: 'running' },
+    activity: '',
     is_active: true,
     created_at: '2026-04-01T00:00:00Z',
     updated_at: '2026-04-05T12:00:00Z',
@@ -316,6 +319,7 @@ export const mockAgents = [
     status: 'online',
     dot: 'yellow',
     current_task: null,
+    activity: '',
     is_active: true,
     created_at: '2026-04-02T00:00:00Z',
     updated_at: '2026-04-05T08:00:00Z',

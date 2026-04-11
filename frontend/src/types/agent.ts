@@ -31,6 +31,8 @@ export interface Agent {
   dot: string
   /** The task this agent is currently working on, if any. */
   current_task: CurrentTaskBrief | null
+  /** Short activity summary when mid-chat (e.g. "시장 조사 중..."). */
+  activity: string
   is_active: boolean
   created_at: string
   updated_at: string

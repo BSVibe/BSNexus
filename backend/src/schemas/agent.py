@@ -96,6 +96,9 @@ class AgentResponse(BaseModel):
     # Agents tab had separate resolvers that disagreed.
     dot: str = "gray"
     current_task: Optional[CurrentTaskBrief] = None
+    # Short human-readable activity summary when the agent is mid-chat
+    # (e.g. "시장 조사 중...", "코드 리뷰 진행 중..."). Empty when idle.
+    activity: str = ""
     is_active: bool = True
     created_at: datetime
     updated_at: datetime
