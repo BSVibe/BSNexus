@@ -63,16 +63,13 @@ export default function ChatMessage({ message, typing }: { message: ChatMessageO
 
   if (isUser) {
     return (
-      <div className="flex items-start gap-2">
-        <div className="w-6 h-6 rounded-full bg-stitch-primary flex items-center justify-center shrink-0 text-[10px] font-bold text-white mt-0.5">
-          <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>person</span>
-        </div>
+      <div className="flex items-start gap-2 justify-end">
         <div className="max-w-[85%] min-w-0">
-          <div className="flex items-center gap-2 mb-1 ml-1">
-            <p className="text-[10px] font-bold text-stitch-primary">You</p>
+          <div className="flex items-center gap-2 mb-1 mr-1 justify-end">
             {time && <span className="text-[10px] text-text-tertiary">{time}</span>}
+            <p className="text-[10px] font-bold text-stitch-primary">You</p>
           </div>
-          <div className="rounded-2xl rounded-tl-sm bg-stitch-surface border border-stitch-outline-variant/10 px-3 py-2 text-sm text-text-primary">
+          <div className="rounded-2xl rounded-tr-sm bg-stitch-primary/15 border border-stitch-primary/20 px-3 py-2 text-sm text-text-primary">
             <div className="whitespace-pre-wrap break-words">{renderWithMentions(message.content)}</div>
           </div>
         </div>
