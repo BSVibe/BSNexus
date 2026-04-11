@@ -100,15 +100,29 @@ def _parse_mentions(message: str, agents: list[models.Agent]) -> list[models.Age
 _MENTION_RE = re.compile(r"@\S+")
 
 
-def _summarize_activity(message: str, max_len: int = 60) -> str:
+def _summarize_activity(message: str, agent_name: str = "", max_len: int = 60) -> str:
     """Extract a short activity summary from a chat message.
 
-    Strips @mentions and trims to ``max_len`` characters so the Plan
-    view status bar can show "시장 조사 후 보고해..." instead of a
-    generic "thinking".
+    For the initial user message: strips @mentions, takes first
+    ``max_len`` chars → "시장 조사해서 CEO에게 보고해".
+
+    For delegation chains: the ``message`` is the previous agent's full
+    response (hundreds of lines). In that case, find the sentence that
+    mentions ``@agent_name`` and summarize around it. If no mention
+    found, fall back to the first ``max_len`` chars.
     """
+    # For delegation: find the line mentioning this agent.
+    if agent_name and len(message) > 200:
+        for line in message.split("\n"):
+            if f"@{agent_name}" in line:
+                stripped = _MENTION_RE.sub("", line).strip()
+                stripped = " ".join(stripped.split())
+                if stripped:
+                    if len(stripped) <= max_len:
+                        return stripped
+                    return stripped[:max_len].rstrip() + "..."
+
     stripped = _MENTION_RE.sub("", message).strip()
-    # Collapse multiple spaces left behind by mention removal.
     stripped = " ".join(stripped.split())
     if not stripped:
         return ""
@@ -694,10 +708,9 @@ async def _process_agent_in_background(
     """
     from backend.src.core.agent_activity import clear_agent_busy, mark_agent_busy
 
-    # Build a short activity summary from the message so the UI can
-    # show "시장 조사 중..." instead of a generic "thinking".
-    activity = _summarize_activity(user_message)
-    await mark_agent_busy(redis, tenant_id, agent_id, activity=activity)
+    # Initial busy mark with a placeholder — updated with a better
+    # summary once we load the agent name from the DB.
+    await mark_agent_busy(redis, tenant_id, agent_id, activity="")
     agent: models.Agent | None = None
     async with async_session() as db:
         try:
@@ -722,6 +735,12 @@ async def _process_agent_in_background(
             if not agent:
                 return
 
+            # Now we know the agent name — build a contextual activity
+            # summary that extracts what this specific agent was asked to
+            # do from the message (which may be a long LLM response in a
+            # delegation chain).
+            activity = _summarize_activity(user_message, agent_name=agent.name)
+            await mark_agent_busy(redis, tenant_id, agent_id, activity=activity)
             await _publish_agent_status(redis, project_id, agent, "busy")
 
             history = await ConversationRepository(db).list_by_project(project_id, limit=MAX_HISTORY)

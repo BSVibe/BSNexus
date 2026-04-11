@@ -122,15 +122,17 @@ export function useChatEvents(projectId: string | undefined) {
     // When the tab comes back into focus, force-reconnect if the SSE
     // stream died while backgrounded. Reset retry count so exhausted
     // retries from the background period don't block recovery.
+    //
+    // IMPORTANT: Do NOT invalidate the chat query here. The chat cache
+    // is maintained by SSE appendMessage — invalidating it triggers a
+    // refetch from /chat that races with SSE and can overwrite the
+    // cache with stale data, making new messages disappear. If SSE
+    // was down and messages were lost, the reconnect above will pick
+    // them up from the stream (cursor resumes from last seen id).
     const onVisibility = () => {
       if (document.visibilityState === 'visible' && !sourceRef.current) {
         retriesRef.current = 0
         void connect()
-      }
-      // Also refetch chat history in case SSE messages were lost while
-      // the tab was inactive.
-      if (document.visibilityState === 'visible') {
-        queryClient.invalidateQueries({ queryKey: queryKey })
       }
     }
     document.addEventListener('visibilitychange', onVisibility)
