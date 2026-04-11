@@ -354,6 +354,7 @@ async def _execute_create_phase_markers(
 
 async def _execute_create_task_markers(
     text: str, project_id: uuid.UUID, agent_id: uuid.UUID, db: AsyncSession, redis: Any,
+    *, tenant_id: uuid.UUID,
 ) -> list[dict[str, Any]]:
     active_phase = await _ensure_active_phase(project_id, db)
     if not active_phase:
@@ -736,7 +737,9 @@ async def _process_response_text(
 ) -> models.ConversationMessage:
     # Phase markers first — tasks may reference newly created phases.
     phase_actions = await _execute_create_phase_markers(response_text, project_id, db)
-    task_actions = await _execute_create_task_markers(response_text, project_id, agent.id, db, redis)
+    task_actions = await _execute_create_task_markers(
+        response_text, project_id, agent.id, db, redis, tenant_id=tenant_id,
+    )
     goal_actions = await _execute_goal_markers(response_text, project_id, db, tenant_id)
     decision_actions = await _execute_decision_markers(
         response_text, project, agent,
