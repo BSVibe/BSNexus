@@ -12,12 +12,14 @@ import re
 from backend.src import models
 
 CREATE_TASK_RE = re.compile(r"\[CREATE_TASK\](.*?)\[/CREATE_TASK\]", re.DOTALL)
+CREATE_PHASE_RE = re.compile(r"\[CREATE_PHASE\](.*?)\[/CREATE_PHASE\]", re.DOTALL)
 _MODIFY_TASK_RE = re.compile(r"\[MODIFY_TASK\](.*?)\[/MODIFY_TASK\]", re.DOTALL)
 
 
 def strip_action_markers(text: str) -> str:
     """Remove action marker blocks from user-visible text."""
     text = CREATE_TASK_RE.sub("", text)
+    text = CREATE_PHASE_RE.sub("", text)
     text = _MODIFY_TASK_RE.sub("", text)
     return text.strip()
 

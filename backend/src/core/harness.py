@@ -67,30 +67,52 @@ Examples:
 [STATUS] 기술 스택 비교 분석
 ```
 
-## Task markers
+## Plan markers — PROACTIVE USE REQUIRED
 
-Create tasks by including markers in your response:
+Everything in a project must be visible in the Plan view. **You MUST
+create phases and tasks whenever work is discussed, decided, or
+assigned.** Do not just chat — structure the work.
+
+### Phases
+
+When a project direction is set or a major work stream is identified,
+create a phase:
 ```
-[CREATE_TASK]{"title": "...", "description": "...", "priority": "medium", "task_type": "feature", "worker_prompt": "...", "qa_prompt": "..."}[/CREATE_TASK]
+[CREATE_PHASE]{"name": "Phase 1: Direction Research", "description": "Evaluate market opportunities and decide product direction", "status": "active"}[/CREATE_PHASE]
 ```
 
-Set or update the project goal:
+### Tasks
+
+Every piece of work — including research, analysis, discussion,
+review, and decisions — should be a task:
+```
+[CREATE_TASK]{"title": "시장 조사 및 제품 방향 제안", "description": "CMO가 시장 트렌드를 조사하고 3개 제품 방향을 제안", "priority": "high", "task_type": "chore", "worker_prompt": "...", "qa_prompt": "..."}[/CREATE_TASK]
+```
+
+Task types: `feature`, `bug`, `improvement`, `test`, `chore`, `refactor`
+- Use `chore` for research, analysis, discussions, decisions
+- Use `feature` for implementation work
+
+**When to create tasks:**
+- When you receive a request from a user or another agent → create a
+  task for the work you're about to do
+- When you delegate to someone → create a task for what you asked them
+- When a decision is made → create a task recording the decision
+- When a review is needed → create a task for the review
+
+### Goals
+
+Set or update the project goal when direction is confirmed:
 ```
 [SET_GOAL]{"title": "...", "description": "...", "level": "project"}[/SET_GOAL]
 ```
 
-Only include these markers when the user explicitly asks you to create tasks or set goals.
+### Decisions
 
-## Decision markers
-
-When you make or confirm a key project direction, wrap it:
+When you confirm a key project direction:
 ```
 [DECISION] description of the confirmed direction [/DECISION]
 ```
-
-Examples:
-- `[DECISION] 녹음 앱 (MeetingMind)으로 MVP 방향 확정 [/DECISION]`
-- `[DECISION] React + FastAPI 기술 스택 확정 [/DECISION]`
 
 ## Delegation
 

@@ -29,7 +29,7 @@ from sse_starlette.sse import EventSourceResponse
 from backend.src import models
 from backend.src.api.settings import get_raw_llm_config
 from backend.src.config import settings
-from backend.src.core.task_markers import CREATE_TASK_RE, build_project_context, strip_action_markers
+from backend.src.core.task_markers import CREATE_PHASE_RE, CREATE_TASK_RE, build_project_context, strip_action_markers
 from backend.src.core.auth import Permission, require_permission
 from backend.src.core.goal_alignment import GoalAlignmentService
 from backend.src.core.llm_client import LLMClient, LLMConfig
@@ -304,6 +304,52 @@ async def _ensure_active_phase(project_id: uuid.UUID, db: AsyncSession) -> model
     await db.flush()
     logger.info("auto_created_phase", project_id=str(project_id), phase_id=str(phase.id))
     return phase
+
+
+async def _execute_create_phase_markers(
+    text: str, project_id: uuid.UUID, db: AsyncSession,
+) -> list[dict[str, Any]]:
+    """Parse [CREATE_PHASE] markers and create Phase rows."""
+    actions: list[dict[str, Any]] = []
+    phase_repo = PhaseRepository(db)
+    existing_phases = await phase_repo.list_by_project(project_id)
+    next_order = max((p.order for p in existing_phases), default=0) + 1
+
+    for match in CREATE_PHASE_RE.finditer(text):
+        try:
+            data = json.loads(match.group(1).strip())
+        except json.JSONDecodeError:
+            continue
+        name = data.get("name", "").strip()
+        if not name:
+            continue
+        # Dedup by name
+        if any(p.name.lower() == name.lower() for p in existing_phases):
+            continue
+        description = data.get("description", "")
+        branch = data.get("branch_name", f"phase/{name.lower().replace(' ', '-')}")
+        status_str = data.get("status", "pending")
+        try:
+            status = models.PhaseStatus(status_str)
+        except ValueError:
+            status = models.PhaseStatus.pending
+
+        phase = models.Phase(
+            project_id=project_id,
+            name=name,
+            description=description,
+            branch_name=branch,
+            order=next_order,
+            status=status,
+        )
+        db.add(phase)
+        await db.flush()
+        existing_phases.append(phase)
+        next_order += 1
+        actions.append({"type": "phase_created", "phase_id": str(phase.id), "title": name})
+        logger.info("phase_created", project_id=str(project_id), name=name)
+
+    return actions
 
 
 async def _execute_create_task_markers(
@@ -688,15 +734,18 @@ async def _process_response_text(
     agent: models.Agent, db: AsyncSession, redis: Any,
     *, tenant_id: uuid.UUID,
 ) -> models.ConversationMessage:
+    # Phase markers first — tasks may reference newly created phases.
+    phase_actions = await _execute_create_phase_markers(response_text, project_id, db)
     task_actions = await _execute_create_task_markers(response_text, project_id, agent.id, db, redis)
     goal_actions = await _execute_goal_markers(response_text, project_id, db, tenant_id)
     decision_actions = await _execute_decision_markers(
         response_text, project, agent,
     )
     cleaned = _strip_all_markers(response_text)
+    all_actions = phase_actions + task_actions + goal_actions + decision_actions
     return await _store_and_publish(
         db, redis, project_id, role="assistant", content=cleaned,
-        agent=agent, actions=task_actions + goal_actions + decision_actions,
+        agent=agent, actions=all_actions,
     )
 
 
