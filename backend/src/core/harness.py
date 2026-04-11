@@ -34,9 +34,10 @@ prompt. Files are plain markdown so they're readable in any editor.
 
 from __future__ import annotations
 
+import json
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import structlog
 
@@ -44,6 +45,51 @@ if TYPE_CHECKING:
     from backend.src.models import Agent, Goal, Project
 
 logger = structlog.get_logger(__name__)
+
+# ── Approval settings ───────────────────────────────────────────────
+
+ApprovalLevel = Literal["auto_approve", "require_approval", "require_human"]
+
+DEFAULT_APPROVAL_SETTINGS: dict[str, ApprovalLevel] = {
+    "phase_creation": "require_approval",
+    "task_creation": "auto_approve",
+    "delegation": "auto_approve",
+}
+
+
+def read_approval_settings(workspace_dir: str | None) -> dict[str, ApprovalLevel]:
+    """Read approval settings from .bsnexus/settings.json."""
+    if not workspace_dir:
+        return dict(DEFAULT_APPROVAL_SETTINGS)
+    f = Path(workspace_dir) / HARNESS_DIR / "settings.json"
+    if not f.is_file():
+        return dict(DEFAULT_APPROVAL_SETTINGS)
+    try:
+        data = json.loads(f.read_text())
+        approval = data.get("approval", {})
+        result = dict(DEFAULT_APPROVAL_SETTINGS)
+        for key in result:
+            if key in approval and approval[key] in ("auto_approve", "require_approval", "require_human"):
+                result[key] = approval[key]
+        return result
+    except Exception:
+        return dict(DEFAULT_APPROVAL_SETTINGS)
+
+
+def write_approval_settings(workspace_dir: str | None, settings: dict[str, ApprovalLevel]) -> None:
+    """Write approval settings to .bsnexus/settings.json."""
+    if not workspace_dir:
+        return
+    f = Path(workspace_dir) / HARNESS_DIR / "settings.json"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    existing: dict = {}
+    if f.is_file():
+        try:
+            existing = json.loads(f.read_text())
+        except Exception:
+            pass
+    existing["approval"] = settings
+    f.write_text(json.dumps(existing, indent=2, ensure_ascii=False))
 
 HARNESS_DIR = ".bsnexus"
 

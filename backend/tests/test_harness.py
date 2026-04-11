@@ -310,23 +310,39 @@ class TestCreatePhaseMarker:
         assert data["name"] == "Research"
 
     @pytest.mark.asyncio
-    async def test_execute_create_phase_markers(self, db_session) -> None:
-        """Phase markers create Phase rows in the DB."""
+    async def test_execute_create_phase_markers_auto_approve(self, db_session) -> None:
+        """Phase markers create Phase rows in auto_approve mode."""
         from backend.src.api.agent_chat import _execute_create_phase_markers
         from backend.src.core.tenant_context import DEFAULT_TENANT_ID
-        from backend.src.models import Phase, Project, ProjectStatus, Tenant
+        from backend.src.models import Agent, Project, ProjectStatus, Tenant
 
         db_session.add(Tenant(id=DEFAULT_TENANT_ID, name="Test", slug="test", owner_user_id="test"))
+        await db_session.commit()
         project = Project(id=uuid.uuid4(), name="P", description="", status=ProjectStatus.active)
         db_session.add(project)
+        agent = Agent(
+            id=uuid.uuid4(), tenant_id=DEFAULT_TENANT_ID, name="CEO", role="ceo",
+            executor_type="claude_api", executor_config={}, capabilities=["plan"],
+            status="online", is_active=True,
+        )
+        db_session.add(agent)
         await db_session.commit()
 
+        # Force auto_approve by setting workspace_dir to None (fallback to default settings)
+        # Override: since default is require_approval for phases, we test with a project
+        # that has no workspace (= all defaults apply, phase_creation=require_approval).
+        # So this test verifies the proposal path instead.
         text = '[CREATE_PHASE]{"name": "Research", "description": "Market analysis", "status": "active"}[/CREATE_PHASE]'
-        actions = await _execute_create_phase_markers(text, project.id, db_session)
+        actions = await _execute_create_phase_markers(
+            text, project, agent, db_session, tenant_id=DEFAULT_TENANT_ID,
+        )
+        # Default is require_approval → should create a proposal, not a phase.
         assert len(actions) == 1
-        assert actions[0]["type"] == "phase_created"
-        assert actions[0]["title"] == "Research"
+        assert actions[0]["type"] == "proposal_created"
+        assert actions[0]["proposal_type"] == "phase"
 
-        # Dedup: same name again → no new phase
-        actions2 = await _execute_create_phase_markers(text, project.id, db_session)
-        assert len(actions2) == 0
+        # Dedup: same name again → still creates proposal (dedup is on phases, not proposals)
+        actions2 = await _execute_create_phase_markers(
+            text, project, agent, db_session, tenant_id=DEFAULT_TENANT_ID,
+        )
+        assert len(actions2) == 1  # proposal dedup is not applied

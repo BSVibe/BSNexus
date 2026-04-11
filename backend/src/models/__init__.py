@@ -5,6 +5,7 @@ from backend.src.models.agent_memory import AgentMemory
 from backend.src.models.budget import CostRecord
 from backend.src.models.conversation import ConversationMessage
 from backend.src.models.executor_config import ExecutorConfig
+from backend.src.models.plan_proposal import PlanProposal, ProposalStatus, ProposalType
 from backend.src.models.goal import Goal
 from backend.src.models.phase import Phase, PhaseStatus
 from backend.src.models.project import Project, ProjectStatus, WorkspaceType
@@ -43,6 +44,9 @@ __all__ = [
     "ExecutorConfig",
     "Goal",
     "Phase",
+    "PlanProposal",
+    "ProposalStatus",
+    "ProposalType",
     "Project",
     "ProjectChannel",
     "Setting",
