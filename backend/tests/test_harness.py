@@ -185,30 +185,24 @@ class TestRefreshContext:
         project = _project()
         project.phases = []
         agent = _agent()
-        await refresh_context(
-            str(tmp_path), project, [agent],
-            goals=[], decisions=["녹음 앱으로 확정"],
-        )
+        await refresh_context(str(tmp_path), project, [agent], goals=[])
         ctx = tmp_path / HARNESS_DIR / "context"
         assert (ctx / "project.md").is_file()
         assert (ctx / "team.md").is_file()
-        assert (ctx / "decisions.md").is_file()
-        assert "녹음 앱으로 확정" in (ctx / "decisions.md").read_text()
+        assert "@TestAgent" in (ctx / "team.md").read_text()
 
     @pytest.mark.asyncio
-    async def test_clears_stale_decisions(self, tmp_path: Path) -> None:
+    async def test_does_not_overwrite_decisions_file(self, tmp_path: Path) -> None:
+        """refresh_context must NOT touch decisions.md — that file is
+        managed exclusively by _execute_decision_markers."""
         project = _project()
         project.phases = []
-        await refresh_context(
-            str(tmp_path), project, [],
-            goals=[], decisions=["old decision"],
-        )
-        assert (tmp_path / HARNESS_DIR / "context" / "decisions.md").is_file()
-        await refresh_context(
-            str(tmp_path), project, [],
-            goals=[], decisions=[],
-        )
-        assert not (tmp_path / HARNESS_DIR / "context" / "decisions.md").exists()
+        ctx = tmp_path / HARNESS_DIR / "context"
+        ctx.mkdir(parents=True, exist_ok=True)
+        (ctx / "decisions.md").write_text("# Active Decisions\n\n1. 녹음 앱")
+        await refresh_context(str(tmp_path), project, [], goals=[])
+        # decisions.md must still contain the original content
+        assert "녹음 앱" in (ctx / "decisions.md").read_text()
 
 
 class TestDecisionMarkers:
@@ -232,3 +226,67 @@ More text.
         assert "[DECISION]" not in stripped
         assert "[STATUS]" not in stripped
         assert "Hello world" in stripped
+
+    def test_load_decisions_from_workspace(self, tmp_path: Path) -> None:
+        from backend.src.api.agent_chat import _load_decisions_from_workspace
+        from backend.src.core.harness import HARNESS_DIR
+
+        # No file → empty
+        assert _load_decisions_from_workspace(str(tmp_path)) == []
+
+        # With file
+        ctx = tmp_path / HARNESS_DIR / "context"
+        ctx.mkdir(parents=True)
+        (ctx / "decisions.md").write_text(
+            "# Active Decisions\n\nThese are confirmed.\n\n1. 녹음 앱\n2. React 기술 스택"
+        )
+        result = _load_decisions_from_workspace(str(tmp_path))
+        assert len(result) == 2
+        assert "녹음 앱" in result[0]
+
+    def test_load_decisions_no_workspace(self) -> None:
+        from backend.src.api.agent_chat import _load_decisions_from_workspace
+        assert _load_decisions_from_workspace(None) == []
+
+    @pytest.mark.asyncio
+    async def test_execute_decision_markers_capability_gate(self, tmp_path: Path) -> None:
+        """Only agents with 'plan' capability can create decisions."""
+        from backend.src.api.agent_chat import _execute_decision_markers
+
+        project = _project()
+        project.workspace_dir = str(tmp_path)
+        seed_harness(tmp_path)
+
+        # Agent WITHOUT plan capability → decisions ignored
+        agent_no_plan = _agent(["coding", "writing"])
+        text = "[DECISION] Should be ignored [/DECISION]"
+        actions = await _execute_decision_markers(text, project, agent_no_plan)
+        assert len(actions) == 0
+
+        # Agent WITH plan capability → decision saved
+        agent_with_plan = _agent(["plan", "coding"])
+        text = "[DECISION] 녹음 앱으로 방향 확정 [/DECISION]"
+        actions = await _execute_decision_markers(text, project, agent_with_plan)
+        assert len(actions) == 1
+        assert actions[0]["title"] == "녹음 앱으로 방향 확정"
+
+        # Verify file was written
+        from backend.src.core.harness import HARNESS_DIR
+        decisions_file = tmp_path / HARNESS_DIR / "context" / "decisions.md"
+        assert decisions_file.is_file()
+        assert "녹음 앱으로 방향 확정" in decisions_file.read_text()
+
+    @pytest.mark.asyncio
+    async def test_execute_decision_markers_dedup(self, tmp_path: Path) -> None:
+        """Same decision text should not be added twice."""
+        from backend.src.api.agent_chat import _execute_decision_markers
+
+        project = _project()
+        project.workspace_dir = str(tmp_path)
+        seed_harness(tmp_path)
+        agent = _agent(["plan"])
+
+        text = "[DECISION] 녹음 앱 확정 [/DECISION]"
+        await _execute_decision_markers(text, project, agent)
+        actions = await _execute_decision_markers(text, project, agent)
+        assert len(actions) == 0  # duplicate, not added again

@@ -61,3 +61,4 @@ frontend/core
 # Local agent / MCP / Claude Code config
 .claude/
 .mcp.json
+.local-data/

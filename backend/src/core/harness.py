@@ -92,8 +92,6 @@ Examples:
 - `[DECISION] 녹음 앱 (MeetingMind)으로 MVP 방향 확정 [/DECISION]`
 - `[DECISION] React + FastAPI 기술 스택 확정 [/DECISION]`
 
-Only C-level / decision-making agents should create decisions.
-
 ## Delegation
 
 If another team member's expertise would be valuable, @mention them
@@ -326,13 +324,17 @@ async def refresh_context(
     project: "Project",
     all_agents: list["Agent"],
     goals: list["Goal"],
-    decisions: list[str],
 ) -> None:
     """Overwrite .bsnexus/context/ files with fresh data.
 
     Called just before prompt assembly so the workspace files reflect
     the latest DB state. These files are auto-generated — users should
     not edit them (they'll be overwritten on the next chat turn).
+
+    Note: decisions.md is NOT overwritten here — it is managed
+    exclusively by ``_execute_decision_markers`` in agent_chat.py
+    (append-only on [DECISION] markers). This prevents refresh from
+    clobbering decisions that agents created mid-conversation.
     """
     if not workspace_dir:
         return
@@ -361,16 +363,3 @@ async def refresh_context(
             if g.description:
                 lines.append(f"  {g.description}")
         (ctx / "goals.md").write_text("\n".join(lines))
-
-    # decisions.md
-    if decisions:
-        lines = ["# Active Decisions\n",
-                 "These are confirmed project directions. Do NOT contradict them.\n"]
-        for i, d in enumerate(decisions, 1):
-            lines.append(f"{i}. {d}")
-        (ctx / "decisions.md").write_text("\n".join(lines))
-    else:
-        # Clear stale decisions
-        df = ctx / "decisions.md"
-        if df.exists():
-            df.unlink()

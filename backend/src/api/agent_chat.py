@@ -412,37 +412,110 @@ async def _execute_goal_markers(
     return actions
 
 
+def _load_decisions_from_workspace(workspace_dir: str | None) -> list[str]:
+    """Read active decisions from .bsnexus/context/decisions.md."""
+    if not workspace_dir:
+        return []
+    from pathlib import Path
+
+    from backend.src.core.harness import HARNESS_DIR
+
+    f = Path(workspace_dir) / HARNESS_DIR / "context" / "decisions.md"
+    if not f.is_file():
+        return []
+    decisions: list[str] = []
+    for line in f.read_text().splitlines():
+        stripped = line.lstrip("0123456789. ").strip()
+        if stripped and not line.startswith("#") and not line.startswith("These"):
+            decisions.append(stripped)
+    return decisions
+
+
+# Capabilities that grant the right to create [DECISION] markers.
+# Only strategic / decision-making roles should confirm directions.
+_DECISION_CAPABILITIES = {"plan"}
+
+
 async def _execute_decision_markers(
-    text: str, project_id: uuid.UUID, agent: models.Agent,
-    db: AsyncSession, tenant_id: uuid.UUID,
+    text: str, project: models.Project, agent: models.Agent,
 ) -> list[dict[str, Any]]:
-    """Parse [DECISION] markers and persist as ProjectDecision rows."""
+    """Parse [DECISION] markers and append to .bsnexus/context/decisions.md.
+
+    Only agents with a decision-capable capability (``plan``) can create
+    decisions. Non-qualifying agents that emit [DECISION] markers are
+    silently ignored — this keeps the infrastructure gate simple while
+    the prompt-level rule already tells most agents not to do it.
+    """
+    from pathlib import Path
+
+    from backend.src.core.harness import HARNESS_DIR
+
     actions: list[dict[str, Any]] = []
     decisions = _extract_decisions(text)
-    for title in decisions:
-        if not title:
-            continue
-        decision = models.ProjectDecision(
-            project_id=project_id,
-            tenant_id=tenant_id,
-            agent_id=agent.id,
-            agent_name=agent.name,
-            title=title,
-            is_active=True,
+    if not decisions:
+        return actions
+
+    # Capability gate
+    agent_caps = {(c or "").strip().lower() for c in (agent.capabilities or [])}
+    if not agent_caps & _DECISION_CAPABILITIES:
+        logger.info(
+            "decision_ignored_no_capability",
+            agent=agent.name,
+            capabilities=list(agent_caps),
+            count=len(decisions),
         )
-        db.add(decision)
-        await db.flush()
+        return actions
+
+    workspace_dir = project.workspace_dir
+    if not workspace_dir:
+        logger.warning("decision_no_workspace", agent=agent.name)
+        return actions
+
+    decisions_file = Path(workspace_dir) / HARNESS_DIR / "context" / "decisions.md"
+    decisions_file.parent.mkdir(parents=True, exist_ok=True)
+
+    # Read existing decisions to dedup
+    existing: set[str] = set()
+    if decisions_file.is_file():
+        for line in decisions_file.read_text().splitlines():
+            stripped = line.lstrip("0123456789. ").strip()
+            if stripped:
+                existing.add(stripped.lower())
+
+    new_decisions: list[str] = []
+    for title in decisions:
+        if not title or title.lower() in existing:
+            continue
+        new_decisions.append(title)
         actions.append({
             "type": "decision_created",
-            "decision_id": str(decision.id),
             "title": title,
         })
         logger.info(
             "decision_created",
-            project_id=str(project_id),
+            project_id=str(project.id),
             agent=agent.name,
             title=title,
         )
+
+    if new_decisions:
+        # Rebuild the file with header + numbered list
+        all_decisions = []
+        if decisions_file.is_file():
+            for line in decisions_file.read_text().splitlines():
+                stripped = line.lstrip("0123456789. ").strip()
+                if stripped and not line.startswith("#"):
+                    all_decisions.append(stripped)
+        all_decisions.extend(new_decisions)
+
+        lines = [
+            "# Active Decisions\n",
+            "These are confirmed project directions. Do NOT contradict them.\n",
+        ]
+        for i, d in enumerate(all_decisions, 1):
+            lines.append(f"{i}. {d}")
+        decisions_file.write_text("\n".join(lines))
+
     return actions
 
 
@@ -592,15 +665,9 @@ async def _build_chat_context(
 
     org_context = await _build_org_context(tenant_id, db)
 
-    # Load active decisions for this project so the agent knows what's
-    # been confirmed and can skip contradicting work.
-    decision_result = await db.execute(
-        select(models.ProjectDecision.title).where(
-            models.ProjectDecision.project_id == project_id,
-            models.ProjectDecision.is_active.is_(True),
-        ).order_by(models.ProjectDecision.created_at.asc())
-    )
-    active_decisions = [row[0] for row in decision_result.all()]
+    # Load active decisions from .bsnexus/context/decisions.md (file-based,
+    # single source of truth — no DB table).
+    active_decisions = _load_decisions_from_workspace(project.workspace_dir)
 
     system_prompt = await _build_system_prompt(
         agent, project, goal_context, all_agents=all_agents,
@@ -624,7 +691,7 @@ async def _process_response_text(
     task_actions = await _execute_create_task_markers(response_text, project_id, agent.id, db, redis)
     goal_actions = await _execute_goal_markers(response_text, project_id, db, tenant_id)
     decision_actions = await _execute_decision_markers(
-        response_text, project_id, agent, db, tenant_id,
+        response_text, project, agent,
     )
     cleaned = _strip_all_markers(response_text)
     return await _store_and_publish(
