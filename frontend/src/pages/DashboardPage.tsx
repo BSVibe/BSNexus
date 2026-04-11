@@ -75,18 +75,29 @@ export default function DashboardPage() {
     setSelectedIds(new Set())
   }
 
+  const invalidateAfterDelete = (ids: string[]) => {
+    queryClient.invalidateQueries({ queryKey: ['projects'] })
+    queryClient.invalidateQueries({ queryKey: ['projects-summary'] })
+    // Evict per-project caches so stale data doesn't linger.
+    for (const id of ids) {
+      queryClient.removeQueries({ queryKey: ['project', id] })
+      queryClient.removeQueries({ queryKey: ['project-chat', id] })
+      queryClient.removeQueries({ queryKey: ['plan-tree', id] })
+    }
+  }
+
   const deleteMutation = useMutation({
     mutationFn: (id: string) => projectsApi.delete(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['projects'] })
+    onSuccess: (_data, id) => {
+      invalidateAfterDelete([id])
       setDeleteTarget(null)
     },
   })
 
   const batchDeleteMutation = useMutation({
     mutationFn: (ids: string[]) => projectsApi.batchDelete(ids),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['projects'] })
+    onSuccess: (_data, ids) => {
+      invalidateAfterDelete(ids)
       exitSelectMode()
       setShowBatchDeleteModal(false)
     },

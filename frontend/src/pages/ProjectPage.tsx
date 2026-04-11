@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { projectsApi } from '../api/projects'
@@ -51,13 +51,20 @@ function ProjectContent({ projectId }: { projectId: string }) {
   const [activeTab, setActiveTab] = useState<TabId>('plan')
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [channelsOpen, setChannelsOpen] = useState(false)
+  const navigate = useNavigate()
 
   // Project data
-  const { data: project } = useQuery({
+  const { data: project, isError } = useQuery({
     queryKey: ['project', projectId],
     queryFn: () => projectsApi.get(projectId),
     enabled: !!projectId,
+    retry: false,
   })
+
+  // Redirect to dashboard if project was deleted or not found.
+  useEffect(() => {
+    if (isError) navigate('/dashboard')
+  }, [isError, navigate])
 
   return (
     <>
