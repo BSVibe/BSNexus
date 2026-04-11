@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import structlog
 import re
+from dataclasses import dataclass
 from typing import Any, AsyncIterator, Optional, cast
 
 import litellm
@@ -57,6 +59,23 @@ class LLMError(Exception):
         super().__init__(message)
 
 
+@dataclass
+class LLMResponse:
+    """Wraps LLM content together with token usage and cost."""
+
+    content: str
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    model: str = ""
+    cost_usd: float = 0.0
+
+    @property
+    def cost_cents(self) -> int:
+        """Cost in integer cents (rounded up)."""
+        return math.ceil(self.cost_usd * 100)
+
+
 class LLMConfig(BaseModel):
     """LLM connection config (passed at runtime)."""
 
@@ -80,7 +99,7 @@ class LLMClient:
         messages: list[dict[str, Any]],
         temperature: float = 0.7,
         max_tokens: int = 4096,
-    ) -> str:
+    ) -> LLMResponse:
         """Non-streaming response with automatic retry on transient errors."""
         last_exc: Exception | None = None
         for attempt in range(MAX_RETRIES + 1):
@@ -101,7 +120,28 @@ class LLMClient:
                 content = choice.message.content
                 if content is None:
                     raise LLMError("LLM returned empty content")
-                return content
+
+                # Extract usage
+                usage = getattr(response, "usage", None)
+                prompt_tokens = getattr(usage, "prompt_tokens", 0) or 0
+                completion_tokens = getattr(usage, "completion_tokens", 0) or 0
+                total_tokens = getattr(usage, "total_tokens", 0) or 0
+                model_name = getattr(response, "model", self.config.model) or self.config.model
+
+                # Calculate cost via litellm
+                try:
+                    cost_usd = litellm.completion_cost(completion_response=response)
+                except Exception:
+                    cost_usd = 0.0
+
+                return LLMResponse(
+                    content=content,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    total_tokens=total_tokens,
+                    model=model_name,
+                    cost_usd=cost_usd,
+                )
             except Exception as e:
                 last_exc = e
                 if attempt < MAX_RETRIES and _is_retryable(e):

@@ -32,6 +32,7 @@ from backend.src.config import settings
 from backend.src.core.task_markers import CREATE_PHASE_RE, CREATE_TASK_RE, build_project_context, strip_action_markers
 from backend.src.core.auth import Permission, require_permission
 from backend.src.core.goal_alignment import GoalAlignmentService
+from backend.src.core.budget import BudgetService
 from backend.src.core.llm_client import LLMClient, LLMConfig
 from backend.src.core.tenant_context import get_tenant_id
 from backend.src.core.worker_dispatch import WorkerDispatcher
@@ -820,10 +821,20 @@ async def _call_via_llm(
         )
     # Session closed — LLM call is pure network I/O, no DB needed.
     client = LLMClient(llm_config)
-    response_text = await client.chat(messages)
+    llm_response = await client.chat(messages)
     async with async_session() as result_db:
+        # Record cost before processing response
+        if llm_response.cost_cents > 0:
+            budget_svc = BudgetService(result_db)
+            await budget_svc.record_cost(
+                tenant_id=tenant_id,
+                agent_id=agent.id,
+                amount_cents=llm_response.cost_cents,
+                token_count=llm_response.total_tokens,
+                model_name=llm_response.model,
+            )
         return await _process_response_text(
-            response_text, project, project_id, agent, result_db, redis, tenant_id=tenant_id
+            llm_response.content, project, project_id, agent, result_db, redis, tenant_id=tenant_id
         )
 
 
