@@ -1,16 +1,18 @@
 import { useQuery } from '@tanstack/react-query'
 import { agentsApi } from '../../api/agents'
 
+// Unified with Plan view's AgentStatusBar dot colours so both tabs
+// agree on what each state looks like.
 const STATUS_COLORS: Record<string, string> = {
-  online: '#22c55e',
-  busy: '#3b82f6',
-  offline: '#6b7280',
+  online: '#fbbf24',       // amber-400 — idle (matches Plan view yellow dot)
+  busy: '#38bdf8',         // sky-400 — thinking/working (matches Plan view blue dot)
+  offline: '#6b7280',      // gray-500
   budget_exceeded: '#ef4444',
 }
 
 const STATUS_LABELS: Record<string, string> = {
   online: 'idle',
-  busy: 'working',
+  busy: 'thinking',
   offline: 'offline',
   budget_exceeded: 'budget exceeded',
 }

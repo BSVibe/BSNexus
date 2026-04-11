@@ -13,10 +13,11 @@ import '@xyflow/react/dist/style.css'
 import type { Agent, AgentOrgChartNode } from '../../types/agent'
 import { useAgentStore } from '../../stores/agentStore'
 
+// Unified with Plan view's AgentStatusBar dot colours.
 const STATUS_COLORS: Record<string, string> = {
-  online: '#22c55e',
-  busy: '#eab308',
-  offline: '#6b7280',
+  online: '#fbbf24',       // amber-400 — idle
+  busy: '#38bdf8',         // sky-400 — thinking
+  offline: '#6b7280',      // gray-500
   budget_exceeded: '#ef4444',
 }
 
