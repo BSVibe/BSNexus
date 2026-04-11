@@ -204,7 +204,7 @@ async def test_system_prompt_contains_role_and_project_name(db_session):
     agent.system_prompt = "Always think about user value first."
     agent.tenant_id = DEFAULT_TENANT_ID
 
-    prompt = _build_system_prompt(
+    prompt = await _build_system_prompt(
         agent,
         project_loaded,
         goal_context="[Goal] Ship MVP",

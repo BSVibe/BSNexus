@@ -111,9 +111,9 @@ def test_render_skills_for_capabilities_chains_resolution_and_render() -> None:
 # ── _build_system_prompt integration ────────────────────────────────
 
 
-def test_build_system_prompt_injects_each_capability_skill_fragment() -> None:
+async def test_build_system_prompt_injects_each_capability_skill_fragment() -> None:
     agent = _agent(["plan", "analyze", "coding"])
-    prompt = _build_system_prompt(
+    prompt = await _build_system_prompt(
         agent=agent,
         project=_project(),
         goal_context="",
@@ -126,10 +126,10 @@ def test_build_system_prompt_injects_each_capability_skill_fragment() -> None:
     assert "Skill — Design" not in prompt
 
 
-def test_build_system_prompt_for_writing_only_agent_has_only_memory_skill() -> None:
+async def test_build_system_prompt_for_writing_only_agent_has_only_memory_skill() -> None:
     """A writer with no skill-mapped capabilities still keeps memory_keeping."""
     agent = _agent(["writing", "marketing"])
-    prompt = _build_system_prompt(
+    prompt = await _build_system_prompt(
         agent=agent,
         project=_project(),
         goal_context="",
@@ -140,10 +140,10 @@ def test_build_system_prompt_for_writing_only_agent_has_only_memory_skill() -> N
         assert f"Skill — {not_present}" not in prompt
 
 
-def test_build_system_prompt_for_agent_without_capabilities_still_has_memory_block() -> None:
+async def test_build_system_prompt_for_agent_without_capabilities_still_has_memory_block() -> None:
     """memory_keeping is universal — every agent gets it even without any caps."""
     agent = _agent(None)
-    prompt = _build_system_prompt(
+    prompt = await _build_system_prompt(
         agent=agent,
         project=_project(),
         goal_context="",

@@ -138,7 +138,7 @@ async def test_system_prompt_places_org_context_before_role(db_session):
     )
     project_loaded = result.scalar_one()
 
-    prompt = _build_system_prompt(
+    prompt = await _build_system_prompt(
         agent,
         project_loaded,
         goal_context="",

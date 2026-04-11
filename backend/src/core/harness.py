@@ -1,0 +1,376 @@
+"""Harness — workspace-based prompt module system.
+
+Replaces the monolithic inline system prompt with a layered architecture
+inspired by Claude Code's CLAUDE.md / skills / rules pattern. Prompt
+fragments live in the project workspace under ``.bsnexus/`` and are read
+at dispatch time so:
+
+- Prompts stay short (only load what the agent needs)
+- Projects can customise rules (drop a ``.bsnexus/rules/custom.md``)
+- Users can inspect / edit what their agents see
+- ProjectDecisions inject global context automatically
+
+Directory layout::
+
+    .bsnexus/
+    ├── rules/
+    │   ├── response-format.md    # STATUS, markers, @mention rules
+    │   ├── conflict-check.md     # check active decisions before working
+    │   └── <user-custom>.md      # project-specific rules
+    ├── skills/
+    │   ├── design.md
+    │   ├── analyze.md
+    │   ├── plan.md
+    │   └── memory-keeping.md
+    └── context/                   # auto-generated at dispatch time
+        ├── project.md             # project name, phases, tasks
+        ├── team.md                # colleague roster
+        ├── decisions.md           # active ProjectDecisions
+        └── goals.md               # org mission + project goals
+
+The assembler reads these files and concatenates them into the system
+prompt. Files are plain markdown so they're readable in any editor.
+"""
+
+from __future__ import annotations
+
+import uuid
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+import structlog
+
+if TYPE_CHECKING:
+    from backend.src.models import Agent, Goal, Project
+
+logger = structlog.get_logger(__name__)
+
+HARNESS_DIR = ".bsnexus"
+
+
+# ── Seed: write default harness files into a workspace ──────────────
+
+
+RULES_RESPONSE_FORMAT = """\
+# Response Format
+
+## Status line (REQUIRED)
+
+Start EVERY response with a `[STATUS]` line — a present-tense summary
+of what you are about to do in ≤10 words. This line is shown in the UI
+while you work.
+
+Examples:
+```
+[STATUS] 시장 트렌드 보고서 작성
+[STATUS] Reviewing CTO's architecture proposal
+[STATUS] 기술 스택 비교 분석
+```
+
+## Task markers
+
+Create tasks by including markers in your response:
+```
+[CREATE_TASK]{"title": "...", "description": "...", "priority": "medium", "task_type": "feature", "worker_prompt": "...", "qa_prompt": "..."}[/CREATE_TASK]
+```
+
+Set or update the project goal:
+```
+[SET_GOAL]{"title": "...", "description": "...", "level": "project"}[/SET_GOAL]
+```
+
+Only include these markers when the user explicitly asks you to create tasks or set goals.
+
+## Decision markers
+
+When you make or confirm a key project direction, wrap it:
+```
+[DECISION] description of the confirmed direction [/DECISION]
+```
+
+Examples:
+- `[DECISION] 녹음 앱 (MeetingMind)으로 MVP 방향 확정 [/DECISION]`
+- `[DECISION] React + FastAPI 기술 스택 확정 [/DECISION]`
+
+Only C-level / decision-making agents should create decisions.
+
+## Delegation
+
+If another team member's expertise would be valuable, @mention them
+naturally in your response. They will receive your message and respond.
+"""
+
+
+RULES_CONFLICT_CHECK = """\
+# Conflict Check
+
+Before starting any work, review the **Active Decisions** section in
+your context. If the task you were asked to do contradicts an active
+decision:
+
+1. Do NOT proceed with the contradicting work.
+2. Respond with:
+   ```
+   [SKIP] 이 작업은 확정된 방향("[decision title]")과 충돌하여 진행하지 않습니다.
+   대신 확정된 방향에 맞춰 [alternative action]을 제안합니다.
+   ```
+3. Suggest what you would do instead, aligned with the active decision.
+
+This prevents wasted work when multiple agents are dispatched
+simultaneously and an upstream decision has already been made.
+"""
+
+
+RULES_COMMUNICATION = """\
+# Communication
+
+- Communicate professionally and respectfully — use polite language
+  (존댓말 in Korean).
+- Focus only on the project described below. Do not assume the product
+  being built is the platform you are running on.
+- When responding to a delegation from another agent, address them by
+  name and reference what they asked.
+"""
+
+
+def seed_harness(workspace_dir: str | Path) -> None:
+    """Write the default .bsnexus/ files into a workspace if they don't exist.
+
+    Called when a project is created or when the first chat message is
+    sent to a project that lacks a harness directory. Existing files are
+    never overwritten — the user may have customised them.
+    """
+    root = Path(workspace_dir) / HARNESS_DIR
+    rules = root / "rules"
+    skills = root / "skills"
+    context = root / "context"
+
+    for d in (rules, skills, context):
+        d.mkdir(parents=True, exist_ok=True)
+
+    _write_if_absent(rules / "response-format.md", RULES_RESPONSE_FORMAT)
+    _write_if_absent(rules / "conflict-check.md", RULES_CONFLICT_CHECK)
+    _write_if_absent(rules / "communication.md", RULES_COMMUNICATION)
+
+    # Skills are seeded from the canonical fragments in prompts/skills.py
+    # so there's a single source of truth during development. Once the
+    # project matures, users can edit the workspace copies directly.
+    from backend.src.prompts.skills import SKILLS
+
+    for skill_id, fragment in SKILLS.items():
+        _write_if_absent(skills / f"{skill_id}.md", fragment)
+
+
+def _write_if_absent(path: Path, content: str) -> None:
+    if not path.exists():
+        path.write_text(content)
+
+
+# ── Assemble: read harness files at dispatch time ───────────────────
+
+
+async def assemble_system_prompt(
+    agent: "Agent",
+    project: "Project",
+    workspace_dir: str | None,
+    *,
+    goal_context: str = "",
+    org_context: str = "",
+    all_agents: list["Agent"] | None = None,
+    active_decisions: list[str] | None = None,
+) -> str:
+    """Build the system prompt by reading .bsnexus/ files from the workspace.
+
+    Falls back to inline defaults if the workspace doesn't have harness
+    files (legacy projects, or when workspace_dir is None).
+    """
+    parts: list[str] = []
+
+    # 1. Org-level context (mission goals)
+    if org_context:
+        parts.append(org_context)
+
+    # 2. Goal context (project-level goals)
+    if goal_context:
+        parts.append(goal_context)
+
+    # 3. Active decisions (ProjectDecision rows)
+    if active_decisions:
+        lines = ["## Active Decisions\n",
+                 "These are confirmed project directions. Do NOT contradict them.\n"]
+        for i, d in enumerate(active_decisions, 1):
+            lines.append(f"{i}. {d}")
+        parts.append("\n".join(lines))
+
+    # 4. Agent identity
+    identity = f"You are {agent.name}, a {agent.role} working on the project \"{project.name}\"."
+    if agent.job_description:
+        identity += f"\nJob description: {agent.job_description}"
+    parts.append(identity)
+
+    # 5. Custom system prompt (per-agent)
+    if agent.system_prompt:
+        parts.append(agent.system_prompt)
+
+    # 6. Rules from .bsnexus/rules/
+    rules_text = _read_harness_dir(workspace_dir, "rules")
+    if rules_text:
+        parts.append(rules_text)
+    else:
+        # Inline fallback for legacy projects
+        parts.append(RULES_COMMUNICATION)
+        parts.append(RULES_RESPONSE_FORMAT)
+        parts.append(RULES_CONFLICT_CHECK)
+
+    # 7. Skills from .bsnexus/skills/ (filtered by agent capabilities)
+    skill_text = _read_agent_skills(workspace_dir, agent)
+    if skill_text:
+        parts.append(skill_text)
+    else:
+        # Inline fallback
+        from backend.src.prompts.skills import render_skills_for_capabilities
+        fallback = render_skills_for_capabilities(agent.capabilities)
+        if fallback:
+            parts.append(fallback)
+
+    # 8. Project context from .bsnexus/context/project.md (or inline)
+    project_ctx = _read_harness_file(workspace_dir, "context/project.md")
+    if project_ctx:
+        parts.append(project_ctx)
+    else:
+        from backend.src.core.task_markers import build_project_context
+        parts.append(build_project_context(project))
+
+    # 9. Team roster
+    if all_agents:
+        colleagues = [a for a in all_agents if a.id != agent.id and a.is_active]
+        if colleagues:
+            lines = ["Your team (you can @mention them to delegate or ask for input):"]
+            for a in colleagues:
+                desc = f"  - @{a.name} ({a.role})"
+                if a.job_description:
+                    desc += f" — {a.job_description}"
+                lines.append(desc)
+            parts.append("\n".join(lines))
+
+    return "\n\n".join(parts)
+
+
+def _read_harness_dir(workspace_dir: str | None, subdir: str) -> str:
+    """Read and concatenate all .md files in a harness subdirectory."""
+    if not workspace_dir:
+        return ""
+    d = Path(workspace_dir) / HARNESS_DIR / subdir
+    if not d.is_dir():
+        return ""
+    parts: list[str] = []
+    for f in sorted(d.glob("*.md")):
+        try:
+            content = f.read_text().strip()
+            if content:
+                parts.append(content)
+        except Exception:
+            logger.warning("harness_read_error", path=str(f), exc_info=True)
+    return "\n\n".join(parts)
+
+
+def _read_harness_file(workspace_dir: str | None, path: str) -> str:
+    """Read a single harness file."""
+    if not workspace_dir:
+        return ""
+    f = Path(workspace_dir) / HARNESS_DIR / path
+    if not f.is_file():
+        return ""
+    try:
+        return f.read_text().strip()
+    except Exception:
+        return ""
+
+
+def _read_agent_skills(workspace_dir: str | None, agent: "Agent") -> str:
+    """Read skill .md files that match the agent's capabilities."""
+    if not workspace_dir:
+        return ""
+    from backend.src.prompts.skills import CAPABILITY_TO_SKILLS, UNIVERSAL_SKILLS
+
+    skill_ids: set[str] = set()
+    for cap in (agent.capabilities or []):
+        key = (cap or "").strip().lower()
+        for sid in CAPABILITY_TO_SKILLS.get(key, []):
+            skill_ids.add(sid)
+    for u in UNIVERSAL_SKILLS:
+        skill_ids.add(u)
+
+    skills_dir = Path(workspace_dir) / HARNESS_DIR / "skills"
+    if not skills_dir.is_dir():
+        return ""
+
+    parts: list[str] = []
+    for sid in sorted(skill_ids):
+        f = skills_dir / f"{sid}.md"
+        if f.is_file():
+            try:
+                content = f.read_text().strip()
+                if content:
+                    parts.append(content)
+            except Exception:
+                pass
+    return "\n\n".join(parts)
+
+
+# ── Context: write dynamic context files before dispatch ────────────
+
+
+async def refresh_context(
+    workspace_dir: str | None,
+    project: "Project",
+    all_agents: list["Agent"],
+    goals: list["Goal"],
+    decisions: list[str],
+) -> None:
+    """Overwrite .bsnexus/context/ files with fresh data.
+
+    Called just before prompt assembly so the workspace files reflect
+    the latest DB state. These files are auto-generated — users should
+    not edit them (they'll be overwritten on the next chat turn).
+    """
+    if not workspace_dir:
+        return
+    ctx = Path(workspace_dir) / HARNESS_DIR / "context"
+    ctx.mkdir(parents=True, exist_ok=True)
+
+    # project.md
+    from backend.src.core.task_markers import build_project_context
+    (ctx / "project.md").write_text(build_project_context(project))
+
+    # team.md
+    lines = ["# Team\n"]
+    for a in all_agents:
+        if a.is_active:
+            desc = f"- @{a.name} ({a.role})"
+            if a.job_description:
+                desc += f" — {a.job_description}"
+            lines.append(desc)
+    (ctx / "team.md").write_text("\n".join(lines))
+
+    # goals.md
+    if goals:
+        lines = ["# Goals\n"]
+        for g in goals:
+            lines.append(f"- [{g.level}] {g.title}")
+            if g.description:
+                lines.append(f"  {g.description}")
+        (ctx / "goals.md").write_text("\n".join(lines))
+
+    # decisions.md
+    if decisions:
+        lines = ["# Active Decisions\n",
+                 "These are confirmed project directions. Do NOT contradict them.\n"]
+        for i, d in enumerate(decisions, 1):
+            lines.append(f"{i}. {d}")
+        (ctx / "decisions.md").write_text("\n".join(lines))
+    else:
+        # Clear stale decisions
+        df = ctx / "decisions.md"
+        if df.exists():
+            df.unlink()

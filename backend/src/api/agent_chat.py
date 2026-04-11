@@ -45,6 +45,7 @@ router = APIRouter(prefix="/api/v1/projects/{project_id}/chat", tags=["agent-cha
 
 SET_GOAL_RE = re.compile(r"\[SET_GOAL\](.*?)\[/SET_GOAL\]", re.DOTALL)
 STATUS_RE = re.compile(r"^\[STATUS\]\s*(.+?)$", re.MULTILINE)
+DECISION_RE = re.compile(r"\[DECISION\](.*?)\[/DECISION\]", re.DOTALL)
 MAX_HISTORY = 100
 # Per-agent timeout for waiting on a worker chat result. This is NOT a
 # chain-wide limit — each agent's _call_via_worker polls independently.
@@ -233,69 +234,32 @@ async def _route_via_worker(
 # ── Prompt construction ─────────────────────────────────────────────
 
 
-def _build_system_prompt(
+async def _build_system_prompt(
     agent: models.Agent,
     project: models.Project,
     goal_context: str,
     all_agents: list[models.Agent],
     org_context: str = "",
+    active_decisions: list[str] | None = None,
 ) -> str:
-    parts: list[str] = []
-    if org_context:
-        parts.append(org_context)
-    if goal_context:
-        parts.append(goal_context)
-    parts.append(
-        f"You are {agent.name}, a {agent.role} working on the project \"{project.name}\".\n"
-        "Communicate professionally and respectfully — use polite language (존댓말 in Korean).\n"
-        "Focus only on the project described below. Do not assume the product being built "
-        "is the platform you are running on."
+    """Build the system prompt via the harness (workspace-based modules).
+
+    Falls back to inline defaults for projects without a workspace or
+    without a ``.bsnexus/`` directory.
+    """
+    from backend.src.core.harness import assemble_system_prompt, seed_harness
+
+    workspace_dir = project.workspace_dir
+    if workspace_dir:
+        seed_harness(workspace_dir)
+
+    return await assemble_system_prompt(
+        agent, project, workspace_dir,
+        goal_context=goal_context,
+        org_context=org_context,
+        all_agents=all_agents,
+        active_decisions=active_decisions,
     )
-    if agent.job_description:
-        parts.append(f"Job description: {agent.job_description}")
-    if agent.system_prompt:
-        parts.append(agent.system_prompt)
-    # Inject skill prompt fragments. Skills are reusable capability modules
-    # (design, analyze, plan, memory_keeping) derived from
-    # ``agent.capabilities`` via ``CAPABILITY_TO_SKILLS`` — that way a
-    # custom agent created through the Hire Agent form picks up the right
-    # skills automatically based on the capabilities the user checked,
-    # without any role-based hardcoding.
-    from backend.src.prompts.skills import render_skills_for_capabilities
-
-    skill_block = render_skills_for_capabilities(agent.capabilities)
-    if skill_block:
-        parts.append(skill_block)
-    parts.append(build_project_context(project))
-
-    colleagues = [a for a in all_agents if a.id != agent.id and a.is_active]
-    if colleagues:
-        lines = ["Your team (you can @mention them to delegate or ask for input):"]
-        for a in colleagues:
-            desc = f"  - @{a.name} ({a.role})"
-            if a.job_description:
-                desc += f" — {a.job_description}"
-            lines.append(desc)
-        parts.append("\n".join(lines))
-
-    parts.append(
-        "## Response format rules\n\n"
-        "**Status line (REQUIRED)**: Start EVERY response with a single `[STATUS]` line that "
-        "summarises what you are about to do in ≤10 words. This line is shown in the UI "
-        "while you work, so write it as a present-tense action:\n"
-        "  [STATUS] 시장 트렌드 보고서 작성\n"
-        "  [STATUS] Reviewing CTO's architecture proposal\n"
-        "  [STATUS] 기술 스택 비교 분석\n"
-        "The rest of your response follows after the status line.\n\n"
-        "You can create tasks by including markers in your response:\n"
-        '[CREATE_TASK]{"title": "...", "description": "...", "priority": "medium", '
-        '"task_type": "feature", "worker_prompt": "...", "qa_prompt": "..."}[/CREATE_TASK]\n\n'
-        "You can set or update the project goal by including:\n"
-        '[SET_GOAL]{"title": "...", "description": "...", "level": "project"}[/SET_GOAL]\n\n'
-        "Only include these markers when the user explicitly asks you to create tasks or set goals.\n"
-        "If another team member's expertise would be valuable, @mention them naturally in your response."
-    )
-    return "\n\n".join(parts)
 
 
 def _extract_status(text: str) -> str:
@@ -304,10 +268,16 @@ def _extract_status(text: str) -> str:
     return m.group(1).strip()[:80] if m else ""
 
 
+def _extract_decisions(text: str) -> list[str]:
+    """Pull all [DECISION] blocks from a response."""
+    return [m.strip() for m in DECISION_RE.findall(text) if m.strip()]
+
+
 def _strip_all_markers(text: str) -> str:
     text = strip_action_markers(text)
     text = SET_GOAL_RE.sub("", text).strip()
     text = STATUS_RE.sub("", text).strip()
+    text = DECISION_RE.sub("", text).strip()
     return re.sub(r"^\[.*?\]\s*", "", text, count=1)
 
 
@@ -439,6 +409,40 @@ async def _execute_goal_markers(
             db.add(new_goal)
             await db.flush()
             actions.append({"type": "goal_created", "goal_id": str(new_goal.id), "title": title})
+    return actions
+
+
+async def _execute_decision_markers(
+    text: str, project_id: uuid.UUID, agent: models.Agent,
+    db: AsyncSession, tenant_id: uuid.UUID,
+) -> list[dict[str, Any]]:
+    """Parse [DECISION] markers and persist as ProjectDecision rows."""
+    actions: list[dict[str, Any]] = []
+    decisions = _extract_decisions(text)
+    for title in decisions:
+        if not title:
+            continue
+        decision = models.ProjectDecision(
+            project_id=project_id,
+            tenant_id=tenant_id,
+            agent_id=agent.id,
+            agent_name=agent.name,
+            title=title,
+            is_active=True,
+        )
+        db.add(decision)
+        await db.flush()
+        actions.append({
+            "type": "decision_created",
+            "decision_id": str(decision.id),
+            "title": title,
+        })
+        logger.info(
+            "decision_created",
+            project_id=str(project_id),
+            agent=agent.name,
+            title=title,
+        )
     return actions
 
 
@@ -587,8 +591,20 @@ async def _build_chat_context(
     goal_context = await goal_svc.build_goal_context(project_goal.id) if project_goal else ""
 
     org_context = await _build_org_context(tenant_id, db)
-    system_prompt = _build_system_prompt(
-        agent, project, goal_context, all_agents=all_agents, org_context=org_context
+
+    # Load active decisions for this project so the agent knows what's
+    # been confirmed and can skip contradicting work.
+    decision_result = await db.execute(
+        select(models.ProjectDecision.title).where(
+            models.ProjectDecision.project_id == project_id,
+            models.ProjectDecision.is_active.is_(True),
+        ).order_by(models.ProjectDecision.created_at.asc())
+    )
+    active_decisions = [row[0] for row in decision_result.all()]
+
+    system_prompt = await _build_system_prompt(
+        agent, project, goal_context, all_agents=all_agents,
+        org_context=org_context, active_decisions=active_decisions,
     )
     messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
     for h in history:
@@ -607,10 +623,13 @@ async def _process_response_text(
 ) -> models.ConversationMessage:
     task_actions = await _execute_create_task_markers(response_text, project_id, agent.id, db, redis)
     goal_actions = await _execute_goal_markers(response_text, project_id, db, tenant_id)
+    decision_actions = await _execute_decision_markers(
+        response_text, project_id, agent, db, tenant_id,
+    )
     cleaned = _strip_all_markers(response_text)
     return await _store_and_publish(
         db, redis, project_id, role="assistant", content=cleaned,
-        agent=agent, actions=task_actions + goal_actions,
+        agent=agent, actions=task_actions + goal_actions + decision_actions,
     )
 
 
