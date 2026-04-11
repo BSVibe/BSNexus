@@ -220,12 +220,41 @@ async def poll_and_execute(executor_name: str) -> None:
 
     headers = {"X-Worker-Token": settings.worker_token}
 
+    # Track in-flight tasks so we can run multiple CLI calls in parallel.
+    # Each task is dispatched as an asyncio.Task; the poll loop keeps
+    # feeding new work without waiting for the previous one to finish.
+    in_flight: set[asyncio.Task[None]] = set()
+    max_parallel = settings.max_parallel_tasks
+
+    async def _run_task(task: dict) -> None:
+        try:
+            action = task.get("action", "execute")
+            if action == "chat":
+                await _handle_chat(task, executor, client, headers)
+            else:
+                await _handle_task(task, executor, cwd, client, headers)
+        except Exception:
+            logger.exception("task_execution_error", task_id=task.get("task_id") or task.get("chat_id"))
+
     async with httpx.AsyncClient(base_url=settings.server_url, timeout=30) as client:
         while True:
             try:
+                # Clean up completed tasks.
+                done = {t for t in in_flight if t.done()}
+                in_flight -= done
+
                 await client.post("/api/v1/workers/heartbeat", headers=headers)
 
-                res = await client.post("/api/v1/workers/poll", headers=headers, params={"count": 1})
+                # Only poll if we have capacity.
+                if len(in_flight) >= max_parallel:
+                    await asyncio.sleep(1)
+                    continue
+
+                slots = max_parallel - len(in_flight)
+                res = await client.post(
+                    "/api/v1/workers/poll", headers=headers,
+                    params={"count": min(slots, 5)},
+                )
                 res.raise_for_status()
                 tasks = res.json()
 
@@ -234,12 +263,8 @@ async def poll_and_execute(executor_name: str) -> None:
                     continue
 
                 for task in tasks:
-                    action = task.get("action", "execute")
-
-                    if action == "chat":
-                        await _handle_chat(task, executor, client, headers)
-                    else:
-                        await _handle_task(task, executor, cwd, client, headers)
+                    t = asyncio.create_task(_run_task(task))
+                    in_flight.add(t)
 
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 401:

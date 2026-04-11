@@ -45,7 +45,10 @@ router = APIRouter(prefix="/api/v1/projects/{project_id}/chat", tags=["agent-cha
 
 SET_GOAL_RE = re.compile(r"\[SET_GOAL\](.*?)\[/SET_GOAL\]", re.DOTALL)
 MAX_HISTORY = 100
-WORKER_RESULT_TIMEOUT = 120.0
+# Per-agent timeout for waiting on a worker chat result. This is NOT a
+# chain-wide limit — each agent's _call_via_worker polls independently.
+# Design / coding tasks can take 10-30 minutes; set generously.
+WORKER_RESULT_TIMEOUT = 1800.0  # 30 minutes
 ROUTING_TIMEOUT = 30.0
 
 

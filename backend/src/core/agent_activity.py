@@ -45,7 +45,9 @@ if TYPE_CHECKING:
 
 # Window long enough to cover a slow chat turn but short enough that a
 # crashed worker / dropped connection clears the indicator on its own.
-BUSY_TTL_SECONDS = 180
+# Must outlive the longest possible worker turn (design / coding can
+# take 30+ minutes). Auto-expires so a crash never leaves the UI stuck.
+BUSY_TTL_SECONDS = 2400  # 40 minutes
 
 
 def _busy_key(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> str:

@@ -515,7 +515,7 @@ async def submit_chat_result(
         "output": body.output,
         "error_message": body.error_message,
         "worker_id": str(worker.id),
-    }), ex=300)  # TTL 5 minutes
+    }), ex=3600)  # TTL 1 hour — must outlive WORKER_RESULT_TIMEOUT (30min)
 
     return {"status": "accepted"}
 
