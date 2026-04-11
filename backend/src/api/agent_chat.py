@@ -908,17 +908,15 @@ async def _process_agent_in_background(
     """
     from backend.src.core.agent_activity import clear_agent_busy, mark_agent_busy
 
-    # Initial busy mark with a placeholder — updated with a better
-    # summary once we load the agent name from the DB.
-    await mark_agent_busy(redis, tenant_id, agent_id, activity="")
     agent: models.Agent | None = None
 
-    # Phase 1: short-lived DB session for setup (load project, agent,
-    # history, build prompt). Closed before the long worker wait so we
-    # don't hold a connection pool slot for 30 minutes.
+    # Phase 1: short-lived DB session for setup. Do NOT mark busy yet —
+    # we first check that an executor is actually available so the UI
+    # doesn't show a green dot for an agent that will immediately 503.
     project = None
     all_agents: list[models.Agent] = []
     history: list[models.ConversationMessage] = []
+    can_execute = False
     async with async_session() as setup_db:
         project_result = await setup_db.execute(
             select(models.Project)
@@ -927,7 +925,6 @@ async def _process_agent_in_background(
         )
         project = project_result.scalar_one_or_none()
         if not project:
-            await clear_agent_busy(redis, tenant_id, agent_id)
             return
 
         agents_result = await setup_db.execute(
@@ -939,9 +936,45 @@ async def _process_agent_in_background(
         all_agents = list(agents_result.scalars().all())
         agent = next((a for a in all_agents if a.id == agent_id), None)
         if not agent:
-            await clear_agent_busy(redis, tenant_id, agent_id)
             return
 
+        # Check executor availability BEFORE marking busy.
+        if agent.executor_type == "worker":
+            stream_manager = RedisStreamManager(redis) if redis else None
+            dispatcher = WorkerDispatcher(stream_manager) if stream_manager else None
+            worker = await dispatcher.find_available_worker(setup_db) if dispatcher else None
+            if not worker:
+                # No worker online — publish error immediately, don't mark busy.
+                await _store_and_publish(
+                    setup_db, redis, project_id,
+                    role="assistant",
+                    content="[Error] No online worker available. Start a worker with `bsnexus-worker run`.",
+                    agent=agent,
+                )
+                return
+            can_execute = True
+        else:
+            # LLM executor — check if API key is configured.
+            try:
+                await _resolve_llm_config(agent, setup_db)
+                can_execute = True
+            except HTTPException:
+                # No LLM key — check if a worker fallback is available.
+                stream_manager = RedisStreamManager(redis) if redis else None
+                dispatcher = WorkerDispatcher(stream_manager) if stream_manager else None
+                worker = await dispatcher.find_available_worker(setup_db) if dispatcher else None
+                if worker:
+                    can_execute = True
+                else:
+                    await _store_and_publish(
+                        setup_db, redis, project_id,
+                        role="assistant",
+                        content="[Error] No LLM API key configured and no online worker available.",
+                        agent=agent,
+                    )
+                    return
+
+        # NOW mark busy — we know the executor is available.
         activity = _summarize_activity(user_message, agent_name=agent.name)
         await mark_agent_busy(redis, tenant_id, agent_id, activity=activity)
         await _publish_agent_status(redis, project_id, agent, "busy")
