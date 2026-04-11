@@ -40,9 +40,11 @@ backend/src/
     workspace/           # Per-project workspace storage
     workspace_storage.py # Pluggable storage backends (local, git, ...)
     import_sources.py    # Pluggable source providers (local, git, tarball)
-    task_markers.py      # CREATE_TASK / SET_GOAL marker parsers
+    task_markers.py      # CREATE_TASK / CREATE_PHASE / SET_GOAL marker parsers
+    harness.py           # Workspace-based prompt assembly (.bsnexus/)
+    agent_activity.py    # Redis-backed busy tracker + unified status resolver
   prompts/
-    specialists.py       # Designer / Analyzer / Planner / Memory Keeper prompts
+    skills.py            # Capability-driven skill fragments (design/analyze/plan/...)
     review.yaml          # QA review prompts
   models/                # SQLAlchemy models, one file per domain
   schemas/               # Pydantic request/response schemas
@@ -63,7 +65,12 @@ frontend/src/
   stores/                # Zustand: planStore, agentStore, toastStore
   types/                 # TypeScript types
 
-worker/src/              # Distributed worker agent
+worker/                  # Distributed worker agent (parallel execution)
+
+.bsnexus/                # Per-project workspace harness (auto-seeded)
+  rules/                 # response-format, conflict-check, communication
+  skills/                # design, analyze, plan, architect, marketing, memory
+  context/               # Auto-generated: project, team, decisions, goals
 ```
 
 ## Development Commands
@@ -144,7 +151,7 @@ docker compose -f .devcontainer/docker-compose.yml up -d postgres redis
 | `/api/v1/tasks`                                 | Task CRUD and state transitions                          |
 | `/api/v1/tasks/{id}/activity`                   | Task activity feed (milestone + tool log)                |
 | `/api/v1/agents`                                | Agent CRUD + org chart                                   |
-| `/api/v1/agent-templates`                       | Predefined org chart templates (incl. specialists)       |
+| `/api/v1/agent-templates`                       | Predefined org chart templates (startup/minimal/enterprise) |
 | `/api/v1/workers`                               | Worker registration, heartbeat, poll, result             |
 | `/api/v1/goals`                                 | Goal CRUD (mission, department, project, task levels)   |
 | `/api/v1/budget`                                | Per-agent budgets and cost records                       |
@@ -183,14 +190,32 @@ the core flow.
   With no mention, the org-chart root's worker chooses the right agent
   via a one-shot LLM call. The static `routing_keywords` field is gone.
 - **Delegation chain**: Background `asyncio.Task` per agent — fresh DB
-  session, fresh tenant context. Cascading mentions are dispatched
-  recursively up to `MAX_DELEGATION_DEPTH`.
+  session per phase (setup, then release before long waits). No depth
+  limit — agents collaborate freely. Loop prevention is a prompt
+  responsibility via the harness conflict-check rule.
+- **Worker dispatch**: Parallel execution (`max_parallel_tasks=5`).
+  DB sessions are short-lived — released before the Redis poll so
+  30-minute worker turns don't exhaust the connection pool.
 - **Event bus**: Every persisted message is published to the Redis
   Stream `chat:events:{project_id}`.
+- **Harness prompt system**: System prompts are assembled from
+  `.bsnexus/` files in the project workspace (rules, skills, context).
+  See `core/harness.py`. Users can add custom rules by dropping `.md`
+  files in `.bsnexus/rules/`.
+- **Markers**: Agents proactively create plan items via markers:
+  `[CREATE_PHASE]`, `[CREATE_TASK]`, `[SET_GOAL]`, `[DECISION]`,
+  `[STATUS]`. All are stripped from displayed text.
+- **ProjectDecision**: `[DECISION]` markers are saved to
+  `.bsnexus/context/decisions.md` (file-based, no DB table). Only
+  agents with `plan` capability can create decisions. Active decisions
+  are injected into every agent's prompt.
 - **Org-mission injection**: Every system prompt prepends the active
   tenant's `Goal.level == "mission"` rows so cross-session context is
-  stable. Long-term memories are still stored via `/memories`, but
-  injection is mission-only — no per-turn N-of-recent dump.
+  stable.
+- **Capability-driven skills**: Agent capabilities (`plan`, `analyze`,
+  `design`, `architect`, `marketing`) resolve to skill prompt fragments
+  at dispatch time via `CAPABILITY_TO_SKILLS`. `memory_keeping` is
+  universal.
 
 ## Channel Fan-out
 
@@ -248,7 +273,14 @@ State changes go through `state_machine.transition()`, which writes a
   polling loops** — busy AsyncMock loops hang otherwise.
 - **Fixtures**: `db_session`, `mock_stream_manager`, `client` (see
   `backend/tests/conftest.py`)
-- **Integration tests**: `backend/tests/integration/`
+- **Fresh-PG integration tests**: `test_integration_fresh_db.py` — real
+  uvicorn subprocess + throwaway PG/Redis containers, e2e bypass token,
+  no mocks. Catches wiring bugs that SQLite + fixture overrides miss.
+- **Fresh-PG migration smoke**: `test_alembic_fresh_migration.py` —
+  `alembic upgrade head` against an empty PG container.
+- **Isolated e2e stack**: `frontend/e2e/scripts/run-isolated.mjs` —
+  orchestrates PG + Redis + uvicorn + vite + bsnexus-worker (stub
+  claude) for fully hermetic real e2e. Run: `pnpm test:e2e:isolated`.
 - **Coverage gate**: 80% (CI fails below).
 
 ## Commit Style

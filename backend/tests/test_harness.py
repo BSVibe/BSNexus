@@ -290,3 +290,43 @@ More text.
         await _execute_decision_markers(text, project, agent)
         actions = await _execute_decision_markers(text, project, agent)
         assert len(actions) == 0  # duplicate, not added again
+
+
+class TestCreatePhaseMarker:
+    def test_strip_all_markers_removes_create_phase(self) -> None:
+        from backend.src.api.agent_chat import _strip_all_markers
+        text = "[STATUS] Working\n[CREATE_PHASE]{\"name\": \"Phase 1\"}[/CREATE_PHASE]\nHello"
+        stripped = _strip_all_markers(text)
+        assert "[CREATE_PHASE]" not in stripped
+        assert "Hello" in stripped
+
+    def test_create_phase_re_parses_json(self) -> None:
+        from backend.src.core.task_markers import CREATE_PHASE_RE
+        text = '[CREATE_PHASE]{"name": "Research", "description": "Market research"}[/CREATE_PHASE]'
+        matches = CREATE_PHASE_RE.findall(text)
+        assert len(matches) == 1
+        import json
+        data = json.loads(matches[0])
+        assert data["name"] == "Research"
+
+    @pytest.mark.asyncio
+    async def test_execute_create_phase_markers(self, db_session) -> None:
+        """Phase markers create Phase rows in the DB."""
+        from backend.src.api.agent_chat import _execute_create_phase_markers
+        from backend.src.core.tenant_context import DEFAULT_TENANT_ID
+        from backend.src.models import Phase, Project, ProjectStatus, Tenant
+
+        db_session.add(Tenant(id=DEFAULT_TENANT_ID, name="Test", slug="test", owner_user_id="test"))
+        project = Project(id=uuid.uuid4(), name="P", description="", status=ProjectStatus.active)
+        db_session.add(project)
+        await db_session.commit()
+
+        text = '[CREATE_PHASE]{"name": "Research", "description": "Market analysis", "status": "active"}[/CREATE_PHASE]'
+        actions = await _execute_create_phase_markers(text, project.id, db_session)
+        assert len(actions) == 1
+        assert actions[0]["type"] == "phase_created"
+        assert actions[0]["title"] == "Research"
+
+        # Dedup: same name again → no new phase
+        actions2 = await _execute_create_phase_markers(text, project.id, db_session)
+        assert len(actions2) == 0

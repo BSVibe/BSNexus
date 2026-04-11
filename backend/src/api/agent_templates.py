@@ -81,7 +81,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                         title="Chief Technology Officer",
                         job_description="Leads technical architecture and engineering team",
                         executor_type="claude_api",
-                        capabilities=["plan", "analyze", "coding"],
+                        capabilities=["plan", "analyze", "architect", "coding"],
                         monthly_budget_cents=2000,
                         children=[
                             AgentTemplate(
@@ -190,7 +190,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                         title="Chief Technology Officer",
                         job_description="Technical architecture and engineering leadership",
                         executor_type="claude_api",
-                        capabilities=["plan", "analyze", "coding"],
+                        capabilities=["plan", "analyze", "architect", "coding"],
                         monthly_budget_cents=2000,
                         children=[
                             AgentTemplate(

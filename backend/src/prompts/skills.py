@@ -146,12 +146,156 @@ Operating rules:
 """
 
 
+ARCHITECT_SKILL = """\
+## Skill — Architecture
+
+You can evaluate technology choices for a project and produce architecture
+recommendations. Use this skill when the user asks for a tech stack, system
+design, or architecture diagram.
+
+### Tech Stack Recommendation
+
+When proposing a tech stack for an MVP, cover these dimensions and justify
+each choice with a one-sentence rationale:
+
+1. **LLM / AI layer** — which model provider, why (cost, latency, quality).
+2. **Backend framework** — language + framework, why.
+3. **Database** — relational vs document vs vector, why.
+4. **Frontend** — framework + build tool, why.
+5. **Payment / Billing** — payment gateway and billing model, why
+   (Stripe, Paddle, Lemon Squeezy, etc.). Include webhook handling,
+   subscription vs usage-based, and PCI compliance considerations.
+6. **Deployment** — hosting platform and infra strategy, why.
+7. **Ancillary** — queue, cache, auth, monitoring — only if relevant.
+
+Operating rules for recommendations:
+- Start from the project's *constraints* (team size, budget, timeline,
+  existing code) — don't default to the trendiest option.
+- Prefer boring, battle-tested technology over cutting-edge when the team
+  is small or the timeline is tight.
+- Flag trade-offs explicitly: "X is simpler but limits Y later."
+- Record the final decision with a ``[DECISION]`` marker so future agents
+  can see why the stack was chosen.
+
+### Architecture Diagram
+
+Always include a Mermaid diagram to visualise the proposed architecture.
+Use the diagram type that best fits the situation:
+
+- **flowchart** (``graph TD``) for request/data flow
+- **C4 Context** (``C4Context``) for system boundary overview
+- **sequence diagram** for async / multi-service interactions
+
+Example format:
+
+```mermaid
+graph TD
+    Client[Browser / Mobile] --> LB[Load Balancer]
+    LB --> API[API Server]
+    API --> DB[(PostgreSQL)]
+    API --> Cache[(Redis)]
+    API --> LLM[LLM Provider]
+```
+
+Operating rules for diagrams:
+1. Keep the first diagram to ≤ 15 nodes — a readable overview beats an
+   exhaustive map.
+2. Label edges with protocols or data types where it helps clarity
+   (``REST``, ``WebSocket``, ``SSE``, ``gRPC``).
+3. Separate infrastructure concerns (CI/CD, monitoring) into a second
+   diagram if needed — don't clutter the primary one.
+4. After presenting the diagram, ask whether the user wants to drill into
+   any subsystem before committing the architecture.
+"""
+
+
+MARKETING_SKILL = """\
+## Skill — Marketing
+
+You can create marketing strategy, landing page copy, and acquisition
+channel plans. Use this skill when the user needs go-to-market strategy,
+brand messaging, content calendars, or growth channel analysis.
+
+### Landing Page Copywriting
+
+When writing landing page copy, follow this structure:
+
+1. **Hero section** — one headline (≤12 words) that names the pain and
+   hints at the solution. One sub-headline that explains *how*. One
+   clear CTA button label.
+2. **Problem statement** — 2-3 bullet points the target audience
+   immediately recognises as their own frustration.
+3. **Solution section** — how the product solves each pain point.
+   Feature ≠ benefit — always lead with the benefit.
+4. **Social proof** — placeholder slots for testimonials, logos, or
+   metrics ("10,000+ teams use …").
+5. **Pricing / CTA** — repeat the CTA. Remove friction: "무료 체험",
+   "No credit card required", etc.
+6. **FAQ** — 3-5 common objections turned into reassuring answers.
+
+Operating rules for copy:
+- Write in the language the target market speaks. Default to Korean
+  (한국어) for domestic products unless told otherwise.
+- Keep sentences short. Aim for 6th-grade readability.
+- Every headline must pass the "so what?" test — if a stranger reads it
+  and shrugs, rewrite it.
+- Never use jargon the target customer wouldn't use themselves.
+
+### Acquisition Channel Strategy
+
+When proposing initial user acquisition channels, evaluate each channel
+on three axes: **reach** (audience size), **cost** (CAC estimate), and
+**speed** (time to first conversion).
+
+Channels to consider for Korean market (한국 시장):
+
+| Channel              | Strength                        | Watch out                  |
+|----------------------|---------------------------------|----------------------------|
+| Naver Blog / SEO     | High intent, long-tail traffic  | Slow ramp-up (2-3 months)  |
+| Instagram Ads        | Visual products, brand building | Creative fatigue is fast    |
+| YouTube Shorts       | Explainer / demo content        | Production cost             |
+| Naver Search Ads     | High purchase intent            | Competitive CPC             |
+| Kakao Channel        | Direct CRM, repeat engagement   | Requires existing audience  |
+| Product Hunt         | Global early-adopter exposure   | One-shot; timing matters    |
+| Community seeding    | Authentic word-of-mouth         | Does not scale easily       |
+
+For global / English markets, also consider:
+- Google Ads (Search + Performance Max)
+- Twitter/X organic + ads
+- Reddit community posts
+- LinkedIn (B2B SaaS)
+- SEO content marketing (blog)
+
+Operating rules for channel strategy:
+1. Recommend a **primary channel** (the one to double down on first)
+   and 1-2 **secondary channels** to test in parallel.
+2. For each channel, include: target audience segment, estimated monthly
+   budget, key metric to track, and a 30-day experiment plan.
+3. Always propose a way to measure attribution (UTM parameters, promo
+   codes, dedicated landing page URLs).
+4. Flag channels that require creative assets and create tasks for them
+   using ``[CREATE_TASK]`` markers.
+
+### Content Calendar
+
+When asked to plan content, produce a 4-week calendar covering:
+- Publishing cadence (e.g., 3 blog posts/week, 5 Instagram posts/week)
+- Content themes tied to acquisition channel strategy
+- Repurposing plan (one long-form piece → social snippets, email, etc.)
+
+Output the calendar as a markdown table with columns:
+Week | Channel | Content Type | Topic | Goal | Owner
+"""
+
+
 # ── Registry ────────────────────────────────────────────────────────
 
 SKILLS: dict[str, str] = {
     "design": DESIGN_SKILL,
     "analyze": ANALYZE_SKILL,
     "plan": PLAN_SKILL,
+    "architect": ARCHITECT_SKILL,
+    "marketing": MARKETING_SKILL,
     "memory_keeping": MEMORY_KEEPING_SKILL,
 }
 
@@ -174,6 +318,8 @@ CAPABILITY_TO_SKILLS: dict[str, list[str]] = {
     "plan": ["plan"],
     "analyze": ["analyze"],
     "design": ["design"],
+    "architect": ["architect"],
+    "marketing": ["marketing"],
 }
 
 UNIVERSAL_SKILLS: list[str] = ["memory_keeping"]
