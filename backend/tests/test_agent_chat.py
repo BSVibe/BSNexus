@@ -71,11 +71,16 @@ async def agents(db_session) -> list[Agent]:
     return result
 
 
+def _llm_response(content: str) -> "LLMResponse":
+    from backend.src.core.llm_client import LLMResponse
+    return LLMResponse(content=content, prompt_tokens=10, completion_tokens=20, total_tokens=30, model="gpt-4o", cost_usd=0.001)
+
+
 @pytest.fixture
 def mock_llm():
     with patch("backend.src.api.agent_chat.LLMClient") as mock_cls:
         instance = AsyncMock()
-        instance.chat = AsyncMock(return_value="Here is my response.")
+        instance.chat = AsyncMock(return_value=_llm_response("Here is my response."))
         mock_cls.return_value = instance
         yield instance
 
@@ -89,7 +94,7 @@ def mock_llm_with_task():
     )
     with patch("backend.src.api.agent_chat.LLMClient") as mock_cls:
         instance = AsyncMock()
-        instance.chat = AsyncMock(return_value=response)
+        instance.chat = AsyncMock(return_value=_llm_response(response))
         mock_cls.return_value = instance
         yield instance
 
@@ -103,7 +108,7 @@ def mock_llm_with_goal():
     )
     with patch("backend.src.api.agent_chat.LLMClient") as mock_cls:
         instance = AsyncMock()
-        instance.chat = AsyncMock(return_value=response)
+        instance.chat = AsyncMock(return_value=_llm_response(response))
         mock_cls.return_value = instance
         yield instance
 

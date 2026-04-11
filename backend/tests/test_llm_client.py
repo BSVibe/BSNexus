@@ -9,6 +9,7 @@ from backend.src.core.llm_client import (
     LLMClient,
     LLMConfig,
     LLMError,
+    LLMResponse,
     _is_retryable,
     create_llm_client,
     create_llm_client_from_project,
@@ -55,6 +56,23 @@ class TestLLMConfig:
         assert "https://api.example.com" in repr_str
 
 
+# -- LLMResponse --------------------------------------------------------------
+
+
+class TestLLMResponse:
+    def test_cost_cents_rounds_up(self) -> None:
+        resp = LLMResponse(content="hi", cost_usd=0.0015)
+        assert resp.cost_cents == 1  # ceil(0.15) = 1
+
+    def test_cost_cents_zero(self) -> None:
+        resp = LLMResponse(content="hi", cost_usd=0.0)
+        assert resp.cost_cents == 0
+
+    def test_cost_cents_exact(self) -> None:
+        resp = LLMResponse(content="hi", cost_usd=0.05)
+        assert resp.cost_cents == 5
+
+
 # -- LLMClient.chat -----------------------------------------------------------
 
 
@@ -68,17 +86,25 @@ class TestLLMClientChat:
         return LLMClient(config)
 
     async def test_chat_returns_content(self, client: LLMClient) -> None:
-        """chat() should return the message content from litellm response."""
+        """chat() should return LLMResponse with content and usage from litellm response."""
         mock_response = MagicMock()
         mock_choice = MagicMock()
         mock_choice.message.content = "Hello, world!"
         mock_response.choices = [mock_choice]
+        mock_response.usage = MagicMock(prompt_tokens=10, completion_tokens=5, total_tokens=15)
+        mock_response.model = "gpt-4o"
 
-        with patch("backend.src.core.llm_client.litellm.acompletion", new_callable=AsyncMock) as mock_acompletion:
+        with patch("backend.src.core.llm_client.litellm.acompletion", new_callable=AsyncMock) as mock_acompletion, \
+             patch("backend.src.core.llm_client.litellm.completion_cost", return_value=0.0015):
             mock_acompletion.return_value = mock_response
             result = await client.chat(messages=[{"role": "user", "content": "Hi"}])
 
-        assert result == "Hello, world!"
+        assert isinstance(result, LLMResponse)
+        assert result.content == "Hello, world!"
+        assert result.prompt_tokens == 10
+        assert result.completion_tokens == 5
+        assert result.total_tokens == 15
+        assert result.model == "gpt-4o"
         mock_acompletion.assert_called_once_with(
             model="gpt-4o",
             messages=[{"role": "user", "content": "Hi"}],
@@ -519,15 +545,18 @@ class TestChatRetry:
         ok_response = MagicMock()
         ok_response.choices = [MagicMock()]
         ok_response.choices[0].message.content = "Success"
+        ok_response.usage = MagicMock(prompt_tokens=0, completion_tokens=0, total_tokens=0)
+        ok_response.model = "gpt-4o"
 
-        with patch("backend.src.core.llm_client.litellm.acompletion", new_callable=AsyncMock) as mock_ac:
+        with patch("backend.src.core.llm_client.litellm.acompletion", new_callable=AsyncMock) as mock_ac, \
+             patch("backend.src.core.llm_client.litellm.completion_cost", return_value=0.0):
             mock_ac.side_effect = [
                 Exception("AnthropicError - Overloaded"),
                 ok_response,
             ]
             result = await client.chat(messages=[{"role": "user", "content": "Hi"}])
 
-        assert result == "Success"
+        assert result.content == "Success"
         assert mock_ac.call_count == 2
         mock_sleep.assert_called_once()
 
