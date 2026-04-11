@@ -30,8 +30,6 @@ export function usePlanEvents(projectId: string | undefined) {
 
     cancelledRef.current = false
     const treeKey = ['plan-tree', projectId]
-    const agentKey = ['agent-status', projectId]
-
     const patchTaskStatus = (payload: TaskTransitionPayload) => {
       queryClient.setQueryData<PlanTreeResponse>(treeKey, (prev) => {
         if (!prev) return prev
@@ -45,7 +43,7 @@ export function usePlanEvents(projectId: string | undefined) {
           })),
         }
       })
-      queryClient.invalidateQueries({ queryKey: agentKey })
+      queryClient.invalidateQueries({ queryKey: ['agents'] })
     }
 
     const handleTaskTransition = (event: MessageEvent) => {
@@ -62,7 +60,7 @@ export function usePlanEvents(projectId: string | undefined) {
     }
 
     const handleAgentStatusChanged = () => {
-      queryClient.invalidateQueries({ queryKey: agentKey })
+      queryClient.invalidateQueries({ queryKey: ['agents'] })
     }
 
     const close = () => {
@@ -115,7 +113,7 @@ export function usePlanEvents(projectId: string | undefined) {
       }
       if (document.visibilityState === 'visible') {
         queryClient.invalidateQueries({ queryKey: treeKey })
-        queryClient.invalidateQueries({ queryKey: agentKey })
+        queryClient.invalidateQueries({ queryKey: ['agents'] })
       }
     }
     document.addEventListener('visibilitychange', onVisibility)

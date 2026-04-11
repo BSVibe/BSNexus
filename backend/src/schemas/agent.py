@@ -60,6 +60,14 @@ class AgentUpdate(BaseModel):
         return _normalize_agent_name(v) if v is not None else None
 
 
+class CurrentTaskBrief(BaseModel):
+    """Minimal info about the task an agent is currently working on."""
+
+    id: uuid.UUID
+    title: str
+    status: str
+
+
 class AgentResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -82,6 +90,12 @@ class AgentResponse(BaseModel):
     monthly_budget_cents: Optional[int] = None
     current_month_spent_cents: int = 0
     status: str = "offline"
+    # Plan-view compatible status dot (green/blue/yellow/red/gray).
+    # Populated at read-time by the agents API so all consumers share
+    # a single source of truth — previously the Plan view and the
+    # Agents tab had separate resolvers that disagreed.
+    dot: str = "gray"
+    current_task: Optional[CurrentTaskBrief] = None
     is_active: bool = True
     created_at: datetime
     updated_at: datetime

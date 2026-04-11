@@ -72,7 +72,6 @@ export function useChatEvents(projectId: string | undefined) {
 
     const handleAgentStatus = () => {
       queryClient.invalidateQueries({ queryKey: ['agents'] })
-      queryClient.invalidateQueries({ queryKey: ['agent-status', projectId] })
     }
 
     const close = () => {

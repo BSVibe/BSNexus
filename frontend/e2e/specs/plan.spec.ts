@@ -22,8 +22,8 @@ test.describe('Project Plan view', () => {
     await expect(page.getByText('Ship MVP by Q3').first()).toBeVisible()
   })
 
-  test('renders agent status cards from /agent-status', async ({ page }) => {
-    // Both seeded agents from mockAgentStatusCards should appear.
+  test('renders agent status cards from the agents list', async ({ page }) => {
+    // All seeded agents from mockAgents should appear in the status bar.
     await expect(page.getByText('Alex').first()).toBeVisible()
     await expect(page.getByText('Dev-1').first()).toBeVisible()
   })

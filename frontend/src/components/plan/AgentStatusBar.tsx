@@ -1,8 +1,11 @@
 import { useQuery } from '@tanstack/react-query'
-import { planTreeApi, type AgentDot, type AgentStatusCard } from '../../api/planTree'
+import { agentsApi } from '../../api/agents'
+import type { Agent } from '../../types/agent'
 import { usePlanStore } from '../../stores/planStore'
 
-const DOT_CLASSES: Record<AgentDot, string> = {
+// The dot field now comes directly from the /agents API response
+// (single source of truth). These classes just map the value to Tailwind.
+const DOT_CLASSES: Record<string, string> = {
   green: 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)]',
   blue: 'bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.6)]',
   yellow: 'bg-amber-400',
@@ -10,7 +13,7 @@ const DOT_CLASSES: Record<AgentDot, string> = {
   gray: 'bg-stitch-outline-variant/40',
 }
 
-const DOT_LABELS: Record<AgentDot, string> = {
+const DOT_LABELS: Record<string, string> = {
   green: 'running',
   blue: 'thinking',
   yellow: 'idle',
@@ -18,15 +21,15 @@ const DOT_LABELS: Record<AgentDot, string> = {
   gray: 'offline',
 }
 
-interface AgentStatusBarProps {
-  projectId: string
-}
-
-export default function AgentStatusBar({ projectId }: AgentStatusBarProps) {
+export default function AgentStatusBar() {
+  // Use the SAME query key + API as Agents tab / OrgChart / chat sidebar.
+  // Previously this was a separate ['agent-status', projectId] endpoint
+  // which had its own status resolver and constantly disagreed with the
+  // Agents tab. Now both read ['agents'] and the backend populates
+  // dot + current_task on every AgentResponse.
   const { data: agents = [], isLoading } = useQuery({
-    queryKey: ['agent-status', projectId],
-    queryFn: () => planTreeApi.getAgentStatus(projectId),
-    enabled: !!projectId,
+    queryKey: ['agents'],
+    queryFn: () => agentsApi.list(),
     refetchInterval: 30000,
   })
   const highlightedAgentId = usePlanStore((s) => s.highlightedAgentId)
@@ -53,10 +56,10 @@ export default function AgentStatusBar({ projectId }: AgentStatusBarProps) {
       <div className="flex flex-wrap gap-2 max-h-24 overflow-y-auto">
         {agents.map((agent) => (
           <AgentCard
-            key={agent.agent_id}
+            key={agent.id}
             agent={agent}
-            highlighted={highlightedAgentId === agent.agent_id}
-            onToggle={() => setHighlightedAgent(agent.agent_id)}
+            highlighted={highlightedAgentId === agent.id}
+            onToggle={() => setHighlightedAgent(agent.id)}
           />
         ))}
       </div>
@@ -65,14 +68,16 @@ export default function AgentStatusBar({ projectId }: AgentStatusBarProps) {
 }
 
 interface AgentCardProps {
-  agent: AgentStatusCard
+  agent: Agent
   highlighted: boolean
   onToggle: () => void
 }
 
 function AgentCard({ agent, highlighted, onToggle }: AgentCardProps) {
-  const dotClass = DOT_CLASSES[agent.dot]
-  const dotLabel = DOT_LABELS[agent.dot]
+  const dot = agent.dot || 'gray'
+  const currentTask = agent.current_task
+  const dotClass = DOT_CLASSES[dot] || DOT_CLASSES.gray
+  const dotLabel = DOT_LABELS[dot] || dot
 
   return (
     <button
@@ -88,7 +93,7 @@ function AgentCard({ agent, highlighted, onToggle }: AgentCardProps) {
       <div className="min-w-0 flex flex-col">
         <span className="text-xs font-bold text-text-primary truncate">{agent.name}</span>
         <span className="text-[10px] text-text-tertiary truncate">
-          {agent.current_task ? agent.current_task.title : dotLabel}
+          {currentTask ? currentTask.title : dotLabel}
         </span>
       </div>
     </button>
