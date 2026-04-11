@@ -194,7 +194,82 @@ test.describe('Real live e2e', () => {
     await expect(page.getByText(/total (budget|spent)/i).first()).toBeVisible()
   })
 
-  // ── 7. Settings install token issue/revoke roundtrip ─────────────
+  // ── 7. Worker chat round-trip (isolated stack only) ──────────────
+  //
+  // The orchestrator (frontend/e2e/scripts/run-isolated.mjs) spawns
+  // a real ``bsnexus-worker`` subprocess against a stub ``claude``
+  // CLI, so this test exercises the full path:
+  //
+  //   browser → vite → backend chat dispatch → Redis stream
+  //   → worker poll → stub claude → /workers/chat-result
+  //   → backend SSE → chat sidebar
+  //
+  // It is skipped outside the isolated stack because spinning up a
+  // worker against the dev devcontainer would require a real Anthropic
+  // API key. The orchestrator sets ``E2E_ISOLATED_STACK=1`` so the
+  // gate flips on automatically.
+  const isolatedOnly = process.env.E2E_ISOLATED_STACK !== '1'
+
+  test('chat round-trips through a real worker subprocess', async ({ page }) => {
+    test.skip(isolatedOnly, 'requires isolated stack (run via pnpm test:e2e:isolated)')
+    test.setTimeout(180_000)
+
+    // Create a fresh project + an agent on a clean slate so we own
+    // the entire chat history for the assertion.
+    await gotoDashboard(page)
+    page.on('dialog', (dialog) => dialog.accept())
+
+    const projectName = `e2e-worker-chat-${uniqSuffix()}`
+    await page.getByRole('button', { name: /^new project$/i }).click()
+    await page.getByPlaceholder('e.g. BSNexus Mobile App').fill(projectName)
+    await page.getByRole('button', { name: /^create$/i }).click()
+    await expect(page.getByText(projectName).first()).toBeVisible({ timeout: 30_000 })
+
+    await gotoAgents(page)
+    // If the org chart is non-empty (leftover from another spec) reset
+    // it so the chat router has a single, deterministic target.
+    const resetBtn = page.getByRole('button', { name: /^reset$/i })
+    if (await resetBtn.isVisible().catch(() => false)) {
+      await resetBtn.click()
+      await page.getByRole('button', { name: /^delete all$/i }).click()
+      await expect(
+        page.getByRole('heading', { name: /build your ai team/i }),
+      ).toBeVisible({ timeout: 30_000 })
+    }
+    await page.getByRole('button', { name: /\+ hire agent/i }).click()
+    const modal = page.getByRole('heading', { name: /hire new agent/i }).locator('..').locator('..')
+    const agentName = `Worker_${uniqSuffix()}`
+    await modal.locator('input').nth(0).fill(agentName)
+    await modal.locator('input').nth(1).fill('engineer')
+    await modal.getByRole('button', { name: /^hire agent$/i }).click()
+    await expect(page.getByText(agentName).first()).toBeVisible({ timeout: 15_000 })
+
+    // Open the project we just created and send a chat. Without an
+    // LLM API key configured, the backend's ``_call_agent`` falls
+    // back to the worker pool — so the message is dispatched as a
+    // chat task to the bsnexus-worker subprocess, which executes the
+    // stub ``claude`` shim and posts the canned response back.
+    await gotoDashboard(page)
+    await page.getByText(projectName).first().click()
+    await expect(page.getByRole('heading', { name: projectName })).toBeVisible({
+      timeout: 15_000,
+    })
+
+    // The chat sidebar lives in the project page; the textarea is
+    // the only ``role=textbox`` inside the right-hand pane.
+    const chatBox = page.getByRole('textbox').last()
+    await chatBox.fill(`@${agentName} ping from e2e`)
+    await chatBox.press('Enter')
+
+    // The stub shim emits this exact marker; if we see it in the
+    // chat sidebar then the entire dispatch → worker → SSE chain
+    // worked end-to-end.
+    await expect(
+      page.getByText(/STUB-CLAUDE-RESPONSE/i).first(),
+    ).toBeVisible({ timeout: 90_000 })
+  })
+
+  // ── 8. Settings install token issue/revoke roundtrip ─────────────
 
   test('install token can be generated and revoked from settings', async ({ page }) => {
     // Always-accept any subsequent confirm() (revoke prompts the user).

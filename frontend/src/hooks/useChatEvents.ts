@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import type { ChatHistoryResponse, ChatMessageOut } from '../api/agentChat'
+import { getAccessToken } from './useAuth'
 
 const MAX_RETRIES = 5
 
@@ -61,13 +62,23 @@ export function useChatEvents(projectId: string | undefined) {
       queryClient.invalidateQueries({ queryKey: ['agent-status', projectId] })
     }
 
-    const connect = () => {
+    let cancelled = false
+    const connect = async () => {
       if (sourceRef.current) {
         sourceRef.current.close()
         sourceRef.current = null
       }
 
-      const source = new EventSource(`/api/v1/projects/${projectId}/chat/events`)
+      // EventSource has no header API — pass the bearer token via the
+      // ``?token=`` query string the backend accepts as an alias for
+      // ``Authorization: Bearer ...``. Without this the SSE request is
+      // rejected with 401 the moment auth is required on the route.
+      const token = await getAccessToken()
+      if (cancelled) return
+      const url = token
+        ? `/api/v1/projects/${projectId}/chat/events?token=${encodeURIComponent(token)}`
+        : `/api/v1/projects/${projectId}/chat/events`
+      const source = new EventSource(url)
 
       source.addEventListener('message_created', handleMessageCreated as EventListener)
       source.addEventListener('history_cleared', handleHistoryCleared as EventListener)
@@ -83,16 +94,17 @@ export function useChatEvents(projectId: string | undefined) {
         if (retriesRef.current < MAX_RETRIES) {
           const delay = Math.min(1000 * Math.pow(2, retriesRef.current), 30000)
           retriesRef.current += 1
-          reconnectTimerRef.current = setTimeout(connect, delay)
+          reconnectTimerRef.current = setTimeout(() => void connect(), delay)
         }
       }
 
       sourceRef.current = source
     }
 
-    connect()
+    void connect()
 
     return () => {
+      cancelled = true
       if (reconnectTimerRef.current) {
         clearTimeout(reconnectTimerRef.current)
         reconnectTimerRef.current = null

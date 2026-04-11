@@ -183,6 +183,32 @@ async def poll_and_execute(executor_name: str) -> None:
         sys.exit(1)
 
     cwd = os.getcwd()
+
+    # Executor connectivity probe — runs ONCE at startup to surface
+    # broken / expired credentials immediately, instead of letting the
+    # first real chat task fail with a "401 from Anthropic" buried in
+    # the worker log. The probe is a tiny prompt with a short timeout;
+    # bandwidth + cost are negligible. Skipped via env var when the
+    # operator wants to bypass (e.g. air-gapped install).
+    if os.environ.get("BSNEXUS_SKIP_STARTUP_PROBE", "").lower() not in ("1", "true", "yes"):
+        probe = await executor.execute("ping", cwd)
+        if not probe.success:
+            stderr = (probe.stderr or "").strip()
+            stdout_preview = (probe.stdout or "")[:300].strip()
+            print(
+                f"Error: {executor.name} startup probe failed.\n"
+                f"  cli: {cmd_path}\n"
+                f"  cwd: {cwd}\n"
+                f"  error: {probe.error}\n"
+                f"  stderr: {stderr[:500]}\n"
+                f"  stdout: {stdout_preview}\n"
+                "Hint: re-authenticate the CLI ('claude /login' for Claude Code) or "
+                "set BSNEXUS_SKIP_STARTUP_PROBE=1 to bypass.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        logger.info("executor_probe_ok", executor=executor.name)
+
     logger.info(
         "worker_starting",
         name=settings.worker_name,

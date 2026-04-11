@@ -122,14 +122,25 @@ async def get_current_user(
         ensure_personal_tenant,
     )
 
+    # Token resolution order:
+    #   1. ``Authorization: Bearer <token>`` — preferred
+    #   2. ``?token=<token>`` query string — required for SSE endpoints
+    #      because the browser EventSource API does not support custom
+    #      headers. The query string token is treated identically to a
+    #      bearer header — same bypass rules, same JWT verification.
+    raw_token = ""
     auth_header = request.headers.get("authorization", "")
-    if not auth_header.lower().startswith("bearer "):
+    if auth_header.lower().startswith("bearer "):
+        raw_token = auth_header.split(" ", 1)[1].strip()
+    elif "token" in request.query_params:
+        raw_token = (request.query_params.get("token") or "").strip()
+
+    if not raw_token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing bearer token",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    raw_token = auth_header.split(" ", 1)[1].strip()
 
     user: BSVibeUser
     bypass_token = settings.e2e_test_token

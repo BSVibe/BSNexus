@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import type { PlanTreeResponse, TaskStatus } from '../api/planTree'
+import { getAccessToken } from './useAuth'
 
 const MAX_RETRIES = 5
 
@@ -64,13 +65,22 @@ export function usePlanEvents(projectId: string | undefined) {
       queryClient.invalidateQueries({ queryKey: agentKey })
     }
 
-    const connect = () => {
+    let cancelled = false
+    const connect = async () => {
       if (sourceRef.current) {
         sourceRef.current.close()
         sourceRef.current = null
       }
 
-      const source = new EventSource(`/api/v1/projects/${projectId}/plan-tree/events`)
+      // EventSource cannot send custom headers; pipe the bearer token
+      // through ``?token=`` instead. See useChatEvents for the same
+      // pattern + rationale.
+      const token = await getAccessToken()
+      if (cancelled) return
+      const url = token
+        ? `/api/v1/projects/${projectId}/plan-tree/events?token=${encodeURIComponent(token)}`
+        : `/api/v1/projects/${projectId}/plan-tree/events`
+      const source = new EventSource(url)
 
       source.addEventListener('task_transition', handleTaskTransition as EventListener)
       source.addEventListener('phase_advanced', handlePhaseAdvanced as EventListener)
@@ -86,16 +96,17 @@ export function usePlanEvents(projectId: string | undefined) {
         if (retriesRef.current < MAX_RETRIES) {
           const delay = Math.min(1000 * Math.pow(2, retriesRef.current), 30000)
           retriesRef.current += 1
-          reconnectTimerRef.current = setTimeout(connect, delay)
+          reconnectTimerRef.current = setTimeout(() => void connect(), delay)
         }
       }
 
       sourceRef.current = source
     }
 
-    connect()
+    void connect()
 
     return () => {
+      cancelled = true
       if (reconnectTimerRef.current) {
         clearTimeout(reconnectTimerRef.current)
         reconnectTimerRef.current = null
