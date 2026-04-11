@@ -99,17 +99,22 @@ class WorkerDispatcher:
     async def find_available_worker(
         self,
         db: AsyncSession,
+        tenant_id: uuid.UUID | None = None,
     ) -> Worker | None:
-        """Find an online, active worker.
+        """Find an online, active worker scoped to the tenant.
 
         Returns the worker with the earliest last_heartbeat (least recently used).
+        When ``tenant_id`` is provided, only workers belonging to that
+        tenant are considered. Without it, falls back to all workers
+        (legacy compat for tests).
         """
-        result = await db.execute(
-            select(Worker).where(
-                Worker.is_active.is_(True),
-                Worker.status == "online",
-            ).order_by(Worker.last_heartbeat.asc())
+        query = select(Worker).where(
+            Worker.is_active.is_(True),
+            Worker.status == "online",
         )
+        if tenant_id is not None:
+            query = query.where(Worker.tenant_id == tenant_id)
+        result = await db.execute(query.order_by(Worker.last_heartbeat.asc()))
         return result.scalars().first()
 
     async def report_result(

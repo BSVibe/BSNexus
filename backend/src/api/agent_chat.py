@@ -197,7 +197,7 @@ async def _route_via_worker(
     # Dispatch to root's worker as a one-off routing call
     stream_manager = RedisStreamManager(redis)
     dispatcher = WorkerDispatcher(stream_manager)
-    worker = await dispatcher.find_available_worker(db)
+    worker = await dispatcher.find_available_worker(db, tenant_id=tenant_id)
     if not worker:
         return root
 
@@ -400,7 +400,7 @@ async def _execute_create_task_markers(
     if created_tasks and redis is not None:
         stream_manager = RedisStreamManager(redis)
         dispatcher = WorkerDispatcher(stream_manager)
-        worker = await dispatcher.find_available_worker(db)
+        worker = await dispatcher.find_available_worker(db, tenant_id=tenant_id)
         if worker:
             for task in created_tasks:
                 prompt = (task.worker_prompt or {}).get("prompt") or task.title
@@ -803,7 +803,7 @@ async def _call_via_worker(
             if not worker or worker.status != "online":
                 raise HTTPException(status_code=503, detail=f"Worker offline: {worker.name if worker else 'unknown'}")
         else:
-            worker = await dispatcher.find_available_worker(setup_db)
+            worker = await dispatcher.find_available_worker(setup_db, tenant_id=tenant_id)
             if not worker:
                 raise HTTPException(status_code=503, detail="No online worker available.")
 
@@ -878,7 +878,7 @@ async def _call_agent(
             dispatcher = WorkerDispatcher(stream_manager) if stream_manager else None
             if dispatcher:
                 async with async_session() as fallback_db:
-                    worker = await dispatcher.find_available_worker(fallback_db)
+                    worker = await dispatcher.find_available_worker(fallback_db, tenant_id=tenant_id)
             else:
                 worker = None
             if worker:
@@ -942,7 +942,7 @@ async def _process_agent_in_background(
         if agent.executor_type == "worker":
             stream_manager = RedisStreamManager(redis) if redis else None
             dispatcher = WorkerDispatcher(stream_manager) if stream_manager else None
-            worker = await dispatcher.find_available_worker(setup_db) if dispatcher else None
+            worker = await dispatcher.find_available_worker(setup_db, tenant_id=tenant_id) if dispatcher else None
             if not worker:
                 # No worker online — publish error immediately, don't mark busy.
                 await _store_and_publish(
@@ -962,7 +962,7 @@ async def _process_agent_in_background(
                 # No LLM key — check if a worker fallback is available.
                 stream_manager = RedisStreamManager(redis) if redis else None
                 dispatcher = WorkerDispatcher(stream_manager) if stream_manager else None
-                worker = await dispatcher.find_available_worker(setup_db) if dispatcher else None
+                worker = await dispatcher.find_available_worker(setup_db, tenant_id=tenant_id) if dispatcher else None
                 if worker:
                     can_execute = True
                 else:
