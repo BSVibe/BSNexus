@@ -766,6 +766,10 @@ async def _call_via_worker(
         system_prompt=system_prompt, history=flat_history,
     )
 
+    # Poll for the result WITHOUT holding the DB session — the polling
+    # loop only touches Redis. Once the result arrives, open a fresh
+    # session for _process_response_text. This prevents long-running
+    # worker turns (up to 30 min) from exhausting the connection pool.
     result_key = f"chat:result:{chat_id}"
     waited = 0.0
     while waited < WORKER_RESULT_TIMEOUT:
@@ -775,10 +779,14 @@ async def _call_via_worker(
             payload = json.loads(raw)
             if not payload.get("success", False):
                 raise HTTPException(status_code=502, detail=f"Worker error: {payload.get('error_message', 'failed')}")
-            return await _process_response_text(
-                payload.get("output", ""), project, project_id, agent, db, redis,
-                tenant_id=tenant_id,
-            )
+            # Open a fresh, short-lived session for response processing
+            # (markers, persist, publish). The caller's session may be
+            # closed by now if we're in a background task.
+            async with async_session() as fresh_db:
+                return await _process_response_text(
+                    payload.get("output", ""), project, project_id, agent, fresh_db, redis,
+                    tenant_id=tenant_id,
+                )
         await asyncio.sleep(0.5)
         waited += 0.5
 
@@ -838,80 +846,85 @@ async def _process_agent_in_background(
     # summary once we load the agent name from the DB.
     await mark_agent_busy(redis, tenant_id, agent_id, activity="")
     agent: models.Agent | None = None
-    async with async_session() as db:
-        try:
-            # Reload project + agent in this session
-            project_result = await db.execute(
-                select(models.Project)
-                .where(models.Project.id == project_id)
-                .options(selectinload(models.Project.phases).selectinload(models.Phase.tasks))
+
+    # Phase 1: short-lived DB session for setup (load project, agent,
+    # history, build prompt). Closed before the long worker wait so we
+    # don't hold a connection pool slot for 30 minutes.
+    project = None
+    all_agents: list[models.Agent] = []
+    history: list[models.ConversationMessage] = []
+    async with async_session() as setup_db:
+        project_result = await setup_db.execute(
+            select(models.Project)
+            .where(models.Project.id == project_id)
+            .options(selectinload(models.Project.phases).selectinload(models.Phase.tasks))
+        )
+        project = project_result.scalar_one_or_none()
+        if not project:
+            await clear_agent_busy(redis, tenant_id, agent_id)
+            return
+
+        agents_result = await setup_db.execute(
+            select(models.Agent).where(
+                models.Agent.tenant_id == tenant_id,
+                models.Agent.is_active.is_(True),
             )
-            project = project_result.scalar_one_or_none()
-            if not project:
-                return
+        )
+        all_agents = list(agents_result.scalars().all())
+        agent = next((a for a in all_agents if a.id == agent_id), None)
+        if not agent:
+            await clear_agent_busy(redis, tenant_id, agent_id)
+            return
 
-            agents_result = await db.execute(
-                select(models.Agent).where(
-                    models.Agent.tenant_id == tenant_id,
-                    models.Agent.is_active.is_(True),
-                )
-            )
-            all_agents = list(agents_result.scalars().all())
-            agent = next((a for a in all_agents if a.id == agent_id), None)
-            if not agent:
-                return
+        activity = _summarize_activity(user_message, agent_name=agent.name)
+        await mark_agent_busy(redis, tenant_id, agent_id, activity=activity)
+        await _publish_agent_status(redis, project_id, agent, "busy")
 
-            # Now we know the agent name — build a contextual activity
-            # summary that extracts what this specific agent was asked to
-            # do from the message (which may be a long LLM response in a
-            # delegation chain).
-            activity = _summarize_activity(user_message, agent_name=agent.name)
-            await mark_agent_busy(redis, tenant_id, agent_id, activity=activity)
-            await _publish_agent_status(redis, project_id, agent, "busy")
+        history = await ConversationRepository(setup_db).list_by_project(project_id, limit=MAX_HISTORY)
+    # setup_db is now CLOSED — connection returned to pool.
 
-            history = await ConversationRepository(db).list_by_project(project_id, limit=MAX_HISTORY)
+    # Phase 2: call agent (may block for minutes on worker polling).
+    # _call_via_worker opens its own fresh session for response processing.
+    # _call_via_llm is fast (seconds) but also uses a fresh session via
+    # the passed db — we open a short-lived one here.
+    try:
+        async with async_session() as call_db:
             msg = await _call_agent(
-                agent, project, project_id, history, user_message, db, redis, all_agents,
+                agent, project, project_id, history, user_message, call_db, redis, all_agents,
                 tenant_id=tenant_id,
             )
 
             await _publish_agent_status(redis, project_id, agent, "online")
 
             # Delegation: dispatch further agents @mentioned in this response.
-            # No depth limit, no called_ids dedup — the same agent CAN be
-            # called again if a different colleague mentions them with a new
-            # request. Loop prevention is a prompt responsibility.
             delegated = _parse_mentions(msg.content, all_agents)
             for delegate in delegated:
                 asyncio.create_task(_process_agent_in_background(
                     project_id, delegate.id, msg.content, redis, tenant_id,
                 ))
 
-        except Exception as e:
-            logger.error("background_agent_failed", agent_id=str(agent_id), error=str(e))
-            # Publish error as an assistant message attributed to the
-            # failed agent so the frontend's typing-indicator filter
-            # picks it up and clears the spinner. If the agent failed to
-            # load, look up name + id one more time so the indicator
-            # still clears.
-            try:
-                error_agent = agent
-                if error_agent is None:
-                    lookup = await db.execute(
+    except Exception as e:
+        logger.error("background_agent_failed", agent_id=str(agent_id), error=str(e))
+        try:
+            error_agent = agent
+            if error_agent is None:
+                async with async_session() as err_db:
+                    lookup = await err_db.execute(
                         select(models.Agent).where(models.Agent.id == agent_id)
                     )
                     error_agent = lookup.scalar_one_or_none()
+            async with async_session() as err_db:
                 await _store_and_publish(
-                    db, redis, project_id,
+                    err_db, redis, project_id,
                     role="assistant", content=f"[Error] {e}",
                     agent=error_agent,
                 )
-                if error_agent is not None:
-                    await _publish_agent_status(redis, project_id, error_agent, "online")
-            except Exception:  # noqa: BLE001
-                pass
-        finally:
-            await clear_agent_busy(redis, tenant_id, agent_id)
+            if error_agent is not None:
+                await _publish_agent_status(redis, project_id, error_agent, "online")
+        except Exception:  # noqa: BLE001
+            pass
+    finally:
+        await clear_agent_busy(redis, tenant_id, agent_id)
 
 
 # ── Endpoints ───────────────────────────────────────────────────────
