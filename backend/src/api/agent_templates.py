@@ -110,7 +110,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                         title="Product Manager",
                         job_description="Defines product requirements, prioritizes backlog, manages roadmap",
                         executor_type="generic_llm",
-                        capabilities=["plan", "writing", "general"],
+                        capabilities=["plan", "analyze", "writing", "general"],
                         monthly_budget_cents=1500,
                     ),
                     AgentTemplate(
@@ -122,7 +122,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                         # Marketers need design awareness for landing pages,
                         # social posts, brand assets — give them the design
                         # skill so they can touch the design system directly.
-                        capabilities=["design", "marketing", "writing", "research"],
+                        capabilities=["analyze", "design", "marketing", "writing", "research"],
                         monthly_budget_cents=1500,
                     ),
                     AgentTemplate(
@@ -131,7 +131,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                         title="Product Designer",
                         job_description="Designs user interfaces, creates prototypes, maintains design system",
                         executor_type="generic_llm",
-                        capabilities=["design", "writing"],
+                        capabilities=["analyze", "design", "writing"],
                         monthly_budget_cents=1500,
                     ),
                 ],
@@ -239,7 +239,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                         title="Chief Product Officer",
                         job_description="Product strategy, roadmap, user research",
                         executor_type="generic_llm",
-                        capabilities=["plan", "writing", "research"],
+                        capabilities=["plan", "analyze", "writing", "research"],
                         monthly_budget_cents=2000,
                         children=[
                             AgentTemplate(
@@ -248,7 +248,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                                 title="Product Manager",
                                 job_description="Feature specs, backlog grooming, stakeholder communication",
                                 executor_type="generic_llm",
-                                capabilities=["plan", "writing"],
+                                capabilities=["plan", "analyze", "writing"],
                                 monthly_budget_cents=1500,
                             ),
                             AgentTemplate(
@@ -257,7 +257,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                                 title="Product Designer",
                                 job_description="UI/UX design, prototyping, design system",
                                 executor_type="generic_llm",
-                                capabilities=["design", "writing"],
+                                capabilities=["analyze", "design", "writing"],
                                 monthly_budget_cents=1500,
                             ),
                         ],
@@ -281,7 +281,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                                 # Same reasoning as Marketer above — content
                                 # writers ship visual artifacts, so they own
                                 # the design skill too.
-                                capabilities=["design", "writing", "marketing"],
+                                capabilities=["analyze", "design", "writing", "marketing"],
                                 monthly_budget_cents=1500,
                             ),
                         ],

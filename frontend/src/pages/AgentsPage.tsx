@@ -152,8 +152,13 @@ function HireAgentModal({ onClose, agents, executorConfigs }: { onClose: () => v
           <div>
             <label className="block text-xs uppercase tracking-widest text-text-secondary mb-2">Capabilities</label>
             <p className="text-[11px] text-text-tertiary mb-2">
-              Skills (Plan / Analyze / Design) inject the matching prompt fragment so the agent
-              can perform the action directly. Memory keeping is always on.
+              Skills determine what this agent can do. <strong>Plan</strong> lets the agent break down goals
+              and create <code>[DECISION]</code> markers. <strong>Analyze</strong> lets them read and audit codebases.
+              <strong>Design</strong> lets them manage the design system. Memory keeping is always on.
+            </p>
+            <p className="text-[10px] text-amber-400/80 mb-2">
+              💡 Tip: Every team should have at least one agent with <strong>Plan</strong> capability
+              to make project decisions. Without it, no agent can confirm directions.
             </p>
             <div className="space-y-1.5">
               {SKILL_CAPABILITIES.map((cap) => {
