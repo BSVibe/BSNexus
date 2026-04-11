@@ -40,10 +40,21 @@ function highlightMentionsInMarkdown(content: string): string {
   return content.replace(/@([A-Za-z가-힣][\w\s가-힣]*?)(?=[\s,.)：:;!?]|$)/g, '**@$1**')
 }
 
+function formatTime(iso: string | undefined): string {
+  if (!iso) return ''
+  try {
+    const d = new Date(iso)
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  } catch {
+    return ''
+  }
+}
+
 export default function ChatMessage({ message, typing }: { message: ChatMessageOut; typing?: boolean }) {
   const isUser = message.role === 'user'
   const agentColor = message.agent_name ? getAgentColor(message.agent_name) : '#6b7280'
   const initial = message.agent_name?.[0]?.toUpperCase() || '?'
+  const time = formatTime(message.created_at)
 
   const processedContent = useMemo(
     () => (isUser ? message.content : highlightMentionsInMarkdown(message.content)),
@@ -52,10 +63,11 @@ export default function ChatMessage({ message, typing }: { message: ChatMessageO
 
   if (isUser) {
     return (
-      <div className="flex justify-end">
+      <div className="flex flex-col items-end gap-0.5">
         <div className="max-w-[85%] rounded-2xl rounded-br-sm bg-stitch-primary/20 px-3 py-2 text-sm text-text-primary">
           <div className="whitespace-pre-wrap break-words">{renderWithMentions(message.content)}</div>
         </div>
+        {time && <span className="text-[10px] text-text-tertiary mr-1">{time}</span>}
       </div>
     )
   }
@@ -71,11 +83,14 @@ export default function ChatMessage({ message, typing }: { message: ChatMessageO
       </div>
 
       <div className="max-w-[85%] min-w-0">
-        {/* Agent name */}
+        {/* Agent name + timestamp */}
         {message.agent_name && (
-          <p className="text-[10px] font-bold mb-1 ml-1" style={{ color: agentColor }}>
-            {message.agent_name}
-          </p>
+          <div className="flex items-center gap-2 mb-1 ml-1">
+            <p className="text-[10px] font-bold" style={{ color: agentColor }}>
+              {message.agent_name}
+            </p>
+            {time && <span className="text-[10px] text-text-tertiary">{time}</span>}
+          </div>
         )}
 
         {/* Message bubble */}
