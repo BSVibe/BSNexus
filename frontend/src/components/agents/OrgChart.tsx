@@ -17,9 +17,8 @@ import { AGENT_STATUS_COLORS, AGENT_STATUS_FALLBACK_COLOR } from '../../constant
 
 const EXECUTOR_LABELS: Record<string, string> = {
   claude_code: 'Claude Code',
-  claude_api: 'LLM API',
-  bsgateway: 'BSGateway',
   generic_llm: 'LLM API',
+  bsgateway: 'BSGateway',
   worker: 'Worker',
 }
 

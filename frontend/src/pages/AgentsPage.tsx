@@ -9,10 +9,9 @@ import type { ExecutorConfig } from '../types/executor'
 
 const EXECUTOR_LABELS: Record<string, string> = {
   claude_code: 'Claude Code',
-  claude_api: 'LLM API',
+  generic_llm: 'LLM API',
   bsgateway: 'BSGateway',
   codex: 'Codex',
-  generic_llm: 'LLM API',
   worker: 'Worker',
 }
 

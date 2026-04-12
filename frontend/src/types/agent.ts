@@ -1,5 +1,5 @@
 export type AgentStatus = 'online' | 'busy' | 'offline' | 'budget_exceeded'
-export type ExecutorType = 'claude_code' | 'claude_api' | 'bsgateway' | 'codex' | 'generic_llm' | 'worker'
+export type ExecutorType = 'claude_code' | 'generic_llm' | 'bsgateway' | 'codex' | 'worker'
 
 export interface CurrentTaskBrief {
   id: string
