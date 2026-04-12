@@ -154,7 +154,9 @@ class TestCreateExecutorUsesRegistry:
         from backend.src.core.executor import create_executor
 
         executor = create_executor()
-        assert isinstance(executor, ExecutorProtocol)
+        # generic_llm is now LiteLLMExecutor (agentic loop), different protocol
+        from backend.src.core.executor.litellm_executor import LiteLLMExecutor
+        assert isinstance(executor, LiteLLMExecutor)
 
     def test_create_executor_unknown_raises(self) -> None:
         from backend.src.core.executor import create_executor

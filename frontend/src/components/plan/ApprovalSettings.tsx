@@ -4,13 +4,11 @@ import { planProposalsApi, type ApprovalSettings } from '../../api/planProposals
 const LABELS: Record<string, string> = {
   auto_approve: 'Auto',
   require_approval: 'Approval',
-  require_human: 'Manual',
 }
 
 const DESCRIPTIONS: Record<string, string> = {
   auto_approve: 'Agents create directly',
-  require_approval: 'Agents propose, leader or user approves',
-  require_human: 'Only user can approve',
+  require_approval: 'Agents propose, user approves',
 }
 
 interface Props {
@@ -37,24 +35,20 @@ export default function ApprovalSettingsPanel({ projectId }: Props) {
   const fields: Array<{ key: keyof ApprovalSettings; label: string }> = [
     { key: 'phase_creation', label: 'Phase' },
     { key: 'task_creation', label: 'Task' },
-    { key: 'delegation', label: 'Delegation' },
   ]
 
   return (
-    <div className="space-y-2">
-      <p className="text-[10px] font-bold uppercase tracking-widest text-text-tertiary">
-        Approval mode
-      </p>
+    <div className="flex items-center gap-3 text-[11px]">
       {fields.map(({ key, label }) => (
-        <div key={key} className="flex items-center gap-2">
-          <span className="text-[11px] text-text-secondary w-16 shrink-0">{label}</span>
+        <div key={key} className="flex items-center gap-1">
+          <span className="text-text-tertiary">{label}</span>
           <div className="flex gap-0.5">
-            {(['auto_approve', 'require_approval', 'require_human'] as const).map((level) => (
+            {(['auto_approve', 'require_approval'] as const).map((level) => (
               <button
                 key={level}
                 onClick={() => mutation.mutate({ [key]: level })}
                 title={DESCRIPTIONS[level]}
-                className={`text-[10px] px-2 py-0.5 rounded transition-colors ${
+                className={`px-1.5 py-0.5 rounded transition-colors ${
                   settings[key] === level
                     ? 'bg-stitch-primary text-stitch-on-primary font-bold'
                     : 'bg-stitch-surface-highest text-text-tertiary hover:text-text-secondary'

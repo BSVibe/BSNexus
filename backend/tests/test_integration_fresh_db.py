@@ -222,7 +222,7 @@ def test_first_authenticated_request_upserts_tenant(live_backend) -> None:
     with _client(base_url) as client:
         resp = client.post(
             "/api/v1/agents",
-            json={"name": "first-agent", "role": "dev", "executor_type": "claude_api"},
+            json={"name": "first-agent", "role": "dev", "executor_type": "generic_llm"},
         )
     assert resp.status_code == 201, resp.text
     body = resp.json()

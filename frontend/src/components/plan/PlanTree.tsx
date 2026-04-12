@@ -75,15 +75,6 @@ export default function PlanTree({ projectId }: PlanTreeProps) {
 
   return (
     <div className="flex flex-col h-full">
-      {data.goal && (
-        <div className="px-4 py-3 border-b border-stitch-outline-variant/10">
-          <div className="text-[10px] font-bold uppercase tracking-widest text-text-tertiary mb-1">
-            Goal
-          </div>
-          <div className="text-sm text-text-primary leading-snug">{data.goal}</div>
-        </div>
-      )}
-
       <div className="flex-1 overflow-y-auto px-2 py-3">
         {data.phases.map((phase) => (
           <PhaseNode

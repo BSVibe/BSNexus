@@ -43,7 +43,7 @@ async def _make_agent(db_session) -> Agent:
         tenant_id=DEFAULT_TENANT_ID,
         name="Tester",
         role="dev",
-        executor_type="claude_api",
+        executor_type="generic_llm",
         executor_config={},
         capabilities=[],
         status="online",

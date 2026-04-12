@@ -488,6 +488,10 @@ class WorkerChatResultRequest(BaseModel):
     success: bool
     output: str = ""
     error_message: str | None = None
+    # Tool audit trail from agentic loop execution.
+    tool_calls: list[dict] | None = None
+    tool_results: list[dict] | None = None
+    usage: dict | None = None
 
 
 @router.post("/chat-result", status_code=200)
@@ -515,6 +519,9 @@ async def submit_chat_result(
         "output": body.output,
         "error_message": body.error_message,
         "worker_id": str(worker.id),
+        "tool_calls": body.tool_calls or [],
+        "tool_results": body.tool_results or [],
+        "usage": body.usage or {},
     }), ex=3600)  # TTL 1 hour — must outlive WORKER_RESULT_TIMEOUT (30min)
 
     return {"status": "accepted"}

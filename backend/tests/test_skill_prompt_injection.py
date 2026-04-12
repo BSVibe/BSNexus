@@ -30,7 +30,7 @@ def _agent(capabilities: list[str] | None) -> Agent:
         role="cto",
         title="CTO",
         job_description="Tech lead",
-        executor_type="claude_api",
+        executor_type="generic_llm",
         executor_config={},
         capabilities=capabilities or [],
         is_active=True,

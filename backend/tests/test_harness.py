@@ -24,7 +24,7 @@ def _agent(capabilities: list[str] | None = None) -> Agent:
         role="engineer",
         title="Engineer",
         job_description="Writes code",
-        executor_type="claude_api",
+        executor_type="generic_llm",
         executor_config={},
         capabilities=capabilities or ["coding"],
         is_active=True,
@@ -54,9 +54,10 @@ class TestSeedHarness:
         assert (rules / "response-format.md").is_file()
         assert (rules / "conflict-check.md").is_file()
         assert (rules / "communication.md").is_file()
-        # Content sanity
-        assert "[STATUS]" in (rules / "response-format.md").read_text()
-        assert "[DECISION]" in (rules / "response-format.md").read_text()
+        # Content sanity — now tool-based instead of marker-based
+        content = (rules / "response-format.md").read_text()
+        assert "create_task" in content
+        assert "Tool" in content or "tool" in content
         assert "[SKIP]" in (rules / "conflict-check.md").read_text()
 
     def test_creates_skill_files(self, tmp_path: Path) -> None:
@@ -124,8 +125,8 @@ class TestAssembleSystemPrompt:
             _agent(), _project(), str(tmp_path),
             goal_context="", org_context="",
         )
-        assert "[STATUS]" in prompt
-        assert "[DECISION]" in prompt
+        assert "create_task" in prompt
+        assert "record_decision" in prompt
         assert "[SKIP]" in prompt
 
     @pytest.mark.asyncio
@@ -206,19 +207,6 @@ class TestRefreshContext:
 
 
 class TestDecisionMarkers:
-    def test_extract_decisions(self) -> None:
-        from backend.src.api.agent_chat import _extract_decisions
-        text = """
-Some text here.
-[DECISION] 녹음 앱으로 방향 확정 [/DECISION]
-More text.
-[DECISION] React + FastAPI 기술 스택 확정 [/DECISION]
-"""
-        decisions = _extract_decisions(text)
-        assert len(decisions) == 2
-        assert "녹음 앱으로 방향 확정" in decisions[0]
-        assert "React + FastAPI" in decisions[1]
-
     def test_strip_all_markers_removes_decision(self) -> None:
         from backend.src.api.agent_chat import _strip_all_markers
         text = "[STATUS] Working\n[DECISION] A confirmed [/DECISION]\nHello world"
@@ -248,48 +236,8 @@ More text.
         from backend.src.api.agent_chat import _load_decisions_from_workspace
         assert _load_decisions_from_workspace(None) == []
 
-    @pytest.mark.asyncio
-    async def test_execute_decision_markers_capability_gate(self, tmp_path: Path) -> None:
-        """Only agents with 'plan' capability can create decisions."""
-        from backend.src.api.agent_chat import _execute_decision_markers
-
-        project = _project()
-        project.workspace_dir = str(tmp_path)
-        seed_harness(tmp_path)
-
-        # Agent WITHOUT plan capability → decisions ignored
-        agent_no_plan = _agent(["coding", "writing"])
-        text = "[DECISION] Should be ignored [/DECISION]"
-        actions = await _execute_decision_markers(text, project, agent_no_plan)
-        assert len(actions) == 0
-
-        # Agent WITH plan capability → decision saved
-        agent_with_plan = _agent(["plan", "coding"])
-        text = "[DECISION] 녹음 앱으로 방향 확정 [/DECISION]"
-        actions = await _execute_decision_markers(text, project, agent_with_plan)
-        assert len(actions) == 1
-        assert actions[0]["title"] == "녹음 앱으로 방향 확정"
-
-        # Verify file was written
-        from backend.src.core.harness import HARNESS_DIR
-        decisions_file = tmp_path / HARNESS_DIR / "context" / "decisions.md"
-        assert decisions_file.is_file()
-        assert "녹음 앱으로 방향 확정" in decisions_file.read_text()
-
-    @pytest.mark.asyncio
-    async def test_execute_decision_markers_dedup(self, tmp_path: Path) -> None:
-        """Same decision text should not be added twice."""
-        from backend.src.api.agent_chat import _execute_decision_markers
-
-        project = _project()
-        project.workspace_dir = str(tmp_path)
-        seed_harness(tmp_path)
-        agent = _agent(["plan"])
-
-        text = "[DECISION] 녹음 앱 확정 [/DECISION]"
-        await _execute_decision_markers(text, project, agent)
-        actions = await _execute_decision_markers(text, project, agent)
-        assert len(actions) == 0  # duplicate, not added again
+    # Decision marker execution tests removed — now handled by RecordDecisionTool.
+    # See backend/tests/test_tools/ for tool-based decision tests.
 
 
 class TestCreatePhaseMarker:
@@ -309,40 +257,5 @@ class TestCreatePhaseMarker:
         data = json.loads(matches[0])
         assert data["name"] == "Research"
 
-    @pytest.mark.asyncio
-    async def test_execute_create_phase_markers_auto_approve(self, db_session) -> None:
-        """Phase markers create Phase rows in auto_approve mode."""
-        from backend.src.api.agent_chat import _execute_create_phase_markers
-        from backend.src.core.tenant_context import DEFAULT_TENANT_ID
-        from backend.src.models import Agent, Project, ProjectStatus, Tenant
-
-        db_session.add(Tenant(id=DEFAULT_TENANT_ID, name="Test", slug="test", owner_user_id="test"))
-        await db_session.commit()
-        project = Project(id=uuid.uuid4(), name="P", description="", status=ProjectStatus.active)
-        db_session.add(project)
-        agent = Agent(
-            id=uuid.uuid4(), tenant_id=DEFAULT_TENANT_ID, name="CEO", role="ceo",
-            executor_type="claude_api", executor_config={}, capabilities=["plan"],
-            status="online", is_active=True,
-        )
-        db_session.add(agent)
-        await db_session.commit()
-
-        # Force auto_approve by setting workspace_dir to None (fallback to default settings)
-        # Override: since default is require_approval for phases, we test with a project
-        # that has no workspace (= all defaults apply, phase_creation=require_approval).
-        # So this test verifies the proposal path instead.
-        text = '[CREATE_PHASE]{"name": "Research", "description": "Market analysis", "status": "active"}[/CREATE_PHASE]'
-        actions = await _execute_create_phase_markers(
-            text, project, agent, db_session, tenant_id=DEFAULT_TENANT_ID,
-        )
-        # Default is require_approval → should create a proposal, not a phase.
-        assert len(actions) == 1
-        assert actions[0]["type"] == "proposal_created"
-        assert actions[0]["proposal_type"] == "phase"
-
-        # Dedup: same name again → still creates proposal (dedup is on phases, not proposals)
-        actions2 = await _execute_create_phase_markers(
-            text, project, agent, db_session, tenant_id=DEFAULT_TENANT_ID,
-        )
-        assert len(actions2) == 1  # proposal dedup is not applied
+    # Phase marker execution tests removed — now handled by CreatePhaseTool.
+    # See backend/tests/test_tools/ for tool-based phase creation tests.

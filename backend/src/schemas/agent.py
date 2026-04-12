@@ -21,7 +21,7 @@ class AgentCreate(BaseModel):
     title: Optional[str] = None
     job_description: Optional[str] = None
     executor_config_id: Optional[uuid.UUID] = None
-    executor_type: str = "claude_api"
+    executor_type: str = "generic_llm"
     executor_config: dict = Field(default_factory=dict)
     system_prompt: Optional[str] = None
     skills: Optional[list[str]] = None

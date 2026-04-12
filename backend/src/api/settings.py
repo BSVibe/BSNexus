@@ -46,7 +46,7 @@ async def get_settings(
         llm_api_key=mask_api_key(settings_map.get("llm_api_key")),
         llm_model=settings_map.get("llm_model"),
         llm_base_url=settings_map.get("llm_base_url"),
-        default_executor_type=settings_map.get("default_executor_type", "claude_api"),
+        default_executor_type=settings_map.get("default_executor_type", "generic_llm"),
     )
 
 

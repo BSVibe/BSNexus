@@ -71,7 +71,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                 role="ceo",
                 title="Chief Executive Officer",
                 job_description="Sets company vision, makes strategic decisions, coordinates all departments",
-                executor_type="claude_api",
+                executor_type="generic_llm",
                 capabilities=["plan", "analyze", "writing", "general"],
                 monthly_budget_cents=2000,
                 children=[
@@ -80,7 +80,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                         role="cto",
                         title="Chief Technology Officer",
                         job_description="Leads technical architecture and engineering team",
-                        executor_type="claude_api",
+                        executor_type="generic_llm",
                         capabilities=["plan", "analyze", "architect", "coding"],
                         monthly_budget_cents=2000,
                         children=[
@@ -98,7 +98,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                                 role="qa_engineer",
                                 title="QA Engineer",
                                 job_description="Reviews code quality, runs tests, validates requirements, reports bugs",
-                                executor_type="claude_api",
+                                executor_type="generic_llm",
                                 capabilities=["analyze", "coding"],
                                 monthly_budget_cents=3000,
                             ),
@@ -149,7 +149,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                 role="lead",
                 title="Team Lead",
                 job_description="Leads the team, makes decisions, reviews work",
-                executor_type="claude_api",
+                executor_type="generic_llm",
                 # Lead is the only senior in the room — give them every
                 # skill so a 2-person team can ship UI + plan + audit
                 # without adding a Designer.
@@ -180,7 +180,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                 role="ceo",
                 title="Chief Executive Officer",
                 job_description="Sets company vision and strategy",
-                executor_type="claude_api",
+                executor_type="generic_llm",
                 capabilities=["plan", "analyze", "writing", "general"],
                 monthly_budget_cents=2000,
                 children=[
@@ -189,7 +189,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                         role="cto",
                         title="Chief Technology Officer",
                         job_description="Technical architecture and engineering leadership",
-                        executor_type="claude_api",
+                        executor_type="generic_llm",
                         capabilities=["plan", "analyze", "architect", "coding"],
                         monthly_budget_cents=2000,
                         children=[
@@ -227,7 +227,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                                 role="qa_lead",
                                 title="QA Lead",
                                 job_description="Test strategy, code review, quality standards, bug triage",
-                                executor_type="claude_api",
+                                executor_type="generic_llm",
                                 capabilities=["plan", "analyze", "coding"],
                                 monthly_budget_cents=3000,
                             ),
@@ -330,7 +330,7 @@ async def apply_template(
         ).limit(1)
     )
     default_exec = result.scalar_one_or_none()
-    default_executor_type = default_exec.executor_type if default_exec else "claude_api"
+    default_executor_type = default_exec.executor_type if default_exec else "generic_llm"
 
     repo = AgentRepository(db)
     created: list[Agent] = []

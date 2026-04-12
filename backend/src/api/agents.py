@@ -95,7 +95,7 @@ async def _resolve_executor_type(
         ).limit(1)
     )
     ec = result.scalar_one_or_none()
-    return ec.executor_type if ec else "claude_api"
+    return ec.executor_type if ec else "generic_llm"
 
 
 @router.post("", response_model=AgentResponse, status_code=201)

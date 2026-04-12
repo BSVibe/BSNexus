@@ -11,9 +11,8 @@ export interface PlanProposal {
 }
 
 export interface ApprovalSettings {
-  phase_creation: 'auto_approve' | 'require_approval' | 'require_human'
-  task_creation: 'auto_approve' | 'require_approval' | 'require_human'
-  delegation: 'auto_approve' | 'require_approval' | 'require_human'
+  phase_creation: 'auto_approve' | 'require_approval'
+  task_creation: 'auto_approve' | 'require_approval'
 }
 
 export const planProposalsApi = {

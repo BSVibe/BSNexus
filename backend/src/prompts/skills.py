@@ -76,9 +76,9 @@ Operating rules:
 1. Use the filesystem tools to read files. Do NOT speculate about files
    you have not opened. If a directory is too big to enumerate in detail,
    sample representative files and say so.
-2. Produce the final report as a single markdown document. End the message
-   with a ``[CREATE_TASK]`` marker for each high-priority gap you found
-   so a planning skill can pick them up later.
+2. Produce the final report as a single markdown document. Use the
+   ``create_task`` tool for each high-priority gap you found so a
+   planning skill can pick them up later.
 3. Stay objective. Bugs and missing tests are findings, not blame.
 4. If the codebase is huge, cap the initial pass at the most active
    directories (recently modified files, top-level package layout).
@@ -90,23 +90,14 @@ PLAN_SKILL = """\
 
 You can turn a goal or analysis report into an executable plan. Use this
 skill when the user wants concrete next steps, when an analyzer report
-ends with task markers, or when a project needs phasing.
+identifies gaps, or when a project needs phasing.
 
-Output goes through the existing task markers — every task you propose
-becomes a real ``Task`` row, so be specific:
+Use the ``create_task`` tool for every task you propose — each becomes a
+real Task row, so be specific with title, description, priority, and type.
 
-[CREATE_TASK]{
-  "title": "...",
-  "description": "what done looks like",
-  "priority": "low|medium|high|critical",
-  "task_type": "feature|bug|improvement|test|chore|refactor",
-  "worker_prompt": "concrete instructions for the worker that will
-                    actually run this task",
-  "qa_prompt": "how the QA agent should verify the result"
-}[/CREATE_TASK]
-
-Use ``[SET_GOAL]`` once at the top of a fresh plan to record the
-overarching project objective.
+Use ``set_goal`` once at the top of a fresh plan to record the
+overarching project objective. Use ``create_phase`` to group tasks
+into phases by milestone.
 
 Operating rules:
 1. Group tasks into phases by milestone, not by component. Phase 1 should
@@ -174,8 +165,8 @@ Operating rules for recommendations:
 - Prefer boring, battle-tested technology over cutting-edge when the team
   is small or the timeline is tight.
 - Flag trade-offs explicitly: "X is simpler but limits Y later."
-- Record the final decision with a ``[DECISION]`` marker so future agents
-  can see why the stack was chosen.
+- Use the ``record_decision`` tool to record the final decision so future
+  agents can see why the stack was chosen.
 
 ### Architecture Diagram
 
@@ -273,8 +264,8 @@ Operating rules for channel strategy:
    budget, key metric to track, and a 30-day experiment plan.
 3. Always propose a way to measure attribution (UTM parameters, promo
    codes, dedicated landing page URLs).
-4. Flag channels that require creative assets and create tasks for them
-   using ``[CREATE_TASK]`` markers.
+4. Flag channels that require creative assets and use the ``create_task``
+   tool to create tasks for them.
 
 ### Content Calendar
 

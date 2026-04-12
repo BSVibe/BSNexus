@@ -48,12 +48,11 @@ logger = structlog.get_logger(__name__)
 
 # ── Approval settings ───────────────────────────────────────────────
 
-ApprovalLevel = Literal["auto_approve", "require_approval", "require_human"]
+ApprovalLevel = Literal["auto_approve", "require_approval"]
 
 DEFAULT_APPROVAL_SETTINGS: dict[str, ApprovalLevel] = {
     "phase_creation": "require_approval",
     "task_creation": "auto_approve",
-    "delegation": "auto_approve",
 }
 
 
@@ -69,7 +68,7 @@ def read_approval_settings(workspace_dir: str | None) -> dict[str, ApprovalLevel
         approval = data.get("approval", {})
         result = dict(DEFAULT_APPROVAL_SETTINGS)
         for key in result:
-            if key in approval and approval[key] in ("auto_approve", "require_approval", "require_human"):
+            if key in approval and approval[key] in ("auto_approve", "require_approval"):
                 result[key] = approval[key]
         return result
     except Exception:
@@ -98,67 +97,44 @@ HARNESS_DIR = ".bsnexus"
 
 
 RULES_RESPONSE_FORMAT = """\
-# Response Format
+# Response Format & Tools
 
-## Status line (REQUIRED)
+## Tool Usage — PROACTIVE USE REQUIRED
 
-Start EVERY response with a `[STATUS]` line — a present-tense summary
-of what you are about to do in ≤10 words. This line is shown in the UI
-while you work.
+You have tools to manage the project. **Use them proactively** to
+structure and execute work. Do not just chat — create tasks, write
+files, and record decisions using your tools.
 
-Examples:
-```
-[STATUS] 시장 트렌드 보고서 작성
-[STATUS] Reviewing CTO's architecture proposal
-[STATUS] 기술 스택 비교 분석
-```
+### Task Management
 
-## Plan markers — PROACTIVE USE REQUIRED
-
-Everything in a project must be visible in the Plan view. **You MUST
-create phases and tasks whenever work is discussed, decided, or
-assigned.** Do not just chat — structure the work.
-
-### Phases
-
-When a project direction is set or a major work stream is identified,
-create a phase:
-```
-[CREATE_PHASE]{"name": "Phase 1: Direction Research", "description": "Evaluate market opportunities and decide product direction", "status": "active"}[/CREATE_PHASE]
-```
-
-### Tasks
-
-Every piece of work — including research, analysis, discussion,
-review, and decisions — should be a task:
-```
-[CREATE_TASK]{"title": "시장 조사 및 제품 방향 제안", "description": "CMO가 시장 트렌드를 조사하고 3개 제품 방향을 제안", "priority": "high", "task_type": "chore", "worker_prompt": "...", "qa_prompt": "..."}[/CREATE_TASK]
-```
+Every piece of work must be tracked as a task:
+- **create_task**: When you receive work, delegate, or make a decision
+- **claim_task**: Before starting work on a pending task
+- **complete_task**: When you finish a task, with summary and artifacts
+- **list_tasks**: Check what tasks exist and their status
 
 Task types: `feature`, `bug`, `improvement`, `test`, `chore`, `refactor`
 - Use `chore` for research, analysis, discussions, decisions
 - Use `feature` for implementation work
 
-**When to create tasks:**
-- When you receive a request from a user or another agent → create a
-  task for the work you're about to do
-- When you delegate to someone → create a task for what you asked them
-- When a decision is made → create a task recording the decision
-- When a review is needed → create a task for the review
+### Phase Grouping
 
-### Goals
+Use **create_phase** to group related tasks when a major work stream
+is identified. Phases are lightweight categories, not sequential stages.
 
-Set or update the project goal when direction is confirmed:
-```
-[SET_GOAL]{"title": "...", "description": "...", "level": "project"}[/SET_GOAL]
-```
+### Goals & Decisions
 
-### Decisions
+- **set_goal**: Set or update the project-level goal
+- **record_decision**: When you confirm a key project direction.
+  Decisions are injected into all agents' prompts to prevent
+  contradictory work.
 
-When you confirm a key project direction:
-```
-[DECISION] description of the confirmed direction [/DECISION]
-```
+### File Operations
+
+- **file_read** / **file_write** / **list_files**: Read, write, and
+  browse files in the project workspace.
+- **create_screen** / **modify_screen**: Create or update .bsd design
+  specification files (Designer agents).
 
 ## Delegation
 

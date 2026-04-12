@@ -29,17 +29,22 @@ from sse_starlette.sse import EventSourceResponse
 from backend.src import models
 from backend.src.api.settings import get_raw_llm_config
 from backend.src.config import settings
-from backend.src.core.task_markers import CREATE_PHASE_RE, CREATE_TASK_RE, build_project_context, strip_action_markers
+from backend.src.core.task_markers import strip_action_markers
 from backend.src.core.auth import Permission, require_permission
 from backend.src.core.goal_alignment import GoalAlignmentService
 from backend.src.core.budget import BudgetService
-from backend.src.core.llm_client import LLMClient, LLMConfig
+from backend.src.core.executor.litellm_executor import LiteLLMExecutor
+from backend.src.core.llm_client import LLMConfig
 from backend.src.core.tenant_context import get_tenant_id
 from backend.src.core.worker_dispatch import WorkerDispatcher
 from backend.src.queue.streams import RedisStreamManager
 from backend.src.repositories.conversation_repository import ConversationRepository
-from backend.src.repositories.phase_repository import PhaseRepository
 from backend.src.storage.database import async_session, get_db
+from backend.src.tools.agent_tools import get_tools_for_agent
+from backend.src.tools.approval import ApprovalMiddleware
+from backend.src.tools.base import ToolContext
+from backend.src.tools.cancellation import CancellationToken
+from backend.src.tools.handler import ToolHandler
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v1/projects/{project_id}/chat", tags=["agent-chat"])
@@ -263,17 +268,6 @@ async def _build_system_prompt(
     )
 
 
-def _extract_status(text: str) -> str:
-    """Pull the [STATUS] line from a response. Returns empty if absent."""
-    m = STATUS_RE.search(text)
-    return m.group(1).strip()[:80] if m else ""
-
-
-def _extract_decisions(text: str) -> list[str]:
-    """Pull all [DECISION] blocks from a response."""
-    return [m.strip() for m in DECISION_RE.findall(text) if m.strip()]
-
-
 def _strip_all_markers(text: str) -> str:
     text = strip_action_markers(text)
     text = SET_GOAL_RE.sub("", text).strip()
@@ -281,235 +275,6 @@ def _strip_all_markers(text: str) -> str:
     text = DECISION_RE.sub("", text).strip()
     return re.sub(r"^\[.*?\]\s*", "", text, count=1)
 
-
-# ── Marker execution ────────────────────────────────────────────────
-
-
-async def _ensure_active_phase(project_id: uuid.UUID, db: AsyncSession) -> models.Phase | None:
-    """Return the active phase, creating a default one if none exists."""
-    phase_repo = PhaseRepository(db)
-    phases = await phase_repo.list_by_project(project_id)
-    active = next((p for p in phases if p.status == models.PhaseStatus.active), None)
-    if active:
-        return active
-    # Auto-create a default phase so task creation doesn't silently fail
-    phase = models.Phase(
-        project_id=project_id,
-        name="Phase 1",
-        description="Auto-created default phase",
-        branch_name="phase/phase-1",
-        order=1,
-        status=models.PhaseStatus.active,
-    )
-    db.add(phase)
-    await db.flush()
-    logger.info("auto_created_phase", project_id=str(project_id), phase_id=str(phase.id))
-    return phase
-
-
-async def _execute_create_phase_markers(
-    text: str, project: models.Project, agent: models.Agent,
-    db: AsyncSession, *, tenant_id: uuid.UUID,
-) -> list[dict[str, Any]]:
-    """Parse [CREATE_PHASE] markers. Depending on approval settings,
-    either creates the Phase directly or stores a PlanProposal."""
-    from backend.src.core.harness import read_approval_settings
-
-    actions: list[dict[str, Any]] = []
-    approval = read_approval_settings(project.workspace_dir)
-    phase_approval = approval.get("phase_creation", "require_approval")
-
-    phase_repo = PhaseRepository(db)
-    existing_phases = await phase_repo.list_by_project(project.id)
-
-    for match in CREATE_PHASE_RE.finditer(text):
-        try:
-            data = json.loads(match.group(1).strip())
-        except json.JSONDecodeError:
-            continue
-        name = data.get("name", "").strip()
-        if not name:
-            continue
-        # Dedup: exact match or containment (fuzzy)
-        if any(
-            p.name.lower() == name.lower()
-            or name.lower() in p.name.lower()
-            or p.name.lower() in name.lower()
-            for p in existing_phases
-        ):
-            continue
-
-        if phase_approval == "auto_approve":
-            # Direct creation (legacy behavior).
-            next_order = max((p.order for p in existing_phases), default=0) + 1
-            description = data.get("description", "")
-            branch = data.get("branch_name", f"phase/{name.lower().replace(' ', '-')}")
-            status_str = data.get("status", "pending")
-            try:
-                status = models.PhaseStatus(status_str)
-            except ValueError:
-                status = models.PhaseStatus.pending
-            phase = models.Phase(
-                project_id=project.id, name=name, description=description,
-                branch_name=branch, order=next_order, status=status,
-            )
-            db.add(phase)
-            await db.flush()
-            existing_phases.append(phase)
-            actions.append({"type": "phase_created", "phase_id": str(phase.id), "title": name})
-            logger.info("phase_created", project_id=str(project.id), name=name)
-        else:
-            # Store as proposal.
-            proposal = models.PlanProposal(
-                project_id=project.id, tenant_id=tenant_id,
-                proposer_agent_id=agent.id, proposer_agent_name=agent.name,
-                proposal_type=models.ProposalType.phase,
-                payload=data,
-            )
-            db.add(proposal)
-            await db.flush()
-            actions.append({
-                "type": "proposal_created",
-                "proposal_id": str(proposal.id),
-                "proposal_type": "phase",
-                "title": name,
-            })
-            logger.info("phase_proposed", project_id=str(project.id), name=name, agent=agent.name)
-
-    return actions
-
-
-async def _execute_create_task_markers(
-    text: str, project: models.Project, agent: models.Agent,
-    db: AsyncSession, redis: Any,
-    *, tenant_id: uuid.UUID,
-) -> list[dict[str, Any]]:
-    from backend.src.core.harness import read_approval_settings
-
-    approval = read_approval_settings(project.workspace_dir)
-    task_approval = approval.get("task_creation", "auto_approve")
-
-    actions: list[dict[str, Any]] = []
-    created_tasks: list[models.Task] = []
-
-    for match in CREATE_TASK_RE.finditer(text):
-        try:
-            task_data = json.loads(match.group(1).strip())
-        except json.JSONDecodeError:
-            continue
-        title = task_data.get("title", "Untitled Task")
-
-        if task_approval != "auto_approve":
-            # Store as proposal.
-            proposal = models.PlanProposal(
-                project_id=project.id, tenant_id=tenant_id,
-                proposer_agent_id=agent.id, proposer_agent_name=agent.name,
-                proposal_type=models.ProposalType.task,
-                payload=task_data,
-            )
-            db.add(proposal)
-            await db.flush()
-            actions.append({
-                "type": "proposal_created",
-                "proposal_id": str(proposal.id),
-                "proposal_type": "task",
-                "title": title,
-            })
-            continue
-
-        # Auto-approve: create task directly (legacy behavior).
-        active_phase = await _ensure_active_phase(project.id, db)
-        if not active_phase:
-            continue
-        try:
-            priority = models.TaskPriority(task_data.get("priority", "medium"))
-        except ValueError:
-            priority = models.TaskPriority.medium
-        try:
-            task_type = models.TaskType(task_data.get("task_type", "feature"))
-        except ValueError:
-            task_type = models.TaskType.feature
-
-        new_task = models.Task(
-            project_id=project.id,
-            phase_id=active_phase.id,
-            title=title,
-            description=task_data.get("description"),
-            priority=priority,
-            task_type=task_type,
-            source=models.TaskSource.llm,
-            status=models.TaskStatus.pending,
-            agent_id=agent.id,
-            worker_prompt={"prompt": task_data.get("worker_prompt", "")},
-            qa_prompt={"prompt": task_data.get("qa_prompt", "")},
-            branch_name=active_phase.branch_name,
-        )
-        db.add(new_task)
-        await db.flush()
-        created_tasks.append(new_task)
-        actions.append({"type": "task_created", "task_id": str(new_task.id), "title": title})
-
-    # Auto-dispatch newly created tasks to an available worker so they execute
-    # immediately instead of waiting for a manually started orchestrator.
-    if created_tasks and redis is not None:
-        stream_manager = RedisStreamManager(redis)
-        dispatcher = WorkerDispatcher(stream_manager)
-        worker = await dispatcher.find_available_worker(db, tenant_id=tenant_id)
-        if worker:
-            for task in created_tasks:
-                prompt = (task.worker_prompt or {}).get("prompt") or task.title
-                try:
-                    await dispatcher.dispatch_task(
-                        worker_id=worker.id,
-                        task_id=task.id,
-                        task_title=task.title,
-                        project_id=str(project_id),
-                        prompt=prompt,
-                    )
-                    task.status = models.TaskStatus.running
-                    await db.flush()
-                except Exception as e:
-                    logger.warning("auto_dispatch_failed", task_id=str(task.id), error=str(e))
-
-    return actions
-
-
-async def _execute_goal_markers(
-    text: str, project_id: uuid.UUID, db: AsyncSession, tenant_id: uuid.UUID,
-) -> list[dict[str, Any]]:
-    actions: list[dict[str, Any]] = []
-    for match in SET_GOAL_RE.finditer(text):
-        try:
-            goal_data = json.loads(match.group(1).strip())
-        except json.JSONDecodeError:
-            continue
-        title = goal_data.get("title", "").strip()
-        if not title:
-            continue
-        level = goal_data.get("level", "project")
-        description = goal_data.get("description")
-
-        result = await db.execute(
-            select(models.Goal).where(
-                models.Goal.project_id == project_id,
-                models.Goal.level == level,
-            ).limit(1)
-        )
-        existing = result.scalar_one_or_none()
-        if existing:
-            existing.title = title
-            if description:
-                existing.description = description
-            actions.append({"type": "goal_updated", "goal_id": str(existing.id), "title": title})
-        else:
-            new_goal = models.Goal(
-                tenant_id=tenant_id, level=level, title=title,
-                description=description, project_id=project_id,
-            )
-            db.add(new_goal)
-            await db.flush()
-            actions.append({"type": "goal_created", "goal_id": str(new_goal.id), "title": title})
-    return actions
 
 
 def _load_decisions_from_workspace(workspace_dir: str | None) -> list[str]:
@@ -530,93 +295,6 @@ def _load_decisions_from_workspace(workspace_dir: str | None) -> list[str]:
             decisions.append(stripped)
     return decisions
 
-
-# Capabilities that grant the right to create [DECISION] markers.
-# Only strategic / decision-making roles should confirm directions.
-_DECISION_CAPABILITIES = {"plan"}
-
-
-async def _execute_decision_markers(
-    text: str, project: models.Project, agent: models.Agent,
-) -> list[dict[str, Any]]:
-    """Parse [DECISION] markers and append to .bsnexus/context/decisions.md.
-
-    Only agents with a decision-capable capability (``plan``) can create
-    decisions. Non-qualifying agents that emit [DECISION] markers are
-    silently ignored — this keeps the infrastructure gate simple while
-    the prompt-level rule already tells most agents not to do it.
-    """
-    from pathlib import Path
-
-    from backend.src.core.harness import HARNESS_DIR
-
-    actions: list[dict[str, Any]] = []
-    decisions = _extract_decisions(text)
-    if not decisions:
-        return actions
-
-    # Capability gate
-    agent_caps = {(c or "").strip().lower() for c in (agent.capabilities or [])}
-    if not agent_caps & _DECISION_CAPABILITIES:
-        logger.info(
-            "decision_ignored_no_capability",
-            agent=agent.name,
-            capabilities=list(agent_caps),
-            count=len(decisions),
-        )
-        return actions
-
-    workspace_dir = project.workspace_dir
-    if not workspace_dir:
-        logger.warning("decision_no_workspace", agent=agent.name)
-        return actions
-
-    decisions_file = Path(workspace_dir) / HARNESS_DIR / "context" / "decisions.md"
-    decisions_file.parent.mkdir(parents=True, exist_ok=True)
-
-    # Read existing decisions to dedup
-    existing: set[str] = set()
-    if decisions_file.is_file():
-        for line in decisions_file.read_text().splitlines():
-            stripped = line.lstrip("0123456789. ").strip()
-            if stripped:
-                existing.add(stripped.lower())
-
-    new_decisions: list[str] = []
-    for title in decisions:
-        if not title or title.lower() in existing:
-            continue
-        new_decisions.append(title)
-        actions.append({
-            "type": "decision_created",
-            "title": title,
-        })
-        logger.info(
-            "decision_created",
-            project_id=str(project.id),
-            agent=agent.name,
-            title=title,
-        )
-
-    if new_decisions:
-        # Rebuild the file with header + numbered list
-        all_decisions = []
-        if decisions_file.is_file():
-            for line in decisions_file.read_text().splitlines():
-                stripped = line.lstrip("0123456789. ").strip()
-                if stripped and not line.startswith("#"):
-                    all_decisions.append(stripped)
-        all_decisions.extend(new_decisions)
-
-        lines = [
-            "# Active Decisions\n",
-            "These are confirmed project directions. Do NOT contradict them.\n",
-        ]
-        for i, d in enumerate(all_decisions, 1):
-            lines.append(f"{i}. {d}")
-        decisions_file.write_text("\n".join(lines))
-
-    return actions
 
 
 # ── Persistence + event publishing ──────────────────────────────────
@@ -787,55 +465,125 @@ async def _process_response_text(
     response_text: str, project: models.Project, project_id: uuid.UUID,
     agent: models.Agent, db: AsyncSession, redis: Any,
     *, tenant_id: uuid.UUID,
+    tool_actions: list[dict[str, Any]] | None = None,
 ) -> models.ConversationMessage:
-    # Phase markers first — tasks may reference newly created phases.
-    phase_actions = await _execute_create_phase_markers(
-        response_text, project, agent, db, tenant_id=tenant_id,
-    )
-    task_actions = await _execute_create_task_markers(
-        response_text, project, agent, db, redis, tenant_id=tenant_id,
-    )
-    goal_actions = await _execute_goal_markers(response_text, project_id, db, tenant_id)
-    decision_actions = await _execute_decision_markers(
-        response_text, project, agent,
-    )
+    """Persist the agent's response and publish it via SSE.
+
+    Tool side-effects (task creation, file writes, etc.) are already
+    executed during the agentic loop. This function only strips leftover
+    markers and stores the cleaned text.
+    """
     cleaned = _strip_all_markers(response_text)
-    all_actions = phase_actions + task_actions + goal_actions + decision_actions
     return await _store_and_publish(
         db, redis, project_id, role="assistant", content=cleaned,
-        agent=agent, actions=all_actions,
+        agent=agent, actions=tool_actions or [],
     )
 
 
-async def _call_via_llm(
+async def _call_via_executor(
     agent: models.Agent, project: models.Project, project_id: uuid.UUID,
     history: list[models.ConversationMessage], user_message: str,
     db: AsyncSession | None, redis: Any, all_agents: list[models.Agent],
     *, tenant_id: uuid.UUID,
 ) -> models.ConversationMessage:
-    """Call the agent via direct LLM API. Opens its own DB sessions."""
-    async with async_session() as llm_db:
-        llm_config = await _resolve_llm_config(agent, llm_db)
+    """Call the agent via LiteLLMExecutor with tool_use support.
+
+    The executor runs an agentic loop: LLM → tool_call → execute → repeat.
+    Tools (file_write, create_task, etc.) are executed during the loop,
+    so no marker post-processing is needed.
+    """
+    # Phase A: Build context (short-lived DB session).
+    async with async_session() as setup_db:
+        llm_config = await _resolve_llm_config(agent, setup_db)
         _, messages = await _build_chat_context(
-            agent, project, project_id, history, user_message, llm_db, all_agents, tenant_id=tenant_id
+            agent, project, project_id, history, user_message, setup_db, all_agents, tenant_id=tenant_id,
         )
-    # Session closed — LLM call is pure network I/O, no DB needed.
-    client = LLMClient(llm_config)
-    llm_response = await client.chat(messages)
+    # setup_db CLOSED — no DB held during executor run.
+
+    # Phase B: Build tool context and handler.
+    tools = get_tools_for_agent(agent.capabilities)
+    tool_context = ToolContext(
+        project_id=project_id,
+        workspace_path=(
+            __import__("pathlib").Path(project.workspace_dir)
+            if project.workspace_dir
+            else __import__("pathlib").Path(
+                __import__("os").environ.get("WORKSPACE_BASE_DIR", "./data/workspaces")
+            ) / str(project_id)
+        ),
+        workspace_type=(
+            project.workspace_type.value
+            if hasattr(project.workspace_type, "value")
+            else str(project.workspace_type)
+        ),
+        agent_id=agent.id,
+        agent_name=agent.name,
+        tenant_id=tenant_id,
+        db_session_factory=async_session,
+        redis=redis,
+    )
+    approval = ApprovalMiddleware()
+    tool_handler = ToolHandler(tools, tool_context, approval=approval)
+
+    # Reset cancellation for this project (new work starting).
+    CancellationToken.reset(project_id)
+
+    # Phase C: Run agentic loop (no DB held).
+    executor = LiteLLMExecutor()
+    result = await executor.execute(
+        messages=messages,
+        tools=[t.to_definition() for t in tools] if tools else None,
+        tool_handler=tool_handler,
+        model=llm_config.model,
+        api_key=llm_config.api_key,
+        base_url=llm_config.base_url,
+        project_id=project_id,
+        on_event=lambda e: _publish_tool_event(redis, project_id, e),
+    )
+
+    # Phase D: Record cost + persist response (short-lived DB session).
     async with async_session() as result_db:
-        # Record cost before processing response
-        if llm_response.cost_cents > 0:
+        import math
+        cost_cents = math.ceil(result.cost_usd * 100)
+        if cost_cents > 0:
             budget_svc = BudgetService(result_db)
             await budget_svc.record_cost(
                 tenant_id=tenant_id,
                 agent_id=agent.id,
-                amount_cents=llm_response.cost_cents,
-                token_count=llm_response.total_tokens,
-                model_name=llm_response.model,
+                amount_cents=cost_cents,
+                token_count=result.total_tokens,
+                model_name=result.model,
             )
+
+        # Build tool actions summary for SSE
+        tool_actions = _build_tool_actions(result)
+
         return await _process_response_text(
-            llm_response.content, project, project_id, agent, result_db, redis, tenant_id=tenant_id
+            result.content, project, project_id, agent, result_db, redis,
+            tenant_id=tenant_id, tool_actions=tool_actions,
         )
+
+
+def _build_tool_actions(result: Any) -> list[dict[str, Any]]:
+    """Convert executor tool audit trail to action dicts for SSE."""
+    actions: list[dict[str, Any]] = []
+    for tc in (result.tool_calls_made or []):
+        actions.append({
+            "type": f"tool_{tc.name}",
+            "tool": tc.name,
+            "input": tc.input,
+        })
+    return actions
+
+
+async def _publish_tool_event(redis: Any, project_id: uuid.UUID, event: Any) -> None:
+    """Publish tool execution events to SSE for frontend visibility."""
+    if redis is None or event is None:
+        return
+    try:
+        await _publish_event(redis, project_id, f"tool_{event.type}", event.data)
+    except Exception:
+        pass  # Best-effort — don't break the loop
 
 
 async def _call_via_worker(
@@ -869,11 +617,11 @@ async def _call_via_worker(
             )
             worker = result.scalar_one_or_none()
             if not worker or worker.status != "online":
-                raise HTTPException(status_code=503, detail=f"Worker offline: {worker.name if worker else 'unknown'}")
+                raise HTTPException(status_code=503, detail="현재 오프라인 상태입니다.")
         else:
             worker = await dispatcher.find_available_worker(setup_db, tenant_id=tenant_id)
             if not worker:
-                raise HTTPException(status_code=503, detail="No online worker available.")
+                raise HTTPException(status_code=503, detail="현재 오프라인 상태입니다.")
 
         system_prompt, _ = await _build_chat_context(
             agent, project, project_id, history, user_message, setup_db, all_agents, tenant_id=tenant_id,
@@ -886,16 +634,23 @@ async def _call_via_worker(
             content = f"[{h.agent_name}] {content}"
         flat_history.append({"role": h.role, "content": content})
 
+    # Include tool definitions so the worker can run an agentic loop.
+    tools = get_tools_for_agent(agent.capabilities)
+    tool_defs = [t.to_definition().to_dict() for t in tools] if tools else None
+    tool_names = [t.name for t in tools] if tools else None
+
     chat_id = str(uuid.uuid4())
     await dispatcher.dispatch_chat(
         worker_id=worker.id, chat_id=chat_id, message=user_message,
         system_prompt=system_prompt, history=flat_history,
+        tool_definitions=tool_defs,
+        agent_tool_names=tool_names,
     )
 
     # Poll for the result WITHOUT holding the DB session — the polling
     # loop only touches Redis. Once the result arrives, open a fresh
-    # session for _process_response_text. This prevents long-running
-    # worker turns (up to 30 min) from exhausting the connection pool.
+    # session for persistence. This prevents long-running worker turns
+    # (up to 30 min) from exhausting the connection pool.
     result_key = f"chat:result:{chat_id}"
     waited = 0.0
     while waited < WORKER_RESULT_TIMEOUT:
@@ -905,13 +660,33 @@ async def _call_via_worker(
             payload = json.loads(raw)
             if not payload.get("success", False):
                 raise HTTPException(status_code=502, detail=f"Worker error: {payload.get('error_message', 'failed')}")
-            # Open a fresh, short-lived session for response processing
-            # (markers, persist, publish). The caller's session may be
-            # closed by now if we're in a background task.
+
+            # Extract tool audit trail from worker result (if present).
+            tool_actions: list[dict[str, Any]] = []
+            for tc in payload.get("tool_calls", []):
+                tool_actions.append({
+                    "type": f"tool_{tc.get('name', 'unknown')}",
+                    "tool": tc.get("name"),
+                    "input": tc.get("input", {}),
+                })
+
+            # Record cost from worker result.
+            usage = payload.get("usage", {})
+            cost_cents = usage.get("cost_cents", 0)
+
             async with async_session() as fresh_db:
+                if cost_cents > 0:
+                    budget_svc = BudgetService(fresh_db)
+                    await budget_svc.record_cost(
+                        tenant_id=tenant_id,
+                        agent_id=agent.id,
+                        amount_cents=cost_cents,
+                        token_count=usage.get("total_tokens", 0),
+                        model_name=usage.get("model", ""),
+                    )
                 return await _process_response_text(
                     payload.get("output", ""), project, project_id, agent, fresh_db, redis,
-                    tenant_id=tenant_id,
+                    tenant_id=tenant_id, tool_actions=tool_actions,
                 )
         await asyncio.sleep(0.5)
         waited += 0.5
@@ -936,7 +711,7 @@ async def _call_agent(
             tenant_id=tenant_id,
         )
     try:
-        return await _call_via_llm(
+        return await _call_via_executor(
             agent, project, project_id, history, user_message, db, redis, all_agents,
             tenant_id=tenant_id,
         )
@@ -1016,7 +791,7 @@ async def _process_agent_in_background(
                 await _store_and_publish(
                     setup_db, redis, project_id,
                     role="assistant",
-                    content="[Error] No online worker available. Start a worker with `bsnexus-worker run`.",
+                    content="현재 오프라인 상태입니다. 잠시 후 다시 시도해 주세요.",
                     agent=agent,
                 )
                 return
@@ -1037,7 +812,7 @@ async def _process_agent_in_background(
                     await _store_and_publish(
                         setup_db, redis, project_id,
                         role="assistant",
-                        content="[Error] No LLM API key configured and no online worker available.",
+                        content="현재 오프라인 상태입니다. 잠시 후 다시 시도해 주세요.",
                         agent=agent,
                     )
                     return
@@ -1081,7 +856,7 @@ async def _process_agent_in_background(
             async with async_session() as err_db:
                 await _store_and_publish(
                     err_db, redis, project_id,
-                    role="assistant", content=f"[Error] {e}",
+                    role="assistant", content="죄송합니다, 요청을 처리하는 중 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.",
                     agent=error_agent,
                 )
             if error_agent is not None:

@@ -4,6 +4,8 @@ import { agentChatApi } from '../../api/agentChat'
 import { agentsApi } from '../../api/agents'
 import { useChatEvents } from '../../hooks/useChatEvents'
 import { useToastStore } from '../../stores/toastStore'
+import ApprovalSettings from '../plan/ApprovalSettings'
+import StopAllButton from '../plan/StopAllButton'
 import ChatMessage from './ChatMessage'
 import MentionAutocomplete from './MentionAutocomplete'
 
@@ -350,6 +352,12 @@ export default function UnifiedChatSidebar({ projectId }: Props) {
             {(sendMutation.error as { response?: { data?: { detail?: string } } })?.response?.data?.detail || (sendMutation.error as Error).message || 'Failed to send'}
           </p>
         )}
+
+        {/* Controls — approval mode + stop all */}
+        <div className="border-t border-stitch-outline-variant/10 px-3 py-2 flex items-center justify-between gap-2">
+          <ApprovalSettings projectId={projectId} />
+          <StopAllButton projectId={projectId} />
+        </div>
 
         {/* Input area */}
         <div className="border-t border-stitch-outline-variant/10 p-3 relative">

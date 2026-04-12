@@ -9,6 +9,7 @@ from sqlalchemy import text
 
 from backend.src.api import (
     agent_chat,
+    agent_control,
     agent_templates,
     agents,
     auth,
@@ -128,6 +129,7 @@ async def lifespan(app: FastAPI):
 
 _ROUTERS = [
     agent_chat.router,
+    agent_control.router,
     agent_templates.router,
     agents.router,
     budget.router,

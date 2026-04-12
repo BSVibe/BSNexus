@@ -46,13 +46,14 @@ class PlanProposal(Base):
     proposer_agent_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     proposal_type: Mapped[ProposalType] = mapped_column(
-        Enum(ProposalType), nullable=False
+        Enum(ProposalType, name="proposaltype", create_constraint=False), nullable=False
     )
     # The original JSON payload from the marker.
     payload: Mapped[dict] = mapped_column(JSON, nullable=False)
 
     status: Mapped[ProposalStatus] = mapped_column(
-        Enum(ProposalStatus), default=ProposalStatus.pending
+        Enum(ProposalStatus, name="proposalstatus", create_constraint=False),
+        default=ProposalStatus.pending,
     )
     # Who approved/rejected — null means user (human).
     reviewer_agent_id: Mapped[uuid.UUID | None] = mapped_column(

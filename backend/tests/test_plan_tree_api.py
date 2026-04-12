@@ -107,7 +107,7 @@ async def _add_agent(db_session, *, name: str = "Agent", role: str = "dev") -> A
         name=name,
         role=role,
         title=role.upper(),
-        executor_type="claude_api",
+        executor_type="generic_llm",
         executor_config={},
         capabilities=[],
         status="online",
@@ -362,7 +362,7 @@ async def test_get_agent_status_direct_all_dot_colors(db_session):
     # Worker C is also detached from any worker pool, so the worker-type
     # online fallback should not promote it back to yellow.
     offline_agent.status = "offline"
-    offline_agent.executor_type = "claude_api"
+    offline_agent.executor_type = "generic_llm"
 
     await _add_task(
         db_session, project, phase, title="Run me", status=TaskStatus.running, agent_id=running_agent.id,

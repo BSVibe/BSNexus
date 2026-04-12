@@ -17,7 +17,7 @@ from backend.src.core.agent_activity import (
 from backend.src.models import Agent, Task, TaskPriority, TaskSource, TaskStatus, TaskType
 
 
-def _agent(*, status: str = "online", executor_type: str = "claude_api") -> Agent:
+def _agent(*, status: str = "online", executor_type: str = "generic_llm") -> Agent:
     return Agent(
         id=uuid.uuid4(),
         tenant_id=uuid.uuid4(),
@@ -76,7 +76,7 @@ def test_dot_online_without_task_is_yellow() -> None:
 
 
 def test_dot_offline_non_worker_is_gray() -> None:
-    agent = _agent(status="offline", executor_type="claude_api")
+    agent = _agent(status="offline", executor_type="generic_llm")
     assert resolve_agent_status_dot(agent) == "gray"
 
 
@@ -115,7 +115,7 @@ def test_runtime_status_offline_worker_promoted_when_pool_online() -> None:
 def test_runtime_status_passes_through_known_values() -> None:
     assert resolve_agent_runtime_status(_agent(status="online")) == "online"
     assert resolve_agent_runtime_status(_agent(status="busy")) == "busy"
-    assert resolve_agent_runtime_status(_agent(status="offline", executor_type="claude_api")) == "offline"
+    assert resolve_agent_runtime_status(_agent(status="offline", executor_type="generic_llm")) == "offline"
 
 
 # ── BusyAgentTracker (Redis-backed) ──────────────────────────────────
@@ -195,10 +195,10 @@ def test_runtime_status_passes_through_unknown_status_for_non_worker() -> None:
     canonical vocabulary; defaulting to ``offline`` would hide a worker
     that briefly reports a custom state.
     """
-    agent = _agent(status="weird_state", executor_type="claude_api")
+    agent = _agent(status="weird_state", executor_type="generic_llm")
     assert resolve_agent_runtime_status(agent) == "weird_state"
 
 
 def test_runtime_status_blank_status_defaults_to_offline_for_non_worker() -> None:
-    agent = _agent(status="", executor_type="claude_api")
+    agent = _agent(status="", executor_type="generic_llm")
     assert resolve_agent_runtime_status(agent) == "offline"

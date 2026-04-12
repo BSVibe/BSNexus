@@ -401,7 +401,7 @@ class GlobalSettingsResponse(BaseModel):
     llm_api_key: Optional[str] = None
     llm_model: Optional[str] = None
     llm_base_url: Optional[str] = None
-    default_executor_type: str = "claude_api"
+    default_executor_type: str = "generic_llm"
 
 
 class GlobalSettingsUpdate(BaseModel):

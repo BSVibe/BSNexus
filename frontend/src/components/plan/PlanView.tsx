@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { usePlanEvents } from '../../hooks/usePlanEvents'
 import { usePlanStore } from '../../stores/planStore'
 import AgentStatusBar from './AgentStatusBar'
-import ApprovalSettings from './ApprovalSettings'
 import DetailPanel from './DetailPanel'
 import PlanTree from './PlanTree'
 import ProposalBanner from './ProposalBanner'
@@ -85,9 +84,6 @@ export default function PlanView({ projectId }: PlanViewProps) {
           className="flex flex-col border-r border-stitch-outline-variant/10"
           style={{ width: `${treePct}%`, minWidth: 240 }}
         >
-          <div className="px-3 pt-3">
-            <ApprovalSettings projectId={projectId} />
-          </div>
           <PlanTree projectId={projectId} />
         </div>
         <div

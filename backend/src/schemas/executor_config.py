@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 # Valid executor types
-EXECUTOR_TYPES = {"claude_api", "claude_code", "bsgateway", "codex", "generic_llm", "worker"}
+EXECUTOR_TYPES = {"generic_llm", "claude_code", "bsgateway", "codex", "worker"}
 
 
 class ExecutorConfigCreate(BaseModel):

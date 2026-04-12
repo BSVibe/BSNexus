@@ -62,3 +62,12 @@ frontend/core
 .claude/
 .mcp.json
 .local-data/
+
+# Workspace data (server-managed project files)
+data/workspaces/
+
+# Stitch design tool
+.stitch-project.json
+
+# Screenshots (temporary)
+screen_*.png

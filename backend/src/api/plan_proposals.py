@@ -35,13 +35,11 @@ class ProposalResponse(BaseModel):
 class ApprovalSettingsResponse(BaseModel):
     phase_creation: str
     task_creation: str
-    delegation: str
 
 
 class ApprovalSettingsUpdate(BaseModel):
     phase_creation: str | None = None
     task_creation: str | None = None
-    delegation: str | None = None
 
 
 @router.get("", response_model=list[ProposalResponse])
@@ -218,13 +216,11 @@ async def update_approval_settings(
         raise HTTPException(status_code=404, detail="Project not found")
 
     current = read_approval_settings(project.workspace_dir)
-    valid = {"auto_approve", "require_approval", "require_human"}
+    valid = {"auto_approve", "require_approval"}
     if body.phase_creation and body.phase_creation in valid:
         current["phase_creation"] = body.phase_creation
     if body.task_creation and body.task_creation in valid:
         current["task_creation"] = body.task_creation
-    if body.delegation and body.delegation in valid:
-        current["delegation"] = body.delegation
 
     write_approval_settings(project.workspace_dir, current)
     return ApprovalSettingsResponse(**current)
