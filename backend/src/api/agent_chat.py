@@ -385,8 +385,9 @@ async def _resolve_llm_config(agent: models.Agent, db: AsyncSession) -> LLMConfi
         if exec_cfg and exec_cfg.config and exec_cfg.config.get("model"):
             cfg = exec_cfg.config
             # api_key can be empty for local models (ollama, vllm, etc.)
+            # litellm requires a non-empty string even if the server ignores it.
             return LLMConfig(
-                api_key=cfg.get("api_key", ""),
+                api_key=cfg.get("api_key") or "unused",
                 model=cfg["model"],
                 base_url=cfg.get("base_url"),
             )
