@@ -182,7 +182,7 @@ class LiteLLMExecutor:
                     cost_usd = 0.0
 
                 if on_event:
-                    on_event(ExecutionEvent("done", {"content": content, "finish_reason": finish_reason}))
+                    await _emit(on_event, ExecutionEvent("done", {"content": content, "finish_reason": finish_reason}))
 
                 return ExecutionResult(
                     content=content,
@@ -224,7 +224,7 @@ class LiteLLMExecutor:
             # Emit tool start events
             for pc in parsed_calls:
                 if on_event:
-                    on_event(ExecutionEvent("tool_start", {"tool": pc.name, "input": pc.input}))
+                    await _emit(on_event, ExecutionEvent("tool_start", {"tool": pc.name, "input": pc.input}))
 
             # Execute tools
             results = await tool_handler.execute_batch(parsed_calls)
@@ -233,7 +233,7 @@ class LiteLLMExecutor:
             # Emit tool end events
             for r in results:
                 if on_event:
-                    on_event(ExecutionEvent("tool_end", {
+                    await _emit(on_event, ExecutionEvent("tool_end", {
                         "tool_call_id": r.tool_call_id,
                         "is_error": r.is_error,
                         "content_preview": r.content[:200] if r.content else "",
