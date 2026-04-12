@@ -356,8 +356,10 @@ export default function UnifiedChatSidebar({ projectId }: Props) {
         )}
 
         {/* Controls — approval mode + stop all */}
-        <div className="border-t border-stitch-outline-variant/10 px-3 py-2 flex items-center justify-between gap-2">
-          <ApprovalSettings projectId={projectId} />
+        <div className="border-t border-stitch-outline-variant/10 px-3 py-2 flex items-center justify-between gap-2 overflow-hidden">
+          <div className="min-w-0 flex-1">
+            <ApprovalSettings projectId={projectId} />
+          </div>
           <StopAllButton projectId={projectId} />
         </div>
 
