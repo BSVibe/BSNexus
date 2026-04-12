@@ -23,7 +23,7 @@ from backend.src.tools.handler import ToolHandler
 
 logger = structlog.get_logger(__name__)
 
-REQUEST_TIMEOUT = 120  # seconds per acompletion call
+REQUEST_TIMEOUT = 600  # seconds per acompletion call (local models can be slow)
 
 
 @dataclass
