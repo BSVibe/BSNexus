@@ -58,6 +58,7 @@ export default function UnifiedChatSidebar({ projectId }: Props) {
   // Optimistic state: user message + dispatched agent names for typing indicators
   const [pendingMessage, setPendingMessage] = useState<string | null>(null)
   const [pendingAgents, setPendingAgents] = useState<string[]>([])
+  const [pendingSentAt, setPendingSentAt] = useState<string>('')
 
   // Hide optimistic user bubble once the real one arrives via SSE
   const showPendingUser = useMemo(() => {
@@ -170,6 +171,7 @@ export default function UnifiedChatSidebar({ projectId }: Props) {
     const trimmed = input.trim()
     if (!trimmed || sendMutation.isPending) return
     setPendingMessage(trimmed)
+    setPendingSentAt(new Date().toISOString())
     // Set temporary typing agents from @mentions in the message (will be overwritten by server response)
     const mentionMatches = [...trimmed.matchAll(/@(\S+)/g)]
     const mentionedNames = mentionMatches
@@ -292,7 +294,7 @@ export default function UnifiedChatSidebar({ projectId }: Props) {
                 content: pendingMessage,
                 agent_id: null,
                 agent_name: null,
-                created_at: new Date().toISOString(),
+                created_at: pendingSentAt,
                 actions: [],
               }}
             />

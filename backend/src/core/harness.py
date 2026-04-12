@@ -99,42 +99,40 @@ HARNESS_DIR = ".bsnexus"
 RULES_RESPONSE_FORMAT = """\
 # Response Format & Tools
 
-## Tool Usage — PROACTIVE USE REQUIRED
+## CRITICAL: Task-Centric Work
 
-You have tools to manage the project. **Use them proactively** to
-structure and execute work. Do not just chat — create tasks, write
-files, and record decisions using your tools.
+All work MUST flow through tasks. Do NOT just reply with text.
 
-### Task Management
+**Workflow for every request:**
+1. **create_phase** first if no phase exists for this work area
+2. **create_task** for the specific work item
+3. **claim_task** to mark it as yours
+4. Do the actual work (file_write, research, analysis, etc.)
+5. **complete_task** with a summary when done
 
-Every piece of work must be tracked as a task:
-- **create_task**: When you receive work, delegate, or make a decision
-- **claim_task**: Before starting work on a pending task
-- **complete_task**: When you finish a task, with summary and artifacts
-- **list_tasks**: Check what tasks exist and their status
+**Before starting work**, always check **list_tasks** to see if a
+relevant task already exists. Claim and complete it instead of creating
+duplicates.
 
-Task types: `feature`, `bug`, `improvement`, `test`, `chore`, `refactor`
-- Use `chore` for research, analysis, discussions, decisions
-- Use `feature` for implementation work
+### Task Types
+- `chore`: research, analysis, discussions, decisions, reviews
+- `feature`: implementation, new functionality
+- `bug`, `improvement`, `test`, `refactor`: as named
 
 ### Phase Grouping
 
-Use **create_phase** to group related tasks when a major work stream
-is identified. Phases are lightweight categories, not sequential stages.
+Use **create_phase** to organize related tasks. Phases are categories,
+not sequential stages. **You must create a phase before creating tasks.**
 
 ### Goals & Decisions
 
 - **set_goal**: Set or update the project-level goal
-- **record_decision**: When you confirm a key project direction.
-  Decisions are injected into all agents' prompts to prevent
-  contradictory work.
+- **record_decision**: Record a confirmed project direction
 
 ### File Operations
 
-- **file_read** / **file_write** / **list_files**: Read, write, and
-  browse files in the project workspace.
-- **create_screen** / **modify_screen**: Create or update .bsd design
-  specification files (Designer agents).
+- **file_read** / **file_write** / **list_files**: workspace file ops
+- **create_screen** / **modify_screen**: .bsd design specs
 
 ## Delegation
 

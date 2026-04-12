@@ -51,6 +51,9 @@ router = APIRouter(prefix="/api/v1/projects/{project_id}/chat", tags=["agent-cha
 SET_GOAL_RE = re.compile(r"\[SET_GOAL\](.*?)\[/SET_GOAL\]", re.DOTALL)
 STATUS_RE = re.compile(r"^\[STATUS\]\s*(.+?)$", re.MULTILINE)
 DECISION_RE = re.compile(r"\[DECISION\](.*?)\[/DECISION\]", re.DOTALL)
+
+# Track background agent tasks per project for cancellation.
+_project_tasks: dict[uuid.UUID, set[asyncio.Task]] = {}
 MAX_HISTORY = 100
 # Per-agent timeout for waiting on a worker chat result. This is NOT a
 # chain-wide limit — each agent's _call_via_worker polls independently.
@@ -841,8 +844,6 @@ async def _process_agent_in_background(
             tenant_id=tenant_id,
         )
 
-        await _publish_agent_status(redis, project_id, agent, "online")
-
         # Delegation: dispatch further agents @mentioned in this response.
         delegated = _parse_mentions(msg.content, all_agents)
         for delegate in delegated:
@@ -866,12 +867,14 @@ async def _process_agent_in_background(
                     role="assistant", content="죄송합니다, 요청을 처리하는 중 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.",
                     agent=error_agent,
                 )
-            if error_agent is not None:
-                await _publish_agent_status(redis, project_id, error_agent, "online")
         except Exception:  # noqa: BLE001
             pass
     finally:
+        # Clear busy BEFORE publishing online status so frontend
+        # refetch sees the correct idle state.
         await clear_agent_busy(redis, tenant_id, agent_id)
+        if agent is not None:
+            await _publish_agent_status(redis, project_id, agent, "online")
 
 
 # ── Endpoints ───────────────────────────────────────────────────────
@@ -927,11 +930,13 @@ async def chat_with_agent(
     await _store_and_publish(db, redis, project_id, role="user", content=body.message)
 
     # Dispatch all agents in parallel as background tasks.
-    # No called_ids tracking — delegation is unlimited.
+    tasks = _project_tasks.setdefault(project_id, set())
     for agent in mentioned:
-        asyncio.create_task(_process_agent_in_background(
+        t = asyncio.create_task(_process_agent_in_background(
             project_id, agent.id, body.message, redis, tenant_id,
         ))
+        tasks.add(t)
+        t.add_done_callback(lambda t, pid=project_id: _project_tasks.get(pid, set()).discard(t))
 
     return ChatDispatchResponse(dispatched_agents=[a.name for a in mentioned])
 

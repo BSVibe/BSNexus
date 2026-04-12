@@ -55,18 +55,16 @@ export function useChatEvents(projectId: string | undefined) {
         const data = JSON.parse(event.data) as ChatMessageOut
         appendMessage(data)
         const actions = data.actions || []
+        // Invalidate plan tree on any task/phase/goal/decision tool action
         if (actions.some((a) =>
-          a.type === 'task_created' || a.type === 'phase_created'
+          a.type.includes('task') || a.type.includes('phase') || a.type.includes('decision')
         )) {
           queryClient.invalidateQueries({ queryKey: ['plan-tree', projectId] })
         }
-        if (actions.some((a) => a.type.startsWith('goal_'))) {
+        if (actions.some((a) => a.type.includes('goal'))) {
           queryClient.invalidateQueries({ queryKey: ['goals', projectId] })
         }
-        if (actions.some((a) => a.type === 'decision_created')) {
-          queryClient.invalidateQueries({ queryKey: ['plan-tree', projectId] })
-        }
-        if (actions.some((a) => a.type === 'proposal_created')) {
+        if (actions.some((a) => a.type.includes('proposal'))) {
           queryClient.invalidateQueries({ queryKey: ['proposals', projectId] })
         }
       } catch {
@@ -103,9 +101,16 @@ export function useChatEvents(projectId: string | undefined) {
         : `/api/v1/projects/${projectId}/chat/events`
       const source = new EventSource(url)
 
+      const handleToolEnd = () => {
+        // Tool executed — refresh plan tree immediately
+        queryClient.invalidateQueries({ queryKey: ['plan-tree', projectId] })
+        queryClient.invalidateQueries({ queryKey: ['goals', projectId] })
+      }
+
       source.addEventListener('message_created', handleMessageCreated as EventListener)
       source.addEventListener('history_cleared', handleHistoryCleared as EventListener)
       source.addEventListener('agent_status', handleAgentStatus as EventListener)
+      source.addEventListener('tool_tool_end', handleToolEnd as EventListener)
 
       source.onopen = () => {
         retriesRef.current = 0

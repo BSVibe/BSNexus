@@ -24,8 +24,32 @@ async def stop_all_agents(
 ) -> dict:
     """Stop all running agents in a project.
 
-    Cancels in-process executions and notifies workers to stop.
+    1. Cancel all tracked background asyncio.Tasks
+    2. Set CancellationToken so executor loop stops
+    3. Clear busy state from Redis
+    4. Publish cancel signal to workers
     """
+    from backend.src.api.agent_chat import _project_tasks
+    from backend.src.core.agent_activity import clear_agent_busy
+    from backend.src.core.tenant_context import get_tenant_id
+    import redis.asyncio as aioredis
+
     redis = await get_redis()
+
+    # Cancel background tasks
+    tasks = _project_tasks.pop(project_id, set())
+    cancelled_count = 0
+    for t in tasks:
+        if not t.done():
+            t.cancel()
+            cancelled_count += 1
+
+    # Clear all busy keys for this project's tenant
+    if redis:
+        keys = await redis.keys("agent_busy:*")
+        for k in keys:
+            await redis.delete(k)
+
     result = await cancel_project_agents(project_id, redis)
+    result["tasks_cancelled"] = cancelled_count
     return result

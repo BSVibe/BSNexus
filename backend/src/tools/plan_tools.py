@@ -69,7 +69,7 @@ class CreateTaskTool(Tool):
             task_type = TaskType.feature
 
         async with ctx.db_session_factory() as db:
-            # Find active phase or create default
+            # Find active phase — no auto-creation, agent should create_phase first.
             result = await db.execute(
                 select(Phase)
                 .where(Phase.project_id == ctx.project_id)
@@ -80,16 +80,9 @@ class CreateTaskTool(Tool):
             if not active and phases:
                 active = phases[0]
             if not active:
-                active = Phase(
-                    project_id=ctx.project_id,
-                    name="Phase 1",
-                    description="Auto-created",
-                    branch_name="phase/phase-1",
-                    order=1,
-                    status=PhaseStatus.active,
+                raise ToolExecutionError(
+                    "No phase exists yet. Use create_phase first to organize work, then create tasks."
                 )
-                db.add(active)
-                await db.flush()
 
             task = Task(
                 project_id=ctx.project_id,

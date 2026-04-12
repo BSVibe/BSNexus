@@ -183,23 +183,6 @@ export default function ChatMessage({ message, typing }: { message: ChatMessageO
             </div>
           )}
 
-          {/* Action notifications */}
-          {!typing && message.actions.length > 0 && (
-            <div className="mt-2 pt-2 border-t border-stitch-outline-variant/10 space-y-1">
-              {message.actions.map((action, i) => (
-                <div key={i} className="flex items-center gap-1.5 text-[10px] text-stitch-primary">
-                  <span className="material-symbols-outlined" style={{ fontSize: '12px' }}>
-                    {action.type === 'task_created' ? 'add_task' : action.type === 'goal_created' || action.type === 'goal_updated' ? 'flag' : 'edit'}
-                  </span>
-                  <span>
-                    {action.type === 'task_created' && `Created task: ${action.title}`}
-                    {action.type === 'goal_created' && `Set goal: ${action.title}`}
-                    {action.type === 'goal_updated' && `Updated goal: ${action.title}`}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       </div>
     </div>
