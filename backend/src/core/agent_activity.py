@@ -138,6 +138,11 @@ async def has_online_worker(db: AsyncSession, tenant_id: uuid.UUID) -> bool:
 # ── Status dot resolver ─────────────────────────────────────────────
 
 
+def _is_llm_api_executor(executor_type: str) -> bool:
+    """Check if the executor type is an LLM API (always-on, no heartbeat)."""
+    return executor_type in ("generic_llm", "bsgateway", "codex")
+
+
 def resolve_agent_status_dot(
     agent: "Agent",
     *,
@@ -153,10 +158,10 @@ def resolve_agent_status_dot(
     2. ``green``  — assigned a running task
     3. ``blue``   — actively chatting (transient busy)
     4. ``yellow`` — online + idle (own status, or worker pool has any
-                    online worker for worker-typed agents)
+                    online worker for worker-typed agents, or LLM API
+                    executor with config)
     5. ``gray``   — offline
     """
-    # Avoid the import cycle on TaskStatus by importing lazily.
     from backend.src.models import TaskStatus
 
     if current_task is not None:
@@ -171,9 +176,13 @@ def resolve_agent_status_dot(
     if own_status == "online":
         return "yellow"
     if own_status == "busy":
-        # Persistent busy from heartbeat/executor lifecycle — show as
-        # active rather than idle, but it's not a chat-turn.
         return "green"
+
+    # LLM API executors are always-on — they don't need heartbeat.
+    # If the agent has an executor config, treat as online/idle.
+    if _is_llm_api_executor(agent.executor_type) and agent.executor_config_id:
+        return "yellow"
+
     if agent.executor_type == "worker" and online_worker_available:
         return "yellow"
     return "gray"
@@ -193,10 +202,16 @@ def resolve_agent_runtime_status(
     if is_busy:
         return "busy"
     own_status = (agent.status or "").lower()
-    if own_status in ("online", "busy", "offline"):
-        if own_status == "offline" and agent.executor_type == "worker" and online_worker_available:
-            return "online"
+    if own_status in ("online", "busy"):
         return own_status
+
+    # LLM API executors are always-on when configured.
+    if _is_llm_api_executor(agent.executor_type) and agent.executor_config_id:
+        return "online"
+
     if agent.executor_type == "worker":
         return "online" if online_worker_available else "offline"
+
+    if own_status == "offline":
+        return "offline"
     return own_status or "offline"
