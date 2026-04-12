@@ -6,6 +6,7 @@ export interface ChatMessageOut {
   content: string
   agent_id: string | null
   agent_name: string | null
+  task_id: string | null
   created_at: string
   actions: Array<{ type: string; task_id?: string; goal_id?: string; title?: string }>
 }

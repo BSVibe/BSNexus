@@ -230,6 +230,21 @@ class LiteLLMExecutor:
             results = await tool_handler.execute_batch(parsed_calls)
             all_tool_results.extend(results)
 
+            # Check cancellation after tool execution
+            if project_id and CancellationToken.is_cancelled(project_id):
+                logger.info("execution_cancelled_after_tools", project_id=str(project_id), iteration=iteration)
+                return ExecutionResult(
+                    content="[작업이 중지되었습니다]",
+                    tool_calls_made=all_tool_calls,
+                    tool_results=all_tool_results,
+                    prompt_tokens=usage.prompt_tokens,
+                    completion_tokens=usage.completion_tokens,
+                    total_tokens=usage.total_tokens,
+                    model=model,
+                    stop_reason="cancelled",
+                    iterations=iteration + 1,
+                )
+
             # Emit tool end events
             for r in results:
                 if on_event:

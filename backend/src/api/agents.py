@@ -10,7 +10,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from backend.src.core.agent_activity import (
-    busy_agent_activities,
     has_online_worker,
     resolve_agent_runtime_status,
     resolve_agent_status_dot,
@@ -29,8 +28,6 @@ def _agent_to_response(
     *,
     has_online_worker: bool = False,
     default_executor_type: str | None = None,
-    is_busy: bool = False,
-    activity: str = "",
     current_task: Task | None = None,
 ) -> AgentResponse:
     response = AgentResponse.model_validate(agent)
@@ -38,13 +35,12 @@ def _agent_to_response(
         response.executor_type = default_executor_type
     response.status = resolve_agent_runtime_status(
         agent,
-        is_busy=is_busy,
+        current_task=current_task,
         online_worker_available=has_online_worker,
     )
     response.dot = resolve_agent_status_dot(
         agent,
         current_task=current_task,
-        is_busy=is_busy,
         online_worker_available=has_online_worker,
     )
     if current_task is not None:
@@ -53,10 +49,7 @@ def _agent_to_response(
             title=current_task.title,
             status=current_task.status.value,
         )
-    # Activity is the short "doing what" string from the busy tracker.
-    # "1" is the legacy fallback for callers that didn't supply a summary.
-    if activity and activity != "1":
-        response.activity = activity
+        response.activity = current_task.title
     return response
 
 
@@ -164,16 +157,13 @@ async def list_agents(
     agents = await repo.list_by_tenant(tenant_id, active_only=active_only, limit=limit, offset=offset)
     online = await _has_online_worker(db, tenant_id)
     default_type = await _tenant_default_executor_type(db, tenant_id)
-    redis = getattr(request.app.state, "redis", None)
     agent_ids = [a.id for a in agents]
-    activities = await busy_agent_activities(redis, tenant_id, agent_ids)
     running = await _running_tasks_by_agent(db, agent_ids)
     return [
         _agent_to_response(
             a,
             has_online_worker=online,
             default_executor_type=default_type,
-            is_busy=a.id in activities, activity=activities.get(a.id, ""),
             current_task=running.get(a.id),
         )
         for a in agents
@@ -191,9 +181,7 @@ async def get_org_chart(
     all_agents = await repo.list_by_tenant(tenant_id, active_only=True, limit=500)
     online = await _has_online_worker(db, tenant_id)
     default_type = await _tenant_default_executor_type(db, tenant_id)
-    redis = getattr(request.app.state, "redis", None)
     agent_ids = [a.id for a in all_agents]
-    activities = await busy_agent_activities(redis, tenant_id, agent_ids)
     running = await _running_tasks_by_agent(db, agent_ids)
 
     # Build tree
@@ -209,7 +197,6 @@ async def get_org_chart(
                     child,
                     has_online_worker=online,
                     default_executor_type=default_type,
-                    is_busy=child.id in activities, activity=activities.get(child.id, ""),
                     current_task=running.get(child.id),
                 ),
                 children=_build_tree(child.id),
@@ -233,15 +220,12 @@ async def get_agent(
         raise HTTPException(status_code=404, detail="Agent not found")
     online = await _has_online_worker(db, tenant_id)
     default_type = await _tenant_default_executor_type(db, tenant_id)
-    redis = getattr(request.app.state, "redis", None)
-    activities = await busy_agent_activities(redis, tenant_id, [agent.id])
     running = await _running_tasks_by_agent(db, [agent.id])
     return _agent_to_response(
         agent,
         has_online_worker=online,
         default_executor_type=default_type,
         current_task=running.get(agent.id),
-        is_busy=agent.id in activities, activity=activities.get(agent.id, ""),
     )
 
 

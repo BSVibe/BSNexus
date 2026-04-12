@@ -29,7 +29,6 @@ from sse_starlette.sse import EventSourceResponse
 
 from backend.src import models
 from backend.src.core.agent_activity import (
-    busy_agent_ids,
     has_online_worker,
     resolve_agent_status_dot,
 )
@@ -93,19 +92,12 @@ def _status_dot(
     agent: models.Agent,
     current_task: models.Task | None,
     *,
-    is_busy: bool = False,
     online_worker_available: bool = False,
 ) -> str:
-    """Backward-compatible thin wrapper around the shared resolver.
-
-    Kept so existing imports / tests do not break — production callers
-    should pass ``is_busy`` and ``online_worker_available`` so the dot
-    matches what the Agents tab shows.
-    """
+    """Thin wrapper around the shared status resolver."""
     return resolve_agent_status_dot(
         agent,
         current_task=current_task,
-        is_busy=is_busy,
         online_worker_available=online_worker_available,
     )
 
@@ -233,8 +225,6 @@ async def get_agent_status(
         if task.agent_id is not None:
             running_by_agent[task.agent_id] = task
 
-    redis = getattr(request.app.state, "redis", None)
-    busy_ids = await busy_agent_ids(redis, tenant_id, agent_ids)
     online_worker_available = await has_online_worker(db, tenant_id)
 
     cards: list[AgentStatusCard] = []
@@ -249,7 +239,6 @@ async def get_agent_status(
                 dot=resolve_agent_status_dot(
                     agent,
                     current_task=current,
-                    is_busy=agent.id in busy_ids,
                     online_worker_available=online_worker_available,
                 ),
                 current_task=(

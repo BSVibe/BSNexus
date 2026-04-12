@@ -42,7 +42,6 @@ from backend.src.storage.database import async_session, get_db
 from backend.src.tools.agent_tools import get_tools_for_agent
 from backend.src.tools.approval import ApprovalMiddleware
 from backend.src.tools.base import ToolContext
-from backend.src.tools.cancellation import CancellationToken
 from backend.src.tools.handler import ToolHandler
 
 logger = structlog.get_logger(__name__)
@@ -77,6 +76,7 @@ class ChatMessageOut(BaseModel):
     content: str
     agent_id: uuid.UUID | None = None
     agent_name: str | None = None
+    task_id: uuid.UUID | None = None
     created_at: Any
     actions: list[dict[str, Any]] = Field(default_factory=list)
 
@@ -112,57 +112,6 @@ def _parse_mentions(message: str, agents: list[models.Agent]) -> list[models.Age
 
 _MENTION_RE = re.compile(r"@\S+")
 
-
-def _summarize_activity(message: str, agent_name: str = "", max_len: int = 50) -> str:
-    """Build a short "doing what" activity label from a chat message.
-
-    Examples:
-      "@CMO 시장 조사해서 CEO에게 보고해"
-        → "시장 조사해서 CEO에게 보고해"
-
-      (CEO's long response containing "@CTO 님께 — 기술 스택 및 아키텍처 방향...")
-        → "기술 스택 및 아키텍처 방향 검토 중"
-
-    Strategy:
-    1. For delegation chains (message > 200 chars): find the line that
-       mentions @agent_name and extract the request from that line.
-    2. For direct user messages: strip @mentions.
-    3. Append "중" (Korean "in progress") suffix if the text looks like
-       a verb phrase, making it read as "시장 조사 중" not "시장 조사".
-    """
-    raw = ""
-
-    # For delegation: find the line mentioning this agent.
-    if agent_name and len(message) > 200:
-        for line in message.split("\n"):
-            if f"@{agent_name}" in line:
-                raw = line
-                break
-
-    if not raw:
-        raw = message
-
-    # Strip @mentions, markdown cruft, collapse whitespace.
-    stripped = _MENTION_RE.sub("", raw).strip()
-    stripped = stripped.lstrip("-—·•#>").strip()
-    stripped = " ".join(stripped.split())
-
-    if not stripped:
-        return ""
-
-    # Truncate.
-    if len(stripped) > max_len:
-        stripped = stripped[:max_len].rstrip() + "..."
-
-    # Append "중" if the text doesn't already end with it and looks
-    # like a Korean verb phrase (ends in 하다/해/요/줘/etc patterns).
-    # Simple heuristic: if it contains Korean characters and doesn't
-    # already end with "중" or "...", append " 중".
-    has_korean = any("\uac00" <= ch <= "\ud7a3" for ch in stripped)
-    if has_korean and not stripped.endswith("중") and not stripped.endswith("..."):
-        stripped += " 중"
-
-    return stripped
 
 
 def _find_org_root(agents: list[models.Agent]) -> models.Agent | None:
@@ -310,6 +259,7 @@ def _message_to_event(msg: models.ConversationMessage) -> dict[str, Any]:
         "agent_id": str(msg.agent_id) if msg.agent_id else None,
         "agent_name": msg.agent_name,
         "actions": msg.actions or [],
+        "task_id": str(msg.task_id) if msg.task_id else None,
         "created_at": msg.created_at.isoformat(),
     }
 
@@ -332,6 +282,7 @@ async def _store_and_publish(
     agent: models.Agent | None = None,
     actions: list[dict[str, Any]] | None = None,
     source: str = "web",
+    task_id: uuid.UUID | None = None,
 ) -> models.ConversationMessage:
     repo = ConversationRepository(db)
     msg = await repo.append(
@@ -339,37 +290,13 @@ async def _store_and_publish(
         agent_id=agent.id if agent else None,
         agent_name=agent.name if agent else None,
         actions=actions, source=source,
+        task_id=task_id,
     )
     await db.commit()
     await _publish_event(redis, project_id, "message_created", _message_to_event(msg))
     return msg
 
 
-async def _publish_agent_status(redis: Any, project_id: uuid.UUID, agent: models.Agent, status: str) -> None:
-    """Publish agent_status SSE event (busy/online).
-
-    Pushed to BOTH the chat events stream (so the chat sidebar can react)
-    and the plan events stream (so the Plan view's AgentStatusBar
-    refreshes its dot without polling).
-    """
-    payload = {
-        "agent_id": str(agent.id),
-        "agent_name": agent.name,
-        "status": status,
-    }
-    await _publish_event(redis, project_id, "agent_status", payload)
-    if redis is None:
-        return
-    stream_manager = RedisStreamManager(redis)
-    plan_stream = RedisStreamManager.project_events_stream(str(project_id))
-    try:
-        await stream_manager.publish(
-            plan_stream,
-            {"event": "agent_status_changed", "data": payload},
-        )
-        await redis.xtrim(plan_stream, maxlen=500, approximate=True)
-    except Exception:  # noqa: BLE001
-        pass
 
 
 # ── LLM / worker dispatch ───────────────────────────────────────────
@@ -476,6 +403,7 @@ async def _process_response_text(
     agent: models.Agent, db: AsyncSession, redis: Any,
     *, tenant_id: uuid.UUID,
     tool_actions: list[dict[str, Any]] | None = None,
+    task_id: uuid.UUID | None = None,
 ) -> models.ConversationMessage:
     """Persist the agent's response and publish it via SSE.
 
@@ -487,6 +415,7 @@ async def _process_response_text(
     return await _store_and_publish(
         db, redis, project_id, role="assistant", content=cleaned,
         agent=agent, actions=tool_actions or [],
+        task_id=task_id,
     )
 
 
@@ -512,6 +441,7 @@ async def _call_via_executor(
 
     # Phase B: Build tool context and handler.
     tools = get_tools_for_agent(agent.capabilities)
+    stream_manager = RedisStreamManager(redis) if redis else None
     tool_context = ToolContext(
         project_id=project_id,
         workspace_path=(
@@ -531,12 +461,10 @@ async def _call_via_executor(
         tenant_id=tenant_id,
         db_session_factory=async_session,
         redis=redis,
+        stream_manager=stream_manager,
     )
     approval = ApprovalMiddleware()
     tool_handler = ToolHandler(tools, tool_context, approval=approval)
-
-    # Reset cancellation for this project (new work starting).
-    CancellationToken.reset(project_id)
 
     # Phase C: Run agentic loop (no DB held).
     executor = LiteLLMExecutor()
@@ -567,10 +495,12 @@ async def _call_via_executor(
 
         # Build tool actions summary for SSE
         tool_actions = _build_tool_actions(result)
+        primary_task_id = _extract_primary_task_id(result)
 
         return await _process_response_text(
             result.content, project, project_id, agent, result_db, redis,
             tenant_id=tenant_id, tool_actions=tool_actions,
+            task_id=primary_task_id,
         )
 
 
@@ -586,12 +516,39 @@ def _build_tool_actions(result: Any) -> list[dict[str, Any]]:
     return actions
 
 
+def _extract_primary_task_id(result: Any) -> uuid.UUID | None:
+    """Find the task this agent turn was primarily about.
+
+    Checks tool calls for claim_task or complete_task (highest signal),
+    then create_task as fallback.
+    """
+    task_tools = ("claim_task", "complete_task", "create_task")
+    for tool_name in task_tools:
+        for tc in (result.tool_calls_made or []):
+            if tc.name == tool_name and tc.input.get("task_id"):
+                try:
+                    return uuid.UUID(tc.input["task_id"])
+                except ValueError:
+                    continue
+    # create_task doesn't have task_id in input — check tool results
+    for tr in (result.tool_results or []):
+        if tr.is_error:
+            continue
+        try:
+            data = __import__("json").loads(tr.content)
+            if data.get("task_id"):
+                return uuid.UUID(data["task_id"])
+        except (ValueError, KeyError, TypeError):
+            continue
+    return None
+
+
 async def _publish_tool_event(redis: Any, project_id: uuid.UUID, event: Any) -> None:
     """Publish tool execution events to SSE for frontend visibility."""
     if redis is None or event is None:
         return
     try:
-        await _publish_event(redis, project_id, f"tool_{event.type}", event.data)
+        await _publish_event(redis, project_id, event.type, event.data)
     except Exception:
         pass  # Best-effort — don't break the loop
 
@@ -759,8 +716,6 @@ async def _process_agent_in_background(
     limit — agents collaborate freely. Loop prevention is a prompt-level
     concern, not an infrastructure one.
     """
-    from backend.src.core.agent_activity import clear_agent_busy, mark_agent_busy
-
     agent: models.Agent | None = None
 
     # Phase 1: short-lived DB session for setup. Do NOT mark busy yet —
@@ -827,10 +782,9 @@ async def _process_agent_in_background(
                     )
                     return
 
-        # NOW mark busy — we know the executor is available.
-        activity = _summarize_activity(user_message, agent_name=agent.name)
-        await mark_agent_busy(redis, tenant_id, agent_id, activity=activity)
-        await _publish_agent_status(redis, project_id, agent, "busy")
+        # Agent status is now derived from task state (running/blocked).
+        # No separate busy tracking needed — state machine publishes
+        # task_transition SSE events that update the frontend.
 
         history = await ConversationRepository(setup_db).list_by_project(project_id, limit=MAX_HISTORY)
     # setup_db is now CLOSED — connection returned to pool.
@@ -870,11 +824,10 @@ async def _process_agent_in_background(
         except Exception:  # noqa: BLE001
             pass
     finally:
-        # Clear busy BEFORE publishing online status so frontend
-        # refetch sees the correct idle state.
-        await clear_agent_busy(redis, tenant_id, agent_id)
-        if agent is not None:
-            await _publish_agent_status(redis, project_id, agent, "online")
+        # Agent status is derived from task state — no explicit cleanup needed.
+        # When agent completes a task (via complete_task tool), the state machine
+        # publishes task_transition SSE which updates the frontend dot color.
+        pass
 
 
 # ── Endpoints ───────────────────────────────────────────────────────
@@ -884,6 +837,7 @@ def _msg_to_out(msg: models.ConversationMessage) -> ChatMessageOut:
     return ChatMessageOut(
         id=msg.id, role=msg.role, content=msg.content,
         agent_id=msg.agent_id, agent_name=msg.agent_name,
+        task_id=msg.task_id,
         actions=msg.actions or [], created_at=msg.created_at,
     )
 

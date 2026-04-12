@@ -14,7 +14,10 @@ import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
+
+if TYPE_CHECKING:
+    from backend.src.queue.streams import RedisStreamManager
 
 
 @dataclass(frozen=True)
@@ -70,6 +73,7 @@ class ToolContext:
     tenant_id: uuid.UUID
     db_session_factory: Callable[..., Any]  # async context manager → AsyncSession
     redis: Any | None = None
+    stream_manager: RedisStreamManager | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
 

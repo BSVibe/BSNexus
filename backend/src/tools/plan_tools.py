@@ -125,6 +125,7 @@ class ClaimTaskTool(Tool):
         }
 
     async def execute(self, input: dict[str, Any], ctx: ToolContext) -> str:
+        from backend.src.core.state_machine import TaskStateMachine
         from backend.src.models import Task, TaskStatus
 
         try:
@@ -142,8 +143,15 @@ class ClaimTaskTool(Tool):
             if task.status != TaskStatus.pending:
                 raise ToolExecutionError(f"Task is already {task.status.value}, cannot claim")
 
-            task.status = TaskStatus.running
             task.agent_id = ctx.agent_id
+            sm = TaskStateMachine()
+            await sm.transition(
+                task, TaskStatus.running,
+                actor=f"agent:{ctx.agent_id}",
+                reason=f"Claimed by {ctx.agent_name}",
+                db_session=db,
+                stream_manager=ctx.stream_manager,
+            )
             await db.commit()
 
             logger.info("task_claimed_via_tool", task_id=str(task_id), agent=ctx.agent_name)
@@ -178,6 +186,7 @@ class CompleteTaskTool(Tool):
         }
 
     async def execute(self, input: dict[str, Any], ctx: ToolContext) -> str:
+        from backend.src.core.state_machine import TaskStateMachine
         from backend.src.models import Task, TaskStatus
 
         try:
@@ -195,12 +204,19 @@ class CompleteTaskTool(Tool):
             if task.status == TaskStatus.done:
                 return json.dumps({"task_id": str(task_id), "status": "already_done"})
 
-            task.status = TaskStatus.done
             task.output_data = {
                 "summary": input["summary"],
                 "artifacts": input.get("artifacts", []),
                 "completed_by": ctx.agent_name,
             }
+            sm = TaskStateMachine()
+            await sm.transition(
+                task, TaskStatus.done,
+                actor=f"agent:{ctx.agent_id}",
+                reason=input["summary"],
+                db_session=db,
+                stream_manager=ctx.stream_manager,
+            )
             await db.commit()
 
             logger.info("task_completed_via_tool", task_id=str(task_id), agent=ctx.agent_name)

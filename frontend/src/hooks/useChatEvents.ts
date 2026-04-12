@@ -76,8 +76,11 @@ export function useChatEvents(projectId: string | undefined) {
       clearMessages()
     }
 
-    const handleAgentStatus = () => {
+    const handleTaskTransition = () => {
+      // Task state changed — agent status dot is derived from task state,
+      // so invalidate agents + plan tree to reflect the new state.
       queryClient.invalidateQueries({ queryKey: ['agents'] })
+      queryClient.invalidateQueries({ queryKey: ['plan-tree', projectId] })
     }
 
     const close = () => {
@@ -109,8 +112,8 @@ export function useChatEvents(projectId: string | undefined) {
 
       source.addEventListener('message_created', handleMessageCreated as EventListener)
       source.addEventListener('history_cleared', handleHistoryCleared as EventListener)
-      source.addEventListener('agent_status', handleAgentStatus as EventListener)
-      source.addEventListener('tool_tool_end', handleToolEnd as EventListener)
+      source.addEventListener('task_transition', handleTaskTransition as EventListener)
+      source.addEventListener('tool_end', handleToolEnd as EventListener)
 
       source.onopen = () => {
         retriesRef.current = 0

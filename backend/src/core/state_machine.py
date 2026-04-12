@@ -108,18 +108,25 @@ class TaskStateMachine:
             task, old_status, new_status, db_session, stream_manager, reason=reason, **kwargs
         )
 
-        # 5. Publish project event for the Plan view SSE stream
+        # 5. Publish to BOTH plan and chat SSE streams so all frontends react.
         if stream_manager is not None:
+            event_data = {
+                "task_id": str(task.id),
+                "from_status": old_status.value,
+                "to_status": new_status.value,
+                "actor": actor,
+                "agent_id": str(task.agent_id) if task.agent_id else None,
+            }
+            # Plan view stream (task_transition, phase_advanced)
             await stream_manager.publish_project_event(
-                str(task.project_id),
-                "task_transition",
-                {
-                    "task_id": str(task.id),
-                    "from_status": old_status.value,
-                    "to_status": new_status.value,
-                    "actor": actor,
-                },
+                str(task.project_id), "task_transition", event_data,
             )
+            # Chat sidebar stream (so agent status dots update)
+            chat_stream = RedisStreamManager.chat_events_stream(str(task.project_id))
+            try:
+                await stream_manager.publish(chat_stream, {"event": "task_transition", "data": event_data})
+            except Exception:  # noqa: BLE001
+                pass  # best-effort — don't break state machine
 
         return task
 

@@ -59,9 +59,6 @@ export function usePlanEvents(projectId: string | undefined) {
       queryClient.invalidateQueries({ queryKey: treeKey })
     }
 
-    const handleAgentStatusChanged = () => {
-      queryClient.invalidateQueries({ queryKey: ['agents'] })
-    }
 
     const close = () => {
       if (sourceRef.current) {
@@ -84,7 +81,6 @@ export function usePlanEvents(projectId: string | undefined) {
 
       source.addEventListener('task_transition', handleTaskTransition as EventListener)
       source.addEventListener('phase_advanced', handlePhaseAdvanced as EventListener)
-      source.addEventListener('agent_status_changed', handleAgentStatusChanged as EventListener)
 
       source.onopen = () => {
         retriesRef.current = 0
