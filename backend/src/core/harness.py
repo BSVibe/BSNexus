@@ -262,8 +262,10 @@ async def assemble_system_prompt(
         parts.append(RULES_RESPONSE_FORMAT)
         parts.append(RULES_CONFLICT_CHECK)
 
-    # 7. Skills from .bsnexus/skills/ (filtered by agent capabilities)
-    skill_text = _read_agent_skills(workspace_dir, agent)
+    # 7. Skills — DISABLED: tool definitions provide equivalent guidance.
+    # Keeping skills as workspace files was redundant with tool_use and
+    # added ~2600 tokens to every prompt, slowing local models.
+    skill_text = ""
     if skill_text:
         parts.append(skill_text)
     else:
