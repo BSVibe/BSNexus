@@ -1,13 +1,12 @@
-"""Tests for tools/cancellation.py — CancellationToken and cancel_project_agents."""
+"""Tests for tools/cancellation.py — CancellationToken."""
 
 from __future__ import annotations
 
 import uuid
-from unittest.mock import AsyncMock
 
 import pytest
 
-from backend.src.tools.cancellation import CancellationToken, cancel_project_agents
+from backend.src.tools.cancellation import CancellationToken
 
 
 @pytest.fixture(autouse=True)
@@ -45,27 +44,3 @@ class TestCancellationToken:
         CancellationToken.cancel(pid1)
         assert CancellationToken.is_cancelled(pid1)
         assert not CancellationToken.is_cancelled(pid2)
-
-
-class TestCancelProjectAgents:
-    @pytest.mark.asyncio
-    async def test_cancel_with_redis(self) -> None:
-        redis = AsyncMock()
-        redis.publish = AsyncMock(return_value=2)
-        pid = uuid.uuid4()
-
-        result = await cancel_project_agents(pid, redis)
-
-        assert result["cancelled"] is True
-        assert result["workers_notified"] == 2
-        assert CancellationToken.is_cancelled(pid)
-        redis.publish.assert_awaited_once()
-
-    @pytest.mark.asyncio
-    async def test_cancel_without_redis(self) -> None:
-        pid = uuid.uuid4()
-        result = await cancel_project_agents(pid, None)
-
-        assert result["cancelled"] is True
-        assert result["workers_notified"] == 0
-        assert CancellationToken.is_cancelled(pid)

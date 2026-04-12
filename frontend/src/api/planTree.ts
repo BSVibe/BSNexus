@@ -5,7 +5,7 @@ export type TaskPriority = 'low' | 'medium' | 'high' | 'critical'
 export type TaskType = 'feature' | 'bug' | 'improvement' | 'test' | 'chore' | 'refactor'
 export type PhaseStatus = 'pending' | 'active' | 'completed'
 export type ProjectStatus = 'design' | 'active' | 'paused' | 'completed'
-export type AgentDot = 'green' | 'yellow' | 'red' | 'gray' | 'blue'
+export type AgentDot = 'green' | 'yellow' | 'red' | 'gray'
 
 export interface PlanTaskNode {
   id: string

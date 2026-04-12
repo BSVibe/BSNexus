@@ -90,7 +90,7 @@ class AgentResponse(BaseModel):
     monthly_budget_cents: Optional[int] = None
     current_month_spent_cents: int = 0
     status: str = "offline"
-    # Plan-view compatible status dot (green/blue/yellow/red/gray).
+    # Plan-view compatible status dot (green/yellow/red/gray).
     # Populated at read-time by the agents API so all consumers share
     # a single source of truth — previously the Plan view and the
     # Agents tab had separate resolvers that disagreed.

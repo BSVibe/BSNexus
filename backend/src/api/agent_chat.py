@@ -110,9 +110,6 @@ def _parse_mentions(message: str, agents: list[models.Agent]) -> list[models.Age
     return mentioned
 
 
-_MENTION_RE = re.compile(r"@\S+")
-
-
 
 def _find_org_root(agents: list[models.Agent]) -> models.Agent | None:
     """Top-level agent (no parent) — used as final fallback."""

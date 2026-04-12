@@ -81,7 +81,7 @@ class AgentStatusCard(BaseModel):
     name: str
     role: str
     title: str | None = None
-    dot: str  # green | yellow | red | gray | blue
+    dot: str  # green | yellow | red | gray
     current_task: dict[str, Any] | None = None
 
 
