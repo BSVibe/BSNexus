@@ -154,6 +154,9 @@ class LiteLLMExecutor:
                     temperature=temperature,
                     max_tokens=max_tokens,
                     timeout=REQUEST_TIMEOUT,
+                    # Disable thinking/reasoning for models that support it
+                    # (Gemma 4, QwQ, etc.) — dramatically reduces latency.
+                    extra_body={"chat_template_kwargs": {"enable_thinking": False}},
                 )
             except Exception as e:
                 logger.error("litellm_call_failed", model=model, iteration=iteration, error=str(e))
