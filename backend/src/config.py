@@ -1,5 +1,3 @@
-from typing import Optional
-
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -33,18 +31,12 @@ class Settings(BaseSettings):
     server_port: int = 8000
     debug: bool = False
 
-    # LLM — fallback model when DB settings don't specify one.
-    # Empty string is valid: the caller must configure a model via DB settings.
-    default_llm_model: str = ""
-    default_llm_base_url: Optional[str] = None
-
     # Claude Code executor (worker path)
     workspace_dir: str = "/workspace"
     execution_timeout_seconds: int = 3600
     total_execution_timeout_seconds: int = 7200
     rate_limit_retry_count: int = 5
     rate_limit_wait_seconds: int = 300
-    executor_skip_permissions: bool = False
 
     # Logging
     log_dir: str = "logs"

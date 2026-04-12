@@ -21,7 +21,6 @@ from backend.src.models.task import (
     task_dependencies,
 )
 from backend.src.models.task_activity import ActivityLevel, TaskActivity
-from backend.src.models.task_suggestion import SuggestionStatus, TaskSuggestion
 from backend.src.models.tenant import Tenant, TenantMember
 from backend.src.models.worker import Worker
 
@@ -30,7 +29,6 @@ __all__ = [
     "ActivityLevel",
     "PhaseStatus",
     "ProjectStatus",
-    "SuggestionStatus",
     "TaskPriority",
     "TaskSource",
     "TaskStatus",
@@ -53,7 +51,6 @@ __all__ = [
     "Task",
     "TaskActivity",
     "TaskHistory",
-    "TaskSuggestion",
     "Tenant",
     "TenantMember",
     "Worker",

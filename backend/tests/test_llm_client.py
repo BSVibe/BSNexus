@@ -21,11 +21,11 @@ from backend.src.core.llm_client import (
 
 
 class TestLLMConfig:
-    def test_creation_with_defaults(self) -> None:
-        """LLMConfig should accept api_key and use defaults for model and base_url."""
-        config = LLMConfig(api_key="sk-test-key-1234")
+    def test_creation_requires_model(self) -> None:
+        """LLMConfig requires both api_key and model."""
+        config = LLMConfig(api_key="sk-test-key-1234", model="anthropic/claude-sonnet-4-20250514")
         assert config.api_key == "sk-test-key-1234"
-        assert isinstance(config.model, str)  # default from settings (may be empty)
+        assert config.model == "anthropic/claude-sonnet-4-20250514"
         assert config.base_url is None
 
     def test_creation_with_all_fields(self) -> None:
@@ -37,7 +37,7 @@ class TestLLMConfig:
 
     def test_repr_masks_api_key(self) -> None:
         """__repr__ should mask the API key, showing only last 4 chars."""
-        config = LLMConfig(api_key="sk-very-secret-key-abcd")
+        config = LLMConfig(api_key="sk-very-secret-key-abcd", model="gpt-4o")
         repr_str = repr(config)
         assert "sk-very-secret-key-abcd" not in repr_str
         assert "***abcd" in repr_str
@@ -45,14 +45,14 @@ class TestLLMConfig:
 
     def test_repr_masks_short_api_key(self) -> None:
         """__repr__ should handle short API keys gracefully."""
-        config = LLMConfig(api_key="abc")
+        config = LLMConfig(api_key="abc", model="gpt-4o")
         repr_str = repr(config)
         assert "abc" not in repr_str
         assert "***" in repr_str
 
     def test_repr_includes_base_url(self) -> None:
         """__repr__ should include base_url when set."""
-        config = LLMConfig(api_key="sk-test1234", base_url="https://api.example.com")
+        config = LLMConfig(api_key="sk-test1234", model="gpt-4o", base_url="https://api.example.com")
         repr_str = repr(config)
         assert "https://api.example.com" in repr_str
 
@@ -401,8 +401,8 @@ class TestCreateLLMClientFromProject:
         assert client.config.api_key == "sk-pm-key"
         assert client.config.model == "gpt-4o"
 
-    def test_uses_default_model_when_not_specified(self) -> None:
-        """create_llm_client_from_project should use default model when role config has no model."""
+    def test_uses_empty_model_when_not_specified(self) -> None:
+        """create_llm_client_from_project should use empty model when role config has no model."""
         project = self._make_project(
             llm_config={
                 "architect": {
@@ -413,7 +413,7 @@ class TestCreateLLMClientFromProject:
 
         client = create_llm_client_from_project(project, role="architect")
 
-        assert client.config.model == settings.default_llm_model
+        assert client.config.model == ""
 
     def test_defaults_to_architect_role(self) -> None:
         """create_llm_client_from_project should default to 'architect' role."""

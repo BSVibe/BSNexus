@@ -13,7 +13,6 @@ from litellm.litellm_core_utils.streaming_handler import CustomStreamWrapper
 from litellm.types.utils import Choices, ModelResponse
 from pydantic import BaseModel
 
-from backend.src.config import settings
 
 logger = structlog.get_logger(__name__)
 
@@ -80,7 +79,7 @@ class LLMConfig(BaseModel):
     """LLM connection config (passed at runtime)."""
 
     api_key: str
-    model: str = settings.default_llm_model
+    model: str  # Required — no env-var fallback, must be set per-tenant
     base_url: Optional[str] = None
 
     def __repr__(self) -> str:
@@ -328,7 +327,7 @@ def create_llm_client_from_project(project: Any, role: str = "architect") -> LLM
 
     config = LLMConfig(
         api_key=role_config["api_key"],
-        model=role_config.get("model", settings.default_llm_model),
+        model=role_config.get("model", ""),
         base_url=role_config.get("base_url"),
     )
     return LLMClient(config)

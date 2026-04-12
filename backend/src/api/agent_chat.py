@@ -28,7 +28,6 @@ from sse_starlette.sse import EventSourceResponse
 
 from backend.src import models
 from backend.src.api.settings import get_raw_llm_config
-from backend.src.config import settings
 from backend.src.core.task_markers import strip_action_markers
 from backend.src.core.auth import Permission, require_permission
 from backend.src.core.goal_alignment import GoalAlignmentService
@@ -374,7 +373,10 @@ async def _publish_agent_status(redis: Any, project_id: uuid.UUID, agent: models
 
 
 async def _resolve_llm_config(agent: models.Agent, db: AsyncSession) -> LLMConfig:
-    default_model = settings.default_llm_model
+    """Resolve LLM config from agent's executor config or global DB settings.
+
+    No env-var fallback for model — must be configured per-tenant in DB.
+    """
     if agent.executor_config_id:
         result = await db.execute(
             select(models.ExecutorConfig).where(models.ExecutorConfig.id == agent.executor_config_id)
@@ -382,9 +384,11 @@ async def _resolve_llm_config(agent: models.Agent, db: AsyncSession) -> LLMConfi
         exec_cfg = result.scalar_one_or_none()
         if exec_cfg and exec_cfg.config and exec_cfg.config.get("api_key"):
             cfg = exec_cfg.config
+            if not cfg.get("model"):
+                raise HTTPException(status_code=400, detail="Executor config missing 'model'.")
             return LLMConfig(
                 api_key=cfg["api_key"],
-                model=cfg.get("model", default_model),
+                model=cfg["model"],
                 base_url=cfg.get("base_url"),
             )
 
@@ -392,9 +396,12 @@ async def _resolve_llm_config(agent: models.Agent, db: AsyncSession) -> LLMConfi
     api_key = raw.get("llm_api_key")
     if not api_key:
         raise HTTPException(status_code=400, detail="No LLM API key configured.")
+    model = raw.get("llm_model")
+    if not model:
+        raise HTTPException(status_code=400, detail="No LLM model configured.")
     return LLMConfig(
         api_key=api_key,
-        model=raw.get("llm_model", default_model),
+        model=model,
         base_url=raw.get("llm_base_url"),
     )
 
