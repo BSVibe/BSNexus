@@ -9,6 +9,8 @@ All LLM calls go through litellm.acompletion (provider-agnostic).
 
 from __future__ import annotations
 
+import asyncio
+import inspect
 import json
 import uuid
 from dataclasses import dataclass, field
@@ -24,6 +26,16 @@ from backend.src.tools.handler import ToolHandler
 logger = structlog.get_logger(__name__)
 
 REQUEST_TIMEOUT = 600  # seconds per acompletion call (local models can be slow)
+
+
+async def _emit(callback: Callable, event: ExecutionEvent) -> None:
+    """Call an event callback, awaiting if it returns a coroutine."""
+    try:
+        result = callback(event)
+        if inspect.isawaitable(result):
+            await result
+    except Exception:
+        pass  # Best-effort — don't break the agentic loop
 
 
 @dataclass
@@ -129,7 +141,7 @@ class LiteLLMExecutor:
                 )
 
             if on_event:
-                on_event(ExecutionEvent("iteration", {"iteration": iteration}))
+                await _emit(on_event, ExecutionEvent("iteration", {"iteration": iteration}))
 
             # Call LLM
             try:
