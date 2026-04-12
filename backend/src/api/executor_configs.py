@@ -80,6 +80,15 @@ async def create_executor_config(
     await db.flush()
     if body.is_default:
         await _cascade_default_to_using_agents(db, tenant_id, body.executor_type)
+        # Also bind agents that have no executor_config_id to this default.
+        await db.execute(
+            update(Agent)
+            .where(
+                Agent.tenant_id == tenant_id,
+                Agent.executor_config_id.is_(None),
+            )
+            .values(executor_config_id=config.id)
+        )
     await db.commit()
     await db.refresh(config)
     return ExecutorConfigResponse.model_validate(config)
