@@ -54,7 +54,7 @@ DECISION_RE = re.compile(r"\[DECISION\](.*?)\[/DECISION\]", re.DOTALL)
 
 # Track background agent tasks per project for cancellation.
 _project_tasks: dict[uuid.UUID, set[asyncio.Task]] = {}
-MAX_HISTORY = 100
+MAX_HISTORY = 20
 # Per-agent timeout for waiting on a worker chat result. This is NOT a
 # chain-wide limit — each agent's _call_via_worker polls independently.
 # Design / coding tasks can take 10-30 minutes; set generously.
