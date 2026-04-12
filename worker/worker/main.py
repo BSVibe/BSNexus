@@ -171,6 +171,7 @@ async def poll_and_execute(executor_name: str) -> None:
             executor_name,
             timeout=settings.claude_timeout_seconds,
             skip_permissions=settings.skip_permissions,
+            model=settings.model,
         )
     except KeyError as e:
         print(f"Error: {e}")
@@ -315,14 +316,19 @@ def main() -> None:
         print("  bsnexus-worker register  Register this machine")
         print("  bsnexus-worker run       Start polling for tasks")
         print("")
-        print("Options:")
+        print("Register options:")
         print("  --name NAME       Worker name (default: hostname)")
         print("  --server URL      BSNexus URL (default: nexus.bsvibe.dev)")
         print("  --token TOKEN     Install token (from Settings)")
         print("  --project ID      Bind to project")
-        print("  --executor NAME   CLI executor (default: auto-detect)")
         print("")
-        print(f"  Available executors on this machine: {', '.join(available) if available else '(none found)'}")
+        print("Run options:")
+        print("  --executor NAME   CLI executor (default: auto-detect)")
+        print("  --model MODEL     LLM model to use (e.g. claude-sonnet-4-20250514)")
+        print("                    Passed as --model flag to the CLI executor.")
+        print("                    If omitted, the CLI's own default model is used.")
+        print("")
+        print(f"  Available executors: {', '.join(available) if available else '(none found)'}")
         print("  Supported: claude_code, codex, opencode")
         sys.exit(0)
 
@@ -349,10 +355,13 @@ def main() -> None:
 
     elif cmd == "run":
         executor_name = ""
+        model = ""
         i = 1
         while i < len(args):
             if args[i] == "--executor" and i + 1 < len(args):
                 executor_name = args[i + 1]; i += 2
+            elif args[i] == "--model" and i + 1 < len(args):
+                model = args[i + 1]; i += 2
             else:
                 i += 1
 
@@ -368,6 +377,10 @@ def main() -> None:
                 logger.info("auto_detected_executor", selected=executor_name, available=available, hint="override with --executor")
             else:
                 logger.info("auto_detected_executor", selected=executor_name)
+
+        # Store model in settings so poll_and_execute can use it
+        if model:
+            settings.model = model
 
         asyncio.run(poll_and_execute(executor_name))
 
