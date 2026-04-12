@@ -27,15 +27,6 @@ logger = structlog.get_logger(__name__)
 
 REQUEST_TIMEOUT = 600  # seconds per acompletion call (local models can be slow)
 
-# Gemma 4 and similar models emit thinking tokens wrapped in channel tags.
-# Strip them from the final content shown to users.
-_THINKING_RE = __import__("re").compile(r"<\|channel>thought.*?<channel\|>", __import__("re").DOTALL)
-
-
-def _strip_thinking(text: str) -> str:
-    """Remove model thinking/reasoning content from response text."""
-    return _THINKING_RE.sub("", text).strip()
-
 
 async def _emit(callback: Callable, event: ExecutionEvent) -> None:
     """Call an event callback, awaiting if it returns a coroutine."""
@@ -154,14 +145,6 @@ class LiteLLMExecutor:
 
             # Call LLM
             try:
-                # Build extra kwargs for the provider. Local vLLM/ollama
-                # servers support chat_template_kwargs to disable thinking
-                # mode, which dramatically reduces latency for tool_use.
-                extra: dict[str, Any] = {}
-                if base_url:
-                    extra["extra_body"] = {
-                        "chat_template_kwargs": {"enable_thinking": False},
-                    }
                 response = await litellm.acompletion(
                     model=model,
                     messages=messages,
@@ -171,7 +154,9 @@ class LiteLLMExecutor:
                     temperature=temperature,
                     max_tokens=max_tokens,
                     timeout=REQUEST_TIMEOUT,
-                    **extra,
+                    # Disable thinking/reasoning for models that support it
+                    # (Gemma 4, QwQ, etc.) — dramatically reduces latency.
+                    extra_body={"chat_template_kwargs": {"enable_thinking": False}},
                 )
             except Exception as e:
                 logger.error("litellm_call_failed", model=model, iteration=iteration, error=str(e))
@@ -188,7 +173,7 @@ class LiteLLMExecutor:
 
             if not tool_calls_raw or finish_reason not in ("tool_calls", "stop"):
                 # Final response — no more tool calls
-                content = _strip_thinking(message.content or "")
+                content = message.content or ""
 
                 # Calculate cost
                 try:
@@ -197,7 +182,7 @@ class LiteLLMExecutor:
                     cost_usd = 0.0
 
                 if on_event:
-                    await _emit(on_event, ExecutionEvent("done", {"content": content, "finish_reason": finish_reason}))
+                    on_event(ExecutionEvent("done", {"content": content, "finish_reason": finish_reason}))
 
                 return ExecutionResult(
                     content=content,
@@ -239,7 +224,7 @@ class LiteLLMExecutor:
             # Emit tool start events
             for pc in parsed_calls:
                 if on_event:
-                    await _emit(on_event, ExecutionEvent("tool_start", {"tool": pc.name, "input": pc.input}))
+                    on_event(ExecutionEvent("tool_start", {"tool": pc.name, "input": pc.input}))
 
             # Execute tools
             results = await tool_handler.execute_batch(parsed_calls)
@@ -248,7 +233,7 @@ class LiteLLMExecutor:
             # Emit tool end events
             for r in results:
                 if on_event:
-                    await _emit(on_event, ExecutionEvent("tool_end", {
+                    on_event(ExecutionEvent("tool_end", {
                         "tool_call_id": r.tool_call_id,
                         "is_error": r.is_error,
                         "content_preview": r.content[:200] if r.content else "",
