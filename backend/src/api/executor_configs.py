@@ -150,8 +150,16 @@ async def update_executor_config(
 
     await db.flush()
     if update_data.get("is_default"):
-        # Re-sync every "use default" agent to the new default's executor type.
         await _cascade_default_to_using_agents(db, tenant_id, config.executor_type)
+        # Bind agents that have no executor_config_id to this default.
+        await db.execute(
+            update(Agent)
+            .where(
+                Agent.tenant_id == tenant_id,
+                Agent.executor_config_id.is_(None),
+            )
+            .values(executor_config_id=config.id)
+        )
     await db.commit()
     await db.refresh(config)
     return ExecutorConfigResponse.model_validate(config)
