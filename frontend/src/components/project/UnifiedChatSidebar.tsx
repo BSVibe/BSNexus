@@ -337,7 +337,7 @@ export default function UnifiedChatSidebar({ projectId }: Props) {
                   content: activity || '​',
                   agent_id: null,
                   agent_name: name === '...' ? null : name,
-                  created_at: new Date().toISOString(),
+                  created_at: pendingSentAt,
                   actions: [],
                 }}
                 typing
