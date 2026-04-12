@@ -299,56 +299,5 @@ class TestNoOpNotificationProvider:
         assert result.error is not None
 
 
-# -- Dependency factory -------------------------------------------------------
-
-
-class TestNotificationDependency:
-    def test_create_bsage_provider(self) -> None:
-        with patch("backend.src.providers.dependencies.settings") as mock_settings:
-            mock_settings.notification_provider = "bsage"
-            mock_settings.bsage_notification_url = "http://bsage.test"
-            mock_settings.bsage_url = ""
-            mock_settings.bsage_api_key = "test-key"
-
-            from backend.src.providers.dependencies import create_notification_provider
-
-            provider = create_notification_provider()
-
-            assert isinstance(provider, BSageNotificationProvider)
-
-    def test_create_bsage_falls_back_to_bsage_url(self) -> None:
-        with patch("backend.src.providers.dependencies.settings") as mock_settings:
-            mock_settings.notification_provider = "bsage"
-            mock_settings.bsage_notification_url = ""
-            mock_settings.bsage_url = "http://bsage-fallback.test"
-            mock_settings.bsage_api_key = "test-key"
-
-            from backend.src.providers.dependencies import create_notification_provider
-
-            provider = create_notification_provider()
-
-            assert isinstance(provider, BSageNotificationProvider)
-            assert provider._base_url == "http://bsage-fallback.test"
-
-    def test_create_noop_by_default(self) -> None:
-        with patch("backend.src.providers.dependencies.settings") as mock_settings:
-            mock_settings.notification_provider = "noop"
-
-            from backend.src.providers.dependencies import create_notification_provider
-
-            provider = create_notification_provider()
-
-            assert isinstance(provider, NoOpNotificationProvider)
-
-    def test_get_notification_provider_returns_instance(self) -> None:
-        with patch("backend.src.providers.dependencies.settings") as mock_settings:
-            mock_settings.notification_provider = "noop"
-
-            from backend.src.providers.dependencies import get_notification_provider
-
-            # Clear cache for test isolation
-            get_notification_provider.cache_clear()
-            provider = get_notification_provider()
-
-            assert isinstance(provider, NotificationProvider)
-            get_notification_provider.cache_clear()
+# Notification dependency factory tests removed — notification provider
+# was removed from dependencies.py (not used by any API endpoint).

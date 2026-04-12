@@ -44,55 +44,34 @@ class Settings(BaseSettings):
     def _coerce_empty_llm_model(cls, v: str) -> str:
         return v or "anthropic/claude-sonnet-4-20250514"
 
-    # Executor
+    # Claude Code executor (worker path)
     workspace_dir: str = "/workspace"
-    executor_type: str = "claude_code"
     execution_timeout_seconds: int = 3600
     total_execution_timeout_seconds: int = 7200
     rate_limit_retry_count: int = 5
     rate_limit_wait_seconds: int = 300
     executor_skip_permissions: bool = False
 
-    # Auto-redesign
-    max_auto_redesigns: int = 2
-
-    # Providers — selection
+    # Providers
     gateway_provider: Literal["bsgateway", "litellm"] = "litellm"
-    supervisor_provider: Literal["bsupervisor", "noop"] = "noop"
     knowledge_provider: Literal["bsage", "local"] = "local"
 
     # Providers — BSGateway
     bsgateway_url: str = ""
     bsgateway_api_key: str = ""
 
-    # Providers — BSupervisor
-    bsupervisor_url: str = ""
-    bsupervisor_api_key: str = ""
-
-    # Providers — BSage
+    # Providers — BSage (knowledge)
     bsage_url: str = ""
     bsage_api_key: str = ""
 
     # Providers — Local knowledge
     knowledge_dir: str = "./knowledge"
 
-    # Notification
-    notification_provider: Literal["bsage", "noop"] = "noop"
-    bsage_notification_url: str = ""
-
-    # Planner
-    planner_cron_schedule: str = "0 9 * * 1-5"
-    planner_max_suggestions_per_day: int = 10
-
     # Logging
     log_dir: str = "logs"
     log_level: str = "INFO"
 
-    # E2E test bypass — when set to a non-empty string, the auth dependency
-    # accepts a single bearer token equal to this value and returns a synthetic
-    # admin user. Used for fresh-DB integration tests and live frontend e2e
-    # specs that need to skip the real bsvibe.dev round-trip without any code
-    # mutating the production code path. NEVER set in production.
+    # E2E test bypass
     e2e_test_token: str = ""
     e2e_test_user_id: str = "e2e-test-user"
     e2e_test_user_email: str = "e2e@bsnexus.test"

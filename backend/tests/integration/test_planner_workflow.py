@@ -240,10 +240,8 @@ class TestPlannerFullWorkflow:
 class TestPlannerSettingsIntegration:
     """Verify planner settings are available in the app config."""
 
-    def test_settings_have_planner_fields(self):
+    def test_settings_have_llm_fields(self):
         from backend.src.config import settings
 
-        assert hasattr(settings, "planner_cron_schedule")
-        assert hasattr(settings, "planner_max_suggestions_per_day")
-        assert isinstance(settings.planner_cron_schedule, str)
-        assert isinstance(settings.planner_max_suggestions_per_day, int)
+        assert hasattr(settings, "default_llm_model")
+        assert isinstance(settings.default_llm_model, str)
