@@ -382,12 +382,11 @@ async def _resolve_llm_config(agent: models.Agent, db: AsyncSession) -> LLMConfi
             select(models.ExecutorConfig).where(models.ExecutorConfig.id == agent.executor_config_id)
         )
         exec_cfg = result.scalar_one_or_none()
-        if exec_cfg and exec_cfg.config and exec_cfg.config.get("api_key"):
+        if exec_cfg and exec_cfg.config and exec_cfg.config.get("model"):
             cfg = exec_cfg.config
-            if not cfg.get("model"):
-                raise HTTPException(status_code=400, detail="Executor config missing 'model'.")
+            # api_key can be empty for local models (ollama, vllm, etc.)
             return LLMConfig(
-                api_key=cfg["api_key"],
+                api_key=cfg.get("api_key", ""),
                 model=cfg["model"],
                 base_url=cfg.get("base_url"),
             )
