@@ -203,7 +203,7 @@ async def test_lifespan_rejects_dev_encryption_key_in_production() -> None:
 # -- _setup_logging with file handlers ----------------------------------------
 
 
-def test_setup_logging_with_file_handlers(tmp_path: object) -> None:
+async def test_setup_logging_with_file_handlers(tmp_path: object) -> None:
     """Exercise _setup_logging file handler code (lines 48-68) when TESTING is unset."""
     import logging
     import os

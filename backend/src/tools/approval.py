@@ -10,8 +10,6 @@ Separated from Tool implementations so tools don't know about approval.
 from __future__ import annotations
 
 import json
-import uuid
-from typing import Any
 
 import structlog
 

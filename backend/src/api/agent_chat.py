@@ -128,6 +128,8 @@ async def _route_via_worker(
     recent_history: list[models.ConversationMessage],
     db: AsyncSession,
     redis: Any,
+    *,
+    tenant_id: uuid.UUID,
 ) -> models.Agent | None:
     """Use the org-chart root's worker to pick the best agent.
 
@@ -871,7 +873,7 @@ async def chat_with_agent(
     mentioned = _parse_mentions(body.message, all_agents)
     if not mentioned:
         history = await ConversationRepository(db).list_by_project(project_id, limit=MAX_HISTORY)
-        routed = await _route_via_worker(body.message, all_agents, history, db, redis)
+        routed = await _route_via_worker(body.message, all_agents, history, db, redis, tenant_id=tenant_id)
         mentioned = [routed] if routed else [_find_org_root(all_agents)]
     mentioned = [a for a in mentioned if a is not None]
 

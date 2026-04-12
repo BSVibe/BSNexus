@@ -35,9 +35,8 @@ prompt. Files are plain markdown so they're readable in any editor.
 from __future__ import annotations
 
 import json
-import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Literal
 
 import structlog
 

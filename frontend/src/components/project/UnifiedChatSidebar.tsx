@@ -112,8 +112,11 @@ export default function UnifiedChatSidebar({ projectId }: Props) {
   const allDone = pendingAgents.length > 0 && activeTypingAgents.length === 0 && !showPendingUser
   useEffect(() => {
     if (allDone && pendingMessage) {
-      setPendingMessage(null)
-      setPendingAgents([])
+      const t = setTimeout(() => {
+        setPendingMessage(null)
+        setPendingAgents([])
+      }, 0)
+      return () => clearTimeout(t)
     }
   }, [allDone, pendingMessage])
 

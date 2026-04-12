@@ -12,9 +12,6 @@ from backend.src.core.auth import (
     require_permission,
 )
 
-pytestmark = pytest.mark.asyncio
-
-
 class TestRolePermissions:
     def test_admin_has_all_permissions(self):
         assert ROLE_PERMISSIONS[Role.admin] == set(Permission)
@@ -47,6 +44,7 @@ class TestRolePermissions:
         assert "admin.tokens" not in permission_values
 
 
+@pytest.mark.asyncio
 class TestRequirePermission:
     async def test_admin_role_grants_any_permission(self):
         """Admin role in app_metadata should pass any permission check."""
@@ -131,6 +129,7 @@ class TestRequirePermission:
         assert exc_info.value.status_code == 403
 
 
+@pytest.mark.asyncio
 class TestGetCurrentUserTokenSources:
     """Token can come from a Bearer header OR from a ``?token=`` query string.
 
