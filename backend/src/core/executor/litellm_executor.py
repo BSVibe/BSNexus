@@ -9,7 +9,6 @@ All LLM calls go through litellm.acompletion (provider-agnostic).
 
 from __future__ import annotations
 
-import asyncio
 import inspect
 import json
 import uuid
@@ -20,7 +19,7 @@ import litellm
 import structlog
 
 from backend.src.tools.base import ToolCall, ToolDefinition, ToolResult
-from backend.src.tools.cancellation import CancellationError, CancellationToken
+from backend.src.tools.cancellation import CancellationToken
 from backend.src.tools.handler import ToolHandler
 
 logger = structlog.get_logger(__name__)

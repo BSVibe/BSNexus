@@ -294,6 +294,7 @@ export default function UnifiedChatSidebar({ projectId }: Props) {
                 content: pendingMessage,
                 agent_id: null,
                 agent_name: null,
+                task_id: null,
                 created_at: pendingSentAt,
                 actions: [],
               }}
@@ -337,6 +338,7 @@ export default function UnifiedChatSidebar({ projectId }: Props) {
                   content: activity || '​',
                   agent_id: null,
                   agent_name: name === '...' ? null : name,
+                  task_id: null,
                   created_at: pendingSentAt,
                   actions: [],
                 }}

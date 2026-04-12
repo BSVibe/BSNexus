@@ -15,7 +15,7 @@ from backend.src.core.agent_activity import (
     resolve_agent_status_dot,
 )
 from backend.src.core.tenant_context import get_tenant_id
-from backend.src.models import Agent, ExecutorConfig, Task, Worker
+from backend.src.models import Agent, ExecutorConfig, Task
 from backend.src.repositories.agent_repository import AgentRepository
 from backend.src.schemas.agent import AgentCreate, AgentOrgChartResponse, AgentResponse, AgentUpdate, CurrentTaskBrief
 from backend.src.storage.database import get_db

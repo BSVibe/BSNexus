@@ -724,7 +724,6 @@ async def _process_agent_in_background(
     project = None
     all_agents: list[models.Agent] = []
     history: list[models.ConversationMessage] = []
-    can_execute = False
     async with async_session() as setup_db:
         project_result = await setup_db.execute(
             select(models.Project)
@@ -760,20 +759,16 @@ async def _process_agent_in_background(
                     agent=agent,
                 )
                 return
-            can_execute = True
         else:
             # LLM executor — check if API key is configured.
             try:
                 await _resolve_llm_config(agent, setup_db)
-                can_execute = True
             except HTTPException:
                 # No LLM key — check if a worker fallback is available.
                 stream_manager = RedisStreamManager(redis) if redis else None
                 dispatcher = WorkerDispatcher(stream_manager) if stream_manager else None
                 worker = await dispatcher.find_available_worker(setup_db, tenant_id=tenant_id) if dispatcher else None
-                if worker:
-                    can_execute = True
-                else:
+                if not worker:
                     await _store_and_publish(
                         setup_db, redis, project_id,
                         role="assistant",
