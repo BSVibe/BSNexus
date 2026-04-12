@@ -1,6 +1,5 @@
-from typing import Literal, Optional
+from typing import Optional
 
-from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -20,7 +19,6 @@ class Settings(BaseSettings):
     encryption_key: str = "dev-encryption-key-change-in-production"
 
     # Security - CORS
-    # SECURITY: empty by default — must be explicitly configured per environment
     cors_allowed_origins: list[str] = []
 
     # Security - rate limiting
@@ -35,14 +33,10 @@ class Settings(BaseSettings):
     server_port: int = 8000
     debug: bool = False
 
-    # LLM Defaults (fallback only - used when not specified at runtime)
-    default_llm_model: str = "anthropic/claude-sonnet-4-20250514"
+    # LLM — fallback model when DB settings don't specify one.
+    # Empty string is valid: the caller must configure a model via DB settings.
+    default_llm_model: str = ""
     default_llm_base_url: Optional[str] = None
-
-    @field_validator("default_llm_model", mode="after")
-    @classmethod
-    def _coerce_empty_llm_model(cls, v: str) -> str:
-        return v or "anthropic/claude-sonnet-4-20250514"
 
     # Claude Code executor (worker path)
     workspace_dir: str = "/workspace"
@@ -51,21 +45,6 @@ class Settings(BaseSettings):
     rate_limit_retry_count: int = 5
     rate_limit_wait_seconds: int = 300
     executor_skip_permissions: bool = False
-
-    # Providers
-    gateway_provider: Literal["bsgateway", "litellm"] = "litellm"
-    knowledge_provider: Literal["bsage", "local"] = "local"
-
-    # Providers — BSGateway
-    bsgateway_url: str = ""
-    bsgateway_api_key: str = ""
-
-    # Providers — BSage (knowledge)
-    bsage_url: str = ""
-    bsage_api_key: str = ""
-
-    # Providers — Local knowledge
-    knowledge_dir: str = "./knowledge"
 
     # Logging
     log_dir: str = "logs"

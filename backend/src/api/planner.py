@@ -13,11 +13,10 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src import models, schemas
+from backend.src.api.settings import get_raw_llm_config
+from backend.src.config import settings
 from backend.src.core.auth import Permission, require_permission
 from backend.src.core.planner_service import PlannerService
-from backend.src.providers.dependencies import get_gateway_provider, get_knowledge_provider
-from backend.src.providers.gateway import GatewayProvider
-from backend.src.providers.knowledge import KnowledgeProvider
 from backend.src.storage.database import get_db
 
 logger = structlog.get_logger(__name__)
@@ -81,13 +80,11 @@ def _create_task_from_suggestion(
     phase: models.Phase,
 ) -> models.Task:
     """Convert a TaskSuggestion into a Task ORM object."""
-    # Map suggestion task_type string to TaskType enum (best-effort)
     try:
         task_type = models.TaskType(suggestion.task_type)
     except ValueError:
         task_type = models.TaskType.feature
 
-    # Map numeric priority to TaskPriority enum
     if suggestion.priority <= 1:
         priority = models.TaskPriority.critical
     elif suggestion.priority <= 3:
@@ -123,7 +120,6 @@ async def get_briefing(
     """Return today's morning briefing: suggestions, pending approvals, project status."""
     today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
 
-    # Today's suggestions (all statuses)
     result = await db.execute(
         select(models.TaskSuggestion)
         .where(
@@ -134,7 +130,6 @@ async def get_briefing(
     )
     suggestions = result.scalars().all()
 
-    # Pending count
     pending_result = await db.execute(
         select(func.count())
         .select_from(models.TaskSuggestion)
@@ -145,7 +140,6 @@ async def get_briefing(
     )
     pending_count = pending_result.scalar() or 0
 
-    # Approved today count
     approved_result = await db.execute(
         select(func.count())
         .select_from(models.TaskSuggestion)
@@ -157,7 +151,6 @@ async def get_briefing(
     )
     approved_today = approved_result.scalar() or 0
 
-    # Active tasks (in flight: pending or running, but not blocked or done)
     active_statuses = [models.TaskStatus.pending, models.TaskStatus.running]
     active_result = await db.execute(
         select(func.count())
@@ -215,11 +208,9 @@ async def approve_suggestion(
     _ensure_pending(suggestion)
     phase = await _get_phase_or_404(body.phase_id, db)
 
-    # Create task from suggestion
     task = _create_task_from_suggestion(suggestion, phase)
     db.add(task)
 
-    # Update suggestion status
     suggestion.status = models.SuggestionStatus.approved
     await db.commit()
     await db.refresh(task)
@@ -260,12 +251,10 @@ async def modify_suggestion(
     _ensure_pending(suggestion)
     phase = await _get_phase_or_404(body.phase_id, db)
 
-    # Apply modifications to suggestion
     update_fields = body.model_dump(exclude_unset=True, exclude={"phase_id"})
     for field, value in update_fields.items():
         setattr(suggestion, field, value)
 
-    # Mark as modified and create task
     suggestion.status = models.SuggestionStatus.modified
     task = _create_task_from_suggestion(suggestion, phase)
     db.add(task)
@@ -282,17 +271,23 @@ async def generate_plan(
     body: schemas.PlanGenerateRequest,
     _auth: BSVibeUser = Depends(require_permission(Permission.planner_manage)),
     db: AsyncSession = Depends(get_db),
-    gateway: GatewayProvider = Depends(get_gateway_provider),
-    knowledge: KnowledgeProvider = Depends(get_knowledge_provider),
 ) -> list[schemas.TaskSuggestionResponse]:
-    """Trigger daily plan generation for a project."""
-    # Verify project exists
+    """Trigger plan generation for a project using the configured LLM."""
     result = await db.execute(select(models.Project).where(models.Project.id == body.project_id))
     project = result.scalar_one_or_none()
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    service = PlannerService(gateway=gateway, knowledge=knowledge)
+    # Resolve LLM config from DB settings (same source as chat)
+    raw_config = await get_raw_llm_config(db)
+    api_key = raw_config.get("llm_api_key")
+    if not api_key:
+        raise HTTPException(status_code=400, detail="No LLM API key configured")
+
+    model = raw_config.get("llm_model") or settings.default_llm_model
+    base_url = raw_config.get("llm_base_url")
+
+    service = PlannerService(model=model, api_key=api_key, base_url=base_url)
     suggestions = await service.generate_daily_plan(str(body.project_id), db)
 
     logger.info("plan_generated", project_id=str(body.project_id), count=len(suggestions))

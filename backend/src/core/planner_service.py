@@ -1,4 +1,4 @@
-"""PlannerService — generates daily task suggestions using LLM and knowledge context."""
+"""PlannerService — generates daily task suggestions using LLM."""
 
 from __future__ import annotations
 
@@ -7,13 +7,11 @@ import re
 import uuid
 from typing import Any
 
+import litellm
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.src.config import settings
 from backend.src.models import SuggestionStatus, TaskSuggestion
-from backend.src.providers.gateway import GatewayProvider
-from backend.src.providers.knowledge import KnowledgeProvider
 
 logger = structlog.get_logger(__name__)
 
@@ -21,51 +19,43 @@ _REQUIRED_FIELDS = {"title", "task_type"}
 
 
 class PlannerService:
-    """Generates daily task suggestions by combining project knowledge with LLM planning."""
+    """Generates daily task suggestions via a single LLM call.
 
-    def __init__(
-        self,
-        gateway: GatewayProvider,
-        knowledge: KnowledgeProvider,
-        model_hint: str | None = None,
-    ) -> None:
-        self._gateway = gateway
-        self._knowledge = knowledge
-        self._model_hint = model_hint or settings.default_llm_model
+    Uses litellm.acompletion directly — no GatewayProvider indirection.
+    Project context comes from the caller (planner API builds it from
+    the existing plan tree + harness context).
+    """
+
+    def __init__(self, *, model: str, api_key: str, base_url: str | None = None) -> None:
+        self._model = model
+        self._api_key = api_key
+        self._base_url = base_url
 
     async def generate_daily_plan(
         self,
         project_id: str,
         db: AsyncSession,
+        *,
+        project_context: str = "",
     ) -> list[TaskSuggestion]:
-        """Generate task suggestions for a project and persist them.
-
-        1. Fetches SOT and SOP context from KnowledgeProvider
-        2. Builds a structured prompt for the LLM
-        3. Calls GatewayProvider for completion
-        4. Parses JSON response into TaskSuggestion models
-        5. Persists suggestions to the database
-        """
+        """Generate task suggestions for a project and persist them."""
         logger.info("planner_generate_start", project_id=project_id)
 
-        # 1. Gather context via search
-        sot_results = await self._knowledge.search(f"project:{project_id} SOT", limit=5)
-        sop_results = await self._knowledge.search("SOP standard operating procedures", limit=5)
+        messages = self._build_messages(project_id, project_context)
 
-        # 2. Build prompt
-        messages = self._build_messages(project_id, sot_results, sop_results)
-
-        # 3. Call LLM
-        result = await self._gateway.chat_completion(
+        response = await litellm.acompletion(
+            model=self._model,
             messages=messages,
-            model_hint=self._model_hint,
-            task_metadata={"project_id": project_id, "action": "daily_plan"},
+            api_key=self._api_key,
+            api_base=self._base_url,
+            temperature=0.3,
+            max_tokens=4096,
+            timeout=120,
         )
+        content = response.choices[0].message.content or ""
 
-        # 4. Parse response
-        raw_suggestions = self._parse_llm_response(result.content)
+        raw_suggestions = self._parse_llm_response(content)
 
-        # 5. Build and persist models
         project_uuid = uuid.UUID(project_id)
         suggestions: list[TaskSuggestion] = []
 
@@ -97,34 +87,27 @@ class PlannerService:
     def _build_messages(
         self,
         project_id: str,
-        sot_results: list[dict[str, Any]],
-        sop_results: list[dict[str, Any]],
+        project_context: str,
     ) -> list[dict[str, str]]:
-        """Build LLM messages with project context."""
-        sot_text = "\n\n".join(r.get("content", "") for r in sot_results) if sot_results else ""
-        sop_text = "\n\n".join(r.get("content", "") for r in sop_results) if sop_results else ""
-
         system_prompt = (
             "You are a project planner for a software development team. "
-            "Analyze the project context and suggest actionable tasks for today.\n\n"
+            "Analyze the project context and suggest actionable tasks.\n\n"
             "Respond with a JSON array of task suggestions. Each suggestion must have:\n"
             '- "title": short task title (required)\n'
             '- "description": detailed description\n'
-            '- "task_type": one of "feature", "bugfix", "refactor", "test", "docs"\n'
+            '- "task_type": one of "feature", "bug", "improvement", "test", "chore", "refactor"\n'
             '- "priority": integer (1 = highest)\n'
             '- "estimated_effort": time estimate (e.g. "2h", "4h", "1d")\n'
-            '- "reasoning": why this task matters today\n\n'
+            '- "reasoning": why this task matters\n\n'
             "Respond ONLY with the JSON array, no other text."
         )
 
         context_parts: list[str] = [f"Project ID: {project_id}"]
-        if sot_text:
-            context_parts.append(f"## Project SOT (Source of Truth)\n{sot_text}")
-        if sop_text:
-            context_parts.append(f"## SOP (Standard Operating Procedures)\n{sop_text}")
+        if project_context:
+            context_parts.append(project_context)
 
         user_message = (
-            "Based on the following project context, generate a daily plan with task suggestions.\n\n"
+            "Based on the following project context, generate task suggestions.\n\n"
             + "\n\n".join(context_parts)
         )
 
@@ -135,13 +118,7 @@ class PlannerService:
 
     @staticmethod
     def _parse_llm_response(content: str) -> list[dict[str, Any]]:
-        """Parse LLM response content into a list of suggestion dicts.
-
-        Handles JSON wrapped in markdown code blocks.
-        """
         text = content.strip()
-
-        # Strip markdown code fences if present
         md_match = re.search(r"```(?:json)?\s*\n?(.*?)\n?\s*```", text, re.DOTALL)
         if md_match:
             text = md_match.group(1).strip()

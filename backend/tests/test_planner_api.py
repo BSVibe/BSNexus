@@ -270,7 +270,9 @@ class TestGeneratePlan:
             )
         ]
 
-        with patch("backend.src.api.planner.PlannerService") as mock_cls:
+        with patch("backend.src.api.planner.PlannerService") as mock_cls, \
+             patch("backend.src.api.planner.get_raw_llm_config", new_callable=AsyncMock) as mock_config:
+            mock_config.return_value = {"llm_api_key": "sk-test", "llm_model": "test-model"}
             mock_service = AsyncMock()
             mock_service.generate_daily_plan.return_value = mock_suggestions
             mock_cls.return_value = mock_service

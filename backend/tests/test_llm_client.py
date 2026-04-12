@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from backend.src.config import settings
 from backend.src.core.llm_client import (
     LLMClient,
     LLMConfig,
@@ -24,7 +25,7 @@ class TestLLMConfig:
         """LLMConfig should accept api_key and use defaults for model and base_url."""
         config = LLMConfig(api_key="sk-test-key-1234")
         assert config.api_key == "sk-test-key-1234"
-        assert config.model == "anthropic/claude-sonnet-4-20250514"
+        assert isinstance(config.model, str)  # default from settings (may be empty)
         assert config.base_url is None
 
     def test_creation_with_all_fields(self) -> None:
@@ -40,7 +41,7 @@ class TestLLMConfig:
         repr_str = repr(config)
         assert "sk-very-secret-key-abcd" not in repr_str
         assert "***abcd" in repr_str
-        assert "anthropic/claude-sonnet-4-20250514" in repr_str
+        assert "model=" in repr_str
 
     def test_repr_masks_short_api_key(self) -> None:
         """__repr__ should handle short API keys gracefully."""
@@ -412,7 +413,7 @@ class TestCreateLLMClientFromProject:
 
         client = create_llm_client_from_project(project, role="architect")
 
-        assert client.config.model == "anthropic/claude-sonnet-4-20250514"
+        assert client.config.model == settings.default_llm_model
 
     def test_defaults_to_architect_role(self) -> None:
         """create_llm_client_from_project should default to 'architect' role."""
