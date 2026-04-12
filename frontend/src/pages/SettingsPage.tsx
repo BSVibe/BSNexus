@@ -70,9 +70,11 @@ function ExecutorCard({
     <div className="bg-stitch-surface-low rounded-xl p-5 border border-stitch-outline-variant/10">
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
-          {isWorker && (
-            <div className={`w-2 h-2 rounded-full shrink-0 ${worker?.status === 'online' ? 'bg-green-500' : 'bg-gray-500'}`} />
-          )}
+          <div className={`w-2 h-2 rounded-full shrink-0 ${
+            isWorker
+              ? (worker?.status === 'online' ? 'bg-green-500' : 'bg-gray-500')
+              : 'bg-green-500'
+          }`} />
           <h4 className="text-sm font-bold text-text-primary truncate">{config.name}</h4>
           {config.is_default && (
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-stitch-primary/20 text-stitch-primary font-bold shrink-0">DEFAULT</span>
