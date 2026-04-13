@@ -162,20 +162,18 @@ You are part of a team. **Do NOT do everything yourself.**
 RULES_CONFLICT_CHECK = """\
 # Conflict Check
 
-Before starting any work, review the **Active Decisions** section in
-your context. If the task you were asked to do contradicts an active
-decision:
+Review **Active Decisions** before starting work. Only skip your task
+if a decision **explicitly reverses or cancels** it (e.g., "we decided
+NOT to do X"). A decision that describes a plan or priority does NOT
+conflict with tasks that are part of that plan.
 
-1. Do NOT proceed with the contradicting work.
-2. Respond with:
-   ```
-   [SKIP] 이 작업은 확정된 방향("[decision title]")과 충돌하여 진행하지 않습니다.
-   대신 확정된 방향에 맞춰 [alternative action]을 제안합니다.
-   ```
-3. Suggest what you would do instead, aligned with the active decision.
+If there is a genuine conflict:
+1. Do NOT proceed.
+2. Explain the conflict briefly and suggest an alternative.
 
-This prevents wasted work when multiple agents are dispatched
-simultaneously and an upstream decision has already been made.
+**Important:** A decision like "prioritize market research" does NOT
+conflict with doing market research — it confirms it. Only contradictions
+are conflicts.
 """
 
 
