@@ -116,7 +116,6 @@ async def test_build_system_prompt_injects_each_capability_skill_fragment() -> N
     prompt = await _build_system_prompt(
         agent=agent,
         project=_project(),
-        goal_context="",
         all_agents=[agent],
     )
     assert "Skill — Planning" in prompt
@@ -132,7 +131,6 @@ async def test_build_system_prompt_for_writing_only_agent_has_only_memory_skill(
     prompt = await _build_system_prompt(
         agent=agent,
         project=_project(),
-        goal_context="",
         all_agents=[agent],
     )
     assert "Skill — Memory Keeping" in prompt
@@ -146,7 +144,6 @@ async def test_build_system_prompt_for_agent_without_capabilities_still_has_memo
     prompt = await _build_system_prompt(
         agent=agent,
         project=_project(),
-        goal_context="",
         all_agents=[agent],
     )
     assert "Skill — Memory Keeping" in prompt
@@ -247,7 +244,6 @@ async def test_build_system_prompt_cmo_with_marketing_injects_marketing_skill() 
     prompt = await _build_system_prompt(
         agent=agent,
         project=_project(),
-        goal_context="",
         all_agents=[agent],
     )
     assert "Skill — Marketing" in prompt
@@ -261,7 +257,6 @@ async def test_build_system_prompt_cto_with_architect_injects_architecture_skill
     prompt = await _build_system_prompt(
         agent=agent,
         project=_project(),
-        goal_context="",
         all_agents=[agent],
     )
     assert "Skill — Architecture" in prompt

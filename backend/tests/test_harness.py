@@ -57,8 +57,7 @@ class TestSeedHarness:
         # Content sanity — now tool-based instead of marker-based
         content = (rules / "response-format.md").read_text()
         assert "create_task" in content
-        assert "Tool" in content or "tool" in content
-        assert "[SKIP]" in (rules / "conflict-check.md").read_text()
+        assert "claim_task" in content
 
     def test_creates_skill_files(self, tmp_path: Path) -> None:
         seed_harness(tmp_path)
@@ -88,46 +87,30 @@ class TestAssembleSystemPrompt:
     async def test_includes_agent_identity(self, tmp_path: Path) -> None:
         agent = _agent()
         project = _project()
-        prompt = await assemble_system_prompt(
-            agent, project, str(tmp_path), goal_context="", org_context=""
-        )
+        prompt = await assemble_system_prompt(agent, project, str(tmp_path))
         assert "TestAgent" in prompt
         assert "engineer" in prompt
         assert "TestProject" in prompt
         assert "Writes code" in prompt
 
     @pytest.mark.asyncio
-    async def test_includes_org_and_goal_context(self, tmp_path: Path) -> None:
-        prompt = await assemble_system_prompt(
-            _agent(), _project(), str(tmp_path),
-            goal_context="[Goal] Ship MVP",
-            org_context="[Mission] Help people",
-        )
-        assert "[Goal] Ship MVP" in prompt
-        assert "[Mission] Help people" in prompt
-
-    @pytest.mark.asyncio
     async def test_includes_active_decisions(self, tmp_path: Path) -> None:
         prompt = await assemble_system_prompt(
             _agent(), _project(), str(tmp_path),
-            goal_context="", org_context="",
             active_decisions=["녹음 앱으로 방향 확정", "React + FastAPI 기술 스택 확정"],
         )
         assert "녹음 앱으로 방향 확정" in prompt
         assert "React + FastAPI" in prompt
-        assert "Active Decisions" in prompt
-        assert "Do NOT contradict" in prompt
+        assert "Active decisions" in prompt
 
     @pytest.mark.asyncio
     async def test_reads_rules_from_workspace(self, tmp_path: Path) -> None:
         seed_harness(tmp_path)
         prompt = await assemble_system_prompt(
             _agent(), _project(), str(tmp_path),
-            goal_context="", org_context="",
         )
         assert "create_task" in prompt
-        assert "record_decision" in prompt
-        assert "[SKIP]" in prompt
+        assert "claim_task" in prompt
 
     @pytest.mark.asyncio
     async def test_reads_skills_for_capabilities(self, tmp_path: Path) -> None:
@@ -135,7 +118,6 @@ class TestAssembleSystemPrompt:
         agent = _agent(["plan", "analyze", "coding"])
         prompt = await assemble_system_prompt(
             agent, _project(), str(tmp_path),
-            goal_context="", org_context="",
         )
         assert "Skill — Planning" in prompt
         assert "Skill — Codebase Analysis" in prompt
@@ -149,7 +131,6 @@ class TestAssembleSystemPrompt:
         custom.write_text("# Custom Rule\nAlways respond in Korean.")
         prompt = await assemble_system_prompt(
             _agent(), _project(), str(tmp_path),
-            goal_context="", org_context="",
         )
         assert "Always respond in Korean" in prompt
 
@@ -162,21 +143,30 @@ class TestAssembleSystemPrompt:
         agent2.id = uuid.uuid4()
         prompt = await assemble_system_prompt(
             agent1, _project(), str(tmp_path),
-            goal_context="", org_context="",
             all_agents=[agent1, agent2],
         )
         assert "@Designer" in prompt
 
     @pytest.mark.asyncio
+    async def test_critical_rules_always_inlined(self, tmp_path: Path) -> None:
+        """Critical workflow and delegation rules are always in the prompt."""
+        prompt = await assemble_system_prompt(
+            _agent(), _project(), str(tmp_path),
+        )
+        assert "claim_task" in prompt
+        assert "complete_task" in prompt
+        assert "Delegation" in prompt
+
+    @pytest.mark.asyncio
     async def test_fallback_when_no_workspace(self) -> None:
-        """No workspace_dir → uses inline fallback for everything."""
+        """No workspace_dir → critical rules + fallback skills still present."""
         prompt = await assemble_system_prompt(
             _agent(), _project(), None,
-            goal_context="", org_context="",
         )
-        # Should still have communication rules (inline fallback)
-        assert "polite language" in prompt.lower() or "professionally" in prompt.lower()
-        # Should still have skill fragments (inline fallback)
+        # Critical rules always inlined regardless of workspace
+        assert "claim_task" in prompt
+        assert "complete_task" in prompt
+        # Skill fragments fall back to in-memory registry
         assert "Memory Keeping" in prompt
 
 

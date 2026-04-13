@@ -92,6 +92,25 @@ def write_approval_settings(workspace_dir: str | None, settings: dict[str, Appro
 HARNESS_DIR = ".bsnexus"
 
 
+# ── Critical rules — always inlined into system prompt ──────────────
+
+CRITICAL_RULES_INLINE = """\
+## Workflow — ALWAYS follow these steps
+1. **list_tasks** — check existing tasks first (no duplicates)
+2. **create_phase** if no phase exists for this work area
+3. **create_task** for the specific work item
+4. **claim_task** to mark it as yours
+5. Do the work (file_write, research, analysis, etc.)
+6. **complete_task** with a summary when done
+
+## Delegation — you are part of a team
+- Only **claim_task** for tasks matching YOUR role/expertise
+- For tasks outside your expertise, **@mention the best teammate**
+- Do NOT @mention yourself. Do NOT do everything yourself.
+- A CEO/leader should plan and delegate, NOT execute every task.
+"""
+
+
 # ── Seed: write default harness files into a workspace ──────────────
 
 
@@ -225,22 +244,23 @@ async def assemble_system_prompt(
     project: "Project",
     workspace_dir: str | None,
     *,
-    goal_context: str = "",
-    org_context: str = "",
     all_agents: list["Agent"] | None = None,
     active_decisions: list[str] | None = None,
 ) -> str:
-    """Build the system prompt by reading .bsnexus/ files from the workspace.
+    """Build the system prompt by inlining critical rules and reading .bsnexus/.
 
-    Falls back to inline defaults if the workspace doesn't have harness
-    files (legacy projects, or when workspace_dir is None).
+    Core workflow and delegation rules are always inlined so local models
+    (Qwen3-14B etc.) follow them without needing a file_read call.
+    Workspace rules and agent skills are read from .bsnexus/ and appended.
+    Context files (project, team, goals, decisions) stay as file_read
+    targets to keep prompt size manageable.
     """
     parts: list[str] = []
 
     # Qwen3 reasoning mode disable.
     parts.append("/no_think")
 
-    # ── Core identity (kept short — everything else is in .bsnexus/) ──
+    # ── Core identity ──
 
     parts.append(
         f"LANGUAGE: Always respond in the same language the user writes in. "
@@ -253,6 +273,10 @@ async def assemble_system_prompt(
 
     if agent.system_prompt:
         parts.append(agent.system_prompt)
+
+    # ── Critical rules (always inlined — local models skip file_read) ──
+
+    parts.append(CRITICAL_RULES_INLINE)
 
     # ── Team roster (critical for delegation) ──
 
@@ -267,17 +291,30 @@ async def assemble_system_prompt(
                 lines.append(desc)
             parts.append("\n".join(lines))
 
-    # ── Workspace reference (like CLAUDE.md) ──
-    # Instead of injecting full rules/goals/context into the prompt,
-    # point the agent to .bsnexus/ files. This keeps the system prompt
-    # small (~300 tokens) so local models follow core instructions better.
+    # ── Workspace rules (from .bsnexus/rules/) ──
+
+    rules_text = _read_harness_dir(workspace_dir, "rules")
+    if rules_text:
+        parts.append(rules_text)
+
+    # ── Agent skills (capability-driven, from .bsnexus/skills/) ──
+
+    skills_text = _read_agent_skills(workspace_dir, agent)
+    if skills_text:
+        parts.append(skills_text)
+    else:
+        # Fallback: render skills from in-memory registry when no workspace
+        from backend.src.prompts.skills import render_skills_for_capabilities
+        fallback = render_skills_for_capabilities(agent.capabilities)
+        if fallback:
+            parts.append(fallback)
+
+    # ── Workspace context reference ──
 
     parts.append(
         "## Workspace\n"
-        "Project guidelines, rules, goals, and context are in the `.bsnexus/` directory.\n"
-        "Read `.bsnexus/rules/response-format.md` before starting work — it defines "
-        "the task workflow (create_phase → create_task → claim_task → work → complete_task).\n"
-        "Read `.bsnexus/context/decisions.md` for active decisions that must not be contradicted."
+        "See `.bsnexus/context/` for project context, team roster, goals, "
+        "and active decisions."
     )
 
     # ── Active decisions (inline only if short — prevents contradictions) ──

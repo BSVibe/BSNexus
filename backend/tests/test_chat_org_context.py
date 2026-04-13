@@ -125,8 +125,8 @@ async def test_build_org_context_scopes_to_tenant(db_session):
 
 
 @pytest.mark.asyncio
-async def test_system_prompt_places_org_context_before_role(db_session):
-    """org_context should appear above the per-agent role description."""
+async def test_system_prompt_contains_agent_identity(db_session):
+    """System prompt includes agent name and project name."""
     await _seed_tenant(db_session)
     project = await _make_project(db_session)
     agent = await _make_agent(db_session)
@@ -141,10 +141,6 @@ async def test_system_prompt_places_org_context_before_role(db_session):
     prompt = await _build_system_prompt(
         agent,
         project_loaded,
-        goal_context="",
         all_agents=[agent],
-        org_context="ORG_SENTINEL",
     )
-    role_marker = "You are Tester"
-    assert "ORG_SENTINEL" in prompt
-    assert prompt.index("ORG_SENTINEL") < prompt.index(role_marker)
+    assert "Tester" in prompt

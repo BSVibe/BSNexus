@@ -30,7 +30,6 @@ from backend.src import models
 from backend.src.api.settings import get_raw_llm_config
 from backend.src.core.task_markers import strip_action_markers
 from backend.src.core.auth import Permission, require_permission
-from backend.src.core.goal_alignment import GoalAlignmentService
 from backend.src.core.budget import BudgetService
 from backend.src.core.executor.litellm_executor import LiteLLMExecutor
 from backend.src.core.llm_client import LLMConfig
@@ -193,9 +192,7 @@ async def _route_via_worker(
 async def _build_system_prompt(
     agent: models.Agent,
     project: models.Project,
-    goal_context: str,
     all_agents: list[models.Agent],
-    org_context: str = "",
     active_decisions: list[str] | None = None,
 ) -> str:
     """Build the system prompt via the harness (workspace-based modules).
@@ -211,8 +208,6 @@ async def _build_system_prompt(
 
     return await assemble_system_prompt(
         agent, project, workspace_dir,
-        goal_context=goal_context,
-        org_context=org_context,
         all_agents=all_agents,
         active_decisions=active_decisions,
     )
@@ -369,25 +364,13 @@ async def _build_chat_context(
     db: AsyncSession, all_agents: list[models.Agent],
     *, tenant_id: uuid.UUID,
 ) -> tuple[str, list[dict[str, str]]]:
-    goal_svc = GoalAlignmentService(db)
-    goal_result = await db.execute(
-        select(models.Goal).where(
-            models.Goal.project_id == project_id,
-            models.Goal.level == "project",
-        ).limit(1)
-    )
-    project_goal = goal_result.scalar_one_or_none()
-    goal_context = await goal_svc.build_goal_context(project_goal.id) if project_goal else ""
-
-    org_context = await _build_org_context(tenant_id, db)
-
     # Load active decisions from .bsnexus/context/decisions.md (file-based,
     # single source of truth — no DB table).
     active_decisions = _load_decisions_from_workspace(project.workspace_dir)
 
     system_prompt = await _build_system_prompt(
-        agent, project, goal_context, all_agents=all_agents,
-        org_context=org_context, active_decisions=active_decisions,
+        agent, project, all_agents=all_agents,
+        active_decisions=active_decisions,
     )
     messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
     for h in history:

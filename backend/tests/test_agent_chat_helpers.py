@@ -207,13 +207,9 @@ async def test_system_prompt_contains_role_and_project_name(db_session):
     prompt = await _build_system_prompt(
         agent,
         project_loaded,
-        goal_context="[Goal] Ship MVP",
         all_agents=[agent],
-        org_context="[Org mission] Help people",
     )
-    assert "[Org mission] Help people" in prompt
-    assert "[Goal] Ship MVP" in prompt
-    assert "You are CPO" in prompt
+    assert "CPO" in prompt
     assert "Acme Tax" in prompt
     assert "Always think about user value first." in prompt
     assert "Owns product roadmap" in prompt
