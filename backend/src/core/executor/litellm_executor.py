@@ -144,11 +144,9 @@ class LiteLLMExecutor:
 
             # Call LLM
             try:
-                # Model-specific extra body for disabling thinking/reasoning.
-                # Gemma 4: chat_template_kwargs. Qwen3: chat_template_kwargs with enable_thinking.
-                # Both use the same key but the template handles it differently.
-                extra = {"chat_template_kwargs": {"enable_thinking": False}}
-
+                # Thinking/reasoning mode is disabled via /no_think prefix
+                # in the system prompt (harness.py). vLLM-MLX does not support
+                # chat_template_kwargs passthrough, so extra_body is not used.
                 response = await litellm.acompletion(
                     model=model,
                     messages=messages,
@@ -158,7 +156,6 @@ class LiteLLMExecutor:
                     temperature=temperature,
                     max_tokens=max_tokens,
                     timeout=REQUEST_TIMEOUT,
-                    extra_body=extra,
                 )
             except Exception as e:
                 logger.error("litellm_call_failed", model=model, iteration=iteration, error=str(e))
