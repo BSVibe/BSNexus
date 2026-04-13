@@ -237,81 +237,55 @@ async def assemble_system_prompt(
     """
     parts: list[str] = []
 
-    # Qwen3 models require /no_think prefix to disable reasoning mode.
+    # Qwen3 reasoning mode disable.
     parts.append("/no_think")
 
-    # Language rule at the very top — LLMs attend more to early instructions.
-    parts.append("LANGUAGE: Always respond in the same language the user writes in. "
-                 "If Korean → Korean. If English → English. Never default to Chinese.")
+    # ── Core identity (kept short — everything else is in .bsnexus/) ──
 
-    # 1. Org-level context (mission goals)
-    if org_context:
-        parts.append(org_context)
+    parts.append(
+        f"LANGUAGE: Always respond in the same language the user writes in. "
+        f"Korean → Korean. English → English. Never Chinese.\n\n"
+        f"You are **{agent.name}**, a {agent.role} at the project \"{project.name}\"."
+    )
 
-    # 2. Goal context (project-level goals)
-    if goal_context:
-        parts.append(goal_context)
-
-    # 3. Active decisions (ProjectDecision rows)
-    if active_decisions:
-        lines = ["## Active Decisions\n",
-                 "These are confirmed project directions. Do NOT contradict them.\n"]
-        for i, d in enumerate(active_decisions, 1):
-            lines.append(f"{i}. {d}")
-        parts.append("\n".join(lines))
-
-    # 4. Agent identity
-    identity = f"You are {agent.name}, a {agent.role} working on the project \"{project.name}\"."
     if agent.job_description:
-        identity += f"\nJob description: {agent.job_description}"
-    parts.append(identity)
+        parts[-1] += f"\nJob: {agent.job_description}"
 
-    # 5. Custom system prompt (per-agent)
     if agent.system_prompt:
         parts.append(agent.system_prompt)
 
-    # 6. Rules from .bsnexus/rules/
-    rules_text = _read_harness_dir(workspace_dir, "rules")
-    if rules_text:
-        parts.append(rules_text)
-    else:
-        # Inline fallback for legacy projects
-        parts.append(RULES_COMMUNICATION)
-        parts.append(RULES_RESPONSE_FORMAT)
-        parts.append(RULES_CONFLICT_CHECK)
+    # ── Team roster (critical for delegation) ──
 
-    # 7. Skills — DISABLED: tool definitions provide equivalent guidance.
-    # Keeping skills as workspace files was redundant with tool_use and
-    # added ~2600 tokens to every prompt, slowing local models.
-    skill_text = ""
-    if skill_text:
-        parts.append(skill_text)
-    else:
-        # Inline fallback
-        from backend.src.prompts.skills import render_skills_for_capabilities
-        fallback = render_skills_for_capabilities(agent.capabilities)
-        if fallback:
-            parts.append(fallback)
-
-    # 8. Project context from .bsnexus/context/project.md (or inline)
-    project_ctx = _read_harness_file(workspace_dir, "context/project.md")
-    if project_ctx:
-        parts.append(project_ctx)
-    else:
-        from backend.src.core.task_markers import build_project_context
-        parts.append(build_project_context(project))
-
-    # 9. Team roster
     if all_agents:
         colleagues = [a for a in all_agents if a.id != agent.id and a.is_active]
         if colleagues:
-            lines = ["Your team (you can @mention them to delegate or ask for input):"]
+            lines = ["## Team — @mention to delegate"]
             for a in colleagues:
-                desc = f"  - @{a.name} ({a.role})"
+                desc = f"- @{a.name} ({a.role})"
                 if a.job_description:
                     desc += f" — {a.job_description}"
                 lines.append(desc)
             parts.append("\n".join(lines))
+
+    # ── Workspace reference (like CLAUDE.md) ──
+    # Instead of injecting full rules/goals/context into the prompt,
+    # point the agent to .bsnexus/ files. This keeps the system prompt
+    # small (~300 tokens) so local models follow core instructions better.
+
+    parts.append(
+        "## Workspace\n"
+        "Project guidelines, rules, goals, and context are in the `.bsnexus/` directory.\n"
+        "Read `.bsnexus/rules/response-format.md` before starting work — it defines "
+        "the task workflow (create_phase → create_task → claim_task → work → complete_task).\n"
+        "Read `.bsnexus/context/decisions.md` for active decisions that must not be contradicted."
+    )
+
+    # ── Active decisions (inline only if short — prevents contradictions) ──
+    if active_decisions and len(active_decisions) <= 3:
+        lines = ["Active decisions:"]
+        for d in active_decisions:
+            lines.append(f"  - {d}")
+        parts.append("\n".join(lines))
 
     return "\n\n".join(parts)
 
