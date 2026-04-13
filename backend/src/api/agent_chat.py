@@ -223,6 +223,8 @@ def _strip_all_markers(text: str) -> str:
     text = SET_GOAL_RE.sub("", text).strip()
     text = STATUS_RE.sub("", text).strip()
     text = DECISION_RE.sub("", text).strip()
+    # Strip Qwen3 thinking tags (leaked from reasoning mode)
+    text = re.sub(r"<think>.*?</think>\s*", "", text, flags=re.DOTALL).strip()
     return re.sub(r"^\[.*?\]\s*", "", text, count=1)
 
 
