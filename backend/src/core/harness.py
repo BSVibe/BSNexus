@@ -98,11 +98,6 @@ HARNESS_DIR = ".bsnexus"
 RULES_RESPONSE_FORMAT = """\
 # Response Format & Tools
 
-## Language
-Always respond in the **same language the user writes in**.
-If the user writes in Korean, respond in Korean. If English, respond in English.
-Never default to Chinese (中文).
-
 ## CRITICAL: Task-Centric Work
 
 All work MUST flow through tasks. Do NOT just reply with text.
@@ -243,8 +238,11 @@ async def assemble_system_prompt(
     parts: list[str] = []
 
     # Qwen3 models require /no_think prefix to disable reasoning mode.
-    # Without this, the model outputs <think>...</think> instead of tool calls.
     parts.append("/no_think")
+
+    # Language rule at the very top — LLMs attend more to early instructions.
+    parts.append("LANGUAGE: Always respond in the same language the user writes in. "
+                 "If Korean → Korean. If English → English. Never default to Chinese.")
 
     # 1. Org-level context (mission goals)
     if org_context:
