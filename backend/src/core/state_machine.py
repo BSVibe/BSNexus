@@ -74,8 +74,8 @@ class TaskStateMachine:
         if db_session is not None:
             history = TaskHistory(
                 task_id=task.id,
-                from_status=old_status.value,
-                to_status=new_status.value,
+                from_status=old_status,
+                to_status=new_status,
                 actor=actor,
                 reason=reason,
                 extra_metadata=kwargs if kwargs else None,
