@@ -144,6 +144,11 @@ class LiteLLMExecutor:
 
             # Call LLM
             try:
+                # Model-specific extra body for disabling thinking/reasoning.
+                # Gemma 4: chat_template_kwargs. Qwen3: chat_template_kwargs with enable_thinking.
+                # Both use the same key but the template handles it differently.
+                extra = {"chat_template_kwargs": {"enable_thinking": False}}
+
                 response = await litellm.acompletion(
                     model=model,
                     messages=messages,
@@ -153,9 +158,7 @@ class LiteLLMExecutor:
                     temperature=temperature,
                     max_tokens=max_tokens,
                     timeout=REQUEST_TIMEOUT,
-                    # Disable thinking/reasoning for models that support it
-                    # (Gemma 4, QwQ, etc.) — dramatically reduces latency.
-                    extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+                    extra_body=extra,
                 )
             except Exception as e:
                 logger.error("litellm_call_failed", model=model, iteration=iteration, error=str(e))

@@ -98,6 +98,11 @@ HARNESS_DIR = ".bsnexus"
 RULES_RESPONSE_FORMAT = """\
 # Response Format & Tools
 
+## Language
+Always respond in the **same language the user writes in**.
+If the user writes in Korean, respond in Korean. If English, respond in English.
+Never default to Chinese (中文).
+
 ## CRITICAL: Task-Centric Work
 
 All work MUST flow through tasks. Do NOT just reply with text.
