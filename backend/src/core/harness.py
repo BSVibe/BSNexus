@@ -127,6 +127,7 @@ duplicates.
 
 Use **create_phase** to organize related tasks. Phases are categories,
 not sequential stages. **You must create a phase before creating tasks.**
+**Create only ONE phase per work area. Check existing phases first with list_tasks.**
 
 ### Goals & Decisions
 
@@ -142,6 +143,7 @@ not sequential stages. **You must create a phase before creating tasks.**
 
 If another team member's expertise would be valuable, @mention them
 naturally in your response. They will receive your message and respond.
+**Do NOT @mention yourself.** Only mention OTHER agents.
 """
 
 
