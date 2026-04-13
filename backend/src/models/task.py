@@ -146,8 +146,8 @@ class TaskHistory(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     task_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False)
-    from_status: Mapped[str] = mapped_column(String(50), nullable=False)
-    to_status: Mapped[str] = mapped_column(String(50), nullable=False)
+    from_status: Mapped[TaskStatus] = mapped_column(Enum(TaskStatus), nullable=False)
+    to_status: Mapped[TaskStatus] = mapped_column(Enum(TaskStatus), nullable=False)
     actor: Mapped[str] = mapped_column(String(100), nullable=False)
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     extra_metadata: Mapped[dict | None] = mapped_column("metadata", JSON, nullable=True)
