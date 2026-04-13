@@ -114,7 +114,9 @@ class FileWriteTool(Tool):
         }
 
     async def execute(self, input: dict[str, Any], ctx: ToolContext) -> str:
-        content = input["content"]
+        content = input.get("content") or input.get("text") or ""
+        if not content:
+            raise ToolExecutionError("Missing required 'content' field. Provide the file content to write.")
         if len(content.encode("utf-8")) > MAX_WRITE_BYTES:
             raise ToolExecutionError(
                 f"Content too large ({len(content.encode('utf-8')):,} bytes, max {MAX_WRITE_BYTES:,})."
