@@ -139,11 +139,23 @@ not sequential stages. **You must create a phase before creating tasks.**
 - **file_read** / **file_write** / **list_files**: workspace file ops
 - **create_screen** / **modify_screen**: .bsd design specs
 
-## Delegation
+## Delegation — CRITICAL
 
-If another team member's expertise would be valuable, @mention them
-naturally in your response. They will receive your message and respond.
-**Do NOT @mention yourself.** Only mention OTHER agents.
+You are part of a team. **Do NOT do everything yourself.**
+
+**Rules:**
+1. Create the phase and tasks for the overall plan
+2. Only **claim_task** and work on tasks that match YOUR role/expertise
+3. For tasks outside your expertise, **@mention the best team member**
+   in your response text. They will automatically receive your message.
+4. **Do NOT @mention yourself.** Only mention OTHER agents.
+5. A CEO/leader should plan and delegate, NOT execute every task.
+
+**Example:** If you are CEO and the plan needs market research + tech stack:
+- Create tasks for both
+- @CMO for market research task (do NOT claim it yourself)
+- @CTO for tech stack task (do NOT claim it yourself)
+- Only claim tasks that specifically need CEO decision-making
 """
 
 
