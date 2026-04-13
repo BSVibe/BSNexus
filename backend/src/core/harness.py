@@ -50,7 +50,7 @@ logger = structlog.get_logger(__name__)
 ApprovalLevel = Literal["auto_approve", "require_approval"]
 
 DEFAULT_APPROVAL_SETTINGS: dict[str, ApprovalLevel] = {
-    "phase_creation": "require_approval",
+    "phase_creation": "auto_approve",
     "task_creation": "auto_approve",
 }
 

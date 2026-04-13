@@ -518,26 +518,19 @@ def _build_tool_actions(result: Any) -> list[dict[str, Any]]:
 def _extract_primary_task_id(result: Any) -> uuid.UUID | None:
     """Find the task this agent turn was primarily about.
 
-    Checks tool calls for claim_task or complete_task (highest signal),
-    then create_task as fallback.
+    Only reads from **successful tool results** — never from tool call
+    inputs, because the LLM can hallucinate UUIDs that don't exist in DB.
     """
-    task_tools = ("claim_task", "complete_task", "create_task")
-    for tool_name in task_tools:
-        for tc in (result.tool_calls_made or []):
-            if tc.name == tool_name and tc.input.get("task_id"):
-                try:
-                    return uuid.UUID(tc.input["task_id"])
-                except ValueError:
-                    continue
-    # create_task doesn't have task_id in input — check tool results
-    for tr in (result.tool_results or []):
+    import json as _json
+
+    for tr in reversed(result.tool_results or []):
         if tr.is_error:
             continue
         try:
-            data = __import__("json").loads(tr.content)
+            data = _json.loads(tr.content)
             if data.get("task_id"):
                 return uuid.UUID(data["task_id"])
-        except (ValueError, KeyError, TypeError):
+        except (ValueError, KeyError, TypeError, _json.JSONDecodeError):
             continue
     return None
 
