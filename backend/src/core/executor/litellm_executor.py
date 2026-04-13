@@ -207,9 +207,11 @@ class LiteLLMExecutor:
                     iterations=iteration + 1,
                 )
 
-            # Parse tool calls from response
+            # Parse tool calls from response (cap at 10 per iteration to
+            # prevent MoE models from generating hundreds of calls at once).
+            MAX_TOOL_CALLS_PER_ITERATION = 10
             parsed_calls: list[ToolCall] = []
-            for tc in tool_calls_raw:
+            for tc in tool_calls_raw[:MAX_TOOL_CALLS_PER_ITERATION]:
                 call_id = tc.id or str(uuid.uuid4())
                 func = tc.function
                 try:
@@ -217,6 +219,11 @@ class LiteLLMExecutor:
                 except json.JSONDecodeError:
                     call_input = {}
                 parsed_calls.append(ToolCall(id=call_id, name=func.name, input=call_input))
+            if len(tool_calls_raw) > MAX_TOOL_CALLS_PER_ITERATION:
+                logger.warning("tool_calls_truncated",
+                               requested=len(tool_calls_raw),
+                               kept=MAX_TOOL_CALLS_PER_ITERATION,
+                               model=model)
 
             all_tool_calls.extend(parsed_calls)
 
