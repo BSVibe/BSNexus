@@ -232,6 +232,10 @@ async def assemble_system_prompt(
     """
     parts: list[str] = []
 
+    # Qwen3 models require /no_think prefix to disable reasoning mode.
+    # Without this, the model outputs <think>...</think> instead of tool calls.
+    parts.append("/no_think")
+
     # 1. Org-level context (mission goals)
     if org_context:
         parts.append(org_context)
