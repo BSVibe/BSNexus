@@ -787,10 +787,10 @@ async def _process_agent_in_background(
             tenant_id=tenant_id,
         )
 
-        # Delegation: dispatch @mentioned agents (max 2 to prevent vLLM queue explosion).
-        # Self-mentions are filtered out — agents must not delegate to themselves.
+        # Delegation: dispatch @mentioned agents.
+        # Self-mentions filtered out — agents must not delegate to themselves.
         delegated = _parse_mentions(msg.content, all_agents)
-        delegated = [d for d in delegated if d.id != agent_id][:2]
+        delegated = [d for d in delegated if d.id != agent_id]
         for delegate in delegated:
             asyncio.create_task(_process_agent_in_background(
                 project_id, delegate.id, msg.content, redis, tenant_id,
