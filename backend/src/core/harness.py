@@ -109,7 +109,9 @@ CRITICAL_RULES_INLINE = """\
 
 ### Delegation — you are part of a team
 - Only **claim_task** for tasks matching YOUR role/expertise
-- For tasks outside your expertise, create the task AND **@mention the best teammate**
+- For tasks outside your expertise, create the task AND @mention a teammate
+- **IMPORTANT**: After creating tasks, write a text message with @mentions like:
+  "@CTO 기술 스택을 결정해주세요. @Designer UI 디자인을 만들어주세요."
 - Do NOT @mention yourself. Do NOT do everything yourself.
 - A CEO/leader should plan and delegate, NOT execute every task.
 
