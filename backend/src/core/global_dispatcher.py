@@ -268,7 +268,7 @@ class GlobalDispatcher:
                     agent_id=agent.id,
                     task_id=task.id,
                     task_context=task_context,
-                    redis=self._stream._redis if self._stream else None,
+                    redis=self._stream.redis if self._stream else None,
                     tenant_id=agent.tenant_id,
                 ),
                 name=f"passive-{agent.name}-{task.id}",
