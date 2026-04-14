@@ -12,7 +12,7 @@ import uuid
 from typing import Any
 
 import structlog
-from sqlalchemy import func, select
+from sqlalchemy import select
 
 from backend.src.tools.base import Tool, ToolContext, ToolExecutionError
 
@@ -95,23 +95,39 @@ class CreateTaskTool(Tool):
                     "No phase exists yet. Use create_phase first to organize work, then create tasks."
                 )
 
-            # Resolve assignee name → agent_id
+            # Resolve assignee: explicit name → keyword auto-match
             assigned_agent_id = None
             assignee_name = input.get("assignee")
             assignee_warning = ""
-            if assignee_name:
-                agent_result = await db.execute(
-                    select(Agent).where(
-                        Agent.tenant_id == ctx.tenant_id,
-                        Agent.is_active.is_(True),
-                        func.lower(Agent.name) == assignee_name.strip().lower(),
-                    )
+
+            # Load all active agents for matching
+            all_agents_result = await db.execute(
+                select(Agent).where(
+                    Agent.tenant_id == ctx.tenant_id,
+                    Agent.is_active.is_(True),
                 )
-                assignee = agent_result.scalar_one_or_none()
+            )
+            all_agents = list(all_agents_result.scalars().all())
+
+            if assignee_name:
+                # Explicit assignee by name
+                assignee = next(
+                    (a for a in all_agents if a.name.lower() == assignee_name.strip().lower()),
+                    None,
+                )
                 if assignee:
                     assigned_agent_id = assignee.id
                 else:
-                    assignee_warning = f" (warning: agent '{assignee_name}' not found, task unassigned)"
+                    assignee_warning = f" (warning: agent '{assignee_name}' not found)"
+
+            if not assigned_agent_id:
+                # Auto-assign by keyword matching on title + description
+                from backend.src.core.task_assignment import match_agent_for_task
+                text = f"{title} {input.get('description', '')}".lower()
+                best = match_agent_for_task(text, all_agents, exclude_id=ctx.agent_id)
+                if best:
+                    assigned_agent_id = best.id
+                    assignee_name = best.name
 
             task = Task(
                 project_id=ctx.project_id,

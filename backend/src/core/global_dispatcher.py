@@ -101,6 +101,7 @@ class GlobalDispatcher:
             for project in active_projects:
                 await self._advance_phase_if_complete(db, project.id)
                 await self._promote_and_dispatch(db, project.id)
+                await self._reassign_orphaned_tasks(db, project.id)
                 await self._dispatch_agent_tasks(db, project.id)
             await db.commit()
 
@@ -152,6 +153,36 @@ class GlobalDispatcher:
                 project_id=str(project_id),
                 prompt=_extract_prompt(task.worker_prompt),
             )
+
+    async def _reassign_orphaned_tasks(self, db: AsyncSession, project_id: uuid.UUID) -> None:
+        """Auto-assign orphaned tasks (assigned_agent_id IS NULL) via keyword matching."""
+        from backend.src.core.task_assignment import match_agent_for_task
+        from backend.src.models import Agent
+
+        result = await db.execute(
+            select(Task).where(
+                Task.project_id == project_id,
+                Task.status == TaskStatus.pending,
+                Task.assigned_agent_id.is_(None),
+                Task.source == "llm",
+            ).order_by(Task.created_at.asc()).limit(5)
+        )
+        orphans = list(result.scalars().all())
+        if not orphans:
+            return
+
+        agents_result = await db.execute(
+            select(Agent).where(Agent.is_active.is_(True))
+        )
+        all_agents = list(agents_result.scalars().all())
+
+        for task in orphans:
+            text = f"{task.title} {task.description or ''}".lower()
+            best = match_agent_for_task(text, all_agents, exclude_id=task.agent_id)
+            if best:
+                task.assigned_agent_id = best.id
+                logger.info("orphan_task_assigned", task_id=str(task.id),
+                            title=task.title, agent=best.name)
 
     async def _advance_phase_if_complete(self, db: AsyncSession, project_id: uuid.UUID) -> None:
         """If every task in the active phase is done, activate the next pending phase."""
