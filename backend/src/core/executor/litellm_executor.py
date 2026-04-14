@@ -95,7 +95,7 @@ class LiteLLMExecutor:
         base_url: str | None = None,
         temperature: float = 0.7,
         max_tokens: int = 4096,
-        max_iterations: int = 25,
+        max_iterations: int = 10,
         project_id: uuid.UUID | None = None,
         on_event: Callable[[ExecutionEvent], Any] | None = None,
     ) -> ExecutionResult:
