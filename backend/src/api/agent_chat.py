@@ -800,20 +800,39 @@ async def _process_agent_in_background(
             tenant_id=tenant_id,
         )
 
-        # Delegation: dispatch @mentioned agents.
-        # When tool_use agents produce no text (only tool calls), mentions
-        # may be in tool call arguments (e.g. task descriptions). Scan both.
+        # Delegation: dispatch @mentioned agents OR auto-delegate pending tasks.
+        # Two strategies:
+        # 1. Parse @mentions from text + tool call args
+        # 2. If no mentions found, auto-delegate: find pending unclaimed tasks
+        #    and dispatch the org-root (CEO) to handle them
         delegation_text = getattr(msg, "_delegation_text", None) or msg.content or ""
 
         delegated = _parse_mentions(delegation_text, all_agents)
         delegated = [d for d in delegated if d.id != agent_id]
+
+        # Auto-delegation fallback: if the agent created tasks but didn't
+        # @mention anyone (common with tool_use-only models like Qwen3),
+        # dispatch the org root (CEO) to review and delegate the new tasks.
+        if not delegated and msg.actions:
+            created_tasks = [a for a in msg.actions if isinstance(a, dict) and a.get("tool") == "create_task"]
+            if created_tasks:
+                org_root = _find_org_root(all_agents)
+                if org_root and org_root.id != agent_id:
+                    delegated = [org_root]
+                    logger.info("auto_delegation_to_root",
+                                from_agent=str(agent_id),
+                                root_agent=org_root.name,
+                                tasks_created=len(created_tasks))
+
         if delegated:
             logger.info("delegation_triggered",
                         from_agent=str(agent_id),
                         to_agents=[d.name for d in delegated])
         for delegate in delegated:
+            # Tell the delegated agent about the new tasks
+            delegation_msg = msg.content or f"새로운 작업이 생성되었습니다. list_tasks로 확인하고 적절한 팀원에게 업무를 배분해주세요."
             asyncio.create_task(_process_agent_in_background(
-                project_id, delegate.id, msg.content or user_message, redis, tenant_id,
+                project_id, delegate.id, delegation_msg, redis, tenant_id,
             ))
 
     except Exception as e:
