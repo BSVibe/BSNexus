@@ -115,6 +115,7 @@ CRITICAL_RULES_INLINE = """\
 
 ### Output your work as files
 - **file_write** to save research results, reports, analysis as .md files
+- Save files to `docs/`, `reports/`, or `research/` (NOT inside `.bsnexus/`)
 - **create_screen** to create UI designs as .bsd files (Designer only)
 - Do NOT just describe your work in text — SAVE it to workspace files
 """

@@ -636,6 +636,16 @@ async def _call_via_worker(
             usage = payload.get("usage", {})
             cost_cents = usage.get("cost_cents", 0)
 
+            # Build delegation text from tool call inputs (worker path).
+            delegation_parts = [payload.get("output", "")]
+            for tc in tool_actions:
+                inp = tc.get("input", {})
+                if isinstance(inp, dict):
+                    for v in inp.values():
+                        if isinstance(v, str):
+                            delegation_parts.append(v)
+            delegation_text = " ".join(delegation_parts)
+
             async with async_session() as fresh_db:
                 if cost_cents > 0:
                     budget_svc = BudgetService(fresh_db)
@@ -646,10 +656,12 @@ async def _call_via_worker(
                         token_count=usage.get("total_tokens", 0),
                         model_name=usage.get("model", ""),
                     )
-                return await _process_response_text(
+                msg = await _process_response_text(
                     payload.get("output", ""), project, project_id, agent, fresh_db, redis,
                     tenant_id=tenant_id, tool_actions=tool_actions,
                 )
+                msg._delegation_text = delegation_text  # type: ignore[attr-defined]
+                return msg
         await asyncio.sleep(0.5)
         waited += 0.5
 
