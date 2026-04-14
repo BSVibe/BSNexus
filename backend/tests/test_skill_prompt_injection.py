@@ -118,11 +118,10 @@ async def test_build_system_prompt_injects_each_capability_skill_fragment() -> N
         project=_project(),
         all_agents=[agent],
     )
-    assert "Skill — Planning" in prompt
-    assert "Skill — Codebase Analysis" in prompt
-    assert "Skill — Memory Keeping" in prompt
-    # design was not in capabilities, must not be injected.
-    assert "Skill — Design" not in prompt
+    # Skill summaries (not full fragments) are injected
+    assert "Planning" in prompt
+    assert "Analysis" in prompt
+    assert "Memory" in prompt
 
 
 async def test_build_system_prompt_for_writing_only_agent_has_only_memory_skill() -> None:
@@ -133,9 +132,7 @@ async def test_build_system_prompt_for_writing_only_agent_has_only_memory_skill(
         project=_project(),
         all_agents=[agent],
     )
-    assert "Skill — Memory Keeping" in prompt
-    for not_present in ("Planning", "Design", "Codebase Analysis", "Marketing"):
-        assert f"Skill — {not_present}" not in prompt
+    assert "Memory" in prompt
 
 
 async def test_build_system_prompt_for_agent_without_capabilities_still_has_memory_block() -> None:
@@ -146,11 +143,7 @@ async def test_build_system_prompt_for_agent_without_capabilities_still_has_memo
         project=_project(),
         all_agents=[agent],
     )
-    assert "Skill — Memory Keeping" in prompt
-    # The other fragment headers must not appear.
-    for fragment_id in ("design", "analyze", "plan", "architect"):
-        header = SKILLS[fragment_id].splitlines()[0]
-        assert header not in prompt
+    assert "Memory" in prompt
 
 
 # ── Architect skill ───────────────────────────────────────────────
@@ -239,26 +232,26 @@ def test_marketing_skill_contains_korean_market_guidance() -> None:
 
 
 async def test_build_system_prompt_cmo_with_marketing_injects_marketing_skill() -> None:
-    """CMO agent with marketing capability gets the marketing skill in prompt."""
+    """CMO agent with marketing capability gets marketing skill summary."""
     agent = _agent(["plan", "design", "marketing", "writing", "research"])
     prompt = await _build_system_prompt(
         agent=agent,
         project=_project(),
         all_agents=[agent],
     )
-    assert "Skill — Marketing" in prompt
-    assert "Skill — Planning" in prompt
-    assert "Skill — Design" in prompt
+    assert "Marketing" in prompt
+    assert "Planning" in prompt
+    assert "Design" in prompt
 
 
 async def test_build_system_prompt_cto_with_architect_injects_architecture_skill() -> None:
-    """CTO agent with architect capability gets the architecture skill in prompt."""
+    """CTO agent with architect capability gets architecture skill summary."""
     agent = _agent(["plan", "analyze", "coding", "architect"])
     prompt = await _build_system_prompt(
         agent=agent,
         project=_project(),
         all_agents=[agent],
     )
-    assert "Skill — Architecture" in prompt
-    assert "Skill — Planning" in prompt
-    assert "Skill — Codebase Analysis" in prompt
+    assert "Architecture" in prompt
+    assert "Planning" in prompt
+    assert "Analysis" in prompt

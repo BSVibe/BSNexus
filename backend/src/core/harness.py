@@ -314,17 +314,13 @@ async def assemble_system_prompt(
     if rules_text:
         parts.append(rules_text)
 
-    # ── Agent skills (capability-driven, from .bsnexus/skills/) ──
+    # ── Agent skills (one-liner summaries, not full fragments) ──
+    # Full skill fragments are in .bsnexus/skills/ for file_read.
+    # Only inject short summaries to keep prompt small for local models.
 
-    skills_text = _read_agent_skills(workspace_dir, agent)
-    if skills_text:
-        parts.append(skills_text)
-    else:
-        # Fallback: render skills from in-memory registry when no workspace
-        from backend.src.prompts.skills import render_skills_for_capabilities
-        fallback = render_skills_for_capabilities(agent.capabilities)
-        if fallback:
-            parts.append(fallback)
+    skill_summaries = _build_skill_summaries(agent)
+    if skill_summaries:
+        parts.append(skill_summaries)
 
     # ── .bsnexus/ context reference (like Claude Code's .claude/) ──
 
@@ -363,6 +359,40 @@ def _read_harness_dir(workspace_dir: str | None, subdir: str) -> str:
         except Exception:
             logger.warning("harness_read_error", path=str(f), exc_info=True)
     return "\n\n".join(parts)
+
+
+SKILL_SUMMARIES: dict[str, str] = {
+    "plan": "Planning — turn goals into phases and tasks with priorities",
+    "analyze": "Analysis — read codebases and produce structured reports",
+    "design": "Design — create UI screens as .bsd files via create_screen tool",
+    "architect": "Architecture — evaluate tech stacks and produce architecture diagrams",
+    "marketing": "Marketing — landing page copy, acquisition channels, content calendars",
+    "memory_keeping": "Memory — save important decisions and context across sessions",
+}
+
+
+def _build_skill_summaries(agent: "Agent") -> str:
+    """Build compact skill one-liners for the agent's capabilities."""
+    from backend.src.prompts.skills import CAPABILITY_TO_SKILLS, UNIVERSAL_SKILLS
+
+    skill_ids: set[str] = set()
+    for cap in (agent.capabilities or []):
+        key = (cap or "").strip().lower()
+        for sid in CAPABILITY_TO_SKILLS.get(key, []):
+            skill_ids.add(sid)
+    for u in UNIVERSAL_SKILLS:
+        skill_ids.add(u)
+
+    if not skill_ids:
+        return ""
+
+    lines = ["## Your Skills"]
+    for sid in sorted(skill_ids):
+        summary = SKILL_SUMMARIES.get(sid)
+        if summary:
+            lines.append(f"- {summary}")
+    lines.append("Details in `.bsnexus/skills/` — use file_read if needed.")
+    return "\n".join(lines)
 
 
 def _read_harness_file(workspace_dir: str | None, path: str) -> str:

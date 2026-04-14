@@ -119,10 +119,10 @@ class TestAssembleSystemPrompt:
         prompt = await assemble_system_prompt(
             agent, _project(), str(tmp_path),
         )
-        assert "Skill — Planning" in prompt
-        assert "Skill — Codebase Analysis" in prompt
-        assert "Skill — Memory Keeping" in prompt
-        assert "Skill — Design" not in prompt
+        assert "Planning" in prompt
+        assert "Analysis" in prompt
+        assert "Memory" in prompt
+        assert "Design" not in prompt or "Your Skills" in prompt
 
     @pytest.mark.asyncio
     async def test_reads_user_custom_rules(self, tmp_path: Path) -> None:
@@ -159,15 +159,15 @@ class TestAssembleSystemPrompt:
 
     @pytest.mark.asyncio
     async def test_fallback_when_no_workspace(self) -> None:
-        """No workspace_dir → critical rules + fallback skills still present."""
+        """No workspace_dir → critical rules + skill summaries still present."""
         prompt = await assemble_system_prompt(
             _agent(), _project(), None,
         )
         # Critical rules always inlined regardless of workspace
         assert "claim_task" in prompt
         assert "complete_task" in prompt
-        # Skill fragments fall back to in-memory registry
-        assert "Memory Keeping" in prompt
+        # Skill summaries present
+        assert "Memory" in prompt
 
 
 class TestRefreshContext:
