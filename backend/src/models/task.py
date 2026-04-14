@@ -98,6 +98,9 @@ class Task(Base):
     agent_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("agents.id", ondelete="SET NULL"), nullable=True
     )
+    assigned_agent_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("agents.id", ondelete="SET NULL"), nullable=True,
+    )
     goal_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("goals.id", ondelete="SET NULL"), nullable=True
     )
