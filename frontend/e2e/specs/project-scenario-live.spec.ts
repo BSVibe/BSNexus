@@ -18,7 +18,7 @@ test.describe('Full project scenario — CMO-initiated', () => {
   test.skip(skipUnlessLive, 'not live')
 
   test('CMO research → CEO delegation → files + design', async ({ page }) => {
-    test.setTimeout(900_000) // 15 min — multiple agents, local model
+    test.setTimeout(2_400_000) // 40 min — 6+ agents on local model, sequential vLLM
 
     // ── Login + Dashboard ──
     await loginAndNavigate(page, '/dashboard')
@@ -69,7 +69,7 @@ test.describe('Full project scenario — CMO-initiated', () => {
     const agentsSeen = new Set<string>()
     let chainComplete = false
 
-    for (let i = 0; i < 85; i++) { // 85 x 10s = ~14 min
+    for (let i = 0; i < 220; i++) { // 220 x 10s = ~36 min
       await page.waitForTimeout(10_000)
       const elapsed = (i + 1) * 10
 
@@ -117,22 +117,22 @@ test.describe('Full project scenario — CMO-initiated', () => {
       lastTaskCount = tasks
       lastMsgCount = msgs
 
-      // Full success: multi-agent chain with tasks + files or design
-      if (phases >= 1 && tasks >= 3 && agentsSeen.size >= 3) {
+      // Full success: 4+ agents responded with multiple phases
+      if (phases >= 2 && tasks >= 5 && agentsSeen.size >= 4) {
         console.log(`\nFull chain complete at ${elapsed}s!`)
         chainComplete = true
         break
       }
 
       // Good: multi-agent chain with delegation
-      if (phases >= 1 && tasks >= 2 && agentsSeen.size >= 2) {
+      if (phases >= 1 && tasks >= 3 && agentsSeen.size >= 3) {
         console.log(`\nChain with delegation at ${elapsed}s`)
         chainComplete = true
         break
       }
 
-      // Minimum at 10 min: at least some progress
-      if (elapsed >= 600 && phases >= 1 && msgs >= 1) {
+      // Minimum at 30 min: at least some progress
+      if (elapsed >= 1800 && phases >= 1 && msgs >= 1) {
         console.log(`\nMinimum progress at ${elapsed}s`)
         chainComplete = true
         break
