@@ -109,7 +109,9 @@ class GlobalDispatcher:
 
     async def _list_active_projects(self, db: AsyncSession) -> list[Project]:
         result = await db.execute(
-            select(Project).where(Project.status == ProjectStatus.active)
+            select(Project).where(
+                Project.status.in_([ProjectStatus.active, ProjectStatus.design])
+            )
         )
         return list(result.scalars().all())
 
