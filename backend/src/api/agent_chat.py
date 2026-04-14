@@ -486,11 +486,24 @@ async def _call_via_executor(
         tool_actions = _build_tool_actions(result)
         primary_task_id = _extract_primary_task_id(result)
 
-        return await _process_response_text(
+        # Build delegation text from tool call inputs (for @mention parsing).
+        # When agents use tool_use only (no text response), mentions live
+        # in tool arguments (e.g. task descriptions, file content).
+        delegation_text_parts = [result.content or ""]
+        for tc in (result.tool_calls_made or []):
+            if isinstance(tc.input, dict):
+                for v in tc.input.values():
+                    if isinstance(v, str):
+                        delegation_text_parts.append(v)
+
+        msg = await _process_response_text(
             result.content, project, project_id, agent, result_db, redis,
             tenant_id=tenant_id, tool_actions=tool_actions,
             task_id=primary_task_id,
         )
+        # Attach delegation text for _process_agent_in_background
+        msg._delegation_text = " ".join(delegation_text_parts)  # type: ignore[attr-defined]
+        return msg
 
 
 def _build_tool_actions(result: Any) -> list[dict[str, Any]]:
@@ -776,12 +789,19 @@ async def _process_agent_in_background(
         )
 
         # Delegation: dispatch @mentioned agents.
-        # Self-mentions filtered out — agents must not delegate to themselves.
-        delegated = _parse_mentions(msg.content, all_agents)
+        # When tool_use agents produce no text (only tool calls), mentions
+        # may be in tool call arguments (e.g. task descriptions). Scan both.
+        delegation_text = getattr(msg, "_delegation_text", None) or msg.content or ""
+
+        delegated = _parse_mentions(delegation_text, all_agents)
         delegated = [d for d in delegated if d.id != agent_id]
+        if delegated:
+            logger.info("delegation_triggered",
+                        from_agent=str(agent_id),
+                        to_agents=[d.name for d in delegated])
         for delegate in delegated:
             asyncio.create_task(_process_agent_in_background(
-                project_id, delegate.id, msg.content, redis, tenant_id,
+                project_id, delegate.id, msg.content or user_message, redis, tenant_id,
             ))
 
     except Exception as e:

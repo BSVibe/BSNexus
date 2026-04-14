@@ -3,6 +3,18 @@
 Phase 1 (prompt inline) 완료 후 Playwright E2E 검증에서 발견된 이슈 목록.
 시나리오 테스트 성공 후 전체 리팩토링 시 함께 처리.
 
+## 테스트 진행 상황 (2026-04-14)
+
+| 항목 | 상태 | 비고 |
+|------|------|------|
+| 프로젝트 생성 (API) | PASS | 매번 새 프로젝트 생성 |
+| Phase/Task 생성 | PASS | 1 phase, 4 tasks (이전 1개 → 4개) |
+| 한국어 응답 | PARTIAL | 이전 테스트에서 확인, 최신 테스트에서 빈 응답 |
+| 에이전트 체이닝 | FAIL | CMO만 응답, delegation chain 미발생 |
+| Files 탭 | FAIL | file_write 미사용 |
+| Design 탭 | FAIL | create_screen 미사용 |
+| vLLM 안정성 | ISSUE | 대형 프롬프트에서 hang, 재시작 필요 |
+
 ## Critical — 시나리오 성공에 필요
 
 ### 1. 에이전트가 한국어 미준수
