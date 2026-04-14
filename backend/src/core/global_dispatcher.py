@@ -260,6 +260,19 @@ class GlobalDispatcher:
                 f"Type: {task.task_type.value}"
             )
 
+            # Mark task as running BEFORE dispatch to prevent double-dispatch
+            sm = TaskStateMachine()
+            await sm.transition(
+                task=task,
+                new_status=TaskStatus.running,
+                reason=f"passive dispatch to {agent.name}",
+                actor="dispatcher",
+                db_session=db,
+                stream_manager=self._stream,
+            )
+            task.agent_id = agent.id
+            await db.flush()
+
             from backend.src.api.agent_chat import _process_agent_in_background_passive
             import asyncio as _asyncio
             _asyncio.create_task(
