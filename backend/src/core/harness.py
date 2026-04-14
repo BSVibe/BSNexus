@@ -308,11 +308,9 @@ async def assemble_system_prompt(
                 lines.append(desc)
             parts.append("\n".join(lines))
 
-    # ── Workspace rules (from .bsnexus/rules/) ──
-
-    rules_text = _read_harness_dir(workspace_dir, "rules")
-    if rules_text:
-        parts.append(rules_text)
+    # ── Workspace rules ──
+    # NOT inlined — they're large and covered by CRITICAL_RULES_INLINE.
+    # Agents can file_read .bsnexus/rules/ for details.
 
     # ── Agent skills (one-liner summaries, not full fragments) ──
     # Full skill fragments are in .bsnexus/skills/ for file_read.

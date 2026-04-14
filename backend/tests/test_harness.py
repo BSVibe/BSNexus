@@ -125,14 +125,19 @@ class TestAssembleSystemPrompt:
         assert "Design" not in prompt or "Your Skills" in prompt
 
     @pytest.mark.asyncio
-    async def test_reads_user_custom_rules(self, tmp_path: Path) -> None:
+    async def test_workspace_rules_not_inlined(self, tmp_path: Path) -> None:
+        """Workspace rules are NOT inlined — too large for local models.
+        Agents read them via file_read from .bsnexus/rules/."""
         seed_harness(tmp_path)
         custom = tmp_path / HARNESS_DIR / "rules" / "custom.md"
         custom.write_text("# Custom Rule\nAlways respond in Korean.")
         prompt = await assemble_system_prompt(
             _agent(), _project(), str(tmp_path),
         )
-        assert "Always respond in Korean" in prompt
+        # Custom rules stay in files, not in prompt
+        assert "Always respond in Korean" not in prompt
+        # But .bsnexus reference tells agents to read them
+        assert ".bsnexus" in prompt
 
     @pytest.mark.asyncio
     async def test_includes_team_roster(self, tmp_path: Path) -> None:
