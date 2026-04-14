@@ -117,23 +117,23 @@ test.describe('Full project scenario — CMO-initiated', () => {
       lastTaskCount = tasks
       lastMsgCount = msgs
 
-      // Success: multi-agent chain with tasks
-      if (phases >= 1 && tasks >= 2 && agentsSeen.size >= 2) {
-        console.log(`\nChain complete at ${elapsed}s!`)
+      // Full success: multi-agent chain with tasks + files or design
+      if (phases >= 1 && tasks >= 3 && agentsSeen.size >= 3) {
+        console.log(`\nFull chain complete at ${elapsed}s!`)
         chainComplete = true
         break
       }
 
-      // Acceptable: chain happened (2+ agents) even if few tasks
-      if (agentsSeen.size >= 2 && msgs >= 2 && phases >= 1) {
+      // Good: multi-agent chain with delegation
+      if (phases >= 1 && tasks >= 2 && agentsSeen.size >= 2) {
         console.log(`\nChain with delegation at ${elapsed}s`)
         chainComplete = true
         break
       }
 
-      // Minimum: single agent completed with results
-      if (elapsed >= 300 && phases >= 1 && msgs >= 1) {
-        console.log(`\nSingle agent completed at ${elapsed}s`)
+      // Minimum at 10 min: at least some progress
+      if (elapsed >= 600 && phases >= 1 && msgs >= 1) {
+        console.log(`\nMinimum progress at ${elapsed}s`)
         chainComplete = true
         break
       }

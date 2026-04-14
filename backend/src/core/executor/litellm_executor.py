@@ -171,8 +171,17 @@ class LiteLLMExecutor:
             tool_calls_raw = getattr(message, "tool_calls", None)
 
             if not tool_calls_raw or finish_reason not in ("tool_calls", "stop"):
-                # Final response — no more tool calls
+                # Final response — no more tool calls.
+                # Some local models (Qwen3) return empty content after tool_use.
+                # If content is empty, synthesize from the last assistant text
+                # that appeared alongside tool calls.
                 content = message.content or ""
+                if not content.strip() and all_tool_calls:
+                    # Look for the most recent non-empty assistant content
+                    for prev_msg in reversed(messages):
+                        if prev_msg.get("role") == "assistant" and prev_msg.get("content", "").strip():
+                            content = prev_msg["content"]
+                            break
 
                 # Calculate cost
                 try:
