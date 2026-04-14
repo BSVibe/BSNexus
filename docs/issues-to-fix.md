@@ -70,7 +70,18 @@
 - task_assignment.py 단위 테스트 필요
 - GlobalDispatcher passive dispatch 테스트 필요
 
-### 11. vLLM 인프라 불안정
+### 11. 중지해도 큐잉된 에이전트가 계속 실행됨
+- **증상**: 프론트에서 중지 눌러도 현재 에이전트만 멈추고, 이미 dispatch된 에이전트가 이어서 실행
+- **원인**: `asyncio.create_task()`로 dispatch된 background task는 CancellationToken과 별개
+  - Active mode: `_process_agent_in_background`가 delegation으로 여러 agent를 `create_task` dispatch
+  - Passive mode: `GlobalDispatcher._dispatch_agent_tasks`가 5초마다 새 agent dispatch
+  - 중지 시 현재 executor만 cancel, 이미 큐잉된 background task는 계속 실행
+- **해결 방향**:
+  - `_project_tasks` dict에 있는 모든 background task를 cancel
+  - GlobalDispatcher가 중지된 프로젝트의 task dispatch를 skip
+  - 프로젝트 레벨 stop flag (Redis key 또는 DB status) 체크
+
+### 12. vLLM 인프라 불안정
 - 대형 context에서 hang → kill -9 재시작
 - Colima crash — vLLM + Docker 동시 메모리 사용
 - 장기적: vLLM 대신 ollama, 또는 더 작은 모델 검토
