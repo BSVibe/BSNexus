@@ -130,3 +130,30 @@ def get_tools_for_agent(capabilities: list[str] | None) -> list[Tool]:
             tool_names.add(name)
 
     return [instances[name] for name in sorted(tool_names) if name in instances]
+
+
+def get_tools_for_mode(mode: str, capabilities: list[str] | None) -> list[Tool]:
+    """Return tools filtered by workflow mode.
+
+    Active mode: planning tools (create_task, create_phase, etc.)
+    Passive mode: execution tools (claim_task, complete_task, file_write, etc.)
+    """
+    instances = _ensure_instances()
+
+    if mode == "passive":
+        tool_names: set[str] = {
+            "claim_task", "complete_task",
+            "file_read", "file_write", "list_files", "list_tasks",
+        }
+        # Add capability-specific execution tools
+        caps = {(c or "").strip().lower() for c in (capabilities or [])}
+        if "design" in caps:
+            tool_names |= {"create_screen", "modify_screen"}
+    else:  # active
+        tool_names = {
+            "create_task", "create_phase", "list_tasks",
+            "set_goal", "record_decision",
+            "file_read", "list_files",
+        }
+
+    return [instances[name] for name in sorted(tool_names) if name in instances]

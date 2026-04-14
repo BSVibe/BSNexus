@@ -75,6 +75,8 @@ class ToolContext:
     redis: Any | None = None
     stream_manager: RedisStreamManager | None = None
     extra: dict[str, Any] = field(default_factory=dict)
+    tasks_created_this_turn: int = 0
+    max_tasks_per_turn: int = 10
 
 
 class Tool(ABC):

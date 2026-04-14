@@ -110,7 +110,7 @@ class TestAssembleSystemPrompt:
             _agent(), _project(), str(tmp_path),
         )
         assert "create_task" in prompt
-        assert "claim_task" in prompt
+        assert "PLAN and DELEGATE" in prompt or "Active" in prompt
 
     @pytest.mark.asyncio
     async def test_reads_skills_for_capabilities(self, tmp_path: Path) -> None:
@@ -153,24 +153,34 @@ class TestAssembleSystemPrompt:
         assert "@Designer" in prompt
 
     @pytest.mark.asyncio
-    async def test_critical_rules_always_inlined(self, tmp_path: Path) -> None:
-        """Critical workflow and delegation rules are always in the prompt."""
+    async def test_active_mode_has_planning_rules(self, tmp_path: Path) -> None:
+        """Active mode includes planning + delegation rules."""
         prompt = await assemble_system_prompt(
             _agent(), _project(), str(tmp_path),
         )
+        assert "create_task" in prompt
+        assert "create_phase" in prompt
+
+    @pytest.mark.asyncio
+    async def test_passive_mode_has_execution_rules(self, tmp_path: Path) -> None:
+        """Passive mode includes execution rules + task context."""
+        prompt = await assemble_system_prompt(
+            _agent(), _project(), str(tmp_path),
+            mode="passive",
+            task_context="Task ID: abc\nTitle: Design UI",
+        )
         assert "claim_task" in prompt
         assert "complete_task" in prompt
-        assert "Delegation" in prompt
+        assert "Design UI" in prompt
+        assert "create_task" not in prompt or "Do NOT create" in prompt
 
     @pytest.mark.asyncio
     async def test_fallback_when_no_workspace(self) -> None:
-        """No workspace_dir → critical rules + skill summaries still present."""
+        """No workspace_dir → mode rules + skill summaries still present."""
         prompt = await assemble_system_prompt(
             _agent(), _project(), None,
         )
-        # Critical rules always inlined regardless of workspace
-        assert "claim_task" in prompt
-        assert "complete_task" in prompt
+        assert "create_task" in prompt  # active mode default
         # Skill summaries present
         assert "Memory" in prompt
 

@@ -38,7 +38,7 @@ from backend.src.core.worker_dispatch import WorkerDispatcher
 from backend.src.queue.streams import RedisStreamManager
 from backend.src.repositories.conversation_repository import ConversationRepository
 from backend.src.storage.database import async_session, get_db
-from backend.src.tools.agent_tools import get_tools_for_agent
+from backend.src.tools.agent_tools import get_tools_for_agent, get_tools_for_mode
 from backend.src.tools.approval import ApprovalMiddleware
 from backend.src.tools.base import ToolContext
 from backend.src.tools.handler import ToolHandler
@@ -195,12 +195,10 @@ async def _build_system_prompt(
     all_agents: list[models.Agent],
     org_context: str = "",
     active_decisions: list[str] | None = None,
+    mode: str = "active",
+    task_context: str = "",
 ) -> str:
-    """Build the system prompt via the harness (workspace-based modules).
-
-    Falls back to inline defaults for projects without a workspace or
-    without a ``.bsnexus/`` directory.
-    """
+    """Build the system prompt via the harness (workspace-based modules)."""
     from backend.src.core.harness import assemble_system_prompt, seed_harness
 
     workspace_dir = project.workspace_dir
@@ -209,6 +207,8 @@ async def _build_system_prompt(
 
     return await assemble_system_prompt(
         agent, project, workspace_dir,
+        mode=mode,
+        task_context=task_context,
         org_context=org_context,
         all_agents=all_agents,
         active_decisions=active_decisions,
@@ -365,6 +365,8 @@ async def _build_chat_context(
     history: list[models.ConversationMessage], user_message: str,
     db: AsyncSession, all_agents: list[models.Agent],
     *, tenant_id: uuid.UUID,
+    mode: str = "active",
+    task_context: str = "",
 ) -> tuple[str, list[dict[str, str]]]:
     org_context = await _build_org_context(tenant_id, db)
 
@@ -376,6 +378,8 @@ async def _build_chat_context(
         agent, project, all_agents=all_agents,
         org_context=org_context,
         active_decisions=active_decisions,
+        mode=mode,
+        task_context=task_context,
     )
     messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
     for h in history:
@@ -413,23 +417,21 @@ async def _call_via_executor(
     history: list[models.ConversationMessage], user_message: str,
     db: AsyncSession | None, redis: Any, all_agents: list[models.Agent],
     *, tenant_id: uuid.UUID,
+    mode: str = "active",
+    task_context: str = "",
 ) -> models.ConversationMessage:
-    """Call the agent via LiteLLMExecutor with tool_use support.
-
-    The executor runs an agentic loop: LLM → tool_call → execute → repeat.
-    Tools (file_write, create_task, etc.) are executed during the loop,
-    so no marker post-processing is needed.
-    """
+    """Call the agent via LiteLLMExecutor with tool_use support."""
     # Phase A: Build context (short-lived DB session).
     async with async_session() as setup_db:
         llm_config = await _resolve_llm_config(agent, setup_db)
         _, messages = await _build_chat_context(
-            agent, project, project_id, history, user_message, setup_db, all_agents, tenant_id=tenant_id,
+            agent, project, project_id, history, user_message, setup_db, all_agents,
+            tenant_id=tenant_id, mode=mode, task_context=task_context,
         )
     # setup_db CLOSED — no DB held during executor run.
 
     # Phase B: Build tool context and handler.
-    tools = get_tools_for_agent(agent.capabilities)
+    tools = get_tools_for_mode(mode, agent.capabilities)
     stream_manager = RedisStreamManager(redis) if redis else None
     tool_context = ToolContext(
         project_id=project_id,
@@ -673,12 +675,10 @@ async def _call_agent(
     history: list[models.ConversationMessage], user_message: str,
     db: AsyncSession | None, redis: Any, all_agents: list[models.Agent],
     *, tenant_id: uuid.UUID,
+    mode: str = "active",
+    task_context: str = "",
 ) -> models.ConversationMessage:
-    """Route to executor; fall back to worker if LLM is unconfigured.
-
-    ``db`` may be None — internal functions open their own short-lived
-    sessions so no connection is held during the long worker poll.
-    """
+    """Route to executor; fall back to worker if LLM is unconfigured."""
     if agent.executor_type == "worker":
         return await _call_via_worker(
             agent, project, project_id, history, user_message, db, redis, all_agents,
@@ -687,7 +687,7 @@ async def _call_agent(
     try:
         return await _call_via_executor(
             agent, project, project_id, history, user_message, db, redis, all_agents,
-            tenant_id=tenant_id,
+            tenant_id=tenant_id, mode=mode, task_context=task_context,
         )
     except HTTPException as e:
         if e.status_code == 400 and "No LLM API key" in str(e.detail):
@@ -830,7 +830,7 @@ async def _process_agent_in_background(
                         to_agents=[d.name for d in delegated])
         for delegate in delegated:
             # Tell the delegated agent about the new tasks
-            delegation_msg = msg.content or f"새로운 작업이 생성되었습니다. list_tasks로 확인하고 적절한 팀원에게 업무를 배분해주세요."
+            delegation_msg = msg.content or "새로운 작업이 생성되었습니다. list_tasks로 확인하고 적절한 팀원에게 업무를 배분해주세요."
             asyncio.create_task(_process_agent_in_background(
                 project_id, delegate.id, delegation_msg, redis, tenant_id,
             ))
@@ -858,6 +858,77 @@ async def _process_agent_in_background(
         # When agent completes a task (via complete_task tool), the state machine
         # publishes task_transition SSE which updates the frontend dot color.
         pass
+
+
+# ── Passive mode agent processing ──────────────────────────────────
+
+
+async def _process_agent_in_background_passive(
+    project_id: uuid.UUID,
+    agent_id: uuid.UUID,
+    task_id: uuid.UUID,
+    task_context: str,
+    redis: Any,
+    tenant_id: uuid.UUID,
+) -> None:
+    """Run an agent in passive mode to execute a specific task.
+
+    Unlike active mode, passive agents:
+    - Get execution tools only (claim, file_write, complete)
+    - Receive task details in the system prompt
+    - Do NOT trigger delegation chains after completion
+    """
+    async with async_session() as setup_db:
+        project_result = await setup_db.execute(
+            select(models.Project).where(models.Project.id == project_id)
+            .options(selectinload(models.Project.phases).selectinload(models.Phase.tasks))
+        )
+        project = project_result.scalar_one_or_none()
+        if not project:
+            return
+
+        agents_result = await setup_db.execute(
+            select(models.Agent).where(
+                models.Agent.tenant_id == tenant_id,
+                models.Agent.is_active.is_(True),
+            )
+        )
+        all_agents = list(agents_result.scalars().all())
+        agent = next((a for a in all_agents if a.id == agent_id), None)
+        if not agent:
+            return
+
+        history = await ConversationRepository(setup_db).list_by_project(project_id, limit=MAX_HISTORY)
+
+    user_message = (
+        f"작업이 할당되었습니다. 아래 내용을 확인하고 실행해주세요.\n\n"
+        f"{task_context}\n\n"
+        f"claim_task로 작업을 시작하고, 완료되면 complete_task로 마무리해주세요."
+    )
+
+    try:
+        await _call_agent(
+            agent, project, project_id, history, user_message, None, redis, all_agents,
+            tenant_id=tenant_id,
+            mode="passive",
+            task_context=task_context,
+        )
+        # No delegation chain in passive mode.
+        # If agent blocked, state_machine handles escalation.
+        logger.info("passive_agent_completed", agent=agent.name, task_id=str(task_id))
+    except Exception as e:
+        logger.error("passive_agent_failed", agent_id=str(agent_id), task_id=str(task_id), error=str(e))
+        try:
+            async with async_session() as err_db:
+                await _store_and_publish(
+                    err_db, redis, project_id,
+                    role="assistant",
+                    content=f"작업 실행 중 문제가 발생했습니다: {str(e)[:200]}",
+                    agent=agent,
+                    task_id=task_id,
+                )
+        except Exception:
+            pass
 
 
 # ── Endpoints ───────────────────────────────────────────────────────

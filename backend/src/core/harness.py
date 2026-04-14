@@ -92,35 +92,46 @@ def write_approval_settings(workspace_dir: str | None, settings: dict[str, Appro
 HARNESS_DIR = ".bsnexus"
 
 
-# ── Critical rules — always inlined into system prompt ──────────────
+# ── Mode-specific rules ──────────────────────────────────────────────
 
-CRITICAL_RULES_INLINE = """\
-## CRITICAL: You MUST use tools, not just text
+AgentMode = Literal["active", "passive"]
 
-**NEVER just write text.** Every response MUST include tool calls.
+ACTIVE_MODE_RULES = """\
+## MODE: Active (Chat Response)
 
-### Workflow — ALWAYS follow these steps
-1. **list_tasks** — check existing tasks first (no duplicates)
-2. **create_phase** if no phase exists for this work area
-3. **create_task** for EACH specific work item (create multiple tasks!)
-4. **claim_task** to mark a task as yours
-5. Do the work using tools: **file_write** to save results, **file_read** to research
-6. **complete_task** with a summary when done
+You received a chat message. Your job: PLAN and DELEGATE.
 
-### Delegation — you are part of a team
-- Only **claim_task** for tasks matching YOUR role/expertise
-- For tasks outside your expertise, create the task AND @mention a teammate
-- **IMPORTANT**: After creating tasks, write a text message with @mentions like:
-  "@CTO 기술 스택을 결정해주세요. @Designer UI 디자인을 만들어주세요."
-- Do NOT @mention yourself. Do NOT do everything yourself.
-- A CEO/leader should plan and delegate, NOT execute every task.
+### Workflow
+1. **list_tasks** — check what already exists (no duplicates)
+2. **create_phase** if needed for this work area
+3. **create_task** for each work item — set `assignee` to the best teammate
+4. Reply in chat: summarize your plan and @mention assigned agents
 
-### Output your work as files
-- **file_write** to save research results, reports, analysis as .md files
-- Save files to `docs/`, `reports/`, or `research/` (NOT inside `.bsnexus/`)
-- **create_screen** to create UI designs as .bsd files (Designer only)
-- Do NOT just describe your work in text — SAVE it to workspace files
+### Rules
+- Create 3-7 specific, actionable tasks (not vague)
+- ALWAYS set `assignee` on create_task (e.g. "Designer", "CTO")
+- Do NOT claim or execute tasks — that happens automatically
+- Do NOT @mention yourself
 """
+
+PASSIVE_MODE_RULES = """\
+## MODE: Passive (Task Execution)
+
+You have been assigned a task. Your job: DO the work.
+
+### Workflow
+1. **claim_task** with the task_id provided below
+2. Do the work: **file_write** to save results, **create_screen** for designs
+3. **complete_task** with summary and list of files created
+
+### Rules
+- Save all output to workspace files (docs/, reports/, design/)
+- Do NOT create new tasks or phases — that was done in planning
+- If blocked, change task status to blocked and explain in chat
+"""
+
+# Keep for backward compatibility (existing tests reference it)
+CRITICAL_RULES_INLINE = ACTIVE_MODE_RULES
 
 
 # ── Seed: write default harness files into a workspace ──────────────
@@ -256,18 +267,16 @@ async def assemble_system_prompt(
     project: "Project",
     workspace_dir: str | None,
     *,
+    mode: AgentMode = "active",
+    task_context: str = "",
     org_context: str = "",
     all_agents: list["Agent"] | None = None,
     active_decisions: list[str] | None = None,
 ) -> str:
-    """Build the system prompt by inlining critical rules and reading .bsnexus/.
+    """Build the system prompt with mode-specific rules.
 
-    Core workflow and delegation rules are always inlined so local models
-    (Qwen3-14B etc.) follow them without needing a file_read call.
-    Workspace rules and agent skills are read from .bsnexus/ and appended.
-    Project-level context (goals, decisions) stays in .bsnexus/context/
-    and agents read them via file_read — like Claude Code reads .claude/.
-    Org-level context (mission) is inlined because it lives in DB, not files.
+    Active mode: planning + delegation rules (chat-triggered)
+    Passive mode: execution rules + task details (dispatcher-triggered)
     """
     parts: list[str] = []
 
@@ -294,13 +303,18 @@ async def assemble_system_prompt(
     if agent.system_prompt:
         parts.append(agent.system_prompt)
 
-    # ── Critical rules (always inlined — local models skip file_read) ──
+    # ── Mode-specific rules ──
 
-    parts.append(CRITICAL_RULES_INLINE)
+    if mode == "passive":
+        parts.append(PASSIVE_MODE_RULES)
+        if task_context:
+            parts.append(f"## Your Assigned Task\n\n{task_context}")
+    else:
+        parts.append(ACTIVE_MODE_RULES)
 
-    # ── Team roster (critical for delegation) ──
+    # ── Team roster (critical for delegation in active mode) ──
 
-    if all_agents:
+    if all_agents and mode == "active":
         colleagues = [a for a in all_agents if a.id != agent.id and a.is_active]
         if colleagues:
             lines = ["## Team — @mention to delegate"]

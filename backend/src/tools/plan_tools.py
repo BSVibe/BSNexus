@@ -12,7 +12,7 @@ import uuid
 from typing import Any
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from backend.src.tools.base import Tool, ToolContext, ToolExecutionError
 
@@ -50,12 +50,24 @@ class CreateTaskTool(Tool):
                     "enum": ["feature", "bug", "improvement", "test", "chore", "refactor"],
                     "description": "Type of work. Use chore for research/analysis.",
                 },
+                "assignee": {
+                    "type": "string",
+                    "description": "Name of the agent to assign this task to (e.g. 'CTO', 'Designer'). "
+                                   "The agent will be automatically dispatched to work on it.",
+                },
             },
             "required": ["title"],
         }
 
     async def execute(self, input: dict[str, Any], ctx: ToolContext) -> str:
-        from backend.src.models import Phase, PhaseStatus, Task, TaskPriority, TaskSource, TaskStatus, TaskType
+        from backend.src.models import Agent, Phase, PhaseStatus, Task, TaskPriority, TaskSource, TaskStatus, TaskType
+
+        # Rate limit: prevent infinite task creation loops
+        if ctx.tasks_created_this_turn >= ctx.max_tasks_per_turn:
+            raise ToolExecutionError(
+                f"Maximum {ctx.max_tasks_per_turn} tasks per turn. "
+                "Focus on the most important tasks."
+            )
 
         title = input["title"]
         try:
@@ -83,6 +95,24 @@ class CreateTaskTool(Tool):
                     "No phase exists yet. Use create_phase first to organize work, then create tasks."
                 )
 
+            # Resolve assignee name → agent_id
+            assigned_agent_id = None
+            assignee_name = input.get("assignee")
+            assignee_warning = ""
+            if assignee_name:
+                agent_result = await db.execute(
+                    select(Agent).where(
+                        Agent.tenant_id == ctx.tenant_id,
+                        Agent.is_active.is_(True),
+                        func.lower(Agent.name) == assignee_name.strip().lower(),
+                    )
+                )
+                assignee = agent_result.scalar_one_or_none()
+                if assignee:
+                    assigned_agent_id = assignee.id
+                else:
+                    assignee_warning = f" (warning: agent '{assignee_name}' not found, task unassigned)"
+
             task = Task(
                 project_id=ctx.project_id,
                 phase_id=active.id,
@@ -93,13 +123,19 @@ class CreateTaskTool(Tool):
                 source=TaskSource.llm,
                 status=TaskStatus.pending,
                 agent_id=ctx.agent_id,
+                assigned_agent_id=assigned_agent_id,
                 branch_name=active.branch_name,
             )
             db.add(task)
             await db.commit()
 
-            logger.info("task_created_via_tool", task_id=str(task.id), title=title, agent=ctx.agent_name)
-            return json.dumps({"task_id": str(task.id), "title": title, "status": "pending"})
+            ctx.tasks_created_this_turn += 1
+            logger.info("task_created_via_tool", task_id=str(task.id), title=title,
+                        agent=ctx.agent_name, assignee=assignee_name)
+            return json.dumps({
+                "task_id": str(task.id), "title": title, "status": "pending",
+                "assigned_to": assignee_name or None,
+            }) + assignee_warning
 
 
 class ClaimTaskTool(Tool):

@@ -21,7 +21,7 @@ import uuid
 from typing import Any
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.core.state_machine import TaskStateMachine
@@ -30,6 +30,7 @@ from backend.src.models import (
     PhaseStatus,
     Project,
     ProjectStatus,
+    Task,
     TaskStatus,
 )
 from backend.src.queue.streams import RedisStreamManager
@@ -100,6 +101,7 @@ class GlobalDispatcher:
             for project in active_projects:
                 await self._advance_phase_if_complete(db, project.id)
                 await self._promote_and_dispatch(db, project.id)
+                await self._dispatch_agent_tasks(db, project.id)
             await db.commit()
 
     # ── helpers ─────────────────────────────────────────────────
@@ -176,6 +178,69 @@ class GlobalDispatcher:
                 "next_phase_id": str(next_phase.id) if next_phase is not None else None,
             },
         )
+
+
+    async def _dispatch_agent_tasks(self, db: AsyncSession, project_id: uuid.UUID) -> None:
+        """Find pending tasks with assigned_agent_id and dispatch agents in passive mode."""
+        from backend.src.models import Agent
+
+        result = await db.execute(
+            select(Task).where(
+                Task.project_id == project_id,
+                Task.status == TaskStatus.pending,
+                Task.assigned_agent_id.isnot(None),
+            ).order_by(Task.created_at.asc()).limit(3)
+        )
+        pending_tasks = list(result.scalars().all())
+
+        for task in pending_tasks:
+            # Validate agent is still active
+            agent_result = await db.execute(
+                select(Agent).where(
+                    Agent.id == task.assigned_agent_id,
+                    Agent.is_active.is_(True),
+                )
+            )
+            agent = agent_result.scalar_one_or_none()
+            if not agent:
+                # Agent deleted/inactive → orphan the task for reassignment
+                task.assigned_agent_id = None
+                logger.warning("orphaned_task", task_id=str(task.id), reason="agent_inactive")
+                continue
+
+            # Check if agent is already running a task (avoid double-dispatch)
+            running_result = await db.execute(
+                select(func.count(Task.id)).where(
+                    Task.assigned_agent_id == task.assigned_agent_id,
+                    Task.status == TaskStatus.running,
+                )
+            )
+            if running_result.scalar_one() > 0:
+                continue  # Agent is busy
+
+            # Build task context and dispatch
+            task_context = (
+                f"Task ID: {task.id}\n"
+                f"Title: {task.title}\n"
+                f"Description: {task.description or 'No description'}\n"
+                f"Priority: {task.priority.value}\n"
+                f"Type: {task.task_type.value}"
+            )
+
+            from backend.src.api.agent_chat import _process_agent_in_background_passive
+            import asyncio as _asyncio
+            _asyncio.create_task(
+                _process_agent_in_background_passive(
+                    project_id=project_id,
+                    agent_id=agent.id,
+                    task_id=task.id,
+                    task_context=task_context,
+                    redis=self._stream._redis if self._stream else None,
+                    tenant_id=agent.tenant_id,
+                ),
+                name=f"passive-{agent.name}-{task.id}",
+            )
+            logger.info("passive_agent_dispatched", agent=agent.name, task_id=str(task.id), title=task.title)
 
 
 def _extract_prompt(worker_prompt: dict | None) -> str | None:
