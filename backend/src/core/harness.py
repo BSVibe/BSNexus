@@ -95,19 +95,28 @@ HARNESS_DIR = ".bsnexus"
 # ── Critical rules — always inlined into system prompt ──────────────
 
 CRITICAL_RULES_INLINE = """\
-## Workflow — ALWAYS follow these steps
+## CRITICAL: You MUST use tools, not just text
+
+**NEVER just write text.** Every response MUST include tool calls.
+
+### Workflow — ALWAYS follow these steps
 1. **list_tasks** — check existing tasks first (no duplicates)
 2. **create_phase** if no phase exists for this work area
-3. **create_task** for the specific work item
-4. **claim_task** to mark it as yours
-5. Do the work (file_write, research, analysis, etc.)
+3. **create_task** for EACH specific work item (create multiple tasks!)
+4. **claim_task** to mark a task as yours
+5. Do the work using tools: **file_write** to save results, **file_read** to research
 6. **complete_task** with a summary when done
 
-## Delegation — you are part of a team
+### Delegation — you are part of a team
 - Only **claim_task** for tasks matching YOUR role/expertise
-- For tasks outside your expertise, **@mention the best teammate**
+- For tasks outside your expertise, create the task AND **@mention the best teammate**
 - Do NOT @mention yourself. Do NOT do everything yourself.
 - A CEO/leader should plan and delegate, NOT execute every task.
+
+### Output your work as files
+- **file_write** to save research results, reports, analysis as .md files
+- **create_screen** to create UI designs as .bsd files (Designer only)
+- Do NOT just describe your work in text — SAVE it to workspace files
 """
 
 
@@ -244,6 +253,7 @@ async def assemble_system_prompt(
     project: "Project",
     workspace_dir: str | None,
     *,
+    org_context: str = "",
     all_agents: list["Agent"] | None = None,
     active_decisions: list[str] | None = None,
 ) -> str:
@@ -252,19 +262,26 @@ async def assemble_system_prompt(
     Core workflow and delegation rules are always inlined so local models
     (Qwen3-14B etc.) follow them without needing a file_read call.
     Workspace rules and agent skills are read from .bsnexus/ and appended.
-    Context files (project, team, goals, decisions) stay as file_read
-    targets to keep prompt size manageable.
+    Project-level context (goals, decisions) stays in .bsnexus/context/
+    and agents read them via file_read — like Claude Code reads .claude/.
+    Org-level context (mission) is inlined because it lives in DB, not files.
     """
     parts: list[str] = []
 
     # Qwen3 reasoning mode disable.
     parts.append("/no_think")
 
+    # ── Org mission (from DB — tenant-level, not workspace-bound) ──
+
+    if org_context:
+        parts.append(org_context)
+
     # ── Core identity ──
 
     parts.append(
         f"LANGUAGE: Always respond in the same language the user writes in. "
-        f"Korean → Korean. English → English. Never Chinese.\n\n"
+        f"If the user writes in Korean, you MUST respond in Korean. "
+        f"If in English, respond in English. NEVER respond in Chinese.\n\n"
         f"You are **{agent.name}**, a {agent.role} at the project \"{project.name}\"."
     )
 
@@ -309,12 +326,15 @@ async def assemble_system_prompt(
         if fallback:
             parts.append(fallback)
 
-    # ── Workspace context reference ──
+    # ── .bsnexus/ context reference (like Claude Code's .claude/) ──
 
     parts.append(
-        "## Workspace\n"
-        "See `.bsnexus/context/` for project context, team roster, goals, "
-        "and active decisions."
+        "## .bsnexus/ — Project Knowledge Base\n"
+        "Before starting work, **read these files with file_read**:\n"
+        "- `.bsnexus/context/project.md` — current phases, tasks, project state\n"
+        "- `.bsnexus/context/goals.md` — project goals and priorities\n"
+        "- `.bsnexus/context/decisions.md` — active decisions (do NOT contradict)\n"
+        "These files are your source of truth. Read them before every task."
     )
 
     # ── Active decisions (inline only if short — prevents contradictions) ──

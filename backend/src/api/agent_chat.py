@@ -193,6 +193,7 @@ async def _build_system_prompt(
     agent: models.Agent,
     project: models.Project,
     all_agents: list[models.Agent],
+    org_context: str = "",
     active_decisions: list[str] | None = None,
 ) -> str:
     """Build the system prompt via the harness (workspace-based modules).
@@ -208,6 +209,7 @@ async def _build_system_prompt(
 
     return await assemble_system_prompt(
         agent, project, workspace_dir,
+        org_context=org_context,
         all_agents=all_agents,
         active_decisions=active_decisions,
     )
@@ -364,12 +366,15 @@ async def _build_chat_context(
     db: AsyncSession, all_agents: list[models.Agent],
     *, tenant_id: uuid.UUID,
 ) -> tuple[str, list[dict[str, str]]]:
+    org_context = await _build_org_context(tenant_id, db)
+
     # Load active decisions from .bsnexus/context/decisions.md (file-based,
     # single source of truth — no DB table).
     active_decisions = _load_decisions_from_workspace(project.workspace_dir)
 
     system_prompt = await _build_system_prompt(
         agent, project, all_agents=all_agents,
+        org_context=org_context,
         active_decisions=active_decisions,
     )
     messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
