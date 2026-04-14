@@ -824,13 +824,33 @@ async def _process_agent_in_background(
                                 root_agent=org_root.name,
                                 tasks_created=len(created_tasks))
 
+        # Agents @mentioned with pending tasks should run in passive mode
+        # (execution tools: file_write, claim_task) instead of active mode
+        # (planning tools: create_phase, create_task). Otherwise they just
+        # create more sub-tasks instead of actually doing the work.
         if delegated:
+            from backend.src.models import Task, TaskStatus
+            async with async_session() as _deleg_db:
+                result = await _deleg_db.execute(
+                    select(Task.assigned_agent_id).where(
+                        Task.project_id == project_id,
+                        Task.status.in_([TaskStatus.pending, TaskStatus.running]),
+                        Task.assigned_agent_id.isnot(None),
+                    ).distinct()
+                )
+                agents_with_tasks = {row[0] for row in result.all()}
             logger.info("delegation_triggered",
                         from_agent=str(agent_id),
                         to_agents=[d.name for d in delegated])
         for delegate in delegated:
-            # Tell the delegated agent about the new tasks
             delegation_msg = msg.content or "새로운 작업이 생성되었습니다. list_tasks로 확인하고 적절한 팀원에게 업무를 배분해주세요."
+            if delegate.id in agents_with_tasks:
+                # Agent has assigned tasks → skip active dispatch.
+                # GlobalDispatcher will dispatch in passive mode with execution tools.
+                logger.info("delegation_deferred_to_passive",
+                            agent=delegate.name,
+                            reason="has pending/running tasks")
+                continue
             asyncio.create_task(_process_agent_in_background(
                 project_id, delegate.id, delegation_msg, redis, tenant_id,
             ))

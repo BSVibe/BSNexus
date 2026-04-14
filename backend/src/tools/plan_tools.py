@@ -191,6 +191,10 @@ class ClaimTaskTool(Tool):
             task = result.scalar_one_or_none()
             if not task:
                 raise ToolExecutionError(f"Task not found: {input['task_id']}")
+            # Allow idempotent claim: if already running and assigned to this agent,
+            # the dispatcher pre-transitioned it — just succeed.
+            if task.status == TaskStatus.running and task.assigned_agent_id == ctx.agent_id:
+                return f"Task '{task.title}' already claimed and running."
             if task.status != TaskStatus.pending:
                 raise ToolExecutionError(f"Task is already {task.status.value}, cannot claim")
 

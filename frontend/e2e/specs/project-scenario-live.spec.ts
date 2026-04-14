@@ -10,13 +10,11 @@
  * Agents are tenant-level (not project-bound) — enterprise template assumed.
  */
 import { expect, test } from '@playwright/test'
-import { LIVE_API_URL, loginAndNavigate, skipUnlessLive } from '../helpers/live-login'
+import { LIVE_API_URL, loginAndNavigate } from '../helpers/live-login'
 
 const LIVE_FRONTEND_URL = process.env.LIVE_FRONTEND_URL || 'http://bsserver:13100'
 
 test.describe('Full project scenario — CMO-initiated', () => {
-  test.skip(skipUnlessLive, 'not live')
-
   test('CMO research → CEO delegation → files + design', async ({ page }) => {
     test.setTimeout(2_400_000) // 40 min — 6+ agents on local model, sequential vLLM
 
@@ -69,6 +67,9 @@ test.describe('Full project scenario — CMO-initiated', () => {
     const agentsSeen = new Set<string>()
     let chainComplete = false
 
+    let filesCount = 0
+    let screensCount = 0
+
     for (let i = 0; i < 220; i++) { // 220 x 10s = ~36 min
       await page.waitForTimeout(10_000)
       const elapsed = (i + 1) * 10
@@ -101,6 +102,23 @@ test.describe('Full project scenario — CMO-initiated', () => {
             if (m.agent_name) agentsSeen.add(m.agent_name)
           }
         }
+
+        // Check files and design screens
+        const filesResp = await page.request.get(
+          `${LIVE_API_URL}/api/v1/projects/${projectId}/files`, { headers }
+        )
+        if (filesResp.ok()) {
+          const fd = await filesResp.json()
+          const fl = Array.isArray(fd) ? fd : (fd.files || [])
+          filesCount = fl.length
+        }
+        const screensResp = await page.request.get(
+          `${LIVE_API_URL}/api/v1/projects/${projectId}/design/screens`, { headers }
+        )
+        if (screensResp.ok()) {
+          const sd = await screensResp.json()
+          screensCount = (sd.screens || (Array.isArray(sd) ? sd : [])).length
+        }
       } catch { /* ignore API errors */ }
 
       const changed = phases !== lastPhaseCount || tasks !== lastTaskCount || msgs !== lastMsgCount
@@ -110,6 +128,7 @@ test.describe('Full project scenario — CMO-initiated', () => {
 
       console.log(
         `  [${elapsed}s] phases:${phases} tasks:${tasks} msgs:${msgs} ` +
+        `files:${filesCount} design:${screensCount} ` +
         `agents:[${[...agentsSeen].join(',')}]${changed ? ' <-- CHANGED' : ''}`
       )
 
@@ -117,16 +136,16 @@ test.describe('Full project scenario — CMO-initiated', () => {
       lastTaskCount = tasks
       lastMsgCount = msgs
 
-      // Full success: 4+ agents responded with multiple phases
-      if (phases >= 2 && tasks >= 5 && agentsSeen.size >= 4) {
-        console.log(`\nFull chain complete at ${elapsed}s!`)
+      // Full success: files produced (the real goal)
+      if (filesCount >= 1 && phases >= 2 && tasks >= 5) {
+        console.log(`\nFULL SUCCESS at ${elapsed}s: files=${filesCount} design=${screensCount}`)
         chainComplete = true
         break
       }
 
-      // Good: multi-agent chain with delegation
-      if (phases >= 1 && tasks >= 3 && agentsSeen.size >= 3) {
-        console.log(`\nChain with delegation at ${elapsed}s`)
+      // Good enough at 20 min: multi-agent chain completed even if no files yet
+      if (elapsed >= 1200 && phases >= 2 && tasks >= 5 && agentsSeen.size >= 4) {
+        console.log(`\nChain complete at ${elapsed}s (no files yet, passive may still be running)`)
         chainComplete = true
         break
       }
@@ -135,6 +154,12 @@ test.describe('Full project scenario — CMO-initiated', () => {
       if (elapsed >= 1800 && phases >= 1 && msgs >= 1) {
         console.log(`\nMinimum progress at ${elapsed}s`)
         chainComplete = true
+        break
+      }
+
+      // Timeout check at 20min — if no progress at all
+      if (elapsed >= 1200 && msgs === 0) {
+        console.log(`\nTIMEOUT at ${elapsed}s: no agent responses`)
         break
       }
     }
