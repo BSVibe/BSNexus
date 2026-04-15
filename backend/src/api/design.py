@@ -46,7 +46,7 @@ SCREEN_DIR = f"{DESIGN_DIR}/screens"
 SCREEN_EXT = ".bsd"
 
 _workspace_service = WorkspaceService(
-    LocalStorageBackend(os.environ.get("WORKSPACE_BASE_DIR", "/data/workspaces"))
+    LocalStorageBackend(os.environ.get("WORKSPACE_BASE_DIR", "data/workspaces"))
 )
 
 

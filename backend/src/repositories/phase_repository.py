@@ -61,3 +61,10 @@ class PhaseRepository(BaseRepository):
             select(func.count(Task.id)).where(Task.phase_id == phase_id, Task.status != TaskStatus.done)
         )
         return result.scalar_one()
+
+    async def count_total_tasks(self, phase_id: uuid.UUID) -> int:
+        """Count all tasks in the phase regardless of status."""
+        result = await self.db.execute(
+            select(func.count(Task.id)).where(Task.phase_id == phase_id)
+        )
+        return result.scalar_one()

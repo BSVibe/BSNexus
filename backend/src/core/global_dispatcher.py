@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.src.core.state_machine import TaskStateMachine
 from backend.src.core.worker_dispatch import WorkerDispatcher
 from backend.src.models import (
+    Agent,
     PhaseStatus,
     Project,
     ProjectStatus,
@@ -187,10 +188,22 @@ class GlobalDispatcher:
                             title=task.title, agent=best.name)
 
     async def _advance_phase_if_complete(self, db: AsyncSession, project_id: uuid.UUID) -> None:
-        """If every task in the active phase is done, activate the next pending phase."""
+        """If every task in the active phase is done, activate the next pending phase.
+
+        Guards against empty phases (0 tasks) being immediately marked complete.
+        After phase advancement, auto-dispatches the org-root agent (CEO) in
+        active mode so they can plan tasks for the next phase — this is the key
+        mechanism that keeps the delegation chain going across phase boundaries.
+        """
         phase_repo = PhaseRepository(db)
         active_phase = await phase_repo.get_active_phase(project_id)
         if active_phase is None:
+            return
+
+        # Guard: a phase with zero tasks is not "complete" — it hasn't been
+        # planned yet. Skip advancement until at least one task exists.
+        total = await phase_repo.count_total_tasks(active_phase.id)
+        if total == 0:
             return
 
         incomplete = await phase_repo.count_incomplete_tasks(active_phase.id)
@@ -210,6 +223,65 @@ class GlobalDispatcher:
                 "completed_phase_id": str(active_phase.id),
                 "next_phase_id": str(next_phase.id) if next_phase is not None else None,
             },
+        )
+
+        # Auto-dispatch org-root (CEO) to plan the next phase.
+        # This ensures the delegation chain continues across phase boundaries:
+        # Phase N tasks done → CEO plans Phase N+1 → CTO → Engineers.
+        await self._auto_dispatch_phase_planning(db, project_id, active_phase, next_phase)
+
+    async def _auto_dispatch_phase_planning(
+        self,
+        db: AsyncSession,
+        project_id: uuid.UUID,
+        completed_phase: Any,
+        next_phase: Any | None,
+    ) -> None:
+        """Dispatch org-root agent to plan the next phase after completion."""
+        agents_result = await db.execute(
+            select(Agent).where(Agent.is_active.is_(True))
+        )
+        all_agents = list(agents_result.scalars().all())
+        if not all_agents:
+            return
+
+        # Find org root (no parent = top of hierarchy)
+        roots = [a for a in all_agents if not a.parent_agent_id]
+        org_root = roots[0] if roots else None
+        if not org_root:
+            return
+
+        if next_phase is not None:
+            message = (
+                f"'{completed_phase.name}' 단계가 완료되었습니다. "
+                f"다음 단계 '{next_phase.name}'을 시작합니다. "
+                f"list_tasks로 현재 상태를 확인하고, 이 단계에 필요한 작업을 만들어 "
+                f"적절한 팀원에게 @mention으로 배분해주세요."
+            )
+        else:
+            message = (
+                f"'{completed_phase.name}' 단계가 완료되었습니다. "
+                f"프로젝트 목표를 확인하고 다음에 필요한 단계를 판단해주세요. "
+                f"아직 해야 할 일이 있다면 새 phase를 만들고 task를 배분해주세요. "
+                f"모든 작업이 끝났다면 완료 상태를 알려주세요."
+            )
+
+        from backend.src.core.agent_queue import AgentRequest, get_agent_queue_manager
+        mgr = get_agent_queue_manager()
+        await mgr.enqueue(AgentRequest(
+            mode="active",
+            project_id=project_id,
+            agent_id=org_root.id,
+            tenant_id=org_root.tenant_id,
+            redis=self._stream.redis if self._stream else None,
+            message=message,
+        ))
+        logger.info(
+            "phase_auto_chain_dispatched",
+            project_id=str(project_id),
+            completed_phase=completed_phase.name,
+            next_phase=next_phase.name if next_phase else None,
+            org_root=org_root.name,
         )
 
 

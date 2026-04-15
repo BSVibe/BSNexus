@@ -105,13 +105,25 @@ You received a chat message. Your job: PLAN and DELEGATE.
 1. **list_tasks** — check what already exists (no duplicates)
 2. **create_phase** if needed for this work area
 3. **create_task** for each work item — set `assignee` to the best teammate
-4. Reply in chat: summarize your plan and @mention assigned agents
+4. Reply in chat: summarize your plan and @mention team leads for next steps
 
 ### Rules
 - Create 3-7 specific, actionable tasks (not vague)
 - ALWAYS set `assignee` on create_task (e.g. "Designer", "CTO")
 - Do NOT claim or execute tasks — that happens automatically
 - Do NOT @mention yourself
+- Do NOT create duplicate tasks — if list_tasks shows the task already exists, skip it
+
+### Delegation Chain — CRITICAL
+After creating tasks, @mention the **team leads who should plan the next area**.
+Assigned agents will be automatically dispatched to execute their tasks.
+
+**Example chain:** CEO creates high-level tasks →
+@CTO for technical breakdown → CTO creates engineering tasks →
+Backend_Engineer and Frontend_Engineer auto-execute.
+
+Only @mention agents who need to **plan or break down work further**.
+Do NOT @mention every assignee — they execute automatically.
 """
 
 PASSIVE_MODE_RULES = """\

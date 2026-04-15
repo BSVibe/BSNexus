@@ -55,6 +55,11 @@ class CreateTaskTool(Tool):
                     "description": "Name of the agent to assign this task to (e.g. 'CTO', 'Designer'). "
                                    "The agent will be automatically dispatched to work on it.",
                 },
+                "phase_name": {
+                    "type": "string",
+                    "description": "Name of the phase to add this task to. "
+                                   "If omitted, the task goes to the active phase.",
+                },
             },
             "required": ["title"],
         }
@@ -80,20 +85,29 @@ class CreateTaskTool(Tool):
             task_type = TaskType.feature
 
         async with ctx.db_session_factory() as db:
-            # Find active phase — no auto-creation, agent should create_phase first.
+            # Find target phase: explicit phase_name → active phase → first phase.
             result = await db.execute(
                 select(Phase)
                 .where(Phase.project_id == ctx.project_id)
                 .order_by(Phase.order.asc())
             )
             phases = list(result.scalars().all())
-            active = next((p for p in phases if p.status == PhaseStatus.active), None)
-            if not active and phases:
-                active = phases[0]
-            if not active:
+
+            target_phase: Phase | None = None
+            phase_name_input = input.get("phase_name")
+            if phase_name_input:
+                target_phase = next(
+                    (p for p in phases if p.name.lower() == phase_name_input.lower()), None
+                )
+            if not target_phase:
+                target_phase = next((p for p in phases if p.status == PhaseStatus.active), None)
+            if not target_phase and phases:
+                target_phase = phases[0]
+            if not target_phase:
                 raise ToolExecutionError(
                     "No phase exists yet. Use create_phase first to organize work, then create tasks."
                 )
+            active = target_phase
 
             # Resolve assignee: explicit name → keyword auto-match
             assigned_agent_id = None
@@ -370,13 +384,18 @@ class CreatePhaseTool(Tool):
             next_order = max((p.order for p in existing), default=0) + 1
             branch = f"phase/{name.lower().replace(' ', '-')}"
 
+            # First phase in a project auto-activates. Subsequent phases stay pending
+            # until the dispatcher advances them on completion of the active phase.
+            has_active = any(p.status == PhaseStatus.active for p in existing)
+            initial_status = PhaseStatus.active if not existing or not has_active else PhaseStatus.pending
+
             phase = Phase(
                 project_id=ctx.project_id,
                 name=name,
                 description=input.get("description", ""),
                 branch_name=branch,
                 order=next_order,
-                status=PhaseStatus.pending,
+                status=initial_status,
             )
             db.add(phase)
             await db.commit()

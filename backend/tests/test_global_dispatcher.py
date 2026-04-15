@@ -16,6 +16,7 @@ import pytest
 from backend.src.core.global_dispatcher import GlobalDispatcher
 from backend.src.core.tenant_context import DEFAULT_TENANT_ID
 from backend.src.models import (
+    Agent,
     Phase,
     PhaseStatus,
     Project,
@@ -132,6 +133,27 @@ async def _mk_worker(db_session, *, status: str = "online") -> Worker:
     return worker
 
 
+async def _mk_agent(
+    db_session, *, name: str = "CEO", role: str = "ceo",
+    parent_agent_id: uuid.UUID | None = None,
+) -> Agent:
+    now = datetime.now(timezone.utc)
+    agent = Agent(
+        id=uuid.uuid4(),
+        tenant_id=DEFAULT_TENANT_ID,
+        name=name,
+        role=role,
+        is_active=True,
+        parent_agent_id=parent_agent_id,
+        capabilities=["plan"],
+        created_at=now,
+        updated_at=now,
+    )
+    db_session.add(agent)
+    await db_session.flush()
+    return agent
+
+
 # ── Tests ────────────────────────────────────────────────────────────
 
 
@@ -192,6 +214,7 @@ async def test_tick_advances_phase_when_all_tasks_done(db_session, stream_mock, 
     phase2 = await _mk_phase(db_session, project, order=2, status=PhaseStatus.pending)
     await _mk_task(db_session, project, phase1, status=TaskStatus.done)
     await _mk_task(db_session, project, phase1, status=TaskStatus.done)
+    await _mk_agent(db_session, name="CEO", role="ceo")  # org root for auto-dispatch
     await db_session.commit()
 
     dispatcher = GlobalDispatcher(stream_mock)
@@ -200,6 +223,13 @@ async def test_tick_advances_phase_when_all_tasks_done(db_session, stream_mock, 
         _make_session_factory(db_session),
     )
     dispatcher._worker_dispatcher.dispatch_task = AsyncMock(return_value="msg-1")  # type: ignore[assignment]
+
+    mock_queue_mgr = MagicMock()
+    mock_queue_mgr.enqueue = AsyncMock()
+    monkeypatch.setattr(
+        "backend.src.core.agent_queue.get_agent_queue_manager",
+        lambda: mock_queue_mgr,
+    )
 
     await dispatcher.tick()
     await db_session.refresh(phase1)
@@ -241,6 +271,93 @@ async def test_start_stop_idempotent(stream_mock):
     await dispatcher.stop()
     # Stopping again is harmless.
     await dispatcher.stop()
+
+
+async def test_tick_does_not_advance_empty_phase(db_session, stream_mock, monkeypatch):
+    """A phase with zero tasks should NOT be marked complete — it hasn't been planned yet."""
+    project = await _mk_project(db_session)
+    phase1 = await _mk_phase(db_session, project, order=1, status=PhaseStatus.active)
+    # No tasks in phase1!
+    await db_session.commit()
+
+    dispatcher = GlobalDispatcher(stream_mock)
+    monkeypatch.setattr(
+        "backend.src.core.global_dispatcher.async_session",
+        _make_session_factory(db_session),
+    )
+    dispatcher._worker_dispatcher.dispatch_task = AsyncMock(return_value="msg-1")  # type: ignore[assignment]
+
+    await dispatcher.tick()
+    await db_session.refresh(phase1)
+
+    assert phase1.status == PhaseStatus.active  # NOT completed
+    stream_mock.publish_project_event.assert_not_called()
+
+
+async def test_phase_auto_chain_dispatches_org_root(db_session, stream_mock, monkeypatch):
+    """When a phase completes, org-root (CEO) is auto-dispatched in active mode."""
+    project = await _mk_project(db_session)
+    phase1 = await _mk_phase(db_session, project, order=1, status=PhaseStatus.active)
+    await _mk_task(db_session, project, phase1, status=TaskStatus.done)
+    ceo = await _mk_agent(db_session, name="CEO", role="ceo")
+    await _mk_agent(db_session, name="CTO", role="cto", parent_agent_id=ceo.id)
+    await db_session.commit()
+
+    dispatcher = GlobalDispatcher(stream_mock)
+    monkeypatch.setattr(
+        "backend.src.core.global_dispatcher.async_session",
+        _make_session_factory(db_session),
+    )
+    dispatcher._worker_dispatcher.dispatch_task = AsyncMock(return_value="msg-1")  # type: ignore[assignment]
+
+    mock_queue_mgr = MagicMock()
+    mock_queue_mgr.enqueue = AsyncMock()
+    monkeypatch.setattr(
+        "backend.src.core.agent_queue.get_agent_queue_manager",
+        lambda: mock_queue_mgr,
+    )
+
+    await dispatcher.tick()
+
+    # CEO should be dispatched in active mode
+    mock_queue_mgr.enqueue.assert_called_once()
+    req = mock_queue_mgr.enqueue.call_args[0][0]
+    assert req.mode == "active"
+    assert req.agent_id == ceo.id
+    assert req.project_id == project.id
+    assert "완료" in req.message
+
+
+async def test_phase_auto_chain_no_next_phase(db_session, stream_mock, monkeypatch):
+    """When the last phase completes, CEO is still dispatched to decide next steps."""
+    project = await _mk_project(db_session)
+    phase1 = await _mk_phase(db_session, project, order=1, status=PhaseStatus.active)
+    await _mk_task(db_session, project, phase1, status=TaskStatus.done)
+    ceo = await _mk_agent(db_session, name="CEO", role="ceo")
+    await db_session.commit()
+
+    dispatcher = GlobalDispatcher(stream_mock)
+    monkeypatch.setattr(
+        "backend.src.core.global_dispatcher.async_session",
+        _make_session_factory(db_session),
+    )
+    dispatcher._worker_dispatcher.dispatch_task = AsyncMock(return_value="msg-1")  # type: ignore[assignment]
+
+    mock_queue_mgr = MagicMock()
+    mock_queue_mgr.enqueue = AsyncMock()
+    monkeypatch.setattr(
+        "backend.src.core.agent_queue.get_agent_queue_manager",
+        lambda: mock_queue_mgr,
+    )
+
+    await dispatcher.tick()
+
+    # CEO is still dispatched even with no next phase
+    mock_queue_mgr.enqueue.assert_called_once()
+    req = mock_queue_mgr.enqueue.call_args[0][0]
+    assert req.mode == "active"
+    assert req.agent_id == ceo.id
+    assert "다음에 필요한 단계" in req.message
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
