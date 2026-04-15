@@ -106,3 +106,17 @@
 ### 12. vLLM 인프라 불안정
 - Colima crash — vLLM + Docker 동시 메모리 사용
 - kill -9 재시작 필요
+
+### 13. 채팅 히스토리 20개 제한 (pagination 없음)
+- `GET /chat` — `MAX_HISTORY = 20`으로 최근 20개만 반환
+- 98개 메시지 중 최초 유저 메시지가 안 보임
+- 프론트에서 scroll-up pagination 필요
+
+### 14. Passive mode 에이전트가 영어로 응답
+- 현재: "user가 한국어로 쓰면 한국어로 응답" 규칙 (harness.py:294)
+- 문제: passive mode의 user_message는 시스템 생성 텍스트 + 영어 task context
+  → 에이전트가 영어로 인식 → 영어 응답
+- 해결: "사용자 언어"를 프로젝트/tenant 설정으로 관리, passive mode에도 전달
+  - `project.language` 또는 `tenant.preferred_language` 필드 추가
+  - harness에서 "반드시 {language}로 응답하세요" 지시
+- 주의: "한국어 강제"가 아닌 "사용자 언어 강제" — 다국어 지원 고려
