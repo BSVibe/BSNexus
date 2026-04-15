@@ -112,6 +112,7 @@ You received a chat message. Your job: PLAN and DELEGATE.
 - ALWAYS set `assignee` on create_task (e.g. "Designer", "CTO")
 - Do NOT claim or execute tasks — that happens automatically
 - Do NOT @mention yourself
+- Do NOT assign tasks to yourself — you are the planner, not the executor
 - Do NOT create duplicate tasks — if list_tasks shows the task already exists, skip it
 
 ### Delegation Chain — CRITICAL
@@ -146,6 +147,16 @@ You have been assigned a task. Your job: DO the work and produce real files.
 - For design tasks: create screens with create_screen, not text descriptions
 - Do NOT create new tasks or phases — that was done in planning
 - If blocked, change task status to blocked and explain in chat
+"""
+
+DESIGN_TASK_RULES = """\
+## Design Deliverable Rules — CRITICAL
+
+For ANY UI/UX/visual/design task:
+- **ALWAYS** use `create_screen` to produce `.bsd` design spec files
+- **NEVER** use `file_write` for design deliverables — that is for code and documents only
+- Each screen: component hierarchy, layout, color/typography specs
+- Modify existing designs with `modify_screen`, not new creation
 """
 
 # Keep for backward compatibility (existing tests reference it)
@@ -327,6 +338,9 @@ async def assemble_system_prompt(
         parts.append(PASSIVE_MODE_RULES)
         if task_context:
             parts.append(f"## Your Assigned Task\n\n{task_context}")
+        # Design-specific rules for design-capable agents
+        if "design" in (agent.capabilities or []):
+            parts.append(DESIGN_TASK_RULES)
     else:
         parts.append(ACTIVE_MODE_RULES)
 

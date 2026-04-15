@@ -223,6 +223,46 @@ def create_app(
 
         return {"redis": redis_status, "postgresql": pg_status}
 
+    @_app.get("/health/llm")
+    async def health_llm():
+        """Check if the configured LLM backend is reachable."""
+        import httpx
+        from backend.src.storage.database import get_db as _get_db
+
+        # Read llm_base_url from tenant settings
+        llm_base_url = None
+        try:
+            async for db in _get_db():
+                result = await db.execute(
+                    text("SELECT value FROM settings WHERE key = 'llm_base_url' LIMIT 1")
+                )
+                row = result.scalar_one_or_none()
+                if row:
+                    llm_base_url = row.strip().strip('"')
+        except Exception:
+            pass
+
+        if not llm_base_url:
+            return {"status": "unknown", "detail": "No llm_base_url configured"}
+
+        # Probe the health endpoint
+        health_url = llm_base_url.rstrip("/")
+        # Try /health first, fall back to /v1/models
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(f"{health_url}/health")
+                if resp.status_code == 200:
+                    return {"status": "healthy", "base_url": llm_base_url}
+                # Some OpenAI-compatible servers don't have /health
+                resp = await client.get(f"{health_url}/v1/models")
+                if resp.status_code == 200:
+                    return {"status": "healthy", "base_url": llm_base_url}
+                return {"status": "unhealthy", "base_url": llm_base_url, "http_status": resp.status_code}
+        except httpx.TimeoutException:
+            return {"status": "timeout", "base_url": llm_base_url}
+        except Exception as e:
+            return {"status": "unreachable", "base_url": llm_base_url, "detail": str(e)}
+
     # API routers
     for router in _ROUTERS:
         _app.include_router(router)

@@ -51,6 +51,27 @@ def _docker_available() -> bool:
     return True
 
 
+def _inside_container() -> bool:
+    """Detect if we're running inside a Docker container (DooD mode)."""
+    return os.path.exists("/.dockerenv") or os.path.exists("/run/.containerenv")
+
+
+def _find_devcontainer_network() -> str | None:
+    """Find the Docker network this container is attached to."""
+    try:
+        hostname = socket.gethostname()
+        result = subprocess.run(
+            ["docker", "inspect", hostname, "--format", "{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0:
+            networks = result.stdout.strip().split()
+            return networks[0] if networks else None
+    except Exception:
+        pass
+    return None
+
+
 pytestmark = [
     pytest.mark.skipif(
         not _docker_available(),
@@ -106,38 +127,50 @@ def live_backend() -> Iterator[tuple[str, str]]:
     suffix = uuid.uuid4().hex[:8]
     pg_container = f"bsnexus-int-pg-{suffix}"
     redis_container = f"bsnexus-int-redis-{suffix}"
-    pg_port = _free_port()
-    redis_port = _free_port()
     api_port = _free_port()
 
-    subprocess.run(
-        [
-            "docker", "run", "-d", "--rm",
-            "--name", pg_container,
-            "-e", "POSTGRES_DB=bsnexus",
-            "-e", "POSTGRES_USER=bsnexus",
-            "-e", "POSTGRES_PASSWORD=bsnexus_dev",
-            "-p", f"127.0.0.1:{pg_port}:5432",
-            "postgres:16-alpine",
-        ],
-        check=True,
-        capture_output=True,
-    )
-    subprocess.run(
-        [
-            "docker", "run", "-d", "--rm",
-            "--name", redis_container,
-            "-p", f"127.0.0.1:{redis_port}:6379",
-            "redis:7-alpine",
-        ],
-        check=True,
-        capture_output=True,
-    )
+    in_container = _inside_container()
+    network = _find_devcontainer_network() if in_container else None
+
+    # Start postgres
+    pg_cmd = [
+        "docker", "run", "-d", "--rm",
+        "--name", pg_container,
+        "-e", "POSTGRES_DB=bsnexus",
+        "-e", "POSTGRES_USER=bsnexus",
+        "-e", "POSTGRES_PASSWORD=bsnexus_dev",
+    ]
+    redis_cmd = [
+        "docker", "run", "-d", "--rm",
+        "--name", redis_container,
+    ]
+    if network:
+        pg_cmd.extend(["--network", network])
+        redis_cmd.extend(["--network", network])
+        pg_host = pg_container
+        redis_host = redis_container
+    else:
+        pg_port = _free_port()
+        redis_port = _free_port()
+        pg_cmd.extend(["-p", f"127.0.0.1:{pg_port}:5432"])
+        redis_cmd.extend(["-p", f"127.0.0.1:{redis_port}:6379"])
+        pg_host = f"127.0.0.1:{pg_port}"
+        redis_host = f"127.0.0.1:{redis_port}"
+
+    pg_cmd.append("postgres:16-alpine")
+    redis_cmd.append("redis:7-alpine")
+
+    subprocess.run(pg_cmd, check=True, capture_output=True)
+    subprocess.run(redis_cmd, check=True, capture_output=True)
     backend_proc: subprocess.Popen[bytes] | None = None
     try:
         _wait_for_pg(pg_container)
-        database_url = f"postgresql+asyncpg://bsnexus:bsnexus_dev@127.0.0.1:{pg_port}/bsnexus"
-        redis_url = f"redis://127.0.0.1:{redis_port}"
+        if network:
+            database_url = f"postgresql+asyncpg://bsnexus:bsnexus_dev@{pg_host}:5432/bsnexus"
+            redis_url = f"redis://{redis_host}:6379"
+        else:
+            database_url = f"postgresql+asyncpg://bsnexus:bsnexus_dev@{pg_host}/bsnexus"
+            redis_url = f"redis://{redis_host}"
 
         env = {
             **os.environ,

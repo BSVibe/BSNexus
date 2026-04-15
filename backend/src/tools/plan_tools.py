@@ -109,6 +109,39 @@ class CreateTaskTool(Tool):
                 )
             active = target_phase
 
+            # ── Duplicate check (phase-scoped) ──
+            from difflib import SequenceMatcher
+
+            existing_result = await db.execute(
+                select(Task).where(
+                    Task.phase_id == active.id,
+                    Task.status != TaskStatus.done,
+                )
+            )
+            existing_tasks = list(existing_result.scalars().all())
+            normalized_title = title.strip().lower()
+
+            # Exact match (case-insensitive) → return existing task
+            for et in existing_tasks:
+                if et.title.strip().lower() == normalized_title:
+                    return json.dumps({
+                        "task_id": str(et.id), "title": et.title,
+                        "status": et.status.value, "assigned_to": None,
+                        "message": "Task already exists in this phase — skipping creation.",
+                    })
+
+            # Fuzzy match (>0.8 similarity) → error with suggestion
+            similar = [
+                et.title for et in existing_tasks
+                if SequenceMatcher(None, normalized_title, et.title.strip().lower()).ratio() > 0.8
+            ]
+            if similar:
+                titles_list = ", ".join(f'"{t}"' for t in similar)
+                raise ToolExecutionError(
+                    f"Very similar task(s) already exist: {titles_list}. "
+                    "Use the existing task or choose a clearly different title."
+                )
+
             # Resolve assignee: explicit name → keyword auto-match
             assigned_agent_id = None
             assignee_name = input.get("assignee")
@@ -124,15 +157,20 @@ class CreateTaskTool(Tool):
             all_agents = list(all_agents_result.scalars().all())
 
             if assignee_name:
-                # Explicit assignee by name
-                assignee = next(
-                    (a for a in all_agents if a.name.lower() == assignee_name.strip().lower()),
-                    None,
-                )
-                if assignee:
-                    assigned_agent_id = assignee.id
+                # Self-assign guard: active agents should delegate, not self-assign
+                if assignee_name.strip().lower() == ctx.agent_name.strip().lower():
+                    assignee_warning = " (warning: self-assignment blocked — delegate to others)"
+                    assignee_name = None  # Fall through to auto-assignment
                 else:
-                    assignee_warning = f" (warning: agent '{assignee_name}' not found)"
+                    # Explicit assignee by name
+                    assignee = next(
+                        (a for a in all_agents if a.name.lower() == assignee_name.strip().lower()),
+                        None,
+                    )
+                    if assignee:
+                        assigned_agent_id = assignee.id
+                    else:
+                        assignee_warning = f" (warning: agent '{assignee_name}' not found)"
 
             if not assigned_agent_id:
                 # Auto-assign by keyword matching on title + description

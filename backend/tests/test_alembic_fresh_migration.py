@@ -38,6 +38,27 @@ def _docker_available() -> bool:
     return True
 
 
+def _inside_container() -> bool:
+    """Detect if we're running inside a Docker container (DooD mode)."""
+    return os.path.exists("/.dockerenv") or os.path.exists("/run/.containerenv")
+
+
+def _find_devcontainer_network() -> str | None:
+    """Find the Docker network this container is attached to."""
+    try:
+        hostname = socket.gethostname()
+        result = subprocess.run(
+            ["docker", "inspect", hostname, "--format", "{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0:
+            networks = result.stdout.strip().split()
+            return networks[0] if networks else None
+    except Exception:
+        pass
+    return None
+
+
 def _free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
@@ -96,24 +117,35 @@ def test_alembic_upgrade_head_on_fresh_postgres() -> None:
     raise ``NotImplementedError`` on downgrade by design.
     """
     container = f"bsnexus-migrate-test-{uuid.uuid4().hex[:8]}"
-    port = _free_port()
+    in_container = _inside_container()
+    network = _find_devcontainer_network() if in_container else None
 
-    subprocess.run(
-        [
-            "docker", "run", "-d", "--rm",
-            "--name", container,
-            "-e", "POSTGRES_DB=bsnexus",
-            "-e", "POSTGRES_USER=bsnexus",
-            "-e", "POSTGRES_PASSWORD=bsnexus_dev",
-            "-p", f"127.0.0.1:{port}:5432",
-            "postgres:16-alpine",
-        ],
-        check=True,
-        capture_output=True,
-    )
+    docker_run_cmd = [
+        "docker", "run", "-d", "--rm",
+        "--name", container,
+        "-e", "POSTGRES_DB=bsnexus",
+        "-e", "POSTGRES_USER=bsnexus",
+        "-e", "POSTGRES_PASSWORD=bsnexus_dev",
+    ]
+    if network:
+        # DooD mode: use container name as hostname via shared network
+        docker_run_cmd.extend(["--network", network])
+        pg_host = container
+    else:
+        # Host mode: bind to localhost random port
+        port = _free_port()
+        docker_run_cmd.extend(["-p", f"127.0.0.1:{port}:5432"])
+        pg_host = f"127.0.0.1:{port}"
+
+    docker_run_cmd.append("postgres:16-alpine")
+
+    subprocess.run(docker_run_cmd, check=True, capture_output=True)
     try:
         _wait_for_pg(container)
-        database_url = f"postgresql+asyncpg://bsnexus:bsnexus_dev@127.0.0.1:{port}/bsnexus"
+        if network:
+            database_url = f"postgresql+asyncpg://bsnexus:bsnexus_dev@{pg_host}:5432/bsnexus"
+        else:
+            database_url = f"postgresql+asyncpg://bsnexus:bsnexus_dev@{pg_host}/bsnexus"
 
         up = _alembic(database_url, "upgrade", "head")
         assert up.returncode == 0, f"upgrade head failed:\nSTDOUT:\n{up.stdout}\nSTDERR:\n{up.stderr}"

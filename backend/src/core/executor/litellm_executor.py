@@ -24,7 +24,8 @@ from backend.src.tools.handler import ToolHandler
 
 logger = structlog.get_logger(__name__)
 
-REQUEST_TIMEOUT = 600  # seconds per acompletion call (local models can be slow)
+REQUEST_TIMEOUT = 180  # seconds per acompletion call (local models can be slow)
+LLM_RETRY_ON_TIMEOUT = 1  # retry once on timeout/connection errors
 
 
 async def _emit(callback: Callable, event: ExecutionEvent) -> None:
@@ -142,24 +143,33 @@ class LiteLLMExecutor:
             if on_event:
                 await _emit(on_event, ExecutionEvent("iteration", {"iteration": iteration}))
 
-            # Call LLM
-            try:
-                # Thinking/reasoning mode is disabled via /no_think prefix
-                # in the system prompt (harness.py). vLLM-MLX does not support
-                # chat_template_kwargs passthrough, so extra_body is not used.
-                response = await litellm.acompletion(
-                    model=model,
-                    messages=messages,
-                    tools=litellm_tools,
-                    api_key=api_key,
-                    api_base=base_url,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                    timeout=REQUEST_TIMEOUT,
-                )
-            except Exception as e:
-                logger.error("litellm_call_failed", model=model, iteration=iteration, error=str(e))
-                raise
+            # Call LLM (with retry on timeout/connection errors)
+            import asyncio
+
+            response = None
+            for attempt in range(1 + LLM_RETRY_ON_TIMEOUT):
+                try:
+                    response = await litellm.acompletion(
+                        model=model,
+                        messages=messages,
+                        tools=litellm_tools,
+                        api_key=api_key,
+                        api_base=base_url,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        timeout=REQUEST_TIMEOUT,
+                    )
+                    break
+                except Exception as e:
+                    err_str = str(e).lower()
+                    is_transient = any(kw in err_str for kw in ("timeout", "connect", "refused", "reset", "eof"))
+                    if is_transient and attempt < LLM_RETRY_ON_TIMEOUT:
+                        logger.warning("litellm_call_timeout_retry",
+                                       model=model, iteration=iteration, attempt=attempt, error=str(e))
+                        await asyncio.sleep(5)
+                        continue
+                    logger.error("litellm_call_failed", model=model, iteration=iteration, error=str(e))
+                    raise
 
             usage.add(response)
 

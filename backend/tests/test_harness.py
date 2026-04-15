@@ -184,6 +184,36 @@ class TestAssembleSystemPrompt:
         # Skill summaries present
         assert "Memory" in prompt
 
+    # ── Issue #8: Design prompt injection ──
+
+    @pytest.mark.asyncio
+    async def test_passive_design_agent_gets_design_rules(self, tmp_path: Path) -> None:
+        agent = _agent(["design"])
+        prompt = await assemble_system_prompt(
+            agent, _project(), str(tmp_path), mode="passive",
+        )
+        assert "MUST" in prompt and "create_screen" in prompt
+        assert "NEVER" in prompt and "file_write" in prompt
+
+    @pytest.mark.asyncio
+    async def test_passive_coding_agent_no_design_rules(self, tmp_path: Path) -> None:
+        agent = _agent(["coding"])
+        prompt = await assemble_system_prompt(
+            agent, _project(), str(tmp_path), mode="passive",
+        )
+        # Generic passive rules present, but no design-specific rules
+        assert "claim_task" in prompt
+        assert "ALWAYS" not in prompt or "create_screen" not in prompt
+
+    @pytest.mark.asyncio
+    async def test_active_design_agent_no_design_rules(self, tmp_path: Path) -> None:
+        agent = _agent(["design"])
+        prompt = await assemble_system_prompt(
+            agent, _project(), str(tmp_path), mode="active",
+        )
+        # Active mode should not have the design deliverable rules
+        assert "Design Deliverable Rules" not in prompt
+
 
 class TestRefreshContext:
     @pytest.mark.asyncio
