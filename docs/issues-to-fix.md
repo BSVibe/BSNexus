@@ -1,122 +1,105 @@
 # Issues to Fix (Post Active/Passive Split)
 
-시나리오 테스트 결과 기반 이슈 목록 (2026-04-15 업데이트).
+시나리오 테스트 결과 기반 이슈 목록 (2026-04-15 세션 4 업데이트).
 
-## 시나리오 결과 (2026-04-15, 세션 3)
+## 시나리오 결과 (2026-04-15, 세션 4)
 
 | 항목 | 상태 | 비고 |
 |------|------|------|
 | 프로젝트 생성 | PASS | API + Playwright 모두 |
-| Phase/Task 생성 | PASS | 1-5 phases, 3-54 tasks (실행마다 다름) |
-| 한국어 응답 | PASS | 전 에이전트 |
-| Delegation chain | PASS | CMO → 3-11 agents |
-| Passive dispatch | PASS | GlobalDispatcher → claim_task → execute |
-| claim_task idempotent | PASS | dispatcher pre-transition 후 agent claim 성공 |
-| complete_task | PASS | Product_Manager, CPO task 완료 |
-| file_write | PASS | CPO 4회, Product_Manager 1회 (context/strategy 파일) |
-| **코드 파일 생성** | **FAIL** | .py/.ts 등 코드 파일 없음 |
-| **디자인 파일** | **FAIL** | .bsd 파일 없음 (이전 세션에선 5개 생성됨) |
-| **빌드 가능 프로젝트** | **FAIL** | 기획 문서만 산출, 코드 미산출 |
+| Phase/Task 생성 | PASS | 2-5 phases, 6-9 tasks |
+| 첫 Phase auto-active | PASS | create_phase 시 자동 active |
+| Delegation chain | PASS | CMO → CTO/PM/Designer/FE/BE/QA/DevOps |
+| Passive dispatch | PASS | GlobalDispatcher → claim → file_write → complete |
+| Phase auto-chain | PASS | phase 완료 → CEO 자동 dispatch (unit test 확인) |
+| 빈 phase guard | PASS | task 0개 phase는 advance 스킵 |
+| Files API | PASS | workspace 경로 일치, 파일 목록 반환 |
+| **코드 파일 생성** | **PASS** | server.js (Express REST API), package.json 등 |
+| file_write → complete_task | PASS | qwen3-coder-30b에서 3+ tool call 동작 |
+| **디자인 파일 (.bsd)** | **PARTIAL** | Designer가 create_screen 호출하지만 간헐적 |
+| **빌드 가능 프로젝트** | **PARTIAL** | 단일 서버 파일 산출, 전체 프로젝트 구조는 미완 |
+| **30분 풀 테스트** | **FAIL** | vLLM hang (~10분에 멈춤) |
 
-## Critical — 빌드 가능 프로젝트 산출에 필요
+## Critical — 코드 파일 산출 + 안정성
 
-### 1. ★ 에이전트별 FIFO 큐 필요
-- **증상**: Backend_Engineer, Frontend_Engineer가 active delegation으로만 호출 → create_task만 하고 끝
-  또는 delegation이 아예 안 되어 체인에서 빠짐
-- **원인**: active/passive 이중 dispatch 문제. active mode에서는 file_write 도구가 없음.
-  defer 로직이 타이밍에 따라 너무 공격적이거나 너무 느슨함.
-- **해결**: 에이전트별 asyncio.Queue FIFO 큐
-  - active 요청(chat @mention)과 passive 요청(task dispatch) 모두 같은 큐에 enqueue
-  - 에이전트당 1개 worker가 순차 처리
-  - active 끝나면 passive 차례, passive 끝나면 active 차례
-  - 현재 `defer` 로직 대체 — 타이밍 문제 해결
-- **설계**: `core/agent_queue.py` 신규 모듈
-  ```python
-  class AgentRequest:
-      mode: Literal["active", "passive"]
-      message: str
-      task_id: uuid.UUID | None
-      task_context: str | None
-  
-  class AgentQueueManager:
-      _queues: dict[uuid.UUID, asyncio.Queue[AgentRequest]]
-      _workers: dict[uuid.UUID, asyncio.Task]
-      
-      async def enqueue(agent_id, request)
-      async def _process_queue(agent_id)  # single worker per agent
-  ```
-- **관련 파일**: `agent_chat.py` (active dispatch), `global_dispatcher.py` (passive dispatch)
+### 1. ~~에이전트별 FIFO 큐 필요~~ → DONE (세션 3)
+- 에이전트별 asyncio.Queue FIFO 큐 구현 완료
+- active/passive 요청 순차 처리
 
-### 2. CTO → Engineer 멘션 체인 미도달
-- **증상**: CMO가 3명만 mention (Content_Writer, Product_Manager, CPO), CTO 안 mention
-  → CTO가 Backend/Frontend_Engineer를 mention하는 2차 체인이 시작 안 됨
-- **원인**: CMO가 만든 task에 Content_Writer/Product_Manager/CPO를 assign → defer로 active chain 차단 → CTO까지 chain이 안 감
-- **해결**: #1 (에이전트 큐) 구현하면 자연스럽게 해결
-  - CMO가 @CTO → active queue에 enqueue → CMO 끝나면 CTO 처리
-  - CTO가 @Backend_Engineer → active queue에 enqueue
-  - GlobalDispatcher가 task dispatch → passive queue에 enqueue
-  - 같은 에이전트의 active/passive가 순차 처리됨
+### 2. ~~CTO → Engineer 멘션 체인 미도달~~ → DONE (세션 4)
+- Phase auto-chain + ACTIVE_MODE_RULES 개선으로 해결
+- CMO → CTO/PM → Designer/FE/BE/QA/DevOps 체인 동작 확인
 
-### 3. Phase 자동 진행 미확인
-- **증상**: Market Research phase만 생성, 구현 phase 미생성
-- **코드**: `GlobalDispatcher._advance_phase_if_complete()` 존재
-- **원인**: #2와 동일 — CTO까지 체인이 안 가서 구현 phase 자체가 안 만들어짐
-- **해결**: #1 해결 시 자연 해결 예상
+### 3. ~~Phase 자동 진행 미확인~~ → DONE (세션 4)
+- _advance_phase_if_complete() + _auto_dispatch_phase_planning() 구현
+- 빈 phase guard (task 0개면 advance 스킵)
+- 첫 phase auto-active
+
+### 4. ~~Files API 경로 불일치~~ → DONE (세션 4)
+- workspace.py, design.py: `/data/workspaces` → `data/workspaces`
 
 ## Medium — 동작하지만 개선 필요
 
-### 4. Active/Passive 이중 dispatch (부분 해결)
-- **현재 상태**: `delegation_deferred_to_passive` 로직 추가됨
-  - DB + actions 기반 체크로 assigned agent는 active delegation 스킵
-  - 하지만 타이밍에 따라 과하거나 부족함
-- **최종 해결**: #1 (에이전트 큐)로 대체하면 defer 로직 불필요
+### 5. Task 중복 생성 ★
+- **증상**: active 에이전트들이 같은 제목의 task를 반복 생성 (23개 중 대부분 중복)
+- **원인**: CMO가 task 생성 후 @mention한 에이전트들이 active mode에서 또 같은 task 생성.
+  list_tasks로 기존 task를 보지만 "내가 다시 만들어야 한다"고 판단.
+- **해결 방향**:
+  - A) create_task에서 같은 phase 내 제목 유사도 체크 + 거부
+  - B) active mode에서 list_tasks 결과를 더 명확히 → "이미 있으니 만들지 마라"
+  - C) 두 가지 조합
 
-### 5. Task 중복 생성
-- **증상**: 같은 제목의 task가 여러 개
-- **원인**: 여러 에이전트가 active mode로 동시 호출 → 각자 같은 task 생성
-- **해결**: `list_tasks` 결과에서 중복 체크 강화, 또는 title uniqueness per phase
+### 6. CMO self-assign
+- **증상**: CMO가 create_task에서 assignee를 자기 자신으로 설정
+- **원인**: ACTIVE_MODE_RULES에 "Do NOT @mention yourself"는 있지만,
+  create_task의 assignee 필드에는 제한 없음
+- **해결**: create_task에서 현재 에이전트를 assignee로 설정하면 경고 또는 거부.
+  또는 프롬프트에 "자기 자신을 assignee로 설정하지 마세요" 추가.
 
-### 6. `_delegation_text` 임시 속성
+### 7. vLLM hang + 병목
+- **증상**: qwen3-coder-30b가 동시 요청 시 ~10분에 hang
+- **원인**: sequential inference에 여러 에이전트가 동시 요청 → 큐 적체 → hang
+- **대안**:
+  - ollama `OLLAMA_NUM_PARALLEL=2` (병렬 처리)
+  - vLLM 재시작 cron (10분마다 health check)
+  - GPU 서버 또는 API 기반 LLM으로 전환
+- **참고**: qwen3-14b는 tool call 2개 제한 (claim→complete만, file_write 스킵)
+  qwen3-coder-30b는 3+ tool call 가능하지만 hang 위험
+
+### 8. .bsd 디자인 간헐적
+- **증상**: Designer가 create_screen을 호출하지만 항상은 아님
+- **원인**: passive 프롬프트에 "design task → create_screen" 가이드는 있지만
+  Qwen3가 file_write(문서)로 대체하는 경향
+- **해결**: design capability 에이전트의 passive 프롬프트에
+  "UI/UX task는 반드시 create_screen으로 .bsd 파일 생성" 강화
+
+### 9. `_delegation_text` 임시 속성
 - **상태**: `msg._delegation_text = ...` 로 ConversationMessage에 동적 속성 추가
 - **영향**: type safety 없음
 - **해결**: 정식 필드로 전환
 
-### 7. vLLM 병목 + hang
-- **증상**: sequential inference로 11개 agent 동시 처리 불가
-- **continuous batching 시도**: `--continuous-batching` 플래그 추가 → 모델 로드 성공하지만 hang 발생
-- **현재 상태**: batching 없이 운영, sequential 처리
-- **대안**: ollama `OLLAMA_NUM_PARALLEL=4` 또는 더 작은 모델
-- **장기**: GPU 서버 또는 API 기반 LLM
-
 ## Low — 리팩토링 시 처리
 
-### 8. Structlog + SQL echo 혼재
+### 10. Structlog + SQL echo 혼재
 - echo=False 또는 별도 로그 파일
 
-### 9. CRITICAL_RULES_INLINE backward compat alias
+### 11. CRITICAL_RULES_INLINE backward compat alias
 - `CRITICAL_RULES_INLINE = ACTIVE_MODE_RULES` — 테스트 정리 후 제거
 
-### 10. test_active_passive_mode.py 미작성
+### 12. test_active_passive_mode.py 미작성
 - task_assignment.py 단위 테스트 필요
 - GlobalDispatcher passive dispatch 테스트 필요
 
-### 11. 중지해도 큐잉된 에이전트가 계속 실행됨
+### 13. 중지해도 큐잉된 에이전트가 계속 실행됨
 - 프로젝트 레벨 stop flag 필요
 
-### 12. vLLM 인프라 불안정
-- Colima crash — vLLM + Docker 동시 메모리 사용
-- kill -9 재시작 필요
-
-### 13. 채팅 히스토리 20개 제한 (pagination 없음)
+### 14. 채팅 히스토리 20개 제한 (pagination 없음)
 - `GET /chat` — `MAX_HISTORY = 20`으로 최근 20개만 반환
 - 98개 메시지 중 최초 유저 메시지가 안 보임
 - 프론트에서 scroll-up pagination 필요
 
-### 14. Passive mode 에이전트가 영어로 응답
-- 현재: "user가 한국어로 쓰면 한국어로 응답" 규칙 (harness.py:294)
+### 15. Passive mode 에이전트가 영어로 응답
+- 현재: "user가 한국어로 쓰면 한국어로 응답" 규칙 (harness.py)
 - 문제: passive mode의 user_message는 시스템 생성 텍스트 + 영어 task context
   → 에이전트가 영어로 인식 → 영어 응답
-- 해결: "사용자 언어"를 프로젝트/tenant 설정으로 관리, passive mode에도 전달
-  - `project.language` 또는 `tenant.preferred_language` 필드 추가
-  - harness에서 "반드시 {language}로 응답하세요" 지시
-- 주의: "한국어 강제"가 아닌 "사용자 언어 강제" — 다국어 지원 고려
+- 해결: `project.language` 또는 `tenant.preferred_language` 필드 추가
