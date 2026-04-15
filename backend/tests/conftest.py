@@ -114,6 +114,12 @@ async def client(test_app, db_session, mock_stream_manager, mock_user):
     # Disable rate limiting in tests to prevent cross-test interference
     test_app.state.rate_limit_disabled = True
 
+    # Initialize per-agent queue manager for tests
+    from backend.src.core.agent_queue import init_agent_queue_manager, shutdown_agent_queue_manager, _manager
+    import backend.src.core.agent_queue as _aq_mod
+    if _aq_mod._manager is None:
+        init_agent_queue_manager()
+
     # NOTE: async_session is already patched via the db_session fixture,
     # so finalize_design's fresh-session write scope uses the test DB.
 

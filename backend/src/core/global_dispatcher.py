@@ -273,19 +273,17 @@ class GlobalDispatcher:
             task.agent_id = agent.id
             await db.flush()
 
-            from backend.src.api.agent_chat import _process_agent_in_background_passive
-            import asyncio as _asyncio
-            _asyncio.create_task(
-                _process_agent_in_background_passive(
-                    project_id=project_id,
-                    agent_id=agent.id,
-                    task_id=task.id,
-                    task_context=task_context,
-                    redis=self._stream.redis if self._stream else None,
-                    tenant_id=agent.tenant_id,
-                ),
-                name=f"passive-{agent.name}-{task.id}",
-            )
+            from backend.src.core.agent_queue import AgentRequest, get_agent_queue_manager
+            mgr = get_agent_queue_manager()
+            await mgr.enqueue(AgentRequest(
+                mode="passive",
+                project_id=project_id,
+                agent_id=agent.id,
+                tenant_id=agent.tenant_id,
+                redis=self._stream.redis if self._stream else None,
+                task_id=task.id,
+                task_context=task_context,
+            ))
             logger.info("passive_agent_dispatched", agent=agent.name, task_id=str(task.id), title=task.title)
 
 

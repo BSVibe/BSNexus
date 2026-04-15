@@ -114,6 +114,8 @@ async def lifespan(app: FastAPI):
     await stream_manager.initialize_streams()
     app.state.redis = redis
     app.state.stream_manager = stream_manager
+    from backend.src.core.agent_queue import init_agent_queue_manager, shutdown_agent_queue_manager
+    init_agent_queue_manager()
     await start_background_consumer(app)
     await start_global_dispatcher(app)
     await start_channel_supervisor(app)
@@ -123,6 +125,7 @@ async def lifespan(app: FastAPI):
     # Shutdown
     await stop_channel_supervisor(app)
     await stop_global_dispatcher(app)
+    await shutdown_agent_queue_manager()
     await close_redis()
 
 

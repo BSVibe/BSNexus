@@ -828,10 +828,17 @@ async def _process_agent_in_background(
             logger.info("delegation_triggered",
                         from_agent=str(agent_id),
                         to_agents=[d.name for d in delegated])
+        from backend.src.core.agent_queue import AgentRequest, get_agent_queue_manager
+        mgr = get_agent_queue_manager()
         for delegate in delegated:
             delegation_msg = msg.content or "새로운 작업이 생성되었습니다. list_tasks로 확인하고 적절한 팀원에게 업무를 배분해주세요."
-            asyncio.create_task(_process_agent_in_background(
-                project_id, delegate.id, delegation_msg, redis, tenant_id,
+            await mgr.enqueue(AgentRequest(
+                mode="active",
+                project_id=project_id,
+                agent_id=delegate.id,
+                tenant_id=tenant_id,
+                redis=redis,
+                message=delegation_msg,
             ))
 
     except Exception as e:
@@ -983,14 +990,18 @@ async def chat_with_agent(
     # Persist user message + publish to SSE
     await _store_and_publish(db, redis, project_id, role="user", content=body.message)
 
-    # Dispatch all agents in parallel as background tasks.
-    tasks = _project_tasks.setdefault(project_id, set())
+    # Enqueue all agents to per-agent FIFO queues.
+    from backend.src.core.agent_queue import AgentRequest, get_agent_queue_manager
+    mgr = get_agent_queue_manager()
     for agent in mentioned:
-        t = asyncio.create_task(_process_agent_in_background(
-            project_id, agent.id, body.message, redis, tenant_id,
+        await mgr.enqueue(AgentRequest(
+            mode="active",
+            project_id=project_id,
+            agent_id=agent.id,
+            tenant_id=tenant_id,
+            redis=redis,
+            message=body.message,
         ))
-        tasks.add(t)
-        t.add_done_callback(lambda t, pid=project_id: _project_tasks.get(pid, set()).discard(t))
 
     return ChatDispatchResponse(dispatched_agents=[a.name for a in mentioned])
 
