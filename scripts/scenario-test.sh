@@ -61,10 +61,17 @@ for i in $(seq 1 180); do
   LAST_TASKS=$TASKS
   LAST_MSGS=$MSGS
 
-  # Early success: enough activity
-  if [ "$PHASES" -ge 2 ] && [ "$TASKS" -ge 5 ] && [ "$FILES_COUNT" -ge 1 ]; then
+  # Early success: code files produced (the actual goal)
+  CODE_COUNT=$(curl -s "$API/projects/$PROJECT_ID/files?recursive=true" -H "$AUTH" 2>/dev/null | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+files = d.get('files', d if isinstance(d, list) else [])
+exts = {'.py', '.ts', '.tsx', '.js', '.jsx', '.html', '.css'}
+print(len([f for f in files if any((f if isinstance(f,str) else f.get('name','')).endswith(e) for e in exts)]))
+" 2>/dev/null || echo 0)
+  if [ "$CODE_COUNT" -ge 1 ] && [ "$TASKS" -ge 3 ]; then
     echo ""
-    echo "=== EARLY SUCCESS at ${ELAPSED}s: phases=$PHASES tasks=$TASKS files=$FILES_COUNT ==="
+    echo "=== EARLY SUCCESS at ${ELAPSED}s: code_files=$CODE_COUNT tasks=$TASKS files=$FILES_COUNT ==="
     break
   fi
 

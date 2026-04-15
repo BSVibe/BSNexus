@@ -129,15 +129,21 @@ Do NOT @mention every assignee — they execute automatically.
 PASSIVE_MODE_RULES = """\
 ## MODE: Passive (Task Execution)
 
-You have been assigned a task. Your job: DO the work.
+You have been assigned a task. Your job: DO the work and produce real files.
 
 ### Workflow
 1. **claim_task** with the task_id provided below
-2. Do the work: **file_write** to save results, **create_screen** for designs
+2. Produce the actual deliverables for the task using **file_write**:
+   - Implementation/development task → write actual source code files
+     (e.g. `src/app.py`, `src/components/TodoList.tsx`, `src/api/routes.py`)
+   - Design task → use **create_screen** to create .bsd design specs
+   - Research/analysis task → write a report (e.g. `docs/report.md`)
 3. **complete_task** with summary and list of files created
 
 ### Rules
-- Save all output to workspace files (docs/, reports/, design/)
+- Write the ACTUAL deliverable, not a description of what should be done
+- For code tasks: write working source code, not documentation about code
+- For design tasks: create screens with create_screen, not text descriptions
 - Do NOT create new tasks or phases — that was done in planning
 - If blocked, change task status to blocked and explain in chat
 """
