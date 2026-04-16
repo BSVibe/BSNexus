@@ -57,6 +57,18 @@ class GlobalDispatcher:
         self._worker_dispatcher = WorkerDispatcher(stream_manager)
         self._task: asyncio.Task[None] | None = None
         self._stop_event = asyncio.Event()
+        # Per-project pause: stop-all sets this, restart clears it.
+        self._paused_projects: set[uuid.UUID] = set()
+
+    def pause_project(self, project_id: uuid.UUID) -> None:
+        """Pause dispatch for a project (stop-all)."""
+        self._paused_projects.add(project_id)
+        logger.info("dispatcher_project_paused", project_id=str(project_id))
+
+    def resume_project(self, project_id: uuid.UUID) -> None:
+        """Resume dispatch for a project (restart)."""
+        self._paused_projects.discard(project_id)
+        logger.info("dispatcher_project_resumed", project_id=str(project_id))
 
     # ── lifecycle ────────────────────────────────────────────────
 
@@ -100,6 +112,8 @@ class GlobalDispatcher:
         async with async_session() as db:
             active_projects = await self._list_active_projects(db)
             for project in active_projects:
+                if project.id in self._paused_projects:
+                    continue
                 await self._advance_phase_if_complete(db, project.id)
                 await self._promote_and_dispatch(db, project.id)
                 await self._reassign_orphaned_tasks(db, project.id)

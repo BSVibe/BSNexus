@@ -134,6 +134,43 @@ class AgentQueueManager:
             tenant_id=req.tenant_id,
         )
 
+    async def cancel_project(self, project_id: uuid.UUID) -> int:
+        """Cancel all queued/running work for a project.
+
+        Drains queues of matching requests and cancels worker tasks
+        that are currently executing a request for the project.
+        Returns count of cancelled items.
+        """
+        cancelled = 0
+        for agent_id, queue in list(self._queues.items()):
+            # Drain matching requests from queue
+            drained: list[AgentRequest] = []
+            while not queue.empty():
+                try:
+                    req = queue.get_nowait()
+                    if req.project_id == project_id:
+                        cancelled += 1
+                        queue.task_done()
+                    else:
+                        drained.append(req)
+                except asyncio.QueueEmpty:
+                    break
+            # Re-enqueue non-matching requests
+            for req in drained:
+                try:
+                    queue.put_nowait(req)
+                except asyncio.QueueFull:
+                    pass
+
+        # Cancel worker tasks (they'll restart on next enqueue)
+        for agent_id, worker in list(self._workers.items()):
+            if not worker.done():
+                worker.cancel()
+                cancelled += 1
+
+        logger.info("agent_queue_project_cancelled", project_id=str(project_id), cancelled=cancelled)
+        return cancelled
+
     async def shutdown(self) -> None:
         """Cancel all worker tasks."""
         self._shutting_down = True

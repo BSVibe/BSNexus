@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { agentChatApi } from '../../api/agentChat'
 import { agentsApi } from '../../api/agents'
+import { planTreeApi } from '../../api/planTree'
 import { useChatEvents } from '../../hooks/useChatEvents'
 import { useToastStore } from '../../stores/toastStore'
 import ApprovalSettings from '../plan/ApprovalSettings'
@@ -39,9 +40,12 @@ export default function UnifiedChatSidebar({ projectId }: Props) {
   const { data: agents = [] } = useQuery({
     queryKey: ['agents'],
     queryFn: () => agentsApi.list(),
-    // Refetch frequently so blue-dot (thinking) state from Redis is
-    // picked up even after a page refresh when there is no client-side
-    // pendingMessage to derive typing indicators from.
+  })
+
+  // Project-scoped agent status — only agents with running tasks in THIS project
+  const { data: agentStatus = [] } = useQuery({
+    queryKey: ['agent-status', projectId],
+    queryFn: () => planTreeApi.getAgentStatus(projectId),
     refetchInterval: 5000,
   })
 
@@ -324,11 +328,11 @@ export default function UnifiedChatSidebar({ projectId }: Props) {
               }
             }
 
-            // Server-side busy agents (survives refresh)
-            for (const a of agents) {
-              if (a.activity && !shown.has(a.name)) {
-                shown.add(a.name)
-                typingBubbles.push({ name: a.name, activity: a.activity })
+            // Server-side: only agents with running tasks in THIS project
+            for (const card of agentStatus) {
+              if (card.current_task && !shown.has(card.name)) {
+                shown.add(card.name)
+                typingBubbles.push({ name: card.name, activity: card.current_task.title })
               }
             }
 
