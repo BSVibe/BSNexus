@@ -40,12 +40,14 @@
 
 ## Critical — 코어 dispatch chain 문제 (세션 5 롱텀 테스트 발견)
 
-### C1. @mention chain 미작동 ★★★
+### C1. @mention chain 불안정 ★★★
 - **증상**: CMO가 `@CTO @CPO @Product_Manager` 멘션했지만 해당 에이전트들 응답 없음
-- **원인**: 에이전트 응답 텍스트에 `@mention`이 있어도 chain dispatch가 안 됨.
-  `chat_with_agent()`는 유저 메시지의 @mention만 파싱하고, 에이전트 응답의 @mention은 처리하지 않음.
-  `_process_agent_in_background()`에서 응답 내 @mention을 파싱해서 추가 dispatch 해야 함.
-- **영향**: 전체 delegation chain의 핵심. CMO→CTO→Engineer 체인이 완전히 작동하지 않음.
+- **원인**: delegation chain 코드는 정상 (`_process_agent_in_background()` line 803-842에서
+  `_delegation_text` → `_parse_mentions()` → enqueue). 문제는 **vLLM hang/colima crash로
+  에이전트 응답 자체가 미도달**하여 delegation까지 실행되지 않는 것.
+  세션 4에서 동작 확인됨 (commit 5093e52). 인프라 안정성이 근본 원인.
+- **영향**: chain이 끊기면 CMO만 task 생성하고 끝남 — 다른 에이전트 passive 실행 안 됨.
+- **해결**: vLLM/LLM 안정성 확보가 선행. ollama 전환 또는 API LLM 검토.
 
 ### C2. assigned_to 빈 값 — auto-assignment 실패
 - **증상**: CMO가 create_task할 때 `assigned_to` 필드가 빈 값
@@ -53,13 +55,13 @@
   (3) `match_agent_for_task()` 키워드 매칭 실패
 - **영향**: assigned_agent_id가 NULL이면 `_dispatch_agent_tasks()`가 스킵 → passive dispatch 안 됨
 
-### C3. 자연어 입력 → CEO/CMO chain 미작동
-- **증상**: `할 일 관리 웹앱 만들어줘`만 보내면 아무 반응 없거나 org-root만 실행됨.
-  테스트에서 `@CMO ... 팀원에게 위임해`로 직접 지시해야만 작동.
-- **원인**: `_route_via_worker()` 또는 `_find_org_root()` fallback이 올바른 에이전트를 찾지만,
-  해당 에이전트가 자연어 지시만으로 full delegation chain을 자발적으로 시작하지 않음.
-  Qwen3 모델의 한계 + 프롬프트 부족.
-- **해결**: CEO/org-root의 system_prompt에 자연어 요청 시 자동으로 phase/task/delegation 시작 지침 추가.
+### C3. 자연어 입력 → 올바른 delegation
+- **증상**: 시나리오 테스트에서 `@CMO 할 일 관리 웹앱 만들어줘. 팀원에게 위임해`로 직접 지시.
+  올바른 방법: `@CMO 시장조사해서 프로젝트 제안해줘` (CMO 역할에 맞는 지시).
+  또는 멘션 없이 `할 일 관리 웹앱 만들어줘`만 보내면 CEO→CMO chain이 자연스럽게 작동해야 함.
+- **원인**: 현재 테스트가 CMO에게 역할과 맞지 않는 직접 지시를 보냄.
+  자연어만으로 CEO가 적절한 에이전트에게 위임하려면 CEO system_prompt 개선 필요.
+- **해결**: (1) 시나리오 테스트 메시지를 역할에 맞게 수정 (2) CEO system_prompt에 자연어 요청 시 delegation 지침.
 
 ### C4. 에이전트 언어 일관성 (한글 입력 → 영어 응답) ★★
 - **증상**: 한글로 멘션해도 CMO가 영어로 응답

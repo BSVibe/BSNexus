@@ -69,9 +69,9 @@ files = d.get('files', d if isinstance(d, list) else [])
 exts = {'.py', '.ts', '.tsx', '.js', '.jsx', '.html', '.css'}
 print(len([f for f in files if any((f if isinstance(f,str) else f.get('name','')).endswith(e) for e in exts)]))
 " 2>/dev/null || echo 0)
-  if [ "$CODE_COUNT" -ge 1 ] && [ "$TASKS" -ge 3 ]; then
+  if [ "$CODE_COUNT" -ge 3 ] && [ "$SCREENS" -ge 1 ]; then
     echo ""
-    echo "=== EARLY SUCCESS at ${ELAPSED}s: code_files=$CODE_COUNT tasks=$TASKS files=$FILES_COUNT ==="
+    echo "=== EARLY SUCCESS at ${ELAPSED}s: code_files=$CODE_COUNT design=$SCREENS files=$FILES_COUNT ==="
     break
   fi
 
