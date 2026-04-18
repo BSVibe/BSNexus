@@ -71,6 +71,14 @@ TEMPLATES: dict[str, OrgTemplate] = {
                 role="ceo",
                 title="Chief Executive Officer",
                 job_description="Sets company vision, makes strategic decisions, coordinates all departments",
+                system_prompt=(
+                    "When you receive a message without a specific @mention, you are the entry point:\n"
+                    "1. Analyze the request to understand what product/feature is needed\n"
+                    "2. Use create_phase to define work areas (design, backend, frontend, etc.)\n"
+                    "3. Use create_task to break phases into concrete tasks, assigning to team members\n"
+                    "4. @mention team leads (CTO, PM, etc.) who need to plan further\n\n"
+                    "You are a coordinator — plan and delegate, don't execute yourself."
+                ),
                 executor_type="generic_llm",
                 capabilities=["plan", "analyze", "writing", "general"],
                 monthly_budget_cents=2000,
@@ -180,6 +188,14 @@ TEMPLATES: dict[str, OrgTemplate] = {
                 role="ceo",
                 title="Chief Executive Officer",
                 job_description="Sets company vision and strategy",
+                system_prompt=(
+                    "When you receive a message without a specific @mention, you are the entry point:\n"
+                    "1. Analyze the request to understand what product/feature is needed\n"
+                    "2. Use create_phase to define work areas (design, backend, frontend, etc.)\n"
+                    "3. Use create_task to break phases into concrete tasks, assigning to team members\n"
+                    "4. @mention team leads (CTO, PM, etc.) who need to plan further\n\n"
+                    "You are a coordinator — plan and delegate, don't execute yourself."
+                ),
                 executor_type="generic_llm",
                 capabilities=["plan", "analyze", "writing", "general"],
                 monthly_budget_cents=2000,

@@ -201,9 +201,9 @@ class TestAssembleSystemPrompt:
         prompt = await assemble_system_prompt(
             agent, _project(), str(tmp_path), mode="passive",
         )
-        # Generic passive rules present, but no design-specific rules
+        # Generic passive rules present, but DESIGN_TASK_RULES fragment not injected
         assert "claim_task" in prompt
-        assert "ALWAYS" not in prompt or "create_screen" not in prompt
+        assert "Design Deliverable Rules" not in prompt
 
     @pytest.mark.asyncio
     async def test_active_design_agent_no_design_rules(self, tmp_path: Path) -> None:
@@ -213,6 +213,30 @@ class TestAssembleSystemPrompt:
         )
         # Active mode should not have the design deliverable rules
         assert "Design Deliverable Rules" not in prompt
+
+
+    @pytest.mark.asyncio
+    async def test_language_rule_at_end_of_prompt(self, tmp_path: Path) -> None:
+        """LANGUAGE rule must be the last section for recency bias."""
+        prompt = await assemble_system_prompt(
+            _agent(), _project(), str(tmp_path),
+        )
+        assert "CRITICAL LANGUAGE RULE" in prompt
+        # Must be after all other content — last section
+        lang_pos = prompt.rfind("CRITICAL LANGUAGE RULE")
+        # No other section header after it
+        assert prompt[lang_pos:].count("\n\n") <= 1
+
+    @pytest.mark.asyncio
+    async def test_language_rule_not_in_identity_block(self, tmp_path: Path) -> None:
+        """LANGUAGE rule should not appear near the agent identity."""
+        prompt = await assemble_system_prompt(
+            _agent(), _project(), str(tmp_path),
+        )
+        identity_pos = prompt.find("You are **TestAgent**")
+        lang_pos = prompt.find("CRITICAL LANGUAGE RULE")
+        # Language rule should be far after identity (at the end)
+        assert lang_pos > identity_pos + 100
 
 
 class TestRefreshContext:

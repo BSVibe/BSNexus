@@ -22,6 +22,7 @@ from bsvibe_auth import BSVibeUser
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
+from sqlalchemy import text as sa_text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sse_starlette.sse import EventSourceResponse
@@ -108,6 +109,85 @@ def _parse_mentions(message: str, agents: list[models.Agent]) -> list[models.Age
         mentioned.sort(key=lambda a: lower_msg.index(f"@{a.name.lower()}"))
     return mentioned
 
+
+
+async def _pick_next_handoff_agent(
+    *,
+    project_id: uuid.UUID,
+    current_agent_id: uuid.UUID,
+    all_agents: list[models.Agent],
+    completed_task_id: uuid.UUID | None,
+) -> models.Agent | None:
+    """Choose who should be @mentioned when a passive agent forgets to hand off.
+
+    Priority:
+      1. The assignee of the next pending task in the active phase (keeps
+         the same phase moving).
+      2. A pending task's assignee anywhere in the project (avoid stalling).
+      3. The org root (CEO) — so they can plan the next step.
+    """
+    async with async_session() as db:
+        from backend.src.models import Task, TaskStatus, Phase, PhaseStatus
+
+        # 1. Same-phase pending task assignees
+        completed_phase_id = None
+        if completed_task_id is not None:
+            done_task = await db.get(Task, completed_task_id)
+            if done_task is not None:
+                completed_phase_id = done_task.phase_id
+
+        if completed_phase_id is not None:
+            stmt = (
+                select(Task)
+                .where(
+                    Task.phase_id == completed_phase_id,
+                    Task.status == TaskStatus.pending,
+                    Task.assigned_agent_id.isnot(None),
+                    Task.assigned_agent_id != current_agent_id,
+                )
+                .order_by(Task.created_at.asc())
+                .limit(1)
+            )
+            result = await db.execute(stmt)
+            nxt = result.scalar_one_or_none()
+            if nxt and nxt.assigned_agent_id:
+                found = next((a for a in all_agents if a.id == nxt.assigned_agent_id), None)
+                if found is not None:
+                    return found
+
+        # 2. Next phase's assignees (if active phase is all done, look ahead)
+        active_phase_stmt = (
+            select(Phase)
+            .where(Phase.project_id == project_id, Phase.status == PhaseStatus.active)
+            .order_by(Phase.order.asc())
+            .limit(1)
+        )
+        result = await db.execute(active_phase_stmt)
+        active_phase = result.scalar_one_or_none()
+        if active_phase is not None:
+            stmt = (
+                select(Task)
+                .where(
+                    Task.phase_id == active_phase.id,
+                    Task.status == TaskStatus.pending,
+                    Task.assigned_agent_id.isnot(None),
+                    Task.assigned_agent_id != current_agent_id,
+                )
+                .order_by(Task.created_at.asc())
+                .limit(1)
+            )
+            result = await db.execute(stmt)
+            nxt = result.scalar_one_or_none()
+            if nxt and nxt.assigned_agent_id:
+                found = next((a for a in all_agents if a.id == nxt.assigned_agent_id), None)
+                if found is not None:
+                    return found
+
+    # 3. Fallback to the org root so they can plan what's next
+    root = _find_org_root(all_agents)
+    if root is not None and root.id != current_agent_id:
+        return root
+    return None
 
 
 def _find_org_root(agents: list[models.Agent]) -> models.Agent | None:
@@ -405,11 +485,166 @@ async def _process_response_text(
     markers and stores the cleaned text.
     """
     cleaned = _strip_all_markers(response_text)
+    if (not cleaned.strip() or _looks_like_tool_call_json(cleaned)) and tool_actions:
+        cleaned = _summarize_actions(tool_actions)
     return await _store_and_publish(
         db, redis, project_id, role="assistant", content=cleaned,
         agent=agent, actions=tool_actions or [],
         task_id=task_id,
     )
+
+
+def _looks_like_tool_call_json(text: str) -> bool:
+    """Detect content that is a raw tool-call dump (Qwen3 occasionally emits
+    the function-call object — or a tool's arguments — as plain text instead
+    of using the tool_calls slot). Keeping such JSON as the visible message
+    looks like a log, so we replace it with an action summary."""
+    stripped = text.strip()
+    if not (stripped.startswith("{") or stripped.startswith("[")):
+        return False
+
+    # Whole body parses as JSON — almost always a tool-call / result dump.
+    try:
+        import json as _json
+        _json.loads(stripped)
+        return True
+    except ValueError:
+        pass
+
+    # Otherwise look for signature keys that mark this as a tool payload
+    # even if the JSON is truncated or has trailing text.
+    markers = (
+        '"function"', '"tool_calls"', '"arguments"',
+        '"task_id"', '"status"',
+        # create_screen / modify_screen / file_write / list_tasks payloads
+        '"spec"', '"slug"', '"route":',
+        '"path":', '"content":',
+        # list_tasks / list_* tool results
+        '"tasks":', '"phases":', '"screens":',
+    )
+    hits = sum(1 for m in markers if m in stripped)
+    return hits >= 2  # raise the bar when the body isn't fully valid JSON
+
+
+def _summarize_actions(actions: list[dict[str, Any]]) -> str:
+    """Build a conversational summary from tool calls — used as a fallback
+    when the LLM returns only tool_use without natural-language text.
+
+    Shapes the output like a teammate updating the group chat so that the
+    project log reads as a conversation rather than a structured event log.
+    """
+    from collections import Counter
+
+    if not actions:
+        return ""
+
+    counts: Counter[str] = Counter()
+    phase_names: list[str] = []
+    created_tasks: list[tuple[str, str | None]] = []  # (title, assignee)
+    completed_task_titles: list[str] = []
+    completed_summaries: list[str] = []  # full completion summary text for @mention extraction
+    files_written: list[str] = []
+    blocked_count = 0
+
+    for a in actions:
+        tool = a.get("tool", "")
+        counts[tool] += 1
+        inp = a.get("input", {}) or {}
+        if tool == "create_phase":
+            name = inp.get("name")
+            if isinstance(name, str) and name and name not in phase_names:
+                phase_names.append(name)
+        elif tool == "create_task":
+            title = inp.get("title")
+            assignee = inp.get("assignee")
+            if isinstance(title, str) and title:
+                created_tasks.append((title, assignee if isinstance(assignee, str) else None))
+        elif tool == "complete_task":
+            summary = inp.get("summary")
+            if isinstance(summary, str) and summary:
+                completed_task_titles.append(summary.split("\n")[0].strip())
+                completed_summaries.append(summary)
+        elif tool == "file_write":
+            path = inp.get("path")
+            if isinstance(path, str) and path and len(files_written) < 8:
+                files_written.append(path)
+        elif tool == "update_task":
+            if inp.get("status") == "blocked":
+                blocked_count += 1
+
+    # Deduplicate while preserving order
+    def _dedup(seq: list[str]) -> list[str]:
+        seen: set[str] = set()
+        out: list[str] = []
+        for s in seq:
+            if s not in seen:
+                seen.add(s)
+                out.append(s)
+        return out
+
+    lines: list[str] = []
+
+    # ── Planner voice (phase + task creation) ──
+    if phase_names or created_tasks:
+        if phase_names:
+            if len(phase_names) == 1:
+                lines.append(f"'{phase_names[0]}' 단계를 열었어요.")
+            else:
+                lines.append(f"단계 {len(phase_names)}개를 열었어요: {', '.join(phase_names)}.")
+        if created_tasks:
+            unique_titles = _dedup([t for t, _ in created_tasks])
+            lines.append(f"작업 {len(unique_titles)}개를 만들었습니다:")
+            for title, _ in created_tasks[:6]:
+                lines.append(f"  • {title}")
+            if len(created_tasks) > 6:
+                lines.append(f"  • (외 {len(created_tasks) - 6}건)")
+            assignees = _dedup([a for _, a in created_tasks if a])
+            if assignees:
+                mentions = " ".join(f"@{a}" for a in assignees[:5])
+                lines.append(f"{mentions} — 각자 맡은 작업 확인해주세요. 완료되면 다음 단계로 넘어갈게요.")
+
+    # ── Executor voice (claim → file_write → complete) ──
+    if files_written:
+        if len(files_written) == 1:
+            lines.append(f"`{files_written[0]}` 파일을 작성했어요.")
+        else:
+            lines.append(f"다음 파일들을 작성했어요: {', '.join(f'`{p}`' for p in files_written)}.")
+    if completed_task_titles:
+        first = completed_task_titles[0]
+        more = len(completed_task_titles) - 1
+        if more > 0:
+            lines.append(f"작업 완료: {first} (외 {more}건).")
+        else:
+            lines.append(f"작업 완료: {first}")
+    elif counts.get("complete_task") and not files_written:
+        # complete_task was called but no summary captured
+        lines.append(f"할당된 작업 {counts['complete_task']}건을 마쳤습니다.")
+
+    # ── Preserve @mentions from completion summaries ──
+    # When a passive agent wrote "@Designer 이어서 부탁" inside complete_task.summary,
+    # surface that handoff at the end of the fallback message so ping-pong
+    # delegation (passive → active) can pick up those mentions.
+    if completed_summaries:
+        import re as _re
+        mention_pat = _re.compile(r"@([A-Za-z][A-Za-z0-9_-]*)")
+        seen_mentions: list[str] = []
+        for s in completed_summaries:
+            for m in mention_pat.findall(s):
+                if m not in seen_mentions:
+                    seen_mentions.append(m)
+        if seen_mentions:
+            lines.append("➡ " + " ".join(f"@{m}" for m in seen_mentions[:5]) + " — 이어서 부탁드립니다.")
+
+    # ── Blocker voice ──
+    if blocked_count:
+        lines.append(f"⚠️ {blocked_count}건은 진행이 막혀서 blocked 처리했어요 — 확인이 필요합니다.")
+
+    # ── Last resort ──
+    if not lines:
+        tool_list = ", ".join(f"{name}×{n}" for name, n in counts.most_common(5))
+        lines.append(f"도구 호출: {tool_list}")
+
+    return "\n".join(lines)
 
 
 async def _call_via_executor(
@@ -879,10 +1114,12 @@ async def _process_agent_in_background_passive(
 ) -> None:
     """Run an agent in passive mode to execute a specific task.
 
-    Unlike active mode, passive agents:
+    Passive agents:
     - Get execution tools only (claim, file_write, complete)
     - Receive task details in the system prompt
-    - Do NOT trigger delegation chains after completion
+    - After completion, if their chat message @mentions another agent,
+      that agent is dispatched in active mode so the delegation chain
+      continues across task boundaries (ping-pong collaboration).
     """
     async with async_session() as setup_db:
         project_result = await setup_db.execute(
@@ -913,28 +1150,209 @@ async def _process_agent_in_background_passive(
     )
 
     try:
-        await _call_agent(
+        msg = await _call_agent(
             agent, project, project_id, history, user_message, None, redis, all_agents,
             tenant_id=tenant_id,
             mode="passive",
             task_context=task_context,
         )
-        # No delegation chain in passive mode.
-        # If agent blocked, state_machine handles escalation.
         logger.info("passive_agent_completed", agent=agent.name, task_id=str(task_id))
+
+        # Ping-pong delegation: if the passive agent's final chat message
+        # @mentions a teammate, wake that teammate in active mode so the
+        # conversation keeps going. Qwen3-class models frequently forget to
+        # @mention anyone even when the prompt asks for it, so we also
+        # auto-inject a handoff mention when the message has none — picking
+        # the next logical teammate from the project state.
+        if msg is not None:
+            delegation_text = getattr(msg, "_delegation_text", None) or msg.content or ""
+            delegated = _parse_mentions(delegation_text, all_agents)
+            delegated = [d for d in delegated if d.id != agent_id]
+
+            if not delegated:
+                next_agent = await _pick_next_handoff_agent(
+                    project_id=project_id,
+                    current_agent_id=agent_id,
+                    all_agents=all_agents,
+                    completed_task_id=task_id,
+                )
+                if next_agent is not None:
+                    augmented = (msg.content or "") + (
+                        f"\n\n➡ @{next_agent.name} 이어서 필요한 작업을 맡아주세요."
+                    )
+                    async with async_session() as upd_db:
+                        db_msg = await upd_db.get(models.ConversationMessage, msg.id)
+                        if db_msg is not None:
+                            db_msg.content = augmented
+                            await upd_db.commit()
+                    msg.content = augmented  # keep local copy in sync for subsequent use
+                    delegated = [next_agent]
+                    logger.info(
+                        "auto_handoff_mention_injected",
+                        from_agent=agent.name,
+                        to_agent=next_agent.name,
+                        task_id=str(task_id),
+                    )
+
+            if delegated:
+                from backend.src.core.agent_queue import AgentRequest, get_agent_queue_manager
+                mgr = get_agent_queue_manager()
+                for delegate in delegated:
+                    await mgr.enqueue(AgentRequest(
+                        mode="active",
+                        project_id=project_id,
+                        agent_id=delegate.id,
+                        tenant_id=tenant_id,
+                        redis=redis,
+                        message=msg.content or "동료가 방금 작업을 완료하고 당신을 멘션했습니다. 이어서 필요한 다음 단계를 판단해주세요.",
+                    ))
+                logger.info(
+                    "passive_ping_pong",
+                    from_agent=agent.name,
+                    to_agents=[d.name for d in delegated],
+                    task_id=str(task_id),
+                )
     except Exception as e:
         logger.error("passive_agent_failed", agent_id=str(agent_id), task_id=str(task_id), error=str(e))
-        try:
-            async with async_session() as err_db:
-                await _store_and_publish(
-                    err_db, redis, project_id,
-                    role="assistant",
-                    content=f"작업 실행 중 문제가 발생했습니다: {str(e)[:200]}",
-                    agent=agent,
-                    task_id=task_id,
+        await _recover_failed_passive_task(
+            project_id=project_id,
+            agent_id=agent_id,
+            task_id=task_id,
+            agent=agent,
+            error=e,
+            redis=redis,
+        )
+
+
+# Max times a single task can be auto-recovered from a passive-mode error
+# before we give up and mark it blocked. Prevents a permanently broken
+# task from consuming Ollama capacity forever.
+PASSIVE_RECOVERY_MAX_RETRIES = 3
+
+
+async def _recover_failed_passive_task(
+    *,
+    project_id: uuid.UUID,
+    agent_id: uuid.UUID,
+    task_id: uuid.UUID,
+    agent: "models.Agent | None",
+    error: Exception,
+    redis: Any,
+) -> None:
+    """Self-heal after a passive agent crashes (LLM timeout, connection
+    error, transient tool failure, …).
+
+    Strategy:
+      - First N failures: flip the task back to `pending`, leave the
+        assignee in place, let the GlobalDispatcher pick it up again.
+      - After N: mark the task blocked so a human (or the CEO via
+        dispatcher escalation) can re-plan.
+
+    Recovery attempts are counted from the task_history rows we write here,
+    so the counter survives backend restarts.
+    """
+    err_msg = str(error)[:300]
+    err_lower = err_msg.lower()
+    # Distinguish classes so the chat message + log reflect what happened.
+    is_timeout = "timeout" in err_lower or "timed out" in err_lower
+    is_connection = any(k in err_lower for k in ("connect", "refused", "reset", "eof", "unreachable"))
+    is_rate_limit = any(k in err_lower for k in ("rate_limit", "429", "quota"))
+    if is_timeout:
+        err_class = "timeout"
+    elif is_connection:
+        err_class = "connection"
+    elif is_rate_limit:
+        err_class = "rate_limit"
+    else:
+        err_class = "unknown"
+
+    from backend.src.models import Task, TaskHistory, TaskStatus
+    from sqlalchemy import func as _sa_func
+
+    try:
+        async with async_session() as db:
+            # Count prior auto-recovery attempts for this task so we can cap them.
+            retry_count_row = await db.execute(
+                select(_sa_func.count(TaskHistory.id)).where(
+                    TaskHistory.task_id == task_id,
+                    TaskHistory.actor == "auto-recovery",
+                    TaskHistory.reason.like("passive error:%"),
                 )
-        except Exception:
-            pass
+            )
+            retries = int(retry_count_row.scalar_one() or 0)
+
+            task = await db.get(Task, task_id)
+            if task is None:
+                logger.warning("recovery_task_missing", task_id=str(task_id))
+                return
+
+            # Friendly chat message so the user sees we're self-healing.
+            # Keep it human — never surface the raw Python/LLM error text.
+            _class_kr = {
+                "timeout": "응답 지연",
+                "connection": "연결 오류",
+                "rate_limit": "요청 한도 초과",
+                "unknown": "일시적 오류",
+            }.get(err_class, "일시적 오류")
+            if retries < PASSIVE_RECOVERY_MAX_RETRIES:
+                chat = (
+                    f"⚠️ {_class_kr}로 잠시 멈춰서 자동으로 다시 시도할게요 "
+                    f"(재시도 {retries + 1}/{PASSIVE_RECOVERY_MAX_RETRIES})."
+                )
+            else:
+                chat = (
+                    f"⚠️ 여러 번 시도했는데도 {_class_kr}가 계속되어 이 작업은 잠시 멈춰둡니다. "
+                    f"팀에서 확인이 필요합니다."
+                )
+            await _store_and_publish(
+                db, redis, project_id,
+                role="assistant", content=chat,
+                agent=agent, task_id=task_id,
+            )
+
+            if retries < PASSIVE_RECOVERY_MAX_RETRIES:
+                # Flip running → pending so the dispatcher requeues the SAME task.
+                prev_status = task.status
+                task.status = TaskStatus.pending
+                task.started_at = None
+                # assigned_agent_id stays the same so the same teammate retries.
+                db.add(TaskHistory(
+                    task_id=task_id,
+                    from_status=prev_status,
+                    to_status=TaskStatus.pending,
+                    actor="auto-recovery",
+                    reason=f"passive error: {err_class} — requeue (retry {retries + 1})",
+                ))
+                await db.commit()
+                logger.info(
+                    "passive_recovered_to_pending",
+                    task_id=str(task_id), agent_id=str(agent_id),
+                    error_class=err_class, retry=retries + 1,
+                )
+            else:
+                # Give up — block for human attention.
+                prev_status = task.status
+                task.status = TaskStatus.blocked
+                db.add(TaskHistory(
+                    task_id=task_id,
+                    from_status=prev_status,
+                    to_status=TaskStatus.blocked,
+                    actor="auto-recovery",
+                    reason=f"passive error: {err_class} — giving up after {PASSIVE_RECOVERY_MAX_RETRIES} retries",
+                ))
+                await db.commit()
+                logger.warning(
+                    "passive_recovery_exhausted",
+                    task_id=str(task_id), agent_id=str(agent_id),
+                    error_class=err_class, retries=retries,
+                )
+    except Exception as recover_err:  # noqa: BLE001
+        # Recovery itself can fail (DB issue, concurrent write, …). Log and
+        # let the stuck-task watchdog pick up the slack.
+        logger.error(
+            "passive_recovery_failed",
+            task_id=str(task_id), error=str(recover_err),
+        )
 
 
 # ── Endpoints ───────────────────────────────────────────────────────

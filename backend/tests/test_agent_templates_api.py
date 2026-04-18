@@ -90,3 +90,17 @@ async def test_apply_startup_template_assigns_skill_capabilities(
 async def test_apply_template_404_for_unknown(client: AsyncClient) -> None:
     resp = await client.post("/api/v1/agent-templates/nope/apply")
     assert resp.status_code == 404
+
+
+def test_ceo_templates_have_system_prompt() -> None:
+    """CEO templates must include a system_prompt for natural language dispatch."""
+    from backend.src.api.agent_templates import TEMPLATES
+
+    for template_id in ("startup", "enterprise"):
+        template = TEMPLATES[template_id]
+        ceo = template.agents[0]
+        assert ceo.role == "ceo", f"{template_id} root agent should be CEO"
+        assert ceo.system_prompt is not None, f"{template_id} CEO missing system_prompt"
+        assert "create_phase" in ceo.system_prompt
+        assert "create_task" in ceo.system_prompt
+        assert "@mention" in ceo.system_prompt
