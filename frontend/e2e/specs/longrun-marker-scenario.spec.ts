@@ -14,9 +14,12 @@
  * On failure: project deleted from DB.
  */
 import { expect, test } from '@playwright/test'
-import { LIVE_API_URL, loginAndNavigate } from '../helpers/live-login'
 
-const LIVE_FRONTEND_URL = process.env.LIVE_FRONTEND_URL || 'http://bsserver:13100'
+const LIVE_FRONTEND_URL = process.env.LIVE_FRONTEND_URL || 'http://localhost:13100'
+const LIVE_API_URL = process.env.LIVE_API_URL || 'http://localhost:18100'
+
+// E2E bypass token — must match E2E_TEST_TOKEN env var on backend
+const E2E_TOKEN = process.env.E2E_TOKEN || 'e2e-scenario-test-token'
 
 // Condition-based exit thresholds
 const FULL_SUCCESS = { files: 10, screens: 3, phases: 3, tasks: 20, doneTasks: 15 }
@@ -30,24 +33,25 @@ test.describe('Longrun marker scenario — CMO full project', () => {
   test('CMO research → delegation → design + code files', async ({ page }) => {
     test.setTimeout(MAX_HOURS * 3600 * 1000 + 600_000) // 8h + 10min buffer
 
-    // ── Login + Dashboard ──
-    await loginAndNavigate(page, '/dashboard')
-    await expect(page.getByRole('heading', { name: /dashboard/i })).toBeVisible({ timeout: 15_000 })
-    console.log('Step 1: Dashboard loaded')
-
-    // ── Auth helper ──
-    const getToken = () => page.evaluate(() => localStorage.getItem('bsnexus_access_token'))
-    const apiHeaders = async () => ({
-      'Authorization': `Bearer ${await getToken()}`,
+    // ── Auth: inject E2E bypass token into localStorage ──
+    const apiHeaders = () => ({
+      'Authorization': `Bearer ${E2E_TOKEN}`,
       'Content-Type': 'application/json',
     })
 
-    // ── Create fresh project ──
+    // Verify backend is reachable with E2E token
+    const healthResp = await page.request.get(`${LIVE_API_URL}/api/v1/agents`, {
+      headers: apiHeaders(),
+    })
+    expect(healthResp.ok(), `Backend not reachable or E2E token invalid: ${healthResp.status()}`).toBe(true)
+    console.log('Step 1: Backend reachable with E2E token')
+
+    // ── Create fresh project via API ──
     const timestamp = new Date().toISOString().slice(5, 16).replace('T', ' ')
     const projectName = `E2E Longrun ${timestamp}`
 
     const createResp = await page.request.post(`${LIVE_API_URL}/api/v1/projects`, {
-      headers: await apiHeaders(),
+      headers: apiHeaders(),
       data: { name: projectName, description: 'Longrun marker scenario by Playwright', workspace_type: 'server_managed' },
     })
     expect(createResp.ok(), `Project creation failed: ${createResp.status()}`).toBe(true)
@@ -56,22 +60,28 @@ test.describe('Longrun marker scenario — CMO full project', () => {
     console.log(`Step 2: Project created — ${projectName} (${projectId})`)
     console.log(`  URL: ${LIVE_FRONTEND_URL}/projects/${projectId}`)
 
-    // ── Navigate to project ──
+    // ── Send initial message via API (bypass UI auth) ──
+    const chatResp = await page.request.post(
+      `${LIVE_API_URL}/api/v1/projects/${projectId}/chat`,
+      {
+        headers: apiHeaders(),
+        data: {
+          message: '@CMO 시장 조사해서 유망한 프로젝트를 제안하고, 기획부터 개발/디자인까지 전체 진행해줘. ' +
+            '실제 동작하는 앱의 소스코드와 디자인 화면을 만들어야 해.',
+        },
+      }
+    )
+    expect(chatResp.ok(), `Chat send failed: ${chatResp.status()}`).toBe(true)
+    console.log('Step 3: Message sent to CMO via API')
+
+    // Navigate to project page with token in localStorage for SSE
+    await page.addInitScript((token: string) => {
+      localStorage.setItem('bsnexus_access_token', token)
+    }, E2E_TOKEN)
     await page.goto(`${LIVE_FRONTEND_URL}/projects/${projectId}`, {
       waitUntil: 'domcontentloaded', timeout: 15_000,
     })
     await page.waitForTimeout(3_000)
-
-    // ── Send initial message ──
-    const chatBox = page.getByRole('textbox').last()
-    await expect(chatBox).toBeVisible({ timeout: 5_000 })
-    await chatBox.fill(
-      '@CMO 시장 조사해서 유망한 프로젝트를 제안하고, 기획부터 개발/디자인까지 전체 진행해줘. ' +
-      '실제 동작하는 앱의 소스코드와 디자인 화면을 만들어야 해.'
-    )
-    await chatBox.press('Enter')
-    await page.waitForTimeout(2_000)
-    console.log('Step 3: Message sent to CMO')
 
     // ── Monitoring state ──
     let lastPhaseCount = 0
@@ -95,7 +105,7 @@ test.describe('Longrun marker scenario — CMO full project', () => {
       let phases = 0, tasks = 0, doneTasks = 0, msgs = 0
 
       try {
-        const headers = await apiHeaders()
+        const headers = apiHeaders()
 
         // Plan tree
         const planResp = await page.request.get(
@@ -225,7 +235,7 @@ test.describe('Longrun marker scenario — CMO full project', () => {
 
     // Plan tree dump
     try {
-      const headers = await apiHeaders()
+      const headers = apiHeaders()
       const planResp = await page.request.get(
         `${LIVE_API_URL}/api/v1/projects/${projectId}/plan-tree`, { headers }
       )
@@ -243,7 +253,7 @@ test.describe('Longrun marker scenario — CMO full project', () => {
 
     // Last 20 chat messages
     try {
-      const headers = await apiHeaders()
+      const headers = apiHeaders()
       const chatResp = await page.request.get(
         `${LIVE_API_URL}/api/v1/projects/${projectId}/chat`, { headers }
       )
@@ -265,7 +275,7 @@ test.describe('Longrun marker scenario — CMO full project', () => {
       console.log(`\nSUCCESS — project preserved: ${LIVE_FRONTEND_URL}/projects/${projectId}`)
     } else {
       try {
-        const headers = await apiHeaders()
+        const headers = apiHeaders()
         await page.request.delete(`${LIVE_API_URL}/api/v1/projects/${projectId}`, { headers })
         console.log('\nFAILED — project cleaned up')
       } catch {

@@ -1,11 +1,11 @@
 /**
- * Live E2E login helper — browser-based BSVibe SSO.
+ * Live E2E login helper — E2E bypass token injection.
  *
- * 1. Navigate to BSNexus on bsserver (Tailscale hostname)
- * 2. Click "Sign in with BSVibe" → redirects to auth.bsvibe.dev
- * 3. Fill email/password → submit
- * 4. Auth server redirects back with #access_token in hash
- * 5. BSNexus frontend picks up token → authenticated
+ * Instead of real SSO (which fails when bsserver:13100 isn't a registered
+ * redirect URI on auth.bsvibe.dev), we inject the backend's E2E bypass
+ * token into localStorage before navigation.
+ *
+ * The backend must have E2E_TEST_TOKEN set (e.g. "e2e-scenario-test-token").
  */
 import type { Page } from '@playwright/test'
 
@@ -13,36 +13,21 @@ const LIVE_FRONTEND_URL = process.env.LIVE_FRONTEND_URL || 'http://bsserver:1310
 export const LIVE_API_URL = process.env.LIVE_API_URL || 'http://bsserver:18100'
 export const skipUnlessLive = false
 
-const E2E_EMAIL = process.env.E2E_EMAIL || 'admin@bsvibe.dev'
-const E2E_PASSWORD = process.env.E2E_PASSWORD || 'admin1234!'
+/** E2E bypass token — must match the backend's E2E_TEST_TOKEN env var. */
+const E2E_TOKEN = process.env.E2E_TOKEN || 'e2e-scenario-test-token'
 
 export async function loginAndNavigate(page: Page, path: string): Promise<void> {
-  await page.goto(`${LIVE_FRONTEND_URL}${path}`, { waitUntil: 'networkidle', timeout: 15_000 })
+  // Inject E2E token into localStorage BEFORE navigation so the frontend
+  // picks it up from getAccessToken() without hitting auth.bsvibe.dev.
+  await page.addInitScript((token: string) => {
+    localStorage.setItem('bsnexus_access_token', token)
+  }, E2E_TOKEN)
 
-  // Click "Sign in with BSVibe" on landing page
-  const ssoBtn = page.getByText(/sign in with bsvibe/i).first()
-  if (await ssoBtn.isVisible({ timeout: 3_000 }).catch(() => false)) {
-    await ssoBtn.click()
-    // Wait for auth.bsvibe.dev login page
-    await page.waitForURL('**/login**', { timeout: 10_000 }).catch(() => {})
-  }
+  await page.goto(`${LIVE_FRONTEND_URL}${path}`, {
+    waitUntil: 'networkidle',
+    timeout: 15_000,
+  })
 
-  // Fill BSVibe Auth login form
-  const emailField = page.locator('input[type="email"], input[placeholder*="example"]').first()
-  if (await emailField.isVisible({ timeout: 5_000 }).catch(() => false)) {
-    await emailField.fill(E2E_EMAIL)
-    await page.locator('input[type="password"]').first().fill(E2E_PASSWORD)
-
-    await page.getByRole('button', { name: /sign in/i }).click()
-
-    // Wait for redirect back to BSNexus with hash tokens
-    await page.waitForURL(`${LIVE_FRONTEND_URL}/**`, { timeout: 20_000 }).catch(() => {})
-    // Give React time to consume hash tokens
-    await page.waitForTimeout(3_000)
-  }
-
-  // Navigate to target path if not there
-  if (!page.url().includes(path) && path !== '/') {
-    await page.goto(`${LIVE_FRONTEND_URL}${path}`, { waitUntil: 'networkidle', timeout: 15_000 })
-  }
+  // Give React time to mount and read the token from localStorage.
+  await page.waitForTimeout(2_000)
 }
