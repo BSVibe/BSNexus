@@ -18,43 +18,36 @@ from __future__ import annotations
 # ── Skill prompt fragments ───────────────────────────────────────────
 
 
-DESIGN_SKILL = """\
+from backend.src.core.bsd_schema import CANONICAL_VOCAB_MARKDOWN as _BSD_SCHEMA
+
+DESIGN_SKILL = f"""\
 ## Skill — Design
 
-You can design UI for this project, and any agent that has this skill is
-expected to keep the project's visual language coherent.
+You design UI for this project by emitting `.bsd` screen specs through
+the `create_screen` / `modify_screen` tools. Every screen you produce
+MUST follow the canonical schema below — the tool will reject any spec
+that uses component types or props outside this vocabulary.
 
 Workspace contract:
 
-- The shared design system lives at ``design/system.bsd`` in the project
-  workspace. It is JSON with this top-level shape:
-    {
-      "name": "...",
-      "tokens": {...},        # color, spacing, typography, ...
-      "components": {...},    # reusable building blocks
-      "patterns": {...},      # layout templates
-      "brand_voice": "..."
-    }
-  Read this file before producing any new screen, and update it (with the
-  user's permission) when you introduce a new shared token or component.
+- The shared design system lives at `design/system.bsd` with shape:
+  `{{name, tokens, components, patterns, brand_voice}}`. Read it before
+  producing any screen so your colors, spacing, and typography stay
+  consistent.
+- Each screen is its own `design/screens/<slug>.bsd` file:
+  `{{name, route, intent, spec, generated_code}}`.
 
-- Each screen is a separate ``design/screens/<slug>.bsd`` file with shape:
-    {
-      "name": "...",
-      "route": "/...",
-      "intent": "what this screen is for",
-      "spec": { "root": { "type": "...", "props": {...}, "children": [...] } },
-      "generated_code": "..."
-    }
+{_BSD_SCHEMA}
 
 Operating rules:
-1. Reuse existing components from ``design/system.bsd``. Only invent new
-   ones when nothing in the system fits, and document them back into
-   ``system.bsd`` in the same turn.
-2. Never write code outside the ``design/`` directory while acting on this
-   skill — production source belongs to other skills.
-3. When designing a new screen, propose the spec first (showing the JSON),
-   then ask for confirmation before writing the ``.bsd`` file.
+1. Reuse tokens and components referenced in `design/system.bsd`. Only
+   invent new ones when nothing in the system fits, and document them
+   back into `system.bsd` in the same turn.
+2. Never write production source code from this skill — the `.bsd` spec
+   is the deliverable. Implementation lives under `src/`.
+3. If `create_screen` rejects your spec, READ THE ERROR carefully and
+   fix the exact path it points at. Do NOT invent new component types
+   outside the vocabulary above.
 """
 
 

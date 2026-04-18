@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { designApi, type ScreenDetail, type ScreenSummary } from '../../api/design'
+import ScreenRenderer, { type DesignTokens, type SpecNode } from './ScreenRenderer'
 
 interface DesignViewProps {
   projectId: string
@@ -134,7 +135,11 @@ export default function DesignView({ projectId }: DesignViewProps) {
         ) : screenQuery.isLoading ? (
           <p className="text-text-tertiary text-sm">Loading…</p>
         ) : screenQuery.data ? (
-          <ScreenDetailPanel screen={screenQuery.data} onDelete={handleDelete} />
+          <ScreenDetailPanel
+            screen={screenQuery.data}
+            tokens={(systemQuery.data?.tokens ?? {}) as DesignTokens}
+            onDelete={handleDelete}
+          />
         ) : (
           <p className="text-rose-400 text-sm">Failed to load screen.</p>
         )}
@@ -143,7 +148,17 @@ export default function DesignView({ projectId }: DesignViewProps) {
   )
 }
 
-function ScreenDetailPanel({ screen, onDelete }: { screen: ScreenDetail; onDelete: () => void }) {
+function ScreenDetailPanel({
+  screen,
+  tokens,
+  onDelete,
+}: {
+  screen: ScreenDetail
+  tokens: DesignTokens
+  onDelete: () => void
+}) {
+  const [viewMode, setViewMode] = useState<'preview' | 'spec'>('preview')
+
   return (
     <div>
       <div className="mb-4 flex items-start justify-between gap-3">
@@ -156,13 +171,39 @@ function ScreenDetailPanel({ screen, onDelete }: { screen: ScreenDetail; onDelet
             <div className="text-xs text-text-tertiary mt-1">Route: {screen.route}</div>
           )}
         </div>
-        <button
-          type="button"
-          onClick={onDelete}
-          className="text-[10px] font-bold uppercase tracking-wider text-rose-400 hover:underline"
-        >
-          delete
-        </button>
+        <div className="flex items-center gap-2">
+          <div className="inline-flex rounded-md border border-stitch-outline-variant/20 overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setViewMode('preview')}
+              className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 transition-colors ${
+                viewMode === 'preview'
+                  ? 'bg-stitch-primary/20 text-text-primary'
+                  : 'text-text-tertiary hover:bg-stitch-surface-low'
+              }`}
+            >
+              Preview
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('spec')}
+              className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 transition-colors ${
+                viewMode === 'spec'
+                  ? 'bg-stitch-primary/20 text-text-primary'
+                  : 'text-text-tertiary hover:bg-stitch-surface-low'
+              }`}
+            >
+              JSON
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={onDelete}
+            className="text-[10px] font-bold uppercase tracking-wider text-rose-400 hover:underline"
+          >
+            delete
+          </button>
+        </div>
       </div>
 
       {screen.intent && (
@@ -171,11 +212,17 @@ function ScreenDetailPanel({ screen, onDelete }: { screen: ScreenDetail; onDelet
         </Section>
       )}
 
-      <Section title="Spec">
-        <pre className="text-[11px] text-text-secondary bg-stitch-surface-low rounded-md p-3 overflow-x-auto">
-          {JSON.stringify(screen.spec, null, 2)}
-        </pre>
-      </Section>
+      {viewMode === 'preview' ? (
+        <Section title="Preview">
+          <ScreenRenderer spec={screen.spec as SpecNode} tokens={tokens} />
+        </Section>
+      ) : (
+        <Section title="Spec">
+          <pre className="text-[11px] text-text-secondary bg-stitch-surface-low rounded-md p-3 overflow-x-auto">
+            {JSON.stringify(screen.spec, null, 2)}
+          </pre>
+        </Section>
+      )}
 
       {screen.generated_code && (
         <Section title="Generated code">

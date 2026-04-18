@@ -3,6 +3,10 @@
 Screens are stored as JSON files under ``design/screens/<slug>.bsd``.
 These tools replace the need for agents to use the REST API for design
 operations — they write directly to the workspace filesystem.
+
+The ``spec`` payload is validated against
+:mod:`backend.src.core.bsd_schema` before being written so every screen
+follows the same canonical structure (Pencil-Dev-style vocabulary).
 """
 
 from __future__ import annotations
@@ -13,6 +17,11 @@ from typing import Any
 
 import structlog
 
+from backend.src.core.bsd_schema import (
+    ALLOWED_TYPES,
+    normalise_spec,
+    validate_spec,
+)
 from backend.src.tools.base import Tool, ToolContext, ToolExecutionError
 
 logger = structlog.get_logger(__name__)
@@ -27,6 +36,20 @@ _SLUG_RE = re.compile(r"[^a-z0-9-]+")
 def _slugify(value: str) -> str:
     slug = _SLUG_RE.sub("-", value.lower()).strip("-")
     return slug or "screen"
+
+
+def _format_validation_errors(errors: list, limit: int = 6) -> str:
+    """Build a short, actionable message listing the spec errors."""
+    head = errors[:limit]
+    lines = [f"- {e.format()}" for e in head]
+    more = len(errors) - len(head)
+    if more > 0:
+        lines.append(f"- ... (+{more} more)")
+    return (
+        "Spec rejected — the .bsd file must follow the canonical schema. "
+        "Fix the following and retry:\n" + "\n".join(lines) +
+        f"\n\nAllowed types: {', '.join(sorted(ALLOWED_TYPES))}."
+    )
 
 
 class CreateScreenTool(Tool):
@@ -65,6 +88,22 @@ class CreateScreenTool(Tool):
 
     async def execute(self, input: dict[str, Any], ctx: ToolContext) -> str:
         name = input["name"]
+        raw_spec = input.get("spec") or {}
+
+        # Normalise common LLM shortcuts (Container→View, flat props→props, …)
+        # then validate against the canonical schema. Reject on any error so
+        # the Designer agent gets an actionable message to fix the spec.
+        spec = normalise_spec(raw_spec)
+        errors = validate_spec(spec, strict=True)
+        if errors:
+            logger.info(
+                "screen_spec_rejected",
+                slug=_slugify(name),
+                agent=ctx.agent_name,
+                error_count=len(errors),
+            )
+            raise ToolExecutionError(_format_validation_errors(errors))
+
         slug = _slugify(name)
         screen_dir = ctx.workspace_path / SCREEN_DIR
         screen_dir.mkdir(parents=True, exist_ok=True)
@@ -86,7 +125,7 @@ class CreateScreenTool(Tool):
             "name": name,
             "route": input.get("route"),
             "intent": input.get("intent"),
-            "spec": input.get("spec", {}),
+            "spec": spec,
             "generated_code": input.get("generated_code"),
         }
         path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
@@ -137,10 +176,23 @@ class ModifyScreenTool(Tool):
         except json.JSONDecodeError as e:
             raise ToolExecutionError(f"Corrupt .bsd file: {e}")
 
-        # Update only provided fields
+        # Update only provided fields; validate spec if it's being changed
         for field in ("name", "route", "intent", "spec", "generated_code"):
             if field in input:
-                data[field] = input[field]
+                if field == "spec":
+                    normalised = normalise_spec(input[field] or {})
+                    errors = validate_spec(normalised, strict=True)
+                    if errors:
+                        logger.info(
+                            "screen_spec_rejected",
+                            slug=slug,
+                            agent=ctx.agent_name,
+                            error_count=len(errors),
+                        )
+                        raise ToolExecutionError(_format_validation_errors(errors))
+                    data[field] = normalised
+                else:
+                    data[field] = input[field]
 
         path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
 
