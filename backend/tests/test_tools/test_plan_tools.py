@@ -1,13 +1,15 @@
-"""Tests for CreateTaskTool — duplicate prevention and self-assign guard."""
+"""Tests for CreateTaskTool — duplicate prevention, self-assign guard, and race handling."""
 
 from __future__ import annotations
 
 import json
 import uuid
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 import pytest
 import pytest_asyncio
+from sqlalchemy.exc import IntegrityError
 
 from backend.src.models import Agent, Phase, PhaseStatus, Project, Task, TaskStatus, TaskType
 from backend.src.models.tenant import Tenant
@@ -178,3 +180,82 @@ class TestCreateTaskSelfAssignPrevention:
         data = json.loads(result)
         assert data["assigned_to"] == "Designer"
         assert "self-assignment" not in result
+
+
+# ── Issue #18: Race Condition Handling ──────────────────────────────────
+
+
+class TestCreateTaskRaceCondition:
+    """IntegrityError from DB unique index should be caught gracefully."""
+
+    @pytest.mark.asyncio
+    async def test_integrity_error_returns_existing_task(self, ctx: ToolContext, plan_env: dict) -> None:
+        """When concurrent insert triggers IntegrityError, return the existing task.
+
+        Uses a fully mocked session to avoid SQLAlchemy greenlet issues.
+        Simulates: dedup query returns empty, commit raises IntegrityError,
+        re-query after rollback returns the winning task.
+        """
+        from contextlib import asynccontextmanager
+        from unittest.mock import MagicMock
+
+        tool = CreateTaskTool()
+
+        winner_id = uuid.uuid4()
+        winner_task = MagicMock()
+        winner_task.id = winner_id
+        winner_task.title = "Race Task"
+        winner_task.status = TaskStatus.pending
+
+        # Build a mock session that simulates the race condition
+        mock_session = AsyncMock()
+        execute_count = 0
+
+        async def mock_execute(*args, **kwargs):
+            nonlocal execute_count
+            execute_count += 1
+
+            result = MagicMock()
+            if execute_count == 1:
+                # Phase query — return a mock phase
+                phase = MagicMock()
+                phase.id = plan_env["phase_id"]
+                phase.status = MagicMock()
+                phase.status.__eq__ = lambda s, o: True  # matches PhaseStatus.active
+                phase.branch_name = "phase/1"
+                result.scalars.return_value.all.return_value = [phase]
+            elif execute_count == 2:
+                # Dedup query — return empty (simulating race window)
+                result.scalars.return_value.all.return_value = []
+            elif execute_count == 3:
+                # Agent query for assignee resolution
+                result.scalars.return_value.all.return_value = []
+            elif execute_count == 4:
+                # Re-query after IntegrityError — return the winner
+                result.scalar_one_or_none.return_value = winner_task
+            return result
+
+        mock_session.execute = mock_execute
+        mock_session.commit = AsyncMock(side_effect=IntegrityError("duplicate key", {}, None))
+        mock_session.rollback = AsyncMock()
+        mock_session.add = MagicMock()
+
+        @asynccontextmanager
+        async def mock_factory():
+            yield mock_session
+
+        ctx2 = ToolContext(
+            project_id=ctx.project_id,
+            workspace_path=ctx.workspace_path,
+            workspace_type=ctx.workspace_type,
+            agent_id=ctx.agent_id,
+            agent_name=ctx.agent_name,
+            tenant_id=ctx.tenant_id,
+            db_session_factory=mock_factory,
+        )
+
+        result = await tool.execute({"title": "Race Task"}, ctx2)
+        data = json.loads(result)
+        assert "already exists" in data.get("message", "")
+        assert data["task_id"] == str(winner_id)
+        mock_session.rollback.assert_awaited_once()

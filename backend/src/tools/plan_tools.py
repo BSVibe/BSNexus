@@ -12,7 +12,8 @@ import uuid
 from typing import Any
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 from backend.src.tools.base import Tool, ToolContext, ToolExecutionError
 
@@ -190,12 +191,33 @@ class CreateTaskTool(Tool):
                 task_type=task_type,
                 source=TaskSource.llm,
                 status=TaskStatus.pending,
-                agent_id=ctx.agent_id,
+                creator_agent_id=ctx.agent_id,
                 assigned_agent_id=assigned_agent_id,
                 branch_name=active.branch_name,
             )
             db.add(task)
-            await db.commit()
+            try:
+                await db.commit()
+            except IntegrityError:
+                await db.rollback()
+                # Race condition: another session committed the same task.
+                # Re-query to find the winner and return it.
+                existing_result = await db.execute(
+                    select(Task).where(
+                        Task.phase_id == active.id,
+                        Task.status != TaskStatus.done,
+                        func.lower(func.trim(Task.title)) == normalized_title,
+                    )
+                )
+                existing = existing_result.scalar_one_or_none()
+                if existing:
+                    logger.info("task_dedup_race_caught", title=title, winner_id=str(existing.id))
+                    return json.dumps({
+                        "task_id": str(existing.id), "title": existing.title,
+                        "status": existing.status.value, "assigned_to": None,
+                        "message": "Task already exists in this phase — skipping creation.",
+                    })
+                raise  # Unexpected IntegrityError, re-raise
 
             ctx.tasks_created_this_turn += 1
             logger.info("task_created_via_tool", task_id=str(task.id), title=title,
@@ -250,7 +272,6 @@ class ClaimTaskTool(Tool):
             if task.status != TaskStatus.pending:
                 raise ToolExecutionError(f"Task is already {task.status.value}, cannot claim")
 
-            task.agent_id = ctx.agent_id
             sm = TaskStateMachine()
             await sm.transition(
                 task, TaskStatus.running,
@@ -374,8 +395,8 @@ class ListTasksTool(Tool):
             lines = []
             for t in tasks:
                 agent_name = ""
-                if t.agent_id:
-                    agent_result = await db.execute(select(Agent.name).where(Agent.id == t.agent_id))
+                if t.creator_agent_id:
+                    agent_result = await db.execute(select(Agent.name).where(Agent.id == t.creator_agent_id))
                     agent_name = agent_result.scalar_one_or_none() or ""
                 assignee = f" [{agent_name}]" if agent_name else ""
                 lines.append(f"- [{t.status.value}] {t.title}{assignee} (id: {t.id})")
