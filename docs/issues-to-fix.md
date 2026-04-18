@@ -209,3 +209,10 @@
 ### ~~20. Designer가 `modify_screen` 미활용~~ → DONE (세션 7)
 - **수정**: `CreateScreenTool`에서 기존 slug 존재 시 `ToolExecutionError` (modify_screen 안내) + fuzzy check (>0.7 similarity)
 - DESIGN_SKILL 프롬프트에 "기존 screen 확인 후 modify_screen 사용" 규칙 추가
+
+### 21. CEO @mention 후 일부 task에 assigned_agent_id=NULL → passive dispatch 미실행
+- **증상**: CEO가 task 생성하며 @PM, @Engineer 멘션하지만, 일부 task의 `assigned_agent_id`가 NULL
+- `assigned_agent_id=NULL`이면 `_dispatch_agent_tasks()`가 스킵 → 에이전트 실행 안 됨
+- watchdog이 stuck task로 auto_done 처리하지만, 실제 작업은 안 한 것
+- **원인 추정**: CEO가 `create_task` 호출 시 assignee 파라미터를 안 넣거나, `match_agent_for_task()` 키워드 매칭 실패
+- **필요**: create_task 로그에서 assignee 파라미터 디버깅, NULL assigned task 비율 모니터링
