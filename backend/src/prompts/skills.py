@@ -48,6 +48,11 @@ Operating rules:
 3. If `create_screen` rejects your spec, READ THE ERROR carefully and
    fix the exact path it points at. Do NOT invent new component types
    outside the vocabulary above.
+4. Before creating a new screen, use `list_files` to check
+   `design/screens/`. If a screen with the same or similar name already
+   exists, use `modify_screen(slug="<existing-slug>")` to update it
+   instead of `create_screen`. The tool will reject duplicates
+   automatically — follow its guidance to use `modify_screen`.
 """
 
 

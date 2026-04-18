@@ -108,18 +108,25 @@ class CreateScreenTool(Tool):
         screen_dir = ctx.workspace_path / SCREEN_DIR
         screen_dir.mkdir(parents=True, exist_ok=True)
 
-        # Avoid overwriting existing screen
+        # Reject if screen with same slug already exists
         path = screen_dir / f"{slug}{SCREEN_EXT}"
         if path.exists():
-            counter = 2
-            while True:
-                candidate = f"{slug}-{counter}"
-                candidate_path = screen_dir / f"{candidate}{SCREEN_EXT}"
-                if not candidate_path.exists():
-                    slug = candidate
-                    path = candidate_path
-                    break
-                counter += 1
+            raise ToolExecutionError(
+                f"Screen '{slug}' already exists. "
+                f"Use modify_screen(slug=\"{slug}\") to update it instead of creating a duplicate."
+            )
+
+        # Fuzzy check against existing screens
+        from difflib import SequenceMatcher
+
+        for existing_path in screen_dir.glob(f"*{SCREEN_EXT}"):
+            existing_slug = existing_path.stem
+            if SequenceMatcher(None, slug, existing_slug).ratio() > 0.7:
+                raise ToolExecutionError(
+                    f"A similar screen '{existing_slug}' already exists. "
+                    f"Use modify_screen(slug=\"{existing_slug}\") to update it, "
+                    f"or choose a clearly different name."
+                )
 
         data = {
             "name": name,

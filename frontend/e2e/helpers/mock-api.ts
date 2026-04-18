@@ -207,6 +207,11 @@ export async function mockAllApis(page: Page) {
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockProjectChannels) })
   })
 
+  // Plan proposals (empty by default)
+  await page.route('**/api/v1/projects/proj-*/proposals*', (route) => {
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) })
+  })
+
   // Project chat SSE events endpoint
   await page.route('**/api/v1/projects/proj-*/chat/events', (route) => {
     return route.fulfill({
