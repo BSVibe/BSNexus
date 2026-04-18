@@ -20,6 +20,40 @@ from backend.src.tools.base import Tool, ToolContext, ToolExecutionError
 logger = structlog.get_logger(__name__)
 
 
+def _normalize_name(name: str) -> str:
+    """Normalize agent name for flexible matching: lowercase, strip, replace _ with space."""
+    return name.strip().lower().replace("_", " ")
+
+
+def _resolve_agent_by_name(name: str, agents: list) -> "Any | None":
+    """Resolve an agent by name with flexible matching.
+
+    Matching priority:
+    1. Exact name match (case-insensitive)
+    2. Role match (e.g. "Product_Manager" matches role="product_manager")
+    3. Starts-with match (e.g. "Design" matches "Designer")
+    """
+    normalized = _normalize_name(name)
+
+    # 1. Exact name match
+    for a in agents:
+        if _normalize_name(a.name) == normalized:
+            return a
+
+    # 2. Role match (underscores/spaces normalized)
+    for a in agents:
+        if _normalize_name(a.role) == normalized:
+            return a
+
+    # 3. Starts-with match (e.g. "Design" → "Designer")
+    for a in agents:
+        a_name = _normalize_name(a.name)
+        if a_name.startswith(normalized) or normalized.startswith(a_name):
+            return a
+
+    return None
+
+
 class CreateTaskTool(Tool):
     """Create a new task in the project. Replaces [CREATE_TASK] marker."""
 
@@ -163,13 +197,10 @@ class CreateTaskTool(Tool):
                     assignee_warning = " (warning: self-assignment blocked — delegate to others)"
                     assignee_name = None  # Fall through to auto-assignment
                 else:
-                    # Explicit assignee by name
-                    assignee = next(
-                        (a for a in all_agents if a.name.lower() == assignee_name.strip().lower()),
-                        None,
-                    )
+                    assignee = _resolve_agent_by_name(assignee_name, all_agents)
                     if assignee:
                         assigned_agent_id = assignee.id
+                        assignee_name = assignee.name
                     else:
                         assignee_warning = f" (warning: agent '{assignee_name}' not found)"
 

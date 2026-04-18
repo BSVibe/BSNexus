@@ -50,6 +50,11 @@ async def plan_env(test_session_maker):
             id=designer_id, tenant_id=tenant_id, name="Designer", role="designer",
             executor_type="generic_llm", capabilities=["design"], is_active=True,
         ))
+        pm_id = uuid.uuid4()
+        session.add(Agent(
+            id=pm_id, tenant_id=tenant_id, name="PM", role="product_manager",
+            executor_type="generic_llm", capabilities=["plan"], is_active=True,
+        ))
         await session.commit()
 
     return {
@@ -58,6 +63,7 @@ async def plan_env(test_session_maker):
         "phase_id": phase_id,
         "phase2_id": phase2_id,
         "cmo_id": cmo_id,
+        "pm_id": pm_id,
         "designer_id": designer_id,
     }
 
@@ -180,6 +186,48 @@ class TestCreateTaskSelfAssignPrevention:
         data = json.loads(result)
         assert data["assigned_to"] == "Designer"
         assert "self-assignment" not in result
+
+
+# ── Issue #21: Fuzzy Assignee Matching ──────────────────────────────────
+
+
+class TestCreateTaskFuzzyAssignee:
+    """LLM may use variations of agent names; matching should be flexible.
+
+    All titles use neutral text ("Do task X") to avoid keyword auto-match
+    interfering with name resolution tests.
+    """
+
+    @pytest.mark.asyncio
+    async def test_role_based_match(self, ctx: ToolContext) -> None:
+        """'Product_Manager' should match agent with role='product_manager' (name='PM')."""
+        tool = CreateTaskTool()
+        result = await tool.execute({"title": "Do task alpha", "assignee": "Product_Manager"}, ctx)
+        data = json.loads(result.split(" (warning")[0]) if " (warning" in result else json.loads(result)
+        assert data["assigned_to"] == "PM"
+
+    @pytest.mark.asyncio
+    async def test_partial_name_match(self, ctx: ToolContext) -> None:
+        """'Design' should fuzzy-match agent named 'Designer'."""
+        tool = CreateTaskTool()
+        result = await tool.execute({"title": "Do task beta", "assignee": "Design"}, ctx)
+        data = json.loads(result.split(" (warning")[0]) if " (warning" in result else json.loads(result)
+        assert data["assigned_to"] == "Designer"
+
+    @pytest.mark.asyncio
+    async def test_space_variant_match(self, ctx: ToolContext) -> None:
+        """'Product Manager' (with space) should match 'PM' via role."""
+        tool = CreateTaskTool()
+        result = await tool.execute({"title": "Do task gamma", "assignee": "Product Manager"}, ctx)
+        data = json.loads(result.split(" (warning")[0]) if " (warning" in result else json.loads(result)
+        assert data["assigned_to"] == "PM"
+
+    @pytest.mark.asyncio
+    async def test_nonexistent_agent_falls_through(self, ctx: ToolContext) -> None:
+        """Completely unknown name should not crash; warning issued."""
+        tool = CreateTaskTool()
+        result = await tool.execute({"title": "Do task delta", "assignee": "NonExistentBot"}, ctx)
+        assert "not found" in result
 
 
 # ── Issue #18: Race Condition Handling ──────────────────────────────────
