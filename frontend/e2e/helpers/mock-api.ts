@@ -57,11 +57,18 @@ const MOCK_JWT_PAYLOAD = {
 }
 
 /**
- * Mock the auth.bsvibe.dev/api/session endpoint to return a valid session,
- * so getAccessToken() succeeds and useAuth() resolves a user.
+ * Mock the auth.bsvibe.dev/api/session endpoint AND pre-populate localStorage
+ * with a mock JWT BEFORE page navigation. useAuth()'s getAccessToken() checks
+ * localStorage before attempting the cross-origin session fetch, so injecting
+ * here avoids the fetch entirely (which Playwright's route mock cannot always
+ * intercept reliably for cross-origin credentials: 'include' requests).
  */
 export async function injectAuth(page: Page) {
   const mockAccessToken = buildMockJwt(MOCK_JWT_PAYLOAD)
+  await page.addInitScript(
+    ({ token }) => localStorage.setItem('bsnexus_access_token', token),
+    { token: mockAccessToken },
+  )
   await page.route('**/auth.bsvibe.dev/api/session', (route) => {
     return route.fulfill({
       status: 200,

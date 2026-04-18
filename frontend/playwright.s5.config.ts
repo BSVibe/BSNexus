@@ -5,7 +5,7 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   reporter: 'line',
-  timeout: 600_000,
+  timeout: parseInt(process.env.PW_TIMEOUT || '600000', 10),
   use: {
     baseURL: process.env.LIVE_FRONTEND_URL || 'http://localhost:13100',
     trace: 'on-first-retry',

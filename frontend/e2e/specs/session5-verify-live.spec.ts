@@ -139,9 +139,9 @@ test.describe('Session 5 — duplicate/self-assign/design verification', () => {
       timeout: 15_000,
     })
 
-    // ── 4. Send chat to CMO ──
+    // ── 4. Send chat to CMO (role-appropriate request) ──
     const chatMsg =
-      '@CMO 간단한 할 일 관리 웹앱을 만들어줘. 디자인, 백엔드, 프론트엔드 각각 팀원에게 위임해.'
+      '@CMO 시장조사해서 할 일 관리 웹앱 프로젝트 제안해줘'
     const chatBox = page.getByRole('textbox').last()
     await chatBox.waitFor({ state: 'visible', timeout: 10_000 })
     await chatBox.fill(chatMsg)

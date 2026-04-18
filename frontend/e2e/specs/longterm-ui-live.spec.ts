@@ -21,8 +21,8 @@ const FE_URL = process.env.LIVE_FRONTEND_URL || 'http://localhost:13100'
 const API_URL = process.env.LIVE_API_URL || 'http://localhost:18100'
 const BYPASS_TOKEN = 'e2e-scenario-test-token'
 const MAX_CYCLES = parseInt(process.env.LONGTERM_CYCLES || '32', 10)
-const TASK_WAIT_MS = parseInt(process.env.TASK_WAIT_MS || '300000', 10) // 5min default
-const FILE_WAIT_MS = parseInt(process.env.FILE_WAIT_MS || '180000', 10) // 3min default
+const TASK_WAIT_MS = parseInt(process.env.TASK_WAIT_MS || '300000', 10) // 5min: tasks appear
+const DONE_WAIT_MS = parseInt(process.env.DONE_WAIT_MS || '900000', 10) // 15min: at least one task done + files
 
 function buildFakeJwt(): string {
   const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))
@@ -79,9 +79,10 @@ async function cleanDb() {
 
 interface CycleResult {
   cycle: number
-  status: string
+  status: string // OK | NO_TASKS | NO_RESPONSE | NO_DONE | NO_FILES | ERROR
   phases: number
   tasks: number
+  doneTasks: number
   duplicates: number
   selfAssigns: number
   files: number
@@ -89,7 +90,42 @@ interface CycleResult {
   stopWorked: boolean
   restartWorked: boolean
   agents: string[]
+  assistantMessages: number
   elapsedMs: number
+}
+
+async function waitForDoneAndFiles(
+  projectId: string,
+  timeoutMs: number,
+): Promise<{ doneTasks: number; tasks: any[]; files: number; screens: number }> {
+  const start = Date.now()
+  let lastResult = { doneTasks: 0, tasks: [] as any[], files: 0, screens: 0 }
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const plan = await apiCall('GET', `/api/v1/projects/${projectId}/plan-tree`)
+      const tasks = (plan.phases || []).flatMap((p: any) => p.tasks || [])
+      const doneTasks = tasks.filter((t: any) => t.status === 'done').length
+
+      const filesResp = await apiCall('GET', `/api/v1/projects/${projectId}/files`).catch(() => ({}))
+      const filesList = Array.isArray(filesResp) ? filesResp : filesResp.files || []
+      const screensResp = await apiCall('GET', `/api/v1/projects/${projectId}/design/screens`).catch(() => ({}))
+      const screensList = Array.isArray(screensResp) ? screensResp : screensResp.screens || []
+
+      lastResult = {
+        doneTasks,
+        tasks,
+        files: filesList.length,
+        screens: screensList.length,
+      }
+
+      // Success: at least 1 done task AND (1 file OR 1 screen)
+      if (doneTasks >= 1 && (filesList.length >= 1 || screensList.length >= 1)) {
+        return lastResult
+      }
+    } catch { /* ignore */ }
+    await new Promise((r) => setTimeout(r, 15_000))
+  }
+  return lastResult
 }
 
 async function waitForTasks(
@@ -126,6 +162,7 @@ test.describe('Long-term UI stability test', () => {
         status: 'FAIL',
         phases: 0,
         tasks: 0,
+        doneTasks: 0,
         duplicates: 0,
         selfAssigns: 0,
         files: 0,
@@ -133,6 +170,7 @@ test.describe('Long-term UI stability test', () => {
         stopWorked: false,
         restartWorked: false,
         agents: [],
+        assistantMessages: 0,
         elapsedMs: 0,
       }
 
@@ -178,7 +216,7 @@ test.describe('Long-term UI stability test', () => {
         // ── 4. Send chat via UI ──
         const chatBox = page.getByRole('textbox').last()
         await chatBox.waitFor({ state: 'visible', timeout: 10_000 })
-        await chatBox.fill('@CMO 간단한 할 일 관리 웹앱을 만들어줘. 디자인, 백엔드, 프론트엔드 각각 팀원에게 위임해.')
+        await chatBox.fill('할 일 관리 웹앱 만들고 싶어')
         await chatBox.press('Enter')
         console.log(`[longterm-ui] Chat sent`)
 
@@ -256,20 +294,21 @@ test.describe('Long-term UI stability test', () => {
           console.log(`[longterm-ui] Restart: ${result.restartWorked ? 'OK' : 'FAIL'} (${pendingTasks.length} pending)`)
         }
 
-        // ── 12. Wait briefly for file output ──
-        const fileStart = Date.now()
-        while (Date.now() - fileStart < FILE_WAIT_MS) {
-          try {
-            const files = await apiCall('GET', `/api/v1/projects/${projectId}/files`)
-            result.files = (Array.isArray(files) ? files : files.files || []).length
-            const screens = await apiCall('GET', `/api/v1/projects/${projectId}/design/screens`)
-            result.screens = (screens.screens || (Array.isArray(screens) ? screens : [])).length
-          } catch { /* ignore */ }
-          if (result.files >= 1 || result.screens >= 1) break
-          await new Promise((r) => setTimeout(r, 15_000))
-        }
+        // ── 12. Wait for delegation chain to complete (done tasks + files) ──
+        console.log(`[longterm-ui] Waiting up to ${Math.round(DONE_WAIT_MS / 60000)}m for done tasks + files...`)
+        const completion = await waitForDoneAndFiles(projectId, DONE_WAIT_MS)
+        result.doneTasks = completion.doneTasks
+        result.files = completion.files
+        result.screens = completion.screens
 
-        // ── 13. Take screenshot ──
+        // ── 13. Recheck assistant responses ──
+        const finalChat = await apiCall('GET', `/api/v1/projects/${projectId}/chat`).catch(() => ({ messages: [] }))
+        const assistantMsgs = (finalChat.messages || []).filter(
+          (m: any) => m.role === 'assistant' && (m.content?.trim() || (m.actions || []).length > 0),
+        )
+        result.assistantMessages = assistantMsgs.length
+
+        // ── 14. Take screenshot ──
         await page.reload({ waitUntil: 'domcontentloaded', timeout: 15_000 }).catch(() => {})
         await page.waitForTimeout(2000)
         await page.screenshot({
@@ -277,7 +316,16 @@ test.describe('Long-term UI stability test', () => {
           fullPage: true,
         }).catch(() => {})
 
-        result.status = 'OK'
+        // ── 15. Strict success judgement ──
+        if (result.assistantMessages === 0) {
+          result.status = 'NO_RESPONSE'
+        } else if (result.doneTasks === 0) {
+          result.status = 'NO_DONE'
+        } else if (result.files === 0 && result.screens === 0) {
+          result.status = 'NO_FILES'
+        } else {
+          result.status = 'OK'
+        }
       } catch (err) {
         console.error(`[longterm-ui] Cycle ${cycle} error:`, (err as Error).message)
         result.status = 'ERROR'
@@ -289,10 +337,12 @@ test.describe('Long-term UI stability test', () => {
       // ── Log cycle result ──
       console.log(
         `[longterm-ui] ═══ CYCLE ${cycle} END: ` +
-          `${result.status} tasks=${result.tasks} dups=${result.duplicates} ` +
-          `self=${result.selfAssigns} stop=${result.stopWorked} restart=${result.restartWorked} ` +
+          `${result.status} tasks=${result.tasks} done=${result.doneTasks} ` +
+          `dups=${result.duplicates} self=${result.selfAssigns} ` +
+          `stop=${result.stopWorked} restart=${result.restartWorked} ` +
           `files=${result.files} screens=${result.screens} ` +
-          `agents=[${result.agents.join(',')}] ${Math.round(result.elapsedMs / 1000)}s ═══`,
+          `msgs=${result.assistantMessages} agents=[${result.agents.join(',')}] ` +
+          `${Math.round(result.elapsedMs / 1000)}s ═══`,
       )
 
       // Brief pause between cycles
@@ -302,24 +352,36 @@ test.describe('Long-term UI stability test', () => {
     // ── Final summary ──
     const total = results.length
     const ok = results.filter((r) => r.status === 'OK').length
+    const noResponse = results.filter((r) => r.status === 'NO_RESPONSE').length
+    const noTasks = results.filter((r) => r.status === 'NO_TASKS').length
+    const noDone = results.filter((r) => r.status === 'NO_DONE').length
+    const noFiles = results.filter((r) => r.status === 'NO_FILES').length
     const totalDups = results.reduce((s, r) => s + r.duplicates, 0)
     const totalSelf = results.reduce((s, r) => s + r.selfAssigns, 0)
     const totalTasks = results.reduce((s, r) => s + r.tasks, 0)
-    const stopOk = results.filter((r) => r.stopWorked).length
-    const restartOk = results.filter((r) => r.restartWorked).length
+    const totalDone = results.reduce((s, r) => s + r.doneTasks, 0)
+    const totalFiles = results.reduce((s, r) => s + r.files, 0)
+    const totalScreens = results.reduce((s, r) => s + r.screens, 0)
 
     console.log('\n[longterm-ui] ════════════════════════════')
     console.log('[longterm-ui] LONG-TERM UI TEST COMPLETE')
     console.log('[longterm-ui] ════════════════════════════')
-    console.log(`[longterm-ui] Cycles: ${total} (OK: ${ok}, Failed: ${total - ok})`)
-    console.log(`[longterm-ui] Total tasks: ${totalTasks} (avg ${(totalTasks / total).toFixed(1)}/cycle)`)
-    console.log(`[longterm-ui] Duplicates: ${totalDups}`)
-    console.log(`[longterm-ui] Self-assigns: ${totalSelf}`)
-    console.log(`[longterm-ui] Stop worked: ${stopOk}/${total}`)
-    console.log(`[longterm-ui] Restart worked: ${restartOk}/${total}`)
+    console.log(`[longterm-ui] Cycles: ${total}`)
+    console.log(`[longterm-ui]   OK (done+files): ${ok}`)
+    console.log(`[longterm-ui]   NO_RESPONSE:     ${noResponse}`)
+    console.log(`[longterm-ui]   NO_TASKS:        ${noTasks}`)
+    console.log(`[longterm-ui]   NO_DONE:         ${noDone}`)
+    console.log(`[longterm-ui]   NO_FILES:        ${noFiles}`)
+    console.log(`[longterm-ui] Total tasks: ${totalTasks} (done: ${totalDone})`)
+    console.log(`[longterm-ui] Total files: ${totalFiles} (screens: ${totalScreens})`)
+    console.log(`[longterm-ui] Duplicates: ${totalDups} | Self-assigns: ${totalSelf}`)
 
-    // Assert key invariants
+    // Invariants — no duplicate or self-assign tasks ever
     expect(totalDups, 'Duplicate tasks detected across cycles').toBe(0)
     expect(totalSelf, 'Self-assign tasks detected across cycles').toBe(0)
+    // At least one cycle must reach full completion (done task + file/screen)
+    expect(ok, 'No cycle completed end-to-end (done task + file/screen produced)').toBeGreaterThanOrEqual(1)
+    // Total done tasks across all cycles — delegation chain must actually execute
+    expect(totalDone, 'No tasks completed across entire run').toBeGreaterThanOrEqual(1)
   })
 })
