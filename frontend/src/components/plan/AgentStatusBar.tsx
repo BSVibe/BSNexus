@@ -7,6 +7,7 @@ import {
   AGENT_STATUS_GLOW,
   AGENT_STATUS_LABELS,
 } from '../../constants/agentStatus'
+import { useAgentProcessingStore } from '../../stores/agentProcessingStore'
 import { usePlanStore } from '../../stores/planStore'
 
 export default function AgentStatusBar() {
@@ -57,16 +58,21 @@ interface AgentCardProps {
 }
 
 function AgentCard({ agent, highlighted, onToggle }: AgentCardProps) {
-  const dot = agent.dot || 'gray'
+  const isProcessing = useAgentProcessingStore(
+    (s) => s.processingAgents.has(agent.id)
+  )
+  const dot = isProcessing ? 'green' : (agent.dot || 'gray')
   const currentTask = agent.current_task
   const activity = agent.activity
   const color = AGENT_STATUS_COLORS[dot] || AGENT_STATUS_FALLBACK_COLOR
   const glow = AGENT_STATUS_GLOW[dot] || ''
   const dotLabel = AGENT_STATUS_LABELS[dot] || dot
 
-  const subtitle = currentTask
-    ? currentTask.title
-    : activity || dotLabel
+  const subtitle = isProcessing && !currentTask
+    ? '처리 중...'
+    : currentTask
+      ? currentTask.title
+      : activity || dotLabel
 
   return (
     <button

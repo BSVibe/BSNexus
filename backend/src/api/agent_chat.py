@@ -29,7 +29,11 @@ from sse_starlette.sse import EventSourceResponse
 
 from backend.src import models
 from backend.src.api.settings import get_raw_llm_config
-from backend.src.core.task_markers import strip_action_markers
+from backend.src.core.task_markers import (
+    parse_inline_phase_markers,
+    parse_inline_task_markers,
+    strip_action_markers,
+)
 from backend.src.core.auth import Permission, require_permission
 from backend.src.core.budget import BudgetService
 from backend.src.core.executor.litellm_executor import LiteLLMExecutor
@@ -471,6 +475,76 @@ async def _build_chat_context(
     return system_prompt, messages
 
 
+async def _execute_inline_markers(
+    text: str,
+    *,
+    project_id: uuid.UUID,
+    tenant_id: uuid.UUID,
+    agent_id: uuid.UUID,
+    agent_name: str,
+) -> list[dict[str, Any]]:
+    """Parse and execute ``[CREATE_PHASE ...]`` and ``[CREATE_TASK ...]`` inline markers.
+
+    Returns action records in the same format as ``_build_tool_actions()``
+    so the frontend invalidation logic works unchanged.
+    """
+    from backend.src.tools.plan_tools import create_phase_from_params, create_task_from_params
+
+    actions: list[dict[str, Any]] = []
+
+    # Phases first — tasks may reference them by name.
+    for pm in parse_inline_phase_markers(text):
+        try:
+            result = await create_phase_from_params(
+                name=pm["name"],
+                description=pm.get("description") or "",
+                project_id=project_id,
+                db_session_factory=async_session,
+            )
+            actions.append({
+                "type": "tool_create_phase",
+                "tool": "create_phase",
+                "input": {"name": pm["name"], "description": pm.get("description") or ""},
+            })
+            logger.info("phase_created_via_marker", name=pm["name"], result=result.get("status"))
+        except Exception:
+            logger.warning("marker_phase_creation_failed", name=pm.get("name"), exc_info=True)
+
+    # Tasks — max 10 per response.
+    task_markers = parse_inline_task_markers(text)
+    created_count = 0
+    for tm in task_markers[:10]:
+        try:
+            result = await create_task_from_params(
+                title=tm["title"],
+                description=tm.get("description"),
+                priority=tm.get("priority") or "medium",
+                task_type=tm.get("task_type") or "feature",
+                assignee=tm.get("assignee"),
+                phase_name=tm.get("phase_name"),
+                project_id=project_id,
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                agent_name=agent_name,
+                db_session_factory=async_session,
+                tasks_created_count=created_count,
+                max_tasks=10,
+            )
+            if "message" not in result:
+                created_count += 1
+            actions.append({
+                "type": "tool_create_task",
+                "tool": "create_task",
+                "input": {k: v for k, v in tm.items() if v is not None},
+            })
+            logger.info("task_created_via_marker", title=tm["title"],
+                        assignee=tm.get("assignee"), result_status=result.get("status"))
+        except Exception:
+            logger.warning("marker_task_creation_failed", title=tm.get("title"), exc_info=True)
+
+    return actions
+
+
 async def _process_response_text(
     response_text: str, project: models.Project, project_id: uuid.UUID,
     agent: models.Agent, db: AsyncSession, redis: Any,
@@ -480,16 +554,26 @@ async def _process_response_text(
 ) -> models.ConversationMessage:
     """Persist the agent's response and publish it via SSE.
 
-    Tool side-effects (task creation, file writes, etc.) are already
-    executed during the agentic loop. This function only strips leftover
-    markers and stores the cleaned text.
+    Inline markers (``[CREATE_TASK ...]``, ``[CREATE_PHASE ...]``) are
+    parsed and executed BEFORE stripping. Tool side-effects from the
+    agentic loop are already done; this handles the marker-based path.
     """
+    # Parse and execute inline markers before stripping
+    marker_actions = await _execute_inline_markers(
+        response_text,
+        project_id=project_id,
+        tenant_id=tenant_id,
+        agent_id=agent.id,
+        agent_name=agent.name,
+    )
+    all_actions = (tool_actions or []) + marker_actions
+
     cleaned = _strip_all_markers(response_text)
-    if (not cleaned.strip() or _looks_like_tool_call_json(cleaned)) and tool_actions:
-        cleaned = _summarize_actions(tool_actions)
+    if (not cleaned.strip() or _looks_like_tool_call_json(cleaned)) and all_actions:
+        cleaned = _summarize_actions(all_actions)
     return await _store_and_publish(
         db, redis, project_id, role="assistant", content=cleaned,
-        agent=agent, actions=tool_actions or [],
+        agent=agent, actions=all_actions,
         task_id=task_id,
     )
 
@@ -1019,12 +1103,16 @@ async def _process_agent_in_background(
                     )
                     return
 
-        # Agent status is now derived from task state (running/blocked).
-        # No separate busy tracking needed — state machine publishes
-        # task_transition SSE events that update the frontend.
-
         history = await ConversationRepository(setup_db).list_by_project(project_id, limit=MAX_HISTORY)
     # setup_db is now CLOSED — connection returned to pool.
+
+    # Publish agent_processing started event for frontend busy indicator.
+    await _publish_event(redis, project_id, "agent_processing", {
+        "agent_id": str(agent_id),
+        "agent_name": agent.name,
+        "status": "started",
+        "mode": "active",
+    })
 
     # Phase 2: call agent (may block for minutes on worker polling).
     # Each internal function opens its own short-lived session so no
@@ -1095,10 +1183,15 @@ async def _process_agent_in_background(
         except Exception:  # noqa: BLE001
             pass
     finally:
-        # Agent status is derived from task state — no explicit cleanup needed.
-        # When agent completes a task (via complete_task tool), the state machine
-        # publishes task_transition SSE which updates the frontend dot color.
-        pass
+        try:
+            await _publish_event(redis, project_id, "agent_processing", {
+                "agent_id": str(agent_id),
+                "agent_name": agent.name if agent else "",
+                "status": "completed",
+                "mode": "active",
+            })
+        except Exception:
+            pass
 
 
 # ── Passive mode agent processing ──────────────────────────────────
@@ -1142,6 +1235,14 @@ async def _process_agent_in_background_passive(
             return
 
         history = await ConversationRepository(setup_db).list_by_project(project_id, limit=MAX_HISTORY)
+
+    # Publish agent_processing started event for frontend busy indicator.
+    await _publish_event(redis, project_id, "agent_processing", {
+        "agent_id": str(agent_id),
+        "agent_name": agent.name,
+        "status": "started",
+        "mode": "passive",
+    })
 
     user_message = (
         f"작업이 할당되었습니다. 아래 내용을 확인하고 실행해주세요.\n\n"
@@ -1222,6 +1323,16 @@ async def _process_agent_in_background_passive(
             error=e,
             redis=redis,
         )
+    finally:
+        try:
+            await _publish_event(redis, project_id, "agent_processing", {
+                "agent_id": str(agent_id),
+                "agent_name": agent.name if agent else "",
+                "status": "completed",
+                "mode": "passive",
+            })
+        except Exception:
+            pass
 
 
 # Max times a single task can be auto-recovered from a passive-mode error

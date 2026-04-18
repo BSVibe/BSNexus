@@ -3,6 +3,15 @@
 Action markers let an LLM agent emit structured task creation/modification
 requests inside its natural-language response. These helpers extract and
 strip those markers.
+
+Two marker formats are supported:
+
+1. **Block markers** (legacy): ``[CREATE_TASK]...[/CREATE_TASK]``
+2. **Inline markers** (preferred): ``[CREATE_TASK title="..." assignee="..."]``
+
+Inline markers are one-liners with ``key="value"`` attributes. They are
+cheaper for the LLM (no tool_use round-trip) and parsed by the backend
+before the response text is stored.
 """
 
 from __future__ import annotations
@@ -11,16 +20,90 @@ import re
 
 from backend.src import models
 
+# ── Legacy block markers ──────────────────────────────────────────
 CREATE_TASK_RE = re.compile(r"\[CREATE_TASK\](.*?)\[/CREATE_TASK\]", re.DOTALL)
 CREATE_PHASE_RE = re.compile(r"\[CREATE_PHASE\](.*?)\[/CREATE_PHASE\]", re.DOTALL)
 _MODIFY_TASK_RE = re.compile(r"\[MODIFY_TASK\](.*?)\[/MODIFY_TASK\]", re.DOTALL)
 
+# ── Inline markers (new) ─────────────────────────────────────────
+# Matches: [CREATE_TASK title="..." assignee="..." priority="..."]
+# Attributes are key="value" pairs in any order. Values may contain
+# escaped quotes (\").
+_INLINE_TASK_RE = re.compile(
+    r"\[CREATE_TASK\s+((?:\w+=\"(?:[^\"\\]|\\.)*\"\s*)+)\]"
+)
+_INLINE_PHASE_RE = re.compile(
+    r"\[CREATE_PHASE\s+((?:\w+=\"(?:[^\"\\]|\\.)*\"\s*)+)\]"
+)
+# Extracts individual key="value" pairs from an attribute string.
+_ATTR_RE = re.compile(r'(\w+)="((?:[^"\\]|\\.)*)"')
+
+
+def _parse_attrs(attr_string: str) -> dict[str, str]:
+    """Parse ``key="value"`` pairs, un-escaping backslash-quoted chars."""
+    attrs: dict[str, str] = {}
+    for key, raw_value in _ATTR_RE.findall(attr_string):
+        attrs[key] = raw_value.replace('\\"', '"').replace("\\\\", "\\")
+    return attrs
+
+
+def parse_inline_task_markers(text: str) -> list[dict[str, str | None]]:
+    """Extract inline ``[CREATE_TASK ...]`` markers from *text*.
+
+    Returns a list of dicts with keys: ``title``, ``assignee``,
+    ``priority``, ``task_type``, ``phase_name``, ``description``.
+    Missing optional attributes are ``None``.
+    """
+    results: list[dict[str, str | None]] = []
+    for m in _INLINE_TASK_RE.finditer(text):
+        attrs = _parse_attrs(m.group(1))
+        if "title" not in attrs:
+            continue
+        results.append({
+            "title": attrs["title"],
+            "assignee": attrs.get("assignee"),
+            "priority": attrs.get("priority"),
+            "task_type": attrs.get("task_type"),
+            "phase_name": attrs.get("phase_name"),
+            "description": attrs.get("description"),
+        })
+    return results
+
+
+def parse_inline_phase_markers(text: str) -> list[dict[str, str | None]]:
+    """Extract inline ``[CREATE_PHASE ...]`` markers from *text*.
+
+    Returns a list of dicts with keys: ``name``, ``description``.
+    Missing optional attributes are ``None``.
+    """
+    results: list[dict[str, str | None]] = []
+    for m in _INLINE_PHASE_RE.finditer(text):
+        attrs = _parse_attrs(m.group(1))
+        if "name" not in attrs:
+            continue
+        results.append({
+            "name": attrs["name"],
+            "description": attrs.get("description"),
+        })
+    return results
+
+
+def strip_inline_markers(text: str) -> str:
+    """Remove inline ``[CREATE_TASK ...]`` and ``[CREATE_PHASE ...]`` markers."""
+    text = _INLINE_TASK_RE.sub("", text)
+    text = _INLINE_PHASE_RE.sub("", text)
+    return text.strip()
+
 
 def strip_action_markers(text: str) -> str:
-    """Remove action marker blocks from user-visible text."""
+    """Remove all action marker blocks (legacy + inline) from user-visible text."""
+    # Legacy block markers
     text = CREATE_TASK_RE.sub("", text)
     text = CREATE_PHASE_RE.sub("", text)
     text = _MODIFY_TASK_RE.sub("", text)
+    # Inline markers
+    text = _INLINE_TASK_RE.sub("", text)
+    text = _INLINE_PHASE_RE.sub("", text)
     return text.strip()
 
 

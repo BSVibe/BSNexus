@@ -54,6 +54,225 @@ def _resolve_agent_by_name(name: str, agents: list) -> "Any | None":
     return None
 
 
+async def create_task_from_params(
+    *,
+    title: str,
+    description: str | None = None,
+    priority: str = "medium",
+    task_type: str = "feature",
+    assignee: str | None = None,
+    phase_name: str | None = None,
+    project_id: uuid.UUID,
+    tenant_id: uuid.UUID,
+    agent_id: uuid.UUID,
+    agent_name: str,
+    db_session_factory: Any,
+    tasks_created_count: int = 0,
+    max_tasks: int = 10,
+) -> dict[str, Any]:
+    """Create a task with full dedup, fuzzy assignee matching, and race guard.
+
+    Returns dict with ``task_id``, ``title``, ``status``, ``assigned_to``,
+    and optionally ``message`` / ``warning``.
+
+    Raises ``ToolExecutionError`` on validation failure.
+    """
+    from backend.src.models import Agent, Phase, PhaseStatus, Task, TaskPriority, TaskSource, TaskStatus, TaskType
+
+    if tasks_created_count >= max_tasks:
+        raise ToolExecutionError(
+            f"Maximum {max_tasks} tasks per turn. Focus on the most important tasks."
+        )
+
+    try:
+        task_priority = TaskPriority(priority)
+    except ValueError:
+        task_priority = TaskPriority.medium
+    try:
+        task_type_enum = TaskType(task_type)
+    except ValueError:
+        task_type_enum = TaskType.feature
+
+    async with db_session_factory() as db:
+        # Find target phase: explicit phase_name → active phase → first phase.
+        result = await db.execute(
+            select(Phase)
+            .where(Phase.project_id == project_id)
+            .order_by(Phase.order.asc())
+        )
+        phases = list(result.scalars().all())
+
+        target_phase: Phase | None = None
+        if phase_name:
+            target_phase = next(
+                (p for p in phases if p.name.lower() == phase_name.lower()), None
+            )
+        if not target_phase:
+            target_phase = next((p for p in phases if p.status == PhaseStatus.active), None)
+        if not target_phase and phases:
+            target_phase = phases[0]
+        if not target_phase:
+            raise ToolExecutionError(
+                "No phase exists yet. Use create_phase first to organize work, then create tasks."
+            )
+        active = target_phase
+
+        # ── Duplicate check (phase-scoped) ──
+        from difflib import SequenceMatcher
+
+        existing_result = await db.execute(
+            select(Task).where(
+                Task.phase_id == active.id,
+                Task.status != TaskStatus.done,
+            )
+        )
+        existing_tasks = list(existing_result.scalars().all())
+        normalized_title = title.strip().lower()
+
+        # Exact match (case-insensitive) → return existing task
+        for et in existing_tasks:
+            if et.title.strip().lower() == normalized_title:
+                return {
+                    "task_id": str(et.id), "title": et.title,
+                    "status": et.status.value, "assigned_to": None,
+                    "message": "Task already exists in this phase — skipping creation.",
+                }
+
+        # Fuzzy match (>0.8 similarity) → error with suggestion
+        similar = [
+            et.title for et in existing_tasks
+            if SequenceMatcher(None, normalized_title, et.title.strip().lower()).ratio() > 0.8
+        ]
+        if similar:
+            titles_list = ", ".join(f'"{t}"' for t in similar)
+            raise ToolExecutionError(
+                f"Very similar task(s) already exist: {titles_list}. "
+                "Use the existing task or choose a clearly different title."
+            )
+
+        # Resolve assignee: explicit name → keyword auto-match
+        assigned_agent_id = None
+        assignee_resolved = assignee
+        warning = ""
+
+        # Load all active agents for matching
+        all_agents_result = await db.execute(
+            select(Agent).where(
+                Agent.tenant_id == tenant_id,
+                Agent.is_active.is_(True),
+            )
+        )
+        all_agents = list(all_agents_result.scalars().all())
+
+        if assignee_resolved:
+            # Self-assign guard
+            if assignee_resolved.strip().lower() == agent_name.strip().lower():
+                warning = " (warning: self-assignment blocked — delegate to others)"
+                assignee_resolved = None
+            else:
+                agent_match = _resolve_agent_by_name(assignee_resolved, all_agents)
+                if agent_match:
+                    assigned_agent_id = agent_match.id
+                    assignee_resolved = agent_match.name
+                else:
+                    warning = f" (warning: agent '{assignee_resolved}' not found)"
+
+        if not assigned_agent_id:
+            from backend.src.core.task_assignment import match_agent_for_task
+            text = f"{title} {description or ''}".lower()
+            best = match_agent_for_task(text, all_agents, exclude_id=agent_id)
+            if best:
+                assigned_agent_id = best.id
+                assignee_resolved = best.name
+
+        task = Task(
+            project_id=project_id,
+            phase_id=active.id,
+            title=title,
+            description=description,
+            priority=task_priority,
+            task_type=task_type_enum,
+            source=TaskSource.llm,
+            status=TaskStatus.pending,
+            creator_agent_id=agent_id,
+            assigned_agent_id=assigned_agent_id,
+            branch_name=active.branch_name,
+        )
+        db.add(task)
+        try:
+            await db.commit()
+        except IntegrityError:
+            await db.rollback()
+            existing_result = await db.execute(
+                select(Task).where(
+                    Task.phase_id == active.id,
+                    Task.status != TaskStatus.done,
+                    func.lower(func.trim(Task.title)) == normalized_title,
+                )
+            )
+            existing = existing_result.scalar_one_or_none()
+            if existing:
+                logger.info("task_dedup_race_caught", title=title, winner_id=str(existing.id))
+                return {
+                    "task_id": str(existing.id), "title": existing.title,
+                    "status": existing.status.value, "assigned_to": None,
+                    "message": "Task already exists in this phase — skipping creation.",
+                }
+            raise
+
+        logger.info("task_created", task_id=str(task.id), title=title,
+                    agent=agent_name, assignee=assignee_resolved)
+        result_dict: dict[str, Any] = {
+            "task_id": str(task.id), "title": title, "status": "pending",
+            "assigned_to": assignee_resolved or None,
+        }
+        if warning:
+            result_dict["warning"] = warning
+        return result_dict
+
+
+async def create_phase_from_params(
+    *,
+    name: str,
+    description: str = "",
+    project_id: uuid.UUID,
+    db_session_factory: Any,
+) -> dict[str, Any]:
+    """Create a phase with dedup guard.
+
+    Returns dict with ``phase_id``, ``name``, ``status``.
+    """
+    from backend.src.models import Phase, PhaseStatus
+
+    async with db_session_factory() as db:
+        result = await db.execute(
+            select(Phase).where(Phase.project_id == project_id)
+        )
+        existing = list(result.scalars().all())
+        for p in existing:
+            if p.name.lower() == name.lower():
+                return {"phase_id": str(p.id), "name": p.name, "status": "already_exists"}
+
+        next_order = max((p.order for p in existing), default=0) + 1
+        branch = f"phase/{name.lower().replace(' ', '-')}"
+        has_active = any(p.status == PhaseStatus.active for p in existing)
+        initial_status = PhaseStatus.active if not existing or not has_active else PhaseStatus.pending
+
+        phase = Phase(
+            project_id=project_id,
+            name=name,
+            description=description,
+            branch_name=branch,
+            order=next_order,
+            status=initial_status,
+        )
+        db.add(phase)
+        await db.commit()
+
+        logger.info("phase_created", phase_id=str(phase.id), name=name)
+        return {"phase_id": str(phase.id), "name": name, "status": "created"}
+
+
 class CreateTaskTool(Tool):
     """Create a new task in the project. Replaces [CREATE_TASK] marker."""
 
@@ -100,163 +319,26 @@ class CreateTaskTool(Tool):
         }
 
     async def execute(self, input: dict[str, Any], ctx: ToolContext) -> str:
-        from backend.src.models import Agent, Phase, PhaseStatus, Task, TaskPriority, TaskSource, TaskStatus, TaskType
-
-        # Rate limit: prevent infinite task creation loops
-        if ctx.tasks_created_this_turn >= ctx.max_tasks_per_turn:
-            raise ToolExecutionError(
-                f"Maximum {ctx.max_tasks_per_turn} tasks per turn. "
-                "Focus on the most important tasks."
-            )
-
-        title = input["title"]
-        try:
-            priority = TaskPriority(input.get("priority", "medium"))
-        except ValueError:
-            priority = TaskPriority.medium
-        try:
-            task_type = TaskType(input.get("task_type", "feature"))
-        except ValueError:
-            task_type = TaskType.feature
-
-        async with ctx.db_session_factory() as db:
-            # Find target phase: explicit phase_name → active phase → first phase.
-            result = await db.execute(
-                select(Phase)
-                .where(Phase.project_id == ctx.project_id)
-                .order_by(Phase.order.asc())
-            )
-            phases = list(result.scalars().all())
-
-            target_phase: Phase | None = None
-            phase_name_input = input.get("phase_name")
-            if phase_name_input:
-                target_phase = next(
-                    (p for p in phases if p.name.lower() == phase_name_input.lower()), None
-                )
-            if not target_phase:
-                target_phase = next((p for p in phases if p.status == PhaseStatus.active), None)
-            if not target_phase and phases:
-                target_phase = phases[0]
-            if not target_phase:
-                raise ToolExecutionError(
-                    "No phase exists yet. Use create_phase first to organize work, then create tasks."
-                )
-            active = target_phase
-
-            # ── Duplicate check (phase-scoped) ──
-            from difflib import SequenceMatcher
-
-            existing_result = await db.execute(
-                select(Task).where(
-                    Task.phase_id == active.id,
-                    Task.status != TaskStatus.done,
-                )
-            )
-            existing_tasks = list(existing_result.scalars().all())
-            normalized_title = title.strip().lower()
-
-            # Exact match (case-insensitive) → return existing task
-            for et in existing_tasks:
-                if et.title.strip().lower() == normalized_title:
-                    return json.dumps({
-                        "task_id": str(et.id), "title": et.title,
-                        "status": et.status.value, "assigned_to": None,
-                        "message": "Task already exists in this phase — skipping creation.",
-                    })
-
-            # Fuzzy match (>0.8 similarity) → error with suggestion
-            similar = [
-                et.title for et in existing_tasks
-                if SequenceMatcher(None, normalized_title, et.title.strip().lower()).ratio() > 0.8
-            ]
-            if similar:
-                titles_list = ", ".join(f'"{t}"' for t in similar)
-                raise ToolExecutionError(
-                    f"Very similar task(s) already exist: {titles_list}. "
-                    "Use the existing task or choose a clearly different title."
-                )
-
-            # Resolve assignee: explicit name → keyword auto-match
-            assigned_agent_id = None
-            assignee_name = input.get("assignee")
-            assignee_warning = ""
-
-            # Load all active agents for matching
-            all_agents_result = await db.execute(
-                select(Agent).where(
-                    Agent.tenant_id == ctx.tenant_id,
-                    Agent.is_active.is_(True),
-                )
-            )
-            all_agents = list(all_agents_result.scalars().all())
-
-            if assignee_name:
-                # Self-assign guard: active agents should delegate, not self-assign
-                if assignee_name.strip().lower() == ctx.agent_name.strip().lower():
-                    assignee_warning = " (warning: self-assignment blocked — delegate to others)"
-                    assignee_name = None  # Fall through to auto-assignment
-                else:
-                    assignee = _resolve_agent_by_name(assignee_name, all_agents)
-                    if assignee:
-                        assigned_agent_id = assignee.id
-                        assignee_name = assignee.name
-                    else:
-                        assignee_warning = f" (warning: agent '{assignee_name}' not found)"
-
-            if not assigned_agent_id:
-                # Auto-assign by keyword matching on title + description
-                from backend.src.core.task_assignment import match_agent_for_task
-                text = f"{title} {input.get('description', '')}".lower()
-                best = match_agent_for_task(text, all_agents, exclude_id=ctx.agent_id)
-                if best:
-                    assigned_agent_id = best.id
-                    assignee_name = best.name
-
-            task = Task(
-                project_id=ctx.project_id,
-                phase_id=active.id,
-                title=title,
-                description=input.get("description"),
-                priority=priority,
-                task_type=task_type,
-                source=TaskSource.llm,
-                status=TaskStatus.pending,
-                creator_agent_id=ctx.agent_id,
-                assigned_agent_id=assigned_agent_id,
-                branch_name=active.branch_name,
-            )
-            db.add(task)
-            try:
-                await db.commit()
-            except IntegrityError:
-                await db.rollback()
-                # Race condition: another session committed the same task.
-                # Re-query to find the winner and return it.
-                existing_result = await db.execute(
-                    select(Task).where(
-                        Task.phase_id == active.id,
-                        Task.status != TaskStatus.done,
-                        func.lower(func.trim(Task.title)) == normalized_title,
-                    )
-                )
-                existing = existing_result.scalar_one_or_none()
-                if existing:
-                    logger.info("task_dedup_race_caught", title=title, winner_id=str(existing.id))
-                    return json.dumps({
-                        "task_id": str(existing.id), "title": existing.title,
-                        "status": existing.status.value, "assigned_to": None,
-                        "message": "Task already exists in this phase — skipping creation.",
-                    })
-                raise  # Unexpected IntegrityError, re-raise
-
+        result = await create_task_from_params(
+            title=input["title"],
+            description=input.get("description"),
+            priority=input.get("priority", "medium"),
+            task_type=input.get("task_type", "feature"),
+            assignee=input.get("assignee"),
+            phase_name=input.get("phase_name"),
+            project_id=ctx.project_id,
+            tenant_id=ctx.tenant_id,
+            agent_id=ctx.agent_id,
+            agent_name=ctx.agent_name,
+            db_session_factory=ctx.db_session_factory,
+            tasks_created_count=ctx.tasks_created_this_turn,
+            max_tasks=ctx.max_tasks_per_turn,
+        )
+        # Only increment counter for actual new creations
+        if "message" not in result:
             ctx.tasks_created_this_turn += 1
-            logger.info("task_created_via_tool", task_id=str(task.id), title=title,
-                        agent=ctx.agent_name, assignee=assignee_name)
-            return json.dumps({
-                "task_id": str(task.id), "title": title, "status": "pending",
-                "assigned_to": assignee_name or None,
-            }) + assignee_warning
+        warning = result.pop("warning", "")
+        return json.dumps(result) + warning
 
 
 class ClaimTaskTool(Tool):
@@ -458,40 +540,13 @@ class CreatePhaseTool(Tool):
         }
 
     async def execute(self, input: dict[str, Any], ctx: ToolContext) -> str:
-        from backend.src.models import Phase, PhaseStatus
-
-        name = input["name"]
-        async with ctx.db_session_factory() as db:
-            # Dedup check
-            result = await db.execute(
-                select(Phase).where(Phase.project_id == ctx.project_id)
-            )
-            existing = list(result.scalars().all())
-            for p in existing:
-                if p.name.lower() == name.lower():
-                    return json.dumps({"phase_id": str(p.id), "name": p.name, "status": "already_exists"})
-
-            next_order = max((p.order for p in existing), default=0) + 1
-            branch = f"phase/{name.lower().replace(' ', '-')}"
-
-            # First phase in a project auto-activates. Subsequent phases stay pending
-            # until the dispatcher advances them on completion of the active phase.
-            has_active = any(p.status == PhaseStatus.active for p in existing)
-            initial_status = PhaseStatus.active if not existing or not has_active else PhaseStatus.pending
-
-            phase = Phase(
-                project_id=ctx.project_id,
-                name=name,
-                description=input.get("description", ""),
-                branch_name=branch,
-                order=next_order,
-                status=initial_status,
-            )
-            db.add(phase)
-            await db.commit()
-
-            logger.info("phase_created_via_tool", phase_id=str(phase.id), name=name, agent=ctx.agent_name)
-            return json.dumps({"phase_id": str(phase.id), "name": name, "status": "created"})
+        result = await create_phase_from_params(
+            name=input["name"],
+            description=input.get("description", ""),
+            project_id=ctx.project_id,
+            db_session_factory=ctx.db_session_factory,
+        )
+        return json.dumps(result)
 
 
 class SetGoalTool(Tool):

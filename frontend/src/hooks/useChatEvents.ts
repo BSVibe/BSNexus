@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import type { ChatHistoryResponse, ChatMessageOut } from '../api/agentChat'
+import { useAgentProcessingStore } from '../stores/agentProcessingStore'
 import { getAccessToken } from './useAuth'
 
 /**
@@ -110,10 +111,30 @@ export function useChatEvents(projectId: string | undefined) {
         queryClient.invalidateQueries({ queryKey: ['goals', projectId] })
       }
 
+      const handleAgentProcessing = (event: MessageEvent) => {
+        try {
+          const data = JSON.parse(event.data) as {
+            agent_id: string
+            agent_name: string
+            status: 'started' | 'completed'
+            mode: string
+          }
+          const store = useAgentProcessingStore.getState()
+          if (data.status === 'started') {
+            store.setProcessing(data.agent_id, data.agent_name, data.mode)
+          } else {
+            store.clearProcessing(data.agent_id)
+          }
+        } catch {
+          /* ignore parse errors */
+        }
+      }
+
       source.addEventListener('message_created', handleMessageCreated as EventListener)
       source.addEventListener('history_cleared', handleHistoryCleared as EventListener)
       source.addEventListener('task_transition', handleTaskTransition as EventListener)
       source.addEventListener('tool_end', handleToolEnd as EventListener)
+      source.addEventListener('agent_processing', handleAgentProcessing as EventListener)
 
       source.onopen = () => {
         retriesRef.current = 0
@@ -122,6 +143,7 @@ export function useChatEvents(projectId: string | undefined) {
       source.onerror = () => {
         source.close()
         sourceRef.current = null
+        useAgentProcessingStore.getState().clearAll()
         if (cancelledRef.current) return
         if (retriesRef.current < MAX_RETRIES) {
           const delay = Math.min(1000 * Math.pow(2, retriesRef.current), 30000)

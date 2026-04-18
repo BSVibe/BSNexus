@@ -109,8 +109,8 @@ class TestAssembleSystemPrompt:
         prompt = await assemble_system_prompt(
             _agent(), _project(), str(tmp_path),
         )
-        assert "create_task" in prompt
-        assert "PLAN and DELEGATE" in prompt or "Active" in prompt
+        assert "CREATE_TASK" in prompt
+        assert "PLAN" in prompt and "DELEGATE" in prompt or "Active" in prompt
 
     @pytest.mark.asyncio
     async def test_reads_skills_for_capabilities(self, tmp_path: Path) -> None:
@@ -158,8 +158,8 @@ class TestAssembleSystemPrompt:
         prompt = await assemble_system_prompt(
             _agent(), _project(), str(tmp_path),
         )
-        assert "create_task" in prompt
-        assert "create_phase" in prompt
+        assert "CREATE_TASK" in prompt
+        assert "CREATE_PHASE" in prompt
 
     @pytest.mark.asyncio
     async def test_passive_mode_has_execution_rules(self, tmp_path: Path) -> None:
@@ -180,7 +180,7 @@ class TestAssembleSystemPrompt:
         prompt = await assemble_system_prompt(
             _agent(), _project(), None,
         )
-        assert "create_task" in prompt  # active mode default
+        assert "CREATE_TASK" in prompt  # active mode default
         # Skill summaries present
         assert "Memory" in prompt
 
