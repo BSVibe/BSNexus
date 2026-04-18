@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock
 
 import pytest
@@ -122,6 +122,28 @@ async def test_find_available_worker_none_online(db_session):
 
     worker = await dispatcher.find_available_worker(db_session)
     assert worker is None
+
+
+@pytest.mark.asyncio
+async def test_find_available_worker_stale_heartbeat(db_session):
+    """Workers with stale heartbeat (>120s) are not returned."""
+    stale_time = datetime.now(timezone.utc) - timedelta(seconds=300)
+    w = Worker(
+        tenant_id=_TENANT_ID,
+        name="stale-worker",
+        labels=[],
+        capabilities=["coding"],
+        token_hash="hash-stale",
+        status="online",
+        last_heartbeat=stale_time,
+    )
+    db_session.add(w)
+    await db_session.flush()
+    await db_session.commit()
+
+    dispatcher = WorkerDispatcher(AsyncMock())
+    worker = await dispatcher.find_available_worker(db_session)
+    assert worker is None, "Stale worker should not be returned"
 
 
 @pytest.mark.asyncio

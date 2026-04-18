@@ -1,36 +1,30 @@
 #!/usr/bin/env bash
-# Infrastructure watchdog — monitors Docker/colima + vLLM, auto-recovers both.
+# Infrastructure watchdog — monitors Docker/colima + Ollama, auto-recovers both.
 #
 # Usage: ./scripts/infra-watchdog.sh &
 #
-# Combines colima recovery + vLLM watchdog into one loop.
+# Combines colima recovery + Ollama watchdog into one loop.
 # Designed to keep the entire stack alive during long-term tests.
 set -euo pipefail
 
-VLLM_PORT="${VLLM_PORT:-8888}"
-VLLM_MODEL="${VLLM_MODEL:-mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit}"
-VLLM_SERVED_NAME="${VLLM_SERVED_NAME:-qwen3-coder}"
-VLLM_BIN="${VLLM_BIN:-$HOME/.venvs/vllm-mlx/bin/vllm-mlx}"
+OLLAMA_PORT="${OLLAMA_PORT:-11434}"
+OLLAMA_NUM_PARALLEL="${OLLAMA_NUM_PARALLEL:-2}"
 BACKEND_PORT="${BACKEND_PORT:-18100}"
 POLL_INTERVAL="${POLL_INTERVAL:-30}"
-VLLM_FAIL_THRESHOLD="${VLLM_FAIL_THRESHOLD:-3}"
+OLLAMA_FAIL_THRESHOLD="${OLLAMA_FAIL_THRESHOLD:-3}"
 LOG="/tmp/infra-watchdog.log"
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') [infra] $*" | tee -a "$LOG"; }
 
-start_vllm() {
-  kill -9 $(lsof -ti:"$VLLM_PORT") 2>/dev/null || true
+start_ollama() {
+  kill -9 $(lsof -ti:"$OLLAMA_PORT") 2>/dev/null || true
   sleep 2
-  log "Starting vLLM..."
-  "$VLLM_BIN" serve "$VLLM_MODEL" \
-    --host 0.0.0.0 --port "$VLLM_PORT" \
-    --enable-auto-tool-choice --tool-call-parser qwen \
-    --reasoning-parser qwen3 --served-model-name "$VLLM_SERVED_NAME" \
-    --enable-prefix-cache > /tmp/vllm.log 2>&1 &
-  sleep 30
-  curl -sf --max-time 5 "http://localhost:$VLLM_PORT/health" >/dev/null 2>&1 && \
-    log "vLLM healthy" || log "vLLM not ready yet"
+  log "Starting Ollama..."
+  OLLAMA_NUM_PARALLEL="$OLLAMA_NUM_PARALLEL" ollama serve > /tmp/ollama.log 2>&1 &
+  sleep 15
+  curl -sf --max-time 5 "http://localhost:$OLLAMA_PORT/v1/models" >/dev/null 2>&1 && \
+    log "Ollama healthy" || log "Ollama not ready yet"
 }
 
 recover_docker() {
@@ -73,7 +67,7 @@ recover_docker() {
 trap 'log "Infra watchdog stopping"; exit 0' INT TERM
 log "=== Infra watchdog started ==="
 
-vllm_fail=0
+ollama_fail=0
 docker_fail=0
 
 while true; do
@@ -85,23 +79,23 @@ while true; do
     if [ "$docker_fail" -ge 2 ]; then
       recover_docker
       docker_fail=0
-      # vLLM likely died too
-      vllm_fail="$VLLM_FAIL_THRESHOLD"
+      # Ollama likely died too
+      ollama_fail="$OLLAMA_FAIL_THRESHOLD"
     fi
   else
     docker_fail=0
   fi
 
-  # Check vLLM
-  if curl -sf --max-time 5 "http://localhost:$VLLM_PORT/health" >/dev/null 2>&1; then
-    [ "$vllm_fail" -gt 0 ] && log "vLLM recovered after $vllm_fail failures"
-    vllm_fail=0
+  # Check Ollama
+  if curl -sf --max-time 5 "http://localhost:$OLLAMA_PORT/v1/models" >/dev/null 2>&1; then
+    [ "$ollama_fail" -gt 0 ] && log "Ollama recovered after $ollama_fail failures"
+    ollama_fail=0
   else
-    vllm_fail=$((vllm_fail + 1))
-    if [ "$vllm_fail" -ge "$VLLM_FAIL_THRESHOLD" ]; then
-      log "vLLM unhealthy ($vllm_fail failures) — restarting"
-      start_vllm
-      vllm_fail=0
+    ollama_fail=$((ollama_fail + 1))
+    if [ "$ollama_fail" -ge "$OLLAMA_FAIL_THRESHOLD" ]; then
+      log "Ollama unhealthy ($ollama_fail failures) — restarting"
+      start_ollama
+      ollama_fail=0
     fi
   fi
 done

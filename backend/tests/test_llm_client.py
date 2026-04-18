@@ -7,6 +7,7 @@ import pytest
 
 from backend.src.config import settings
 from backend.src.core.llm_client import (
+    REQUEST_TIMEOUT,
     LLMClient,
     LLMConfig,
     LLMError,
@@ -113,7 +114,7 @@ class TestLLMClientChat:
             api_base=None,
             temperature=0.7,
             max_tokens=4096,
-            timeout=120,
+            timeout=REQUEST_TIMEOUT,
         )
 
     async def test_chat_custom_params(self, client: LLMClient) -> None:
@@ -201,7 +202,7 @@ class TestLLMClientStreamChat:
             temperature=0.7,
             max_tokens=4096,
             stream=True,
-            timeout=120,
+            timeout=REQUEST_TIMEOUT,
         )
 
     async def test_stream_chat_skips_none_content(self, client: LLMClient) -> None:

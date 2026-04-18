@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import math
+import os
 import structlog
 import re
 from dataclasses import dataclass
@@ -21,7 +22,7 @@ _JSON_BLOCK_RE = re.compile(r"```(?:json)?\s*\n(.*?)\n```", re.DOTALL)
 MAX_RETRIES = 3
 RETRY_BASE_DELAY = 1.0  # seconds
 RETRY_MAX_DELAY = 10.0  # seconds
-REQUEST_TIMEOUT = 120  # seconds — per acompletion call (connect + read)
+REQUEST_TIMEOUT = int(os.getenv("LLM_REQUEST_TIMEOUT", "600"))  # seconds
 
 _RETRYABLE_STRINGS = ("overloaded", "rate_limit", "timeout", "429", "503", "529")
 

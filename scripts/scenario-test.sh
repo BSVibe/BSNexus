@@ -15,12 +15,12 @@ PROJECT=$(curl -s -X POST "$API/projects" \
 PROJECT_ID=$(echo "$PROJECT" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
 echo "Project: $PROJECT_ID"
 
-# ── 2. Send message to CMO ──
+# ── 2. Send message (no @mention — CEO auto-delegation) ──
 echo ""
-echo "=== Step 2: Send chat to CMO ==="
+echo "=== Step 2: Send chat (CEO auto-delegation) ==="
 CHAT_RESP=$(curl -s -X POST "$API/projects/$PROJECT_ID/chat" \
   -H "$AUTH" -H "$CT" \
-  -d '{"message":"@CMO 간단한 할 일 관리 웹앱을 만들어줘. 시장 조사하고 팀원들에게 업무 나눠서 실제 구현까지 완료해줘. 코드 파일이 나와야 해."}')
+  -d '{"message":"할 일 관리 웹앱 만들고 싶어"}')
 echo "Chat response: $(echo "$CHAT_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('id','?')[:8])" 2>/dev/null || echo "$CHAT_RESP")"
 
 # ── 3. Monitor progress ──

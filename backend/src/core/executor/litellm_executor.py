@@ -16,6 +16,8 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 import litellm
+import os
+
 import structlog
 
 from backend.src.tools.base import ToolCall, ToolDefinition, ToolResult
@@ -24,7 +26,9 @@ from backend.src.tools.handler import ToolHandler
 
 logger = structlog.get_logger(__name__)
 
-REQUEST_TIMEOUT = 180  # seconds per acompletion call (local models can be slow)
+# Per-acompletion timeout. Local 30B models under contention can easily take
+# 200+s for a single tool-using turn, so default generously.
+REQUEST_TIMEOUT = int(os.getenv("LLM_REQUEST_TIMEOUT", "600"))
 LLM_RETRY_ON_TIMEOUT = 1  # retry once on timeout/connection errors
 
 

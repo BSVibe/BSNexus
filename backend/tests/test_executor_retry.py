@@ -19,8 +19,10 @@ from backend.src.tools.base import ToolDefinition
 class TestExecutorTimeoutConfig:
     """Verify timeout constants are set correctly."""
 
-    def test_request_timeout_is_180(self) -> None:
-        assert REQUEST_TIMEOUT == 180
+    def test_request_timeout_is_generous_for_local_models(self) -> None:
+        # Local 30B models under contention can take several minutes per
+        # tool-using turn. Keep the default generous; overridable via env.
+        assert REQUEST_TIMEOUT >= 300
 
     def test_retry_on_timeout_is_1(self) -> None:
         assert LLM_RETRY_ON_TIMEOUT == 1

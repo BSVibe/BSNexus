@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Long-term stability test — runs repeated scenario cycles with vLLM watchdog.
+# Long-term stability test — runs repeated scenario cycles with Ollama watchdog.
 #
 # Usage:
 #   ./scripts/longterm-test.sh [--hours 8] [--parallel 1]
@@ -7,7 +7,7 @@
 # Runs scenario-test cycles back-to-back, logs results to /tmp/longterm-test/.
 # Each cycle: clean DB → send chat → monitor 15min → dump results → next.
 # Designed to run 8-10 hours unattended to validate:
-#   - vLLM watchdog auto-recovery
+#   - Ollama watchdog auto-recovery
 #   - Task duplicate prevention under repeated runs
 #   - CMO self-assign guard consistency
 #   - Overall pipeline stability
@@ -38,7 +38,7 @@ check_service() {
 }
 
 recover_infra() {
-  # Recover colima + devcontainer if Docker is down (vLLM OOM crash)
+  # Recover colima + devcontainer if Docker is down (OOM crash)
   if docker ps >/dev/null 2>&1; then
     return 0
   fi
@@ -68,16 +68,16 @@ recover_infra() {
 
   wait_for_service "Backend" "$API/agents" 60 || { log "INFRA RECOVERY FAILED: backend not ready"; return 1; }
 
-  # Restart vLLM watchdog if it died with colima
-  if ! pgrep -f "vllm-watchdog" >/dev/null 2>&1; then
-    log "INFRA RECOVERY: restarting vLLM watchdog..."
+  # Restart Ollama watchdog if it died with colima
+  if ! pgrep -f "ollama-watchdog" >/dev/null 2>&1; then
+    log "INFRA RECOVERY: restarting Ollama watchdog..."
     local script_dir
     script_dir="$(cd "$(dirname "$0")" && pwd)"
-    nohup "$script_dir/vllm-watchdog.sh" >> /tmp/vllm-watchdog.log 2>&1 &
-    sleep 40  # Wait for watchdog to start vLLM
+    nohup "$script_dir/ollama-watchdog.sh" >> /tmp/ollama-watchdog.log 2>&1 &
+    sleep 20  # Wait for watchdog to start Ollama
   fi
 
-  wait_for_service "vLLM" "http://localhost:8888/health" 90 || log "WARNING: vLLM not ready yet, watchdog will retry"
+  wait_for_service "Ollama" "http://localhost:11434/v1/models" 90 || log "WARNING: Ollama not ready yet, watchdog will retry"
   log "INFRA RECOVERY: complete"
 }
 
@@ -108,14 +108,14 @@ run_cycle() {
   local start_time=$(date +%s)
   log "=== CYCLE $cycle START ==="
 
-  # Recover infrastructure if needed (colima OOM from vLLM)
+  # Recover infrastructure if needed (colima OOM)
   recover_infra || { log "CYCLE $cycle: infra recovery failed"; echo "$cycle,INFRA_FAIL,0,0,0,0,0,0,0," >> "$SUMMARY_FILE"; return 1; }
 
   # Clean DB
   clean_db || { log "CYCLE $cycle: DB clean failed"; return 1; }
 
-  # Wait for vLLM before sending chat
-  wait_for_service "vLLM" "http://localhost:8888/health" 90 || log "WARNING: vLLM not ready, proceeding anyway"
+  # Wait for Ollama before sending chat
+  wait_for_service "Ollama" "http://localhost:11434/v1/models" 90 || log "WARNING: Ollama not ready, proceeding anyway"
 
   # Create project
   local project_json
@@ -134,7 +134,7 @@ run_cycle() {
   # Send chat
   curl -sf --max-time 15 -X POST "$API/projects/$project_id/chat" \
     -H "$AUTH" -H "$CT" \
-    -d '{"message":"@CMO 간단한 할 일 관리 웹앱을 만들어줘. 디자인, 백엔드, 프론트엔드 각각 팀원에게 위임해."}' \
+    -d '{"message":"할 일 관리 웹앱 만들고 싶어"}' \
     >/dev/null 2>&1 || { log "CYCLE $cycle: Chat send failed"; echo "$cycle,FAIL,0,0,0,0,0,0,chat_send_failed" >> "$SUMMARY_FILE"; return 1; }
 
   # Monitor for up to 15min
@@ -150,10 +150,10 @@ run_cycle() {
       zero_count=0
     fi
 
-    # Check vLLM health (watchdog should handle restarts)
-    if ! curl -sf --max-time 5 http://localhost:8888/health >/dev/null 2>&1; then
+    # Check Ollama health (watchdog should handle restarts)
+    if ! curl -sf --max-time 5 http://localhost:11434/v1/models >/dev/null 2>&1; then
       # Only log every 60s to reduce noise
-      [ $((i % 6)) -eq 0 ] && log "  [${i}0s] vLLM unhealthy — watchdog should recover"
+      [ $((i % 6)) -eq 0 ] && log "  [${i}0s] Ollama unhealthy — watchdog should recover"
     fi
 
     # Plan tree
@@ -253,7 +253,7 @@ echo "cycle,status,phases,tasks,duplicates,self_assigns,files,screens,elapsed_s,
 
 # Pre-flight
 check_service "Backend" "$API/agents" || exit 1
-check_service "vLLM" "http://localhost:8888/health" || { log "WARNING: vLLM not running — watchdog should start it"; }
+check_service "Ollama" "http://localhost:11434/v1/models" || { log "WARNING: Ollama not running — watchdog should start it"; }
 
 total_start=$(date +%s)
 passed=0
@@ -270,7 +270,7 @@ for cycle in $(seq 1 "$MAX_CYCLES"); do
 
   run_cycle "$cycle" && passed=$((passed + 1)) || failed=$((failed + 1))
 
-  # Brief pause between cycles to let vLLM cool down
+  # Brief pause between cycles to let Ollama cool down
   sleep 30
 done
 

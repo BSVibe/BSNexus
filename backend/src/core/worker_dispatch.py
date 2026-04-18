@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import structlog
 from sqlalchemy import select
@@ -118,9 +118,11 @@ class WorkerDispatcher:
         tenant are considered. Without it, falls back to all workers
         (legacy compat for tests).
         """
+        heartbeat_cutoff = datetime.now(timezone.utc) - timedelta(seconds=120)
         query = select(Worker).where(
             Worker.is_active.is_(True),
             Worker.status == "online",
+            Worker.last_heartbeat > heartbeat_cutoff,
         )
         if tenant_id is not None:
             query = query.where(Worker.tenant_id == tenant_id)

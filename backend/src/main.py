@@ -247,14 +247,15 @@ def create_app(
 
         # Probe the health endpoint
         health_url = llm_base_url.rstrip("/")
-        # Try /health first, fall back to /v1/models
+        # Strip /v1 suffix to get the server root (avoids /v1/v1/models)
+        server_root = health_url.removesuffix("/v1")
+        # Try /health first (vLLM), fall back to /v1/models (Ollama/OpenAI-compat)
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.get(f"{health_url}/health")
+                resp = await client.get(f"{server_root}/health")
                 if resp.status_code == 200:
                     return {"status": "healthy", "base_url": llm_base_url}
-                # Some OpenAI-compatible servers don't have /health
-                resp = await client.get(f"{health_url}/v1/models")
+                resp = await client.get(f"{server_root}/v1/models")
                 if resp.status_code == 200:
                     return {"status": "healthy", "base_url": llm_base_url}
                 return {"status": "unhealthy", "base_url": llm_base_url, "http_status": resp.status_code}
