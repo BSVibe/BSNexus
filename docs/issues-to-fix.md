@@ -124,8 +124,85 @@
 - 98개 메시지 중 최초 유저 메시지가 안 보임
 - 프론트에서 scroll-up pagination 필요
 
-### 15. Passive mode 에이전트가 영어로 응답
-- 현재: "user가 한국어로 쓰면 한국어로 응답" 규칙 (harness.py)
-- 문제: passive mode의 user_message는 시스템 생성 텍스트 + 영어 task context
-  → 에이전트가 영어로 인식 → 영어 응답
-- 해결: `project.language` 또는 `tenant.preferred_language` 필드 추가
+### 15. ~~Passive mode 에이전트가 영어로 응답~~ → PARTIAL (세션 6)
+- LANGUAGE 규칙을 프롬프트 끝으로 이동 (recency bias 활용)
+- 남은 이슈: passive mode user_message가 영어 task context → 에이전트가 영어로 인식
+- 추가 해결: `project.language` 또는 `tenant.preferred_language` 필드 추가
+
+### 16. ~~E2E Auth 깨짐 (BSVibe Auth cookie 전환 후)~~ → DONE (세션 6)
+- `injectAuth()` + `setupAuth()`에 `addInitScript` 추가 — navigation 전에 localStorage 주입
+- mock-api.ts / longterm-ui-live.spec.ts 둘 다 수정
+
+### 17. ~~Task가 done 상태로 전환되지 않음~~ → MITIGATED (세션 6)
+- `complete_task` 호출 누락은 모델 한계 (Qwen3 성향)
+- `scripts/stuck-task-watchdog.sh`로 자동 복구:
+  - 5분+ stuck running task → pending 재dispatch (1차)
+  - 같은 task 또 stuck → done 강제 마감
+- 실측: 166 auto_done + 175 requeued, 0 errors
+
+## Session 6 완료 (2026-04-17~18)
+
+### ~~C1: Delegation chain 안정성~~ → DONE
+- vLLM 180s timeout → **Ollama 전환 + LLM_REQUEST_TIMEOUT=600s env-override**
+- `_process_agent_in_background_passive`에 **auto-recovery** (passive error → pending → 최대 3회 retry → blocked)
+- 친화적 에러 메시지 — raw Python/LLM 에러 본문 숨김
+
+### ~~C2: Self-assign (통계 오류)~~ → FALSE POSITIVE
+- DB 감사에서 "159/163 self-assign" 발견 → 실제는 `global_dispatcher.py:359` 가 passive dispatch 시 `task.agent_id = agent.id`로 creator field를 executor로 덮어써서 통계 왜곡
+- create_task 로그로 확인: creator(CEO/Marketer 등) ≠ assignee 정상
+- **남은 버그**: `task.agent_id`에 creator와 executor를 같이 쓰지 말고 분리 필드 필요
+
+### ~~C3: 자연어 dispatch~~ → DONE
+- CEO/CTO 등 `system_prompt`에 자연어 브리핑 + @mention 지침
+- `_summarize_actions` 대화체 템플릿 + assignee 자동 @mention
+- `_looks_like_tool_call_json` guard로 raw JSON content 차단
+
+### ~~C4: 언어 일관성~~ → DONE
+- LANGUAGE 규칙을 프롬프트 끝으로 (recency bias)
+
+## Session 6 신규 인프라
+
+### .bsd canonical schema
+- `backend/src/core/bsd_schema.py` — 19 types (Screen/View/Row/ScrollView/Text/Heading/Button/TextInput/Checkbox/Switch/Image/Icon/Badge/Card/Divider/List/ListItem/Appbar/Tab/Fab)
+- 타입별 허용 props, 허용 style keys, normalise(aliases: Container→View 등), validate(strict)
+- `create_screen` / `modify_screen` tool이 validation 후 reject/auto-normalise
+- Designer skill prompt에 canonical vocabulary markdown 주입
+- `ScreenRenderer.tsx` (Preview/JSON toggle) + full-scope 렌더러 (RN→web CSS + tokens)
+
+### Watchdogs
+- `scripts/ollama-watchdog.sh` — health check + auto-restart
+- `scripts/stuck-task-watchdog.sh` — 5분+ running stuck task auto-unstick (requeue → done)
+- `scripts/single-project-longrun.sh` — 1 프로젝트 8시간 자율 체이닝 관찰 스크립트
+
+### Self-healing
+- `_recover_failed_passive_task()` — passive 모드 에러(timeout/connection/rate-limit/unknown) 시 자동 retry
+- `_pick_next_handoff_agent()` — passive 완료 시 @mention 없으면 자동 핸드오프 대상 선정 (같은 phase pending → 다른 phase pending → org root)
+
+### Ping-pong delegation
+- Passive 에이전트 완료 메시지의 @mention을 파싱해 **active mode로 재dispatch** — 연쇄 대화 복구
+- `passive_ping_pong` 로그로 추적
+
+## Session 6 롱텀 검증 결과 (8h single-project)
+
+프로젝트 `dd0bce26-c358-4efb-a794-592868784646`:
+- **11 phases 전부 완료** (Market Research → Product Planning → Product Dev → UI Dev → User Mgmt → Auth → CI/CD → User Profile → Monitoring → Dashboard UI/UX → Auth Security)
+- 163 tasks, 136 done (83%)
+- 86 files (code 28, docs 20, design 31, tests 3)
+- 183 assistant messages, 11 agents 활동, 145/183 (79%) @mention 포함
+- Watchdog: 166 auto_done + 175 requeued, 0 errors
+- Auto-recovery: 9회 (passive error → pending → retry 성공)
+
+## 남은 이슈 (세션 6 이후)
+
+### 18. create_task 중복 guard 미작동
+- 같은 phase 안에 exact duplicate title이 최대 12개까지 생성됨
+- Fuzzy dedup은 있지만 에이전트들이 반복 호출할 때 효과 미미
+- 필요: active phase 내 title 정확 일치면 reject (이미 코드 있는데 왜 통과?)
+
+### 19. global_dispatcher가 `task.agent_id`를 executor로 덮어씀
+- `backend/src/core/global_dispatcher.py:359` — `task.agent_id = agent.id` 라인이 creator 필드를 망가뜨림
+- Task 모델에 `creator_agent_id` + `assigned_agent_id` 명확히 분리 필요
+
+### 20. Designer가 `modify_screen` 미활용
+- 유사 screen 반복 생성 (`user-dashboard`, `-2`, `-3`, `-4`)
+- 프롬프트에 "기존 screen 수정할 수 있을지 먼저 list_files로 확인" 강화 필요
