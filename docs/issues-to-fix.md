@@ -220,16 +220,18 @@
 - **수정**: `order_by(Phase.order.asc()).limit(1)` — crash 방어
 - **남은**: 근본적으로 active phase가 1개만 되도록 create_phase에서 guard 필요
 
-### 23. Active mode agent busy 표시 없음
+### 23. Active mode agent busy 표시 없음 ✅ (세션 8)
 - **증상**: CEO가 active mode에서 채팅/task 생성 중일 때 green dot, typing "..." 안 뜸
-- **원인**: agent status dot은 running task 기반 (agent_activity.py:74). Active mode는 task 없이 동작하므로 표시 안 됨.
-  Typing indicator는 user가 직접 보낸 메시지에 대해서만 작동 (pendingAgents state). Auto-chain dispatch에는 미적용.
-- **코드 주석** (agent_chat.py:1022): "No separate busy tracking needed" — 의도적 생략
-- **필요**: active mode 시작/끝에 SSE event 발행 → frontend에서 dot/typing 갱신
+- **수정**: `agent_processing` SSE event (started/completed) 발행 + `agentProcessingStore` (zustand)
+  + `useChatEvents.ts` 핸들러 + `AgentStatusBar` dot override (처리 중 → green + "처리 중...")
+- SSE 끊김 시 `clearAll()`로 stale 상태 방어
 
-### 24. 마커/tool 하이브리드 전환 검토
-- create_task/create_phase는 마커 파싱이 더 적합 (Qwen3가 3+ tool call에서 불안정)
-- file_write, create_screen, complete_task만 tool로 유지
-- `task_markers.py` 이미 존재 (이전 마커 시스템 잔재)
-- 장점: LLM 호출 수 감소, latency 개선, Qwen3 안정성
-- 단점: validation 약화, dedup guard를 파서에서 구현해야 함
+### 24. 마커/tool 하이브리드 전환 ✅ (세션 8)
+- **수정**: inline marker 파싱 (`[CREATE_TASK title="..." assignee="..."]`) 추가
+  - `task_markers.py`: `parse_inline_task_markers()`, `parse_inline_phase_markers()`, `strip_inline_markers()`
+  - `plan_tools.py`: `create_task_from_params()`, `create_phase_from_params()` 추출 (tool + marker 공유)
+  - `agent_chat.py`: `_execute_inline_markers()` → `_process_response_text()` 파이프라인에 통합
+  - `harness.py`: `ACTIVE_MODE_RULES` 프롬프트에서 inline marker 사용 권장
+- Tool (CreateTaskTool, CreatePhaseTool) 병존 — 마커 사용 불가 시 fallback
+- Dedup guard (exact + fuzzy), IntegrityError race, 자기 할당 방지 모두 마커에서도 동작
+- 1025 tests passing (+28 신규)
