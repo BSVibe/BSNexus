@@ -210,9 +210,26 @@
 - **수정**: `CreateScreenTool`에서 기존 slug 존재 시 `ToolExecutionError` (modify_screen 안내) + fuzzy check (>0.7 similarity)
 - DESIGN_SKILL 프롬프트에 "기존 screen 확인 후 modify_screen 사용" 규칙 추가
 
-### 21. CEO @mention 후 일부 task에 assigned_agent_id=NULL → passive dispatch 미실행
-- **증상**: CEO가 task 생성하며 @PM, @Engineer 멘션하지만, 일부 task의 `assigned_agent_id`가 NULL
-- `assigned_agent_id=NULL`이면 `_dispatch_agent_tasks()`가 스킵 → 에이전트 실행 안 됨
-- watchdog이 stuck task로 auto_done 처리하지만, 실제 작업은 안 한 것
-- **원인 추정**: CEO가 `create_task` 호출 시 assignee 파라미터를 안 넣거나, `match_agent_for_task()` 키워드 매칭 실패
-- **필요**: create_task 로그에서 assignee 파라미터 디버깅, NULL assigned task 비율 모니터링
+### ~~21. CEO @mention 후 일부 task에 assigned_agent_id=NULL~~ → DONE (세션 7)
+- **근인**: LLM이 "Product_Manager"로 쓰지만 agent name은 "PM" → exact match 실패 → NULL
+- **수정**: `_resolve_agent_by_name()` 3-tier matching (exact → role → starts-with)
+- 실검증: 14개 task 중 null_assigned 0건
+
+### 22. Dispatcher crash — multiple active phases
+- **증상**: 병렬 create_phase 호출로 2+ phases가 active → `get_active_phase()` `scalar_one_or_none` crash
+- **수정**: `order_by(Phase.order.asc()).limit(1)` — crash 방어
+- **남은**: 근본적으로 active phase가 1개만 되도록 create_phase에서 guard 필요
+
+### 23. Active mode agent busy 표시 없음
+- **증상**: CEO가 active mode에서 채팅/task 생성 중일 때 green dot, typing "..." 안 뜸
+- **원인**: agent status dot은 running task 기반 (agent_activity.py:74). Active mode는 task 없이 동작하므로 표시 안 됨.
+  Typing indicator는 user가 직접 보낸 메시지에 대해서만 작동 (pendingAgents state). Auto-chain dispatch에는 미적용.
+- **코드 주석** (agent_chat.py:1022): "No separate busy tracking needed" — 의도적 생략
+- **필요**: active mode 시작/끝에 SSE event 발행 → frontend에서 dot/typing 갱신
+
+### 24. 마커/tool 하이브리드 전환 검토
+- create_task/create_phase는 마커 파싱이 더 적합 (Qwen3가 3+ tool call에서 불안정)
+- file_write, create_screen, complete_task만 tool로 유지
+- `task_markers.py` 이미 존재 (이전 마커 시스템 잔재)
+- 장점: LLM 호출 수 감소, latency 개선, Qwen3 안정성
+- 단점: validation 약화, dedup guard를 파서에서 구현해야 함
