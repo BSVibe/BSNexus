@@ -66,6 +66,12 @@ class TestParseInlineTaskMarkers:
         result = parse_inline_task_markers("")
         assert result == []
 
+    def test_none_input(self):
+        """None input should not crash — common when LLM returns tool_use only."""
+        # parse functions accept str, so callers must pass "" for None.
+        # This test documents that "" is safe.
+        assert parse_inline_task_markers("") == []
+
     def test_title_with_escaped_quotes(self):
         text = r'[CREATE_TASK title="API \"v2\" 개발" assignee="CTO"]'
         result = parse_inline_task_markers(text)

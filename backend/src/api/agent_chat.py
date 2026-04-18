@@ -492,6 +492,9 @@ async def _execute_inline_markers(
 
     actions: list[dict[str, Any]] = []
 
+    if not text:
+        return actions
+
     # Phases first — tasks may reference them by name.
     for pm in parse_inline_phase_markers(text):
         try:
@@ -560,7 +563,7 @@ async def _process_response_text(
     """
     # Parse and execute inline markers before stripping
     marker_actions = await _execute_inline_markers(
-        response_text,
+        response_text or "",
         project_id=project_id,
         tenant_id=tenant_id,
         agent_id=agent.id,
