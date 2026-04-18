@@ -159,7 +159,7 @@ function PhaseNode({
                 task={task}
                 isSelected={selectedNodeType === 'task' && selectedNodeId === task.id}
                 onSelect={() => onSelect('task', task.id)}
-                isHighlighted={highlightedAgentId !== null && task.agent_id === highlightedAgentId}
+                isHighlighted={highlightedAgentId !== null && task.creator_agent_id === highlightedAgentId}
               />
             ))
           )}

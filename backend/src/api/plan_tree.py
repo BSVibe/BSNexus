@@ -52,7 +52,7 @@ class PlanTaskNode(BaseModel):
     status: models.TaskStatus
     priority: models.TaskPriority
     task_type: models.TaskType
-    agent_id: uuid.UUID | None = None
+    creator_agent_id: uuid.UUID | None = None
     agent_name: str | None = None
     depends_on_ids: list[uuid.UUID] = Field(default_factory=list)
     started_at: str | None = None
@@ -109,7 +109,7 @@ def _task_to_node(task: models.Task, agent_name: str | None) -> PlanTaskNode:
         status=task.status,
         priority=task.priority,
         task_type=task.task_type,
-        agent_id=task.agent_id,
+        creator_agent_id=task.creator_agent_id,
         agent_name=agent_name,
         depends_on_ids=[dep.id for dep in (task.depends_on or [])],
         started_at=task.started_at.isoformat() if task.started_at else None,
@@ -141,7 +141,7 @@ async def get_plan_tree(
         raise HTTPException(status_code=404, detail="Project not found")
 
     # Resolve agent names referenced by tasks in one query.
-    agent_ids = {t.agent_id for p in project.phases for t in p.tasks if t.agent_id is not None}
+    agent_ids = {t.creator_agent_id for p in project.phases for t in p.tasks if t.creator_agent_id is not None}
     agent_names: dict[uuid.UUID, str] = {}
     if agent_ids:
         result = await db.execute(select(models.Agent.id, models.Agent.name).where(models.Agent.id.in_(agent_ids)))
@@ -163,7 +163,7 @@ async def get_plan_tree(
     phase_nodes: list[PlanPhaseNode] = []
     for phase in phases_sorted:
         tasks_sorted = sorted(phase.tasks, key=lambda t: t.created_at)
-        task_nodes = [_task_to_node(t, agent_names.get(t.agent_id) if t.agent_id else None) for t in tasks_sorted]
+        task_nodes = [_task_to_node(t, agent_names.get(t.creator_agent_id) if t.creator_agent_id else None) for t in tasks_sorted]
         phase_nodes.append(
             PlanPhaseNode(
                 id=phase.id,
@@ -217,13 +217,13 @@ async def get_agent_status(
         .where(
             models.Task.project_id == project_id,
             models.Task.status == models.TaskStatus.running,
-            models.Task.agent_id.in_(agent_ids),
+            models.Task.assigned_agent_id.in_(agent_ids),
         )
     )
     running_by_agent: dict[uuid.UUID, models.Task] = {}
     for task in running_result.scalars().all():
-        if task.agent_id is not None:
-            running_by_agent[task.agent_id] = task
+        if task.assigned_agent_id is not None:
+            running_by_agent[task.assigned_agent_id] = task
 
     online_worker_available = await has_online_worker(db, tenant_id)
 

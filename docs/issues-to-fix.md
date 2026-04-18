@@ -194,15 +194,18 @@
 
 ## 남은 이슈 (세션 6 이후)
 
-### 18. create_task 중복 guard 미작동
-- 같은 phase 안에 exact duplicate title이 최대 12개까지 생성됨
-- Fuzzy dedup은 있지만 에이전트들이 반복 호출할 때 효과 미미
-- 필요: active phase 내 title 정확 일치면 reject (이미 코드 있는데 왜 통과?)
+### ~~18. create_task 중복 guard 미작동~~ → DONE (세션 7)
+- **근인**: TOCTOU race condition — 병렬 dispatched 에이전트들이 각각 새 DB 세션에서 dedup 체크하지만 PostgreSQL READ COMMITTED에서 서로의 uncommitted INSERT를 못 봄
+- **수정**: PostgreSQL partial unique index `ix_tasks_phase_title_active` ON `(phase_id, lower(trim(title))) WHERE status != 'done'` + `CreateTaskTool`에서 `IntegrityError` catch → 기존 task 반환
+- Alembic migration: `n6i7j8k9l0m1`
 
-### 19. global_dispatcher가 `task.agent_id`를 executor로 덮어씀
-- `backend/src/core/global_dispatcher.py:359` — `task.agent_id = agent.id` 라인이 creator 필드를 망가뜨림
-- Task 모델에 `creator_agent_id` + `assigned_agent_id` 명확히 분리 필요
+### ~~19. global_dispatcher가 `task.agent_id`를 executor로 덮어씀~~ → DONE (세션 7)
+- **수정**: `agent_id` → `creator_agent_id` rename (Alembic `o7j8k9l0m1n2`)
+- `global_dispatcher.py:359` (`task.agent_id = agent.id`) 삭제
+- `plan_tools.py` ClaimTask에서 `task.agent_id = ctx.agent_id` 삭제
+- 에이전트 실행 중 task 조회 (plan_tree, agents API)를 `assigned_agent_id` 기준으로 변경
+- Backend 14개 파일 + Frontend 4개 파일 rename 완료
 
-### 20. Designer가 `modify_screen` 미활용
-- 유사 screen 반복 생성 (`user-dashboard`, `-2`, `-3`, `-4`)
-- 프롬프트에 "기존 screen 수정할 수 있을지 먼저 list_files로 확인" 강화 필요
+### ~~20. Designer가 `modify_screen` 미활용~~ → DONE (세션 7)
+- **수정**: `CreateScreenTool`에서 기존 slug 존재 시 `ToolExecutionError` (modify_screen 안내) + fuzzy check (>0.7 similarity)
+- DESIGN_SKILL 프롬프트에 "기존 screen 확인 후 modify_screen 사용" 규칙 추가

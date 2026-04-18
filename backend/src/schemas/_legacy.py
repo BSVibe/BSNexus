@@ -215,7 +215,7 @@ class TaskCreate(BaseModel):
     description: str = ""
     priority: TaskPriority = TaskPriority.medium
     task_type: TaskType = TaskType.feature
-    agent_id: Optional[uuid.UUID] = None
+    creator_agent_id: Optional[uuid.UUID] = None
     executor_type: str = "coding"
     executor_metadata: dict = Field(default_factory=dict)
     depends_on: list[uuid.UUID] = Field(default_factory=list)
@@ -227,7 +227,7 @@ class TaskUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     priority: Optional[TaskPriority] = None
-    agent_id: Optional[uuid.UUID] = None
+    creator_agent_id: Optional[uuid.UUID] = None
     executor_type: Optional[str] = None
     executor_metadata: Optional[dict] = None
     expected_version: Optional[int] = None
@@ -254,7 +254,7 @@ class TaskResponse(BaseModel):
     executor_type: str = "coding"
     executor_metadata: dict = Field(default_factory=dict)
     source: TaskSource = TaskSource.llm
-    agent_id: Optional[uuid.UUID] = None
+    creator_agent_id: Optional[uuid.UUID] = None
     parent_task_id: Optional[uuid.UUID] = None
     worker_prompt: Optional[dict] = None
     qa_prompt: Optional[dict] = None

@@ -55,7 +55,7 @@ async def _create_task(
     db: AsyncSession,
     title: str = "Test Task",
     status: TaskStatus = TaskStatus.pending,
-    agent_id: uuid.UUID | None = None,
+    creator_agent_id: uuid.UUID | None = None,
     executor_type: str = "coding",
 ) -> Task:
     task = Task(
@@ -66,7 +66,7 @@ async def _create_task(
         priority=TaskPriority.medium,
         task_type=TaskType.feature,
         source=TaskSource.llm,
-        agent_id=agent_id,
+        creator_agent_id=creator_agent_id,
         executor_type=executor_type,
     )
     db.add(task)

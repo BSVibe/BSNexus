@@ -134,13 +134,13 @@ async def _running_tasks_by_agent(
     result = await db.execute(
         select(Task).where(
             Task.status == TaskStatus.running,
-            Task.agent_id.in_(agent_ids),
+            Task.assigned_agent_id.in_(agent_ids),
         )
     )
     by_agent: dict[uuid.UUID, Task] = {}
     for task in result.scalars().all():
-        if task.agent_id is not None and task.agent_id not in by_agent:
-            by_agent[task.agent_id] = task
+        if task.assigned_agent_id is not None and task.assigned_agent_id not in by_agent:
+            by_agent[task.assigned_agent_id] = task
     return by_agent
 
 

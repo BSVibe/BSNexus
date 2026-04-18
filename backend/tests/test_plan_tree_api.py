@@ -77,7 +77,8 @@ async def _add_task(
     *,
     title: str = "Task",
     status: TaskStatus = TaskStatus.pending,
-    agent_id: uuid.UUID | None = None,
+    creator_agent_id: uuid.UUID | None = None,
+    assigned_agent_id: uuid.UUID | None = None,
 ) -> Task:
     now = datetime.now(timezone.utc)
     task = Task(
@@ -89,7 +90,8 @@ async def _add_task(
         priority=TaskPriority.medium,
         task_type=TaskType.feature,
         source=TaskSource.llm,
-        agent_id=agent_id,
+        creator_agent_id=creator_agent_id,
+        assigned_agent_id=assigned_agent_id,
         version=1,
         created_at=now,
         updated_at=now,
@@ -154,7 +156,7 @@ async def test_plan_tree_groups_tasks_by_phase(client: AsyncClient, db_session) 
     project, phase = await _seed_project(db_session)
     agent = await _add_agent(db_session, name="CTO", role="cto")
     await _add_task(db_session, project, phase, title="Task A")
-    await _add_task(db_session, project, phase, title="Task B", status=TaskStatus.running, agent_id=agent.id)
+    await _add_task(db_session, project, phase, title="Task B", status=TaskStatus.running, creator_agent_id=agent.id)
     await db_session.commit()
 
     resp = await client.get(f"/api/v1/projects/{project.id}/plan-tree")
@@ -221,7 +223,7 @@ async def test_agent_status_returns_404_for_missing_project(client: AsyncClient)
 async def test_agent_status_marks_running_agent_green(client: AsyncClient, db_session) -> None:
     project, phase = await _seed_project(db_session)
     agent = await _add_agent(db_session, name="QA", role="qa")
-    await _add_task(db_session, project, phase, title="Run tests", status=TaskStatus.running, agent_id=agent.id)
+    await _add_task(db_session, project, phase, title="Run tests", status=TaskStatus.running, creator_agent_id=agent.id, assigned_agent_id=agent.id)
     await db_session.commit()
 
     resp = await client.get(f"/api/v1/projects/{project.id}/agent-status")
@@ -279,7 +281,7 @@ async def test_get_plan_tree_direct_with_full_population(db_session):
 
     project, phase = await _seed_project(db_session, name="Full Plan")
     agent = await _add_agent(db_session, name="DEV", role="dev")
-    await _add_task(db_session, project, phase, title="Task A", agent_id=agent.id)
+    await _add_task(db_session, project, phase, title="Task A", creator_agent_id=agent.id)
     await _add_task(db_session, project, phase, title="Task B", status=TaskStatus.running)
 
     db_session.add(
@@ -339,7 +341,7 @@ async def test_get_agent_status_direct_all_dot_colors(db_session):
     offline_agent.executor_type = "generic_llm"
 
     await _add_task(
-        db_session, project, phase, title="Run me", status=TaskStatus.running, agent_id=running_agent.id,
+        db_session, project, phase, title="Run me", status=TaskStatus.running, creator_agent_id=running_agent.id, assigned_agent_id=running_agent.id,
     )
     await db_session.commit()
 

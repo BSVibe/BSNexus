@@ -175,7 +175,7 @@ async def _seed_analyzer_task(
         priority=models.TaskPriority.high,
         task_type=models.TaskType.chore,
         source=models.TaskSource.llm,
-        agent_id=analyzer.id,
+        creator_agent_id=analyzer.id,
         worker_prompt={"prompt": prompt},
         qa_prompt={"prompt": "Verify the analyzer report covers languages, frameworks, architecture, and risks."},
     )

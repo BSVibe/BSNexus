@@ -13,7 +13,7 @@ export interface PlanTaskNode {
   status: TaskStatus
   priority: TaskPriority
   task_type: TaskType
-  agent_id: string | null
+  creator_agent_id: string | null
   agent_name: string | null
   depends_on_ids: string[]
   started_at: string | null

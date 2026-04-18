@@ -86,7 +86,7 @@ class TaskStateMachine:
                 TaskActivity(
                     task_id=task.id,
                     project_id=task.project_id,
-                    agent_id=task.agent_id,
+                    agent_id=task.creator_agent_id,
                     level=ActivityLevel.milestone,
                     event_type=_milestone_event_type(new_status),
                     summary=_milestone_summary(new_status, actor, reason),
@@ -115,7 +115,7 @@ class TaskStateMachine:
                 "from_status": old_status.value,
                 "to_status": new_status.value,
                 "actor": actor,
-                "agent_id": str(task.agent_id) if task.agent_id else None,
+                "agent_id": str(task.creator_agent_id) if task.creator_agent_id else None,
             }
             # Plan view stream (task_transition, phase_advanced)
             await stream_manager.publish_project_event(

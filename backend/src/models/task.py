@@ -95,7 +95,7 @@ class Task(Base):
     branch_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     commit_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     qa_result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    agent_id: Mapped[uuid.UUID | None] = mapped_column(
+    creator_agent_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("agents.id", ondelete="SET NULL"), nullable=True
     )
     assigned_agent_id: Mapped[uuid.UUID | None] = mapped_column(

@@ -389,7 +389,7 @@ async def submit_result(
             _TaskActivity(
                 task_id=task.id,
                 project_id=task.project_id,
-                agent_id=task.agent_id,
+                agent_id=task.creator_agent_id,
                 level=_ActivityLevel.milestone,
                 event_type="worker_result",
                 summary=summary[:2000],
@@ -415,7 +415,7 @@ async def submit_result(
                     _TaskActivity(
                         task_id=task.id,
                         project_id=task.project_id,
-                        agent_id=task.agent_id,
+                        agent_id=task.creator_agent_id,
                         level=_ActivityLevel.tool,
                         event_type=event_type,
                         summary=summary,
@@ -442,8 +442,8 @@ async def submit_result(
         redis = getattr(request.app.state, "redis", None)
         if redis is not None:
             agent_name = None
-            if task.agent_id:
-                agent_result = await db.execute(select(Agent).where(Agent.id == task.agent_id))
+            if task.creator_agent_id:
+                agent_result = await db.execute(select(Agent).where(Agent.id == task.creator_agent_id))
                 agent = agent_result.scalar_one_or_none()
                 if agent:
                     agent_name = agent.name
@@ -466,7 +466,7 @@ async def submit_result(
                 task.project_id,
                 role="assistant",
                 content=content,
-                agent_id=task.agent_id,
+                agent_id=task.creator_agent_id,
                 agent_name=agent_name,
             )
             await db.commit()

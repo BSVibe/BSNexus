@@ -195,7 +195,7 @@ class GlobalDispatcher:
 
         for task in orphans:
             text = f"{task.title} {task.description or ''}".lower()
-            best = match_agent_for_task(text, all_agents, exclude_id=task.agent_id)
+            best = match_agent_for_task(text, all_agents, exclude_id=task.creator_agent_id)
             if best:
                 task.assigned_agent_id = best.id
                 logger.info("orphan_task_assigned", task_id=str(task.id),
@@ -356,7 +356,6 @@ class GlobalDispatcher:
                 db_session=db,
                 stream_manager=self._stream,
             )
-            task.agent_id = agent.id
             await db.flush()
 
             from backend.src.core.agent_queue import AgentRequest, get_agent_queue_manager
