@@ -1355,6 +1355,28 @@ async def _process_agent_in_background_passive(
         )
         logger.info("passive_agent_completed", agent=agent.name, task_id=str(task_id))
 
+        # Auto-complete fallback: if the LLM forgot to emit [COMPLETE_TASK],
+        # but we got a response, consider the task done. Prevents watchdog
+        # loops on Qwen3-class models that ignore the marker instruction.
+        try:
+            from backend.src.core.state_machine import TaskStateMachine
+            async with async_session() as complete_db:
+                task_obj = await complete_db.get(models.Task, task_id)
+                if task_obj and task_obj.status == models.TaskStatus.running:
+                    summary = (msg.content or "")[:200] if msg else "Auto-completed by passive handler"
+                    task_obj.output_data = {"summary": summary, "completed_by": agent.name, "auto": True}
+                    sm = TaskStateMachine()
+                    await sm.transition(
+                        task_obj, models.TaskStatus.done,
+                        actor=f"agent:{agent_id}",
+                        reason="auto-completed after passive turn",
+                        db_session=complete_db,
+                    )
+                    await complete_db.commit()
+                    logger.info("task_auto_completed", task_id=str(task_id), agent=agent.name)
+        except Exception:
+            logger.warning("task_auto_complete_failed", task_id=str(task_id), exc_info=True)
+
         # Ping-pong delegation: if the passive agent's final chat message
         # @mentions a teammate, wake that teammate in active mode so the
         # conversation keeps going. Qwen3-class models frequently forget to
