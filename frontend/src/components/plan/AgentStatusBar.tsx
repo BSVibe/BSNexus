@@ -10,10 +10,10 @@ import {
 import { useAgentProcessingStore } from '../../stores/agentProcessingStore'
 import { usePlanStore } from '../../stores/planStore'
 
-export default function AgentStatusBar() {
+export default function AgentStatusBar({ projectId }: { projectId?: string }) {
   const { data: agents = [], isLoading } = useQuery({
-    queryKey: ['agents'],
-    queryFn: () => agentsApi.list(),
+    queryKey: ['agents', projectId],
+    queryFn: () => agentsApi.list(projectId),
     refetchInterval: 30000,
   })
   const highlightedAgentId = usePlanStore((s) => s.highlightedAgentId)
@@ -58,9 +58,10 @@ interface AgentCardProps {
 }
 
 function AgentCard({ agent, highlighted, onToggle }: AgentCardProps) {
-  const isProcessing = useAgentProcessingStore(
-    (s) => s.processingAgents.has(agent.id)
+  const processingInfo = useAgentProcessingStore(
+    (s) => s.processingAgents.get(agent.id)
   )
+  const isProcessing = !!processingInfo
   const dot = isProcessing ? 'green' : (agent.dot || 'gray')
   const currentTask = agent.current_task
   const activity = agent.activity
@@ -68,8 +69,8 @@ function AgentCard({ agent, highlighted, onToggle }: AgentCardProps) {
   const glow = AGENT_STATUS_GLOW[dot] || ''
   const dotLabel = AGENT_STATUS_LABELS[dot] || dot
 
-  const subtitle = isProcessing && !currentTask
-    ? '처리 중...'
+  const subtitle = isProcessing
+    ? (processingInfo?.activity || '처리 중...')
     : currentTask
       ? currentTask.title
       : activity || dotLabel

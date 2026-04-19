@@ -364,8 +364,10 @@ class GlobalDispatcher:
             # Publish processing state immediately so UI shows green dot
             redis = self._stream.redis if self._stream else None
             if redis:
+                import json as _json
                 from backend.src.queue.streams import RedisStreamManager
                 stream = RedisStreamManager.chat_events_stream(str(project_id))
+                activity = f"{task.title} 진행 중"
                 await self._stream.publish(stream, {
                     "event": "agent_processing",
                     "data": {
@@ -373,9 +375,14 @@ class GlobalDispatcher:
                         "agent_name": agent.name,
                         "status": "started",
                         "mode": "passive",
+                        "activity": activity,
                     },
                 })
-                await redis.set(f"agent:processing:{agent.id}", str(project_id), ex=600)
+                await redis.set(
+                    f"agent:processing:{project_id}:{agent.id}",
+                    _json.dumps({"activity": activity}),
+                    ex=600,
+                )
 
             await mgr.enqueue(AgentRequest(
                 mode="passive",

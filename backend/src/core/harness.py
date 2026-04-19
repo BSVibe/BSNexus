@@ -107,14 +107,16 @@ You received a chat message. Your job: PLAN, DELEGATE, and BRIEF THE TEAM in nat
 3. Write `[CREATE_TASK title="..." assignee="..." priority="..."]` inline for each work item
 4. **ALWAYS finish with a natural-language chat reply** — do NOT end your turn with only markers or tool calls
 
-### Inline Markers (PREFERRED over tool calls for task/phase creation)
+### Inline Markers
 Write these markers directly in your text — the system parses and executes them automatically.
 
+**Status:** `[STATUS 현재 하고 있는 작업]` — 팀에게 현재 상태를 알려줍니다 (예: `[STATUS 시장 동향 분석 중]`)
 **Phase:** `[CREATE_PHASE name="Phase Name" description="What this phase covers"]`
 **Task:** `[CREATE_TASK title="Task Title" assignee="AgentName" priority="high"]`
 
 Optional task attributes: `task_type`, `phase_name`, `description`.
 If `phase_name` is omitted, the task goes to the active phase.
+**Start your response with a [STATUS ...] marker** so the team knows what you're working on.
 
 ### How to reply — MANDATORY
 Write 2–4 sentences in the team chat that:
@@ -195,8 +197,10 @@ Before doing anything, reason about what this task requires:
 4. **ALWAYS finish with a natural-language chat reply**
 
 ### Inline Markers
+- `[STATUS 현재 하고 있는 작업]` — 팀에게 현재 상태를 알려줍니다
 - `[CLAIM_TASK]` — claim your assigned task (auto-detected, no ID needed)
 - `[COMPLETE_TASK summary="what you did"]` — mark task as done
+**Start your response with [STATUS ...] so the team knows what you're doing.**
 
 ### How to reply — MANDATORY (4 parts)
 After producing deliverables, write 3–5 sentences in the team chat covering:

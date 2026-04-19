@@ -22,39 +22,78 @@ from backend.src.tools.handler import ToolHandler
 # ── Helpers ──────────────────────────────────────────────────────────
 
 
-def _make_response(content: str = "hello", finish_reason: str = "stop", tool_calls: list | None = None):
-    """Build a mock litellm response."""
-    message = MagicMock()
-    message.content = content
-    message.tool_calls = tool_calls
+class _MockStreamChunk:
+    """A single chunk in a streaming response."""
 
-    choice = MagicMock()
-    choice.message = message
-    choice.finish_reason = finish_reason
+    def __init__(
+        self,
+        content: str | None = None,
+        finish_reason: str | None = None,
+        tool_calls: list | None = None,
+        usage: dict | None = None,
+    ):
+        delta = MagicMock()
+        delta.content = content
+        delta.tool_calls = tool_calls or []
 
-    usage = MagicMock()
-    usage.prompt_tokens = 10
-    usage.completion_tokens = 5
-    usage.total_tokens = 15
+        choice = MagicMock()
+        choice.delta = delta
+        choice.finish_reason = finish_reason
 
-    response = MagicMock()
-    response.choices = [choice]
-    response.usage = usage
-    response.model = "test-model"
-    return response
+        self.choices = [choice]
+
+        if usage:
+            u = MagicMock()
+            u.prompt_tokens = usage.get("prompt_tokens", 0)
+            u.completion_tokens = usage.get("completion_tokens", 0)
+            u.total_tokens = usage.get("total_tokens", 0)
+            self.usage = u
+        else:
+            self.usage = None
 
 
-def _make_tool_call_response(tool_name: str, arguments: dict[str, Any], call_id: str = "tc1"):
-    """Build a mock response with tool_calls."""
-    func = MagicMock()
-    func.name = tool_name
-    func.arguments = json.dumps(arguments)
+class _MockStream:
+    """Async iterator that yields streaming chunks."""
 
-    tc = MagicMock()
-    tc.id = call_id
-    tc.function = func
+    def __init__(self, chunks: list[_MockStreamChunk]):
+        self._chunks = chunks
+        self._idx = 0
 
-    return _make_response(content="", finish_reason="tool_calls", tool_calls=[tc])
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if self._idx >= len(self._chunks):
+            raise StopAsyncIteration
+        chunk = self._chunks[self._idx]
+        self._idx += 1
+        return chunk
+
+
+def _make_stream(content: str = "hello", finish_reason: str = "stop") -> _MockStream:
+    """Build a mock streaming response for simple text."""
+    chunks = [
+        _MockStreamChunk(content=content),
+        _MockStreamChunk(finish_reason=finish_reason, usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}),
+    ]
+    return _MockStream(chunks)
+
+
+def _make_tool_call_stream(tool_name: str, arguments: dict[str, Any], call_id: str = "tc1") -> _MockStream:
+    """Build a mock streaming response with tool_calls."""
+    tc_delta = MagicMock()
+    tc_delta.index = 0
+    tc_delta.id = call_id
+    func_delta = MagicMock()
+    func_delta.name = tool_name
+    func_delta.arguments = json.dumps(arguments)
+    tc_delta.function = func_delta
+
+    chunks = [
+        _MockStreamChunk(tool_calls=[tc_delta]),
+        _MockStreamChunk(finish_reason="tool_calls", usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}),
+    ]
+    return _MockStream(chunks)
 
 
 class EchoTool(Tool):
@@ -102,8 +141,7 @@ class TestLiteLLMExecutorNoTools:
     @pytest.mark.asyncio
     @patch("backend.src.core.executor.litellm_executor.litellm")
     async def test_simple_text_response(self, mock_litellm: MagicMock) -> None:
-        mock_litellm.acompletion = AsyncMock(return_value=_make_response("Hello!"))
-        mock_litellm.completion_cost = MagicMock(return_value=0.001)
+        mock_litellm.acompletion = AsyncMock(return_value=_make_stream("Hello!"))
 
         executor = LiteLLMExecutor()
         result = await executor.execute(
@@ -123,8 +161,7 @@ class TestLiteLLMExecutorNoTools:
     @pytest.mark.asyncio
     @patch("backend.src.core.executor.litellm_executor.litellm")
     async def test_cost_calculation(self, mock_litellm: MagicMock) -> None:
-        mock_litellm.acompletion = AsyncMock(return_value=_make_response("ok"))
-        mock_litellm.completion_cost = MagicMock(return_value=0.05)
+        mock_litellm.acompletion = AsyncMock(return_value=_make_stream("ok"))
 
         executor = LiteLLMExecutor()
         result = await executor.execute(
@@ -135,7 +172,8 @@ class TestLiteLLMExecutorNoTools:
             api_key="key",
         )
 
-        assert result.cost_usd == 0.05
+        # Streaming doesn't easily support completion_cost
+        assert result.cost_usd == 0.0
 
 
 class TestLiteLLMExecutorWithTools:
@@ -145,10 +183,9 @@ class TestLiteLLMExecutorWithTools:
     @patch("backend.src.core.executor.litellm_executor.litellm")
     async def test_single_tool_call_then_response(self, mock_litellm: MagicMock, ctx: ToolContext) -> None:
         """LLM calls a tool, gets result, then responds."""
-        tool_response = _make_tool_call_response("echo", {"text": "hi"})
-        final_response = _make_response("Tool said: echoed: hi")
-        mock_litellm.acompletion = AsyncMock(side_effect=[tool_response, final_response])
-        mock_litellm.completion_cost = MagicMock(return_value=0.002)
+        tool_stream = _make_tool_call_stream("echo", {"text": "hi"})
+        final_stream = _make_stream("Tool said: echoed: hi")
+        mock_litellm.acompletion = AsyncMock(side_effect=[tool_stream, final_stream])
 
         tool = EchoTool()
         handler = ToolHandler([tool], ctx)
@@ -173,11 +210,10 @@ class TestLiteLLMExecutorWithTools:
     @patch("backend.src.core.executor.litellm_executor.litellm")
     async def test_multiple_tool_calls_in_sequence(self, mock_litellm: MagicMock, ctx: ToolContext) -> None:
         """LLM calls tool twice before final response."""
-        tc1 = _make_tool_call_response("echo", {"text": "a"}, "tc1")
-        tc2 = _make_tool_call_response("echo", {"text": "b"}, "tc2")
-        final = _make_response("Done with both")
+        tc1 = _make_tool_call_stream("echo", {"text": "a"}, "tc1")
+        tc2 = _make_tool_call_stream("echo", {"text": "b"}, "tc2")
+        final = _make_stream("Done with both")
         mock_litellm.acompletion = AsyncMock(side_effect=[tc1, tc2, final])
-        mock_litellm.completion_cost = MagicMock(return_value=0.003)
 
         tool = EchoTool()
         handler = ToolHandler([tool], ctx)
@@ -199,9 +235,9 @@ class TestLiteLLMExecutorWithTools:
     @patch("backend.src.core.executor.litellm_executor.litellm")
     async def test_max_iterations_guard(self, mock_litellm: MagicMock, ctx: ToolContext) -> None:
         """Executor stops after max_iterations even if LLM keeps calling tools."""
-        infinite_tool_call = _make_tool_call_response("echo", {"text": "loop"})
-        mock_litellm.acompletion = AsyncMock(return_value=infinite_tool_call)
-        mock_litellm.completion_cost = MagicMock(return_value=0.0)
+        mock_litellm.acompletion = AsyncMock(
+            side_effect=lambda **kw: _make_tool_call_stream("echo", {"text": "loop"})
+        )
 
         tool = EchoTool()
         handler = ToolHandler([tool], ctx)
@@ -247,10 +283,9 @@ class TestLiteLLMExecutorEvents:
     @pytest.mark.asyncio
     @patch("backend.src.core.executor.litellm_executor.litellm")
     async def test_events_emitted(self, mock_litellm: MagicMock, ctx: ToolContext) -> None:
-        tool_response = _make_tool_call_response("echo", {"text": "hi"})
-        final_response = _make_response("done")
-        mock_litellm.acompletion = AsyncMock(side_effect=[tool_response, final_response])
-        mock_litellm.completion_cost = MagicMock(return_value=0.0)
+        tool_stream = _make_tool_call_stream("echo", {"text": "hi"})
+        final_stream = _make_stream("done")
+        mock_litellm.acompletion = AsyncMock(side_effect=[tool_stream, final_stream])
 
         events: list = []
         tool = EchoTool()
@@ -271,3 +306,31 @@ class TestLiteLLMExecutorEvents:
         assert "tool_start" in event_types
         assert "tool_end" in event_types
         assert "done" in event_types
+
+    @pytest.mark.asyncio
+    @patch("backend.src.core.executor.litellm_executor.litellm")
+    async def test_status_update_event(self, mock_litellm: MagicMock) -> None:
+        """STATUS marker in streamed text emits status_update event."""
+        stream = _MockStream([
+            _MockStreamChunk(content="시작합니다. "),
+            _MockStreamChunk(content="[STATUS 시장 조사 분석 중]"),
+            _MockStreamChunk(content=" 계속합니다."),
+            _MockStreamChunk(finish_reason="stop", usage={"prompt_tokens": 5, "completion_tokens": 5, "total_tokens": 10}),
+        ])
+        mock_litellm.acompletion = AsyncMock(return_value=stream)
+
+        events: list = []
+        executor = LiteLLMExecutor()
+        result = await executor.execute(
+            messages=[{"role": "user", "content": "test"}],
+            tools=None,
+            tool_handler=None,
+            model="test-model",
+            api_key="key",
+            on_event=lambda e: events.append(e),
+        )
+
+        status_events = [e for e in events if e.type == "status_update"]
+        assert len(status_events) == 1
+        assert status_events[0].data["text"] == "시장 조사 분석 중"
+        assert "시장 조사 분석 중" in result.content

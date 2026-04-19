@@ -30,6 +30,7 @@ def _agent_to_response(
     default_executor_type: str | None = None,
     current_task: Task | None = None,
     is_processing: bool = False,
+    processing_activity: str = "",
 ) -> AgentResponse:
     response = AgentResponse.model_validate(agent)
     if agent.executor_config_id is None and default_executor_type is not None:
@@ -46,7 +47,7 @@ def _agent_to_response(
         is_processing=is_processing,
     )
     if is_processing and not current_task:
-        response.activity = "처리 중..."
+        response.activity = processing_activity or "처리 중..."
     if current_task is not None:
         response.current_task = CurrentTaskBrief(
             id=current_task.id,
@@ -164,14 +165,21 @@ async def list_agents(
     agent_ids = [a.id for a in agents]
     running = await _running_tasks_by_agent(db, agent_ids)
 
-    # Check Redis for transient processing state
+    # Check Redis for transient processing state (project-scoped)
     redis = getattr(request.app.state, "redis", None)
-    processing_ids: set[uuid.UUID] = set()
-    if redis:
+    processing_info: dict[uuid.UUID, str] = {}  # agent_id → activity
+    # Only check processing state if a project_id filter is provided
+    filter_project_id = request.query_params.get("project_id")
+    if redis and filter_project_id:
+        import json as _json
         for aid in agent_ids:
-            val = await redis.get(f"agent:processing:{aid}")
+            val = await redis.get(f"agent:processing:{filter_project_id}:{aid}")
             if val:
-                processing_ids.add(aid)
+                try:
+                    data = _json.loads(val)
+                    processing_info[aid] = data.get("activity", "처리 중...")
+                except (ValueError, TypeError):
+                    processing_info[aid] = "처리 중..."
 
     return [
         _agent_to_response(
@@ -179,7 +187,8 @@ async def list_agents(
             has_online_worker=online,
             default_executor_type=default_type,
             current_task=running.get(a.id),
-            is_processing=a.id in processing_ids,
+            is_processing=a.id in processing_info,
+            processing_activity=processing_info.get(a.id, ""),
         )
         for a in agents
     ]

@@ -116,12 +116,15 @@ export function useChatEvents(projectId: string | undefined) {
           const data = JSON.parse(event.data) as {
             agent_id: string
             agent_name: string
-            status: 'started' | 'completed'
+            status: 'started' | 'completed' | 'update'
             mode: string
+            activity?: string
           }
           const store = useAgentProcessingStore.getState()
           if (data.status === 'started') {
-            store.setProcessing(data.agent_id, data.agent_name, data.mode)
+            store.setProcessing(data.agent_id, data.agent_name, data.mode, data.activity)
+          } else if (data.status === 'update') {
+            store.updateActivity(data.agent_id, data.activity || '')
           } else {
             store.clearProcessing(data.agent_id)
           }

@@ -77,7 +77,7 @@ export default function PlanView({ projectId }: PlanViewProps) {
 
   return (
     <div className="flex h-full flex-col">
-      <AgentStatusBar />
+      <AgentStatusBar projectId={projectId} />
       <ProposalBanner projectId={projectId} />
       <div ref={containerRef} className="flex flex-1 overflow-hidden">
         <div

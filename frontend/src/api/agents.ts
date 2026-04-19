@@ -2,8 +2,10 @@ import apiClient from './client'
 import type { Agent, AgentCreate, AgentOrgChartNode, AgentUpdate } from '../types/agent'
 
 export const agentsApi = {
-  list: (activeOnly = true) =>
-    apiClient.get<Agent[]>('/api/v1/agents', { params: { active_only: activeOnly } }).then((r) => r.data),
+  list: (projectId?: string, activeOnly = true) =>
+    apiClient.get<Agent[]>('/api/v1/agents', {
+      params: { active_only: activeOnly, ...(projectId ? { project_id: projectId } : {}) },
+    }).then((r) => r.data),
 
   get: (id: string) => apiClient.get<Agent>(`/api/v1/agents/${id}`).then((r) => r.data),
 

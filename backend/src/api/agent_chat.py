@@ -357,12 +357,15 @@ async def _publish_event(redis: Any, project_id: uuid.UUID, event: str, data: di
 
     # Maintain transient Redis key for agent_processing state so the
     # agents API can report it even if SSE was missed.
+    # Key is project-scoped to avoid cross-project status leaks.
     if event == "agent_processing":
         agent_id = data.get("agent_id", "")
-        key = f"agent:processing:{agent_id}"
-        if data.get("status") == "started":
-            await redis.set(key, str(project_id), ex=600)  # 10 min TTL
-        else:
+        key = f"agent:processing:{project_id}:{agent_id}"
+        status = data.get("status", "")
+        if status in ("started", "update"):
+            payload = json.dumps({"activity": data.get("activity", "")})
+            await redis.set(key, payload, ex=600)  # 10 min TTL
+        elif status == "completed":
             await redis.delete(key)
     try:
         await redis.xtrim(stream, maxlen=500, approximate=True)
@@ -862,7 +865,7 @@ async def _call_via_executor(
         api_key=llm_config.api_key,
         base_url=llm_config.base_url,
         project_id=project_id,
-        on_event=lambda e: _publish_tool_event(redis, project_id, e),
+        on_event=lambda e: _publish_tool_event(redis, project_id, e, agent_id=agent.id, agent_name=agent.name),
     )
 
     # Phase D: Record cost + persist response (short-lived DB session).
@@ -935,12 +938,29 @@ def _extract_primary_task_id(result: Any) -> uuid.UUID | None:
     return None
 
 
-async def _publish_tool_event(redis: Any, project_id: uuid.UUID, event: Any) -> None:
-    """Publish tool execution events to SSE for frontend visibility."""
+async def _publish_tool_event(
+    redis: Any, project_id: uuid.UUID, event: Any,
+    agent_id: uuid.UUID | None = None, agent_name: str = "",
+) -> None:
+    """Publish tool execution events to SSE for frontend visibility.
+
+    Special handling for ``status_update`` events: publishes them as
+    ``agent_processing`` with ``status: "update"`` so the frontend can
+    show the agent's real-time activity text.
+    """
     if redis is None or event is None:
         return
     try:
-        await _publish_event(redis, project_id, event.type, event.data)
+        if event.type == "status_update" and agent_id:
+            await _publish_event(redis, project_id, "agent_processing", {
+                "agent_id": str(agent_id),
+                "agent_name": agent_name,
+                "status": "update",
+                "mode": "",
+                "activity": event.data.get("text", ""),
+            })
+        else:
+            await _publish_event(redis, project_id, event.type, event.data)
     except Exception:
         pass  # Best-effort — don't break the loop
 
@@ -1181,14 +1201,8 @@ async def _process_agent_in_background(
 
         history = await ConversationRepository(setup_db).list_by_project(project_id, limit=MAX_HISTORY)
     # setup_db is now CLOSED — connection returned to pool.
-
-    # Publish agent_processing started event for frontend busy indicator.
-    await _publish_event(redis, project_id, "agent_processing", {
-        "agent_id": str(agent_id),
-        "agent_name": agent.name,
-        "status": "started",
-        "mode": "active",
-    })
+    # Note: agent_processing "started" is published at dispatch site
+    # (POST /chat or delegation enqueue), not here.
 
     # Phase 2: call agent (may block for minutes on worker polling).
     # Each internal function opens its own short-lived session so no
@@ -1265,6 +1279,7 @@ async def _process_agent_in_background(
                 "agent_name": agent.name if agent else "",
                 "status": "completed",
                 "mode": "active",
+                "activity": "",
             })
         except Exception:
             pass
@@ -1311,14 +1326,8 @@ async def _process_agent_in_background_passive(
             return
 
         history = await ConversationRepository(setup_db).list_by_project(project_id, limit=MAX_HISTORY)
-
-    # Publish agent_processing started event for frontend busy indicator.
-    await _publish_event(redis, project_id, "agent_processing", {
-        "agent_id": str(agent_id),
-        "agent_name": agent.name,
-        "status": "started",
-        "mode": "passive",
-    })
+    # Note: agent_processing "started" is published at dispatch site
+    # (global_dispatcher), not here.
 
     user_message = (
         f"작업이 할당되었습니다. 아래 내용을 확인하고 실행해주세요.\n\n"
@@ -1406,6 +1415,7 @@ async def _process_agent_in_background_passive(
                 "agent_name": agent.name if agent else "",
                 "status": "completed",
                 "mode": "passive",
+                "activity": "",
             })
         except Exception:
             pass
@@ -1606,6 +1616,7 @@ async def chat_with_agent(
             "agent_name": agent.name,
             "status": "started",
             "mode": "active",
+            "activity": "",
         })
         await mgr.enqueue(AgentRequest(
             mode="active",
