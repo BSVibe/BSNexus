@@ -1330,9 +1330,14 @@ async def _process_agent_in_background_passive(
     # (global_dispatcher), not here.
 
     user_message = (
-        f"작업이 할당되었습니다. 아래 내용을 확인하고 실행해주세요.\n\n"
+        f"작업이 할당되었습니다. 아래 내용을 확인하고 직접 실행해주세요.\n\n"
         f"{task_context}\n\n"
-        f"claim_task로 작업을 시작하고, 완료되면 complete_task로 마무리해주세요."
+        f"응답은 다음 형식을 정확히 따라주세요:\n"
+        f"1. 첫 줄에 [CLAIM_TASK] 작성\n"
+        f"2. 코드/문서가 필요하면 file_write 툴 호출 (디자이너면 create_screen)\n"
+        f"3. 마지막에 [COMPLETE_TASK summary=\"작업 요약\"] 작성\n"
+        f"4. 간단한 자연어 요약 1-2문장과 다음 담당자 @mention으로 마무리\n\n"
+        f"다른 팀원에게 계획을 설명하거나 업무를 나누지 마세요. 본인이 할당받은 작업만 수행합니다."
     )
 
     try:
