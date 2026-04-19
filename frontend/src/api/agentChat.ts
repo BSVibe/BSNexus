@@ -9,6 +9,12 @@ export interface ChatMessageOut {
   task_id: string | null
   created_at: string
   actions: Array<{ type: string; task_id?: string; goal_id?: string; title?: string }>
+  /**
+   * True while text_delta events are still streaming for this message.
+   * Cleared when the authoritative message_created row arrives and replaces
+   * the placeholder.
+   */
+  streaming?: boolean
 }
 
 export interface ChatDispatchResponse {

@@ -407,7 +407,14 @@ async def _store_and_publish(
     actions: list[dict[str, Any]] | None = None,
     source: str = "web",
     task_id: uuid.UUID | None = None,
+    message_id: uuid.UUID | None = None,
 ) -> models.ConversationMessage:
+    """Persist an assistant/user message and publish ``message_created``.
+
+    ``message_id`` — if the caller pre-allocated a UUID for streaming
+    ``text_delta`` events, pass it here so the stored row shares the id
+    and the frontend can replace the streaming placeholder seamlessly.
+    """
     repo = ConversationRepository(db)
     msg = await repo.append(
         project_id, role=role, content=content,
@@ -415,6 +422,7 @@ async def _store_and_publish(
         agent_name=agent.name if agent else None,
         actions=actions, source=source,
         task_id=task_id,
+        message_id=message_id,
     )
     await db.commit()
     await _publish_event(redis, project_id, "message_created", _message_to_event(msg))
@@ -679,6 +687,7 @@ async def _process_response_text(
     tool_actions: list[dict[str, Any]] | None = None,
     task_id: uuid.UUID | None = None,
     mode: str = "active",
+    message_id: uuid.UUID | None = None,
 ) -> models.ConversationMessage:
     """Persist the agent's response and publish it via SSE.
 
@@ -705,6 +714,7 @@ async def _process_response_text(
         db, redis, project_id, role="assistant", content=cleaned,
         agent=agent, actions=all_actions,
         task_id=task_id,
+        message_id=message_id,
     )
 
 
@@ -906,6 +916,11 @@ async def _call_via_executor(
     approval = ApprovalMiddleware()
     tool_handler = ToolHandler(tools, tool_context, approval=approval)
 
+    # Pre-allocate a message id so text_delta events stream under the same
+    # id that the final assistant row will use. Frontend upserts a streaming
+    # placeholder on first delta and replaces it on message_created.
+    message_id = uuid.uuid4()
+
     # Phase C: Run agentic loop (no DB held).
     executor = LiteLLMExecutor()
     result = await executor.execute(
@@ -916,7 +931,11 @@ async def _call_via_executor(
         api_key=llm_config.api_key,
         base_url=llm_config.base_url,
         project_id=project_id,
-        on_event=lambda e: _publish_tool_event(redis, project_id, e, agent_id=agent.id, agent_name=agent.name),
+        on_event=lambda e: _publish_tool_event(
+            redis, project_id, e,
+            agent_id=agent.id, agent_name=agent.name,
+            message_id=message_id,
+        ),
     )
 
     # Phase D: Record cost + persist response (short-lived DB session).
@@ -951,6 +970,7 @@ async def _call_via_executor(
             result.content, project, project_id, agent, result_db, redis,
             tenant_id=tenant_id, tool_actions=tool_actions,
             task_id=primary_task_id, mode=mode,
+            message_id=message_id,
         )
         # Attach delegation text for _process_agent_in_background
         msg._delegation_text = " ".join(delegation_text_parts)  # type: ignore[attr-defined]
@@ -992,12 +1012,17 @@ def _extract_primary_task_id(result: Any) -> uuid.UUID | None:
 async def _publish_tool_event(
     redis: Any, project_id: uuid.UUID, event: Any,
     agent_id: uuid.UUID | None = None, agent_name: str = "",
+    message_id: uuid.UUID | None = None,
 ) -> None:
     """Publish tool execution events to SSE for frontend visibility.
 
     Special handling for ``status_update`` events: publishes them as
     ``agent_processing`` with ``status: "update"`` so the frontend can
     show the agent's real-time activity text.
+
+    ``text_delta`` events are enriched with ``message_id``/``agent_id``/
+    ``agent_name`` when provided, so the frontend can upsert the correct
+    streaming message bubble and replace it on ``message_created``.
     """
     if redis is None or event is None:
         return
@@ -1010,6 +1035,15 @@ async def _publish_tool_event(
                 "mode": "",
                 "activity": event.data.get("text", ""),
             })
+        elif event.type == "text_delta":
+            payload = dict(event.data)
+            if message_id is not None:
+                payload["message_id"] = str(message_id)
+            if agent_id is not None:
+                payload["agent_id"] = str(agent_id)
+            if agent_name:
+                payload["agent_name"] = agent_name
+            await _publish_event(redis, project_id, event.type, payload)
         else:
             await _publish_event(redis, project_id, event.type, event.data)
     except Exception:

@@ -19,6 +19,7 @@ from backend.src.api.agent_chat import (
     _find_org_root,
     _msg_to_out,
     _parse_mentions,
+    _publish_tool_event,
     _should_skip_active_delegation,
     _strip_all_markers,
 )
@@ -432,6 +433,81 @@ async def test_execute_inline_markers_allows_task_for_subordinate(marker_env):
     assert phase_actions == []
     assert len(task_actions) == 1
     assert task_actions[0]["input"]["title"] == "와이어프레임 스케치"
+
+
+# ── _publish_tool_event — Part 3 (text_delta enrichment) ───────────
+
+
+class _FakeRedis:
+    """Minimal stub capturing xadd calls so we can inspect published events."""
+
+    def __init__(self) -> None:
+        self.xadd_calls: list[tuple[str, dict]] = []
+
+    async def xadd(self, stream: str, fields: dict, **kwargs) -> str:  # noqa: ARG002
+        self.xadd_calls.append((stream, fields))
+        return "0-0"
+
+    async def xtrim(self, *args, **kwargs) -> None:  # noqa: ARG002
+        return None
+
+    async def set(self, *args, **kwargs) -> None:  # noqa: ARG002
+        return None
+
+    async def delete(self, *args, **kwargs) -> None:  # noqa: ARG002
+        return None
+
+
+@pytest.mark.asyncio
+async def test_publish_tool_event_enriches_text_delta_with_message_id():
+    """text_delta events must carry message_id, agent_id, agent_name so
+    the frontend can match the delta to its assistant message bubble.
+    """
+    import json as _json
+
+    from backend.src.core.executor.litellm_executor import ExecutionEvent
+
+    redis = _FakeRedis()
+    project_id = uuid.uuid4()
+    agent_id = uuid.uuid4()
+    message_id = uuid.uuid4()
+    evt = ExecutionEvent("text_delta", {"text": "Hello"})
+
+    await _publish_tool_event(
+        redis, project_id, evt,
+        agent_id=agent_id, agent_name="CEO",
+        message_id=message_id,
+    )
+
+    assert redis.xadd_calls, "expected an xadd call"
+    _stream, fields = redis.xadd_calls[-1]
+    payload = _json.loads(fields["data"])
+    assert fields["event"] == "text_delta"
+    assert payload["text"] == "Hello"
+    assert payload["message_id"] == str(message_id)
+    assert payload["agent_id"] == str(agent_id)
+    assert payload["agent_name"] == "CEO"
+
+
+@pytest.mark.asyncio
+async def test_publish_tool_event_text_delta_without_message_id_still_publishes():
+    """Backwards compatibility — if a caller doesn't pre-allocate a
+    message_id (older path), we still publish the delta."""
+    import json as _json
+
+    from backend.src.core.executor.litellm_executor import ExecutionEvent
+
+    redis = _FakeRedis()
+    evt = ExecutionEvent("text_delta", {"text": "chunk"})
+    await _publish_tool_event(
+        redis, uuid.uuid4(), evt,
+        agent_id=uuid.uuid4(), agent_name="X",
+    )
+    assert redis.xadd_calls
+    _stream, fields = redis.xadd_calls[-1]
+    payload = _json.loads(fields["data"])
+    assert payload["text"] == "chunk"
+    assert "message_id" not in payload or payload.get("message_id") is None
 
 
 # ── _should_skip_active_delegation — Part 2 (queue throttle) ────────

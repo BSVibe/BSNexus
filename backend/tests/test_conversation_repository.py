@@ -84,3 +84,23 @@ async def test_list_empty_project_returns_empty_list(db_session) -> None:
     repo = ConversationRepository(db_session)
     msgs = await repo.list_by_project(uuid.uuid4())
     assert msgs == []
+
+
+async def test_append_accepts_preallocated_id(db_session) -> None:
+    """Streaming pre-allocates a UUID before the LLM emits any deltas so
+    text_delta events can reference it. The persisted row must use the
+    same id so the frontend can match deltas to the final message."""
+    project = await _make_project(db_session)
+    repo = ConversationRepository(db_session)
+
+    preallocated = uuid.uuid4()
+    msg = await repo.append(
+        project.id,
+        role="assistant",
+        content="streamed response",
+        message_id=preallocated,
+    )
+    assert msg.id == preallocated
+
+    msgs = await repo.list_by_project(project.id)
+    assert msgs[0].id == preallocated
