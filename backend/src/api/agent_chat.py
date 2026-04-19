@@ -497,8 +497,12 @@ async def _execute_inline_markers(
     tenant_id: uuid.UUID,
     agent_id: uuid.UUID,
     agent_name: str,
+    mode: str = "active",
 ) -> list[dict[str, Any]]:
-    """Parse and execute ``[CREATE_PHASE ...]`` and ``[CREATE_TASK ...]`` inline markers.
+    """Parse and execute inline markers based on mode.
+
+    Active mode: CREATE_PHASE, CREATE_TASK (plan creation)
+    Passive mode: CLAIM_TASK, COMPLETE_TASK (task execution)
 
     Returns action records in the same format as ``_build_tool_actions()``
     so the frontend invalidation logic works unchanged.
@@ -510,55 +514,55 @@ async def _execute_inline_markers(
     if not text:
         return actions
 
-    # Phases first — tasks may reference them by name.
-    for pm in parse_inline_phase_markers(text):
-        try:
-            result = await create_phase_from_params(
-                name=pm["name"],
-                description=pm.get("description") or "",
-                project_id=project_id,
-                db_session_factory=async_session,
-            )
-            actions.append({
-                "type": "tool_create_phase",
-                "tool": "create_phase",
-                "input": {"name": pm["name"], "description": pm.get("description") or ""},
-            })
-            logger.info("phase_created_via_marker", name=pm["name"], result=result.get("status"))
-        except Exception:
-            logger.warning("marker_phase_creation_failed", name=pm.get("name"), exc_info=True)
+    # Active mode: process CREATE markers. Passive agents skip these.
+    if mode != "passive":
+        for pm in parse_inline_phase_markers(text):
+            try:
+                result = await create_phase_from_params(
+                    name=pm["name"],
+                    description=pm.get("description") or "",
+                    project_id=project_id,
+                    db_session_factory=async_session,
+                )
+                actions.append({
+                    "type": "tool_create_phase",
+                    "tool": "create_phase",
+                    "input": {"name": pm["name"], "description": pm.get("description") or ""},
+                })
+                logger.info("phase_created_via_marker", name=pm["name"], result=result.get("status"))
+            except Exception:
+                logger.warning("marker_phase_creation_failed", name=pm.get("name"), exc_info=True)
 
-    # Tasks — max 10 per response.
-    task_markers = parse_inline_task_markers(text)
-    created_count = 0
-    for tm in task_markers[:10]:
-        try:
-            result = await create_task_from_params(
-                title=tm["title"],
-                description=tm.get("description"),
-                priority=tm.get("priority") or "medium",
-                task_type=tm.get("task_type") or "feature",
-                assignee=tm.get("assignee"),
-                phase_name=tm.get("phase_name"),
-                project_id=project_id,
-                tenant_id=tenant_id,
-                agent_id=agent_id,
-                agent_name=agent_name,
-                db_session_factory=async_session,
-                tasks_created_count=created_count,
-                max_tasks=10,
-            )
-            if "message" not in result:
-                created_count += 1
-            actions.append({
-                "type": "tool_create_task",
-                "tool": "create_task",
-                "input": {k: v for k, v in tm.items() if v is not None},
-            })
-            logger.info("task_created_via_marker", title=tm["title"],
-                        assignee=tm.get("assignee"), result_status=result.get("status"))
-        except Exception:
-            logger.warning("marker_task_creation_failed", title=tm.get("title"), exc_info=True)
+        task_markers = parse_inline_task_markers(text)
+        created_count = 0
+        for tm in task_markers[:10]:
+            try:
+                result = await create_task_from_params(
+                    title=tm["title"],
+                    description=tm.get("description"),
+                    priority=tm.get("priority") or "medium",
+                    task_type=tm.get("task_type") or "feature",
+                    assignee=tm.get("assignee"),
+                    phase_name=tm.get("phase_name"),
+                    project_id=project_id,
+                    tenant_id=tenant_id,
+                    agent_id=agent_id,
+                    agent_name=agent_name,
+                    db_session_factory=async_session,
+                    tasks_created_count=created_count,
+                    max_tasks=10,
+                )
+                if "message" not in result:
+                    created_count += 1
+                actions.append({
+                    "type": "tool_create_task",
+                    "tool": "create_task",
+                    "input": {k: v for k, v in tm.items() if v is not None},
+                })
+                logger.info("task_created_via_marker", title=tm["title"],
+                            assignee=tm.get("assignee"), result_status=result.get("status"))
+            except Exception:
+                logger.warning("marker_task_creation_failed", title=tm.get("title"), exc_info=True)
 
     # Claim: [CLAIM_TASK] — find agent's assigned pending/running task
     if has_claim_marker(text):
@@ -630,6 +634,7 @@ async def _process_response_text(
     *, tenant_id: uuid.UUID,
     tool_actions: list[dict[str, Any]] | None = None,
     task_id: uuid.UUID | None = None,
+    mode: str = "active",
 ) -> models.ConversationMessage:
     """Persist the agent's response and publish it via SSE.
 
@@ -644,6 +649,7 @@ async def _process_response_text(
         tenant_id=tenant_id,
         agent_id=agent.id,
         agent_name=agent.name,
+        mode=mode,
     )
     all_actions = (tool_actions or []) + marker_actions
 
@@ -899,7 +905,7 @@ async def _call_via_executor(
         msg = await _process_response_text(
             result.content, project, project_id, agent, result_db, redis,
             tenant_id=tenant_id, tool_actions=tool_actions,
-            task_id=primary_task_id,
+            task_id=primary_task_id, mode=mode,
         )
         # Attach delegation text for _process_agent_in_background
         msg._delegation_text = " ".join(delegation_text_parts)  # type: ignore[attr-defined]
