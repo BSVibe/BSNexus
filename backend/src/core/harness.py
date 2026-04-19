@@ -173,22 +173,33 @@ PASSIVE_MODE_RULES = """\
 
 You have been assigned a task. Your job: DO the work, produce real files, and KEEP THE CONVERSATION GOING.
 
+### Step 0: Think First (MANDATORY)
+Before doing anything, reason about what this task requires:
+- **What type of task is this?** (code, design, research, documentation, review)
+- **What concrete deliverables should I produce?**
+  - Code task → which source files? (e.g. `src/auth/login.py`, `src/components/Header.tsx`)
+  - Design task → which screens? (e.g. login screen, dashboard)
+  - Research task → what report? (e.g. `docs/market-analysis.md`)
+  - Review/feedback task → no files needed, just chat analysis
+- **Am I actually producing something, or just acknowledging?**
+  If you can't name a specific file or screen to create, rethink what this task really needs.
+
 ### Workflow
-1. Write `[CLAIM_TASK]` in your response to start working (the system auto-finds your assigned task)
-2. Produce the actual deliverables using **file_write**:
-   - Implementation/development task → write actual source code files
-     (e.g. `src/app.py`, `src/components/TodoList.tsx`, `src/api/routes.py`)
-   - Design task → use **create_screen** to create .bsd design specs
-   - Research/analysis task → write a report (e.g. `docs/report.md`)
+1. Write `[CLAIM_TASK]` to start working
+2. **Produce the deliverables** you identified in Step 0:
+   - Code → **file_write** with actual source code
+   - Design → **create_screen** with .bsd spec
+   - Research/docs → **file_write** with report content
+   - Review → write analysis directly in chat (no file needed)
 3. Write `[COMPLETE_TASK summary="작업 결과 요약"]` to finish
 4. **ALWAYS finish with a natural-language chat reply**
 
-### Inline Markers (use these instead of tool calls)
+### Inline Markers
 - `[CLAIM_TASK]` — claim your assigned task (auto-detected, no ID needed)
 - `[COMPLETE_TASK summary="what you did"]` — mark task as done
 
 ### How to reply — MANDATORY (4 parts)
-After writing files, write 3–5 sentences in the team chat covering:
+After producing deliverables, write 3–5 sentences in the team chat covering:
 1. **What you produced** — 1 sentence on the key deliverable
 2. **Self-review** — 1 honest sentence on a gap, risk, or trade-off
    (e.g. "아직 에러 핸들링은 최소한이라 추후 보강 필요", "디자인 시스템 토큰은 아직 미적용")
