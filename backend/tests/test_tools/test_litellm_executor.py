@@ -309,6 +309,39 @@ class TestLiteLLMExecutorEvents:
 
     @pytest.mark.asyncio
     @patch("backend.src.core.executor.litellm_executor.litellm")
+    async def test_tool_call_promoted_from_content_leak(
+        self, mock_litellm: MagicMock, ctx: ToolContext
+    ) -> None:
+        """Qwen3 tool_call text leak: bare JSON in content is promoted to tool_calls."""
+        leak_stream = _MockStream([
+            _MockStreamChunk(content='{"name": "echo", "arguments": {"text": "hi"}}'),
+            _MockStreamChunk(
+                finish_reason="stop",
+                usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+            ),
+        ])
+        final_stream = _make_stream("Done")
+        mock_litellm.acompletion = AsyncMock(side_effect=[leak_stream, final_stream])
+
+        tool = EchoTool()
+        handler = ToolHandler([tool], ctx)
+        executor = LiteLLMExecutor()
+
+        result = await executor.execute(
+            messages=[{"role": "user", "content": "echo"}],
+            tools=[tool.to_definition()],
+            tool_handler=handler,
+            model="ollama/qwen3-coder:30b",
+            api_key="",
+        )
+
+        # The leaked JSON should be promoted to a tool call
+        assert len(result.tool_calls_made) == 1
+        assert result.tool_calls_made[0].name == "echo"
+        assert result.tool_calls_made[0].input == {"text": "hi"}
+
+    @pytest.mark.asyncio
+    @patch("backend.src.core.executor.litellm_executor.litellm")
     async def test_status_update_event(self, mock_litellm: MagicMock) -> None:
         """STATUS marker in streamed text emits status_update event."""
         stream = _MockStream([

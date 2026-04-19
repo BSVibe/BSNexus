@@ -310,6 +310,11 @@ class LiteLLMExecutor:
         ``tool_calls_raw`` is a list of dicts like:
         ``[{"id": "...", "function": {"name": "...", "arguments": "..."}}]``
         """
+        # Ollama-specific options: higher num_ctx stabilizes Qwen3 tool_calls
+        extra_kwargs: dict[str, Any] = {}
+        if model.startswith(("ollama/", "ollama_chat/")):
+            extra_kwargs["num_ctx"] = int(os.getenv("OLLAMA_NUM_CTX", "40960"))
+
         stream = None
         for attempt in range(1 + LLM_RETRY_ON_TIMEOUT):
             try:
@@ -324,6 +329,7 @@ class LiteLLMExecutor:
                     timeout=REQUEST_TIMEOUT,
                     stream=True,
                     stream_options={"include_usage": True},
+                    **extra_kwargs,
                 )
                 break
             except Exception as e:
@@ -398,4 +404,74 @@ class LiteLLMExecutor:
         # Filter out empty tool calls (some providers send empty deltas)
         tool_calls_raw = [tc for tc in tool_calls_raw if tc["function"]["name"]]
 
+        # Qwen3 tool-call text leak fallback: when the model emits tool calls
+        # as bare JSON in content instead of the tool_calls slot, parse and
+        # promote them. This is a known Ollama/Qwen issue (see ollama#12174,
+        # #13968) — the model emits {"name":..., "arguments":...} directly.
+        if content and not tool_calls_raw:
+            promoted = _promote_content_tool_calls(content)
+            if promoted:
+                logger.info("tool_call_promoted_from_content", count=len(promoted))
+                tool_calls_raw = promoted
+                content = ""  # consumed by the fallback
+                finish_reason = "tool_calls"
+
         return content, tool_calls_raw, finish_reason
+
+
+def _promote_content_tool_calls(content: str) -> list[dict[str, Any]]:
+    """Parse bare JSON tool-call objects from content (Qwen3 leak workaround).
+
+    Handles:
+    - `{"name": "foo", "arguments": {...}}` — single tool call
+    - `<tool_call>{"name": ...}</tool_call>` — Hermes-style wrapper
+    - Multiple objects separated by whitespace or newlines
+    """
+    text = content.strip()
+    if not text:
+        return []
+
+    # Strip common wrapper tags
+    text = re.sub(r"</?tool_call>", "", text, flags=re.IGNORECASE).strip()
+
+    # Try full parse first (single object or array)
+    candidates: list[dict[str, Any]] = []
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, dict) and "name" in parsed and "arguments" in parsed:
+            candidates = [parsed]
+        elif isinstance(parsed, list):
+            candidates = [p for p in parsed if isinstance(p, dict) and "name" in p and "arguments" in p]
+    except (json.JSONDecodeError, ValueError):
+        # Fallback: regex-extract {"name": ..., "arguments": ...} objects.
+        # Match nested JSON by counting braces.
+        for m in re.finditer(r'\{[^{}]*"name"\s*:\s*"[^"]+"\s*,\s*"arguments"', text):
+            start = m.start()
+            depth = 0
+            end = start
+            for i in range(start, len(text)):
+                if text[i] == "{":
+                    depth += 1
+                elif text[i] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        end = i + 1
+                        break
+            try:
+                obj = json.loads(text[start:end])
+                if "name" in obj and "arguments" in obj:
+                    candidates.append(obj)
+            except (json.JSONDecodeError, ValueError):
+                continue
+
+    # Build tool_calls_raw entries
+    result: list[dict[str, Any]] = []
+    for c in candidates:
+        args = c.get("arguments", {})
+        if not isinstance(args, str):
+            args = json.dumps(args)
+        result.append({
+            "id": str(uuid.uuid4()),
+            "function": {"name": c["name"], "arguments": args},
+        })
+    return result
