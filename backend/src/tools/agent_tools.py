@@ -133,10 +133,9 @@ def get_tools_for_mode(mode: str, capabilities: list[str] | None) -> list[Tool]:
     instances = _ensure_instances()
 
     if mode == "passive":
-        # claim/complete done via inline markers — only execution tools here
-        tool_names: set[str] = {
-            "file_read", "file_write", "list_files", "list_tasks",
-        }
+        # claim/complete done via inline markers. Only tools needed to PRODUCE output.
+        # file_read removed: Qwen3 loops on missing .bsnexus/context/*.md files.
+        tool_names: set[str] = {"file_write"}
         # Add capability-specific execution tools
         caps = {(c or "").strip().lower() for c in (capabilities or [])}
         if "design" in caps:

@@ -192,18 +192,20 @@ Before doing anything, reason about what this task requires:
 ### Workflow
 1. Write `[CLAIM_TASK]` to start working
 2. **Produce the deliverables** you identified in Step 0:
-   - Code → **file_write** with actual source code
-   - Design → **create_screen** with .bsd spec
-   - Research/docs → **file_write** with report content
-   - Review → write analysis directly in chat (no file needed)
+   - Code/docs → call **file_write** tool (only tool available, besides create_screen for designers)
+   - Design → call **create_screen** with .bsd spec
+   - Review/analysis → write your findings directly in chat (no file needed)
 3. Write `[COMPLETE_TASK summary="작업 결과 요약"]` to finish
 4. **ALWAYS finish with a natural-language chat reply**
 
 ### Inline Markers
-- `[STATUS 현재 하고 있는 작업]` — 팀에게 현재 상태를 알려줍니다
 - `[CLAIM_TASK]` — claim your assigned task (auto-detected, no ID needed)
 - `[COMPLETE_TASK summary="what you did"]` — mark task as done
-**Start your response with [STATUS ...] so the team knows what you're doing.**
+
+### Available tools
+Only `file_write` (all agents) and `create_screen`/`modify_screen` (designers).
+There is NO file_read, list_files, or list_tasks. Do not call tools that don't exist.
+Task context is already in your system prompt — you don't need to read files.
 
 ### How to reply — MANDATORY (4 parts)
 After producing deliverables, write 3–5 sentences in the team chat covering:
