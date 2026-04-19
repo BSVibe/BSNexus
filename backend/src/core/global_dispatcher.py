@@ -28,6 +28,7 @@ from backend.src.core.state_machine import TaskStateMachine
 from backend.src.core.worker_dispatch import WorkerDispatcher
 from backend.src.models import (
     Agent,
+    Phase,
     PhaseStatus,
     Project,
     ProjectStatus,
@@ -337,13 +338,42 @@ class GlobalDispatcher:
             if running_result.scalar_one() > 0:
                 continue  # Agent is busy
 
-            # Build task context and dispatch
+            # Build task context with sibling tasks + phase info so agent
+            # can see the surrounding plan without needing file_read.
+            phase_name = "Unknown"
+            if task.phase_id:
+                phase_row = await db.execute(
+                    select(Phase).where(Phase.id == task.phase_id)
+                )
+                phase = phase_row.scalar_one_or_none()
+                if phase:
+                    phase_name = phase.name
+
+                # Sibling tasks in the same phase (to avoid overlap)
+                sib_rows = await db.execute(
+                    select(Task).where(
+                        Task.phase_id == task.phase_id,
+                        Task.id != task.id,
+                    ).order_by(Task.created_at.asc())
+                )
+                siblings = sib_rows.scalars().all()
+                sibling_lines = []
+                for s in siblings[:15]:  # cap at 15 to keep context small
+                    status = s.status.value if s.status else "pending"
+                    sibling_lines.append(f"  - [{status}] {s.title}")
+                sibling_text = "\n".join(sibling_lines) if sibling_lines else "  (none)"
+            else:
+                sibling_text = "  (no phase)"
+
             task_context = (
                 f"Task ID: {task.id}\n"
                 f"Title: {task.title}\n"
                 f"Description: {task.description or 'No description'}\n"
                 f"Priority: {task.priority.value}\n"
-                f"Type: {task.task_type.value}"
+                f"Type: {task.task_type.value}\n"
+                f"Phase: {phase_name}\n"
+                f"\n## Sibling tasks in this phase\n{sibling_text}\n"
+                f"\nFocus on YOUR task only. Other tasks are handled by other agents."
             )
 
             # Mark task as running BEFORE dispatch to prevent double-dispatch
