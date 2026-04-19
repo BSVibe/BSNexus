@@ -162,6 +162,34 @@ class TestAssembleSystemPrompt:
         assert "CREATE_PHASE" in prompt
 
     @pytest.mark.asyncio
+    async def test_active_root_agent_keeps_create_phase_rules(self, tmp_path: Path) -> None:
+        """Root agents (no parent) get full ACTIVE_MODE_RULES with CREATE_PHASE."""
+        agent = _agent()
+        agent.parent_agent_id = None
+        prompt = await assemble_system_prompt(
+            agent, _project(), str(tmp_path),
+        )
+        # Root agents are told to create phases
+        assert "CREATE_PHASE" in prompt
+        # No subordinate-only guidance
+        assert "only the team lead" not in prompt
+
+    @pytest.mark.asyncio
+    async def test_active_subordinate_agent_gets_subordinate_rules(
+        self, tmp_path: Path
+    ) -> None:
+        """Subordinates (parent_agent_id set) are told NOT to create phases."""
+        agent = _agent()
+        agent.parent_agent_id = uuid.uuid4()  # has a parent → subordinate
+        prompt = await assemble_system_prompt(
+            agent, _project(), str(tmp_path),
+        )
+        # Task creation still available
+        assert "CREATE_TASK" in prompt
+        # Subordinate guidance present
+        assert "Do NOT create phases" in prompt
+
+    @pytest.mark.asyncio
     async def test_passive_mode_has_execution_rules(self, tmp_path: Path) -> None:
         """Passive mode includes execution rules + task context."""
         prompt = await assemble_system_prompt(

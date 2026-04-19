@@ -498,11 +498,16 @@ async def _execute_inline_markers(
     agent_id: uuid.UUID,
     agent_name: str,
     mode: str = "active",
+    is_org_root: bool = False,
 ) -> list[dict[str, Any]]:
     """Parse and execute inline markers based on mode.
 
-    Active mode: CREATE_PHASE, CREATE_TASK (plan creation)
+    Active mode: CREATE_PHASE (org-root only), CREATE_TASK (any active agent)
     Passive mode: CLAIM_TASK, COMPLETE_TASK (task execution)
+
+    ``is_org_root`` — only agents where ``parent_agent_id is None`` may open
+    new phases. Prevents delegation chains from stacking one phase per agent
+    (E2E scenarios hit 20+ phases otherwise).
 
     Returns action records in the same format as ``_build_tool_actions()``
     so the frontend invalidation logic works unchanged.
@@ -516,22 +521,34 @@ async def _execute_inline_markers(
 
     # Active mode: process CREATE markers. Passive agents skip these.
     if mode != "passive":
-        for pm in parse_inline_phase_markers(text):
-            try:
-                result = await create_phase_from_params(
-                    name=pm["name"],
-                    description=pm.get("description") or "",
-                    project_id=project_id,
-                    db_session_factory=async_session,
+        # CREATE_PHASE is gated to org-root agents. Subordinates who emit
+        # a phase marker (prompt drift) get it silently dropped with a log.
+        if is_org_root:
+            for pm in parse_inline_phase_markers(text):
+                try:
+                    result = await create_phase_from_params(
+                        name=pm["name"],
+                        description=pm.get("description") or "",
+                        project_id=project_id,
+                        db_session_factory=async_session,
+                    )
+                    actions.append({
+                        "type": "tool_create_phase",
+                        "tool": "create_phase",
+                        "input": {"name": pm["name"], "description": pm.get("description") or ""},
+                    })
+                    logger.info("phase_created_via_marker", name=pm["name"], result=result.get("status"))
+                except Exception:
+                    logger.warning("marker_phase_creation_failed", name=pm.get("name"), exc_info=True)
+        else:
+            skipped = [pm["name"] for pm in parse_inline_phase_markers(text)]
+            if skipped:
+                logger.info(
+                    "phase_marker_skipped_non_root",
+                    agent=agent_name,
+                    agent_id=str(agent_id),
+                    names=skipped,
                 )
-                actions.append({
-                    "type": "tool_create_phase",
-                    "tool": "create_phase",
-                    "input": {"name": pm["name"], "description": pm.get("description") or ""},
-                })
-                logger.info("phase_created_via_marker", name=pm["name"], result=result.get("status"))
-            except Exception:
-                logger.warning("marker_phase_creation_failed", name=pm.get("name"), exc_info=True)
 
         task_markers = parse_inline_task_markers(text)
         created_count = 0
@@ -650,6 +667,7 @@ async def _process_response_text(
         agent_id=agent.id,
         agent_name=agent.name,
         mode=mode,
+        is_org_root=agent.parent_agent_id is None,
     )
     all_actions = (tool_actions or []) + marker_actions
 

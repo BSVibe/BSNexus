@@ -284,6 +284,7 @@ async def test_execute_inline_markers_creates_phase(marker_env):
         tenant_id=marker_env["tenant_id"],
         agent_id=marker_env["ceo_id"],
         agent_name="CEO",
+        is_org_root=True,
     )
     assert len(actions) == 1
     assert actions[0]["type"] == "tool_create_phase"
@@ -304,6 +305,7 @@ async def test_execute_inline_markers_mixed(marker_env):
         tenant_id=marker_env["tenant_id"],
         agent_id=marker_env["ceo_id"],
         agent_name="CEO",
+        is_org_root=True,
     )
     phase_actions = [a for a in actions if a["tool"] == "create_phase"]
     task_actions = [a for a in actions if a["tool"] == "create_task"]
@@ -371,3 +373,80 @@ async def test_execute_inline_markers_error_isolation(marker_env):
         agent_name="CEO",
     )
     assert len(actions) == 1
+
+
+# ── is_org_root gating — Part 1 (phase explosion prevention) ────────
+
+
+@pytest.mark.asyncio
+async def test_execute_inline_markers_blocks_phase_for_subordinate(marker_env):
+    """Subordinate agents (is_org_root=False) cannot create phases."""
+    text = '[CREATE_PHASE name="설계" description="구조 설계"]'
+    actions = await _execute_inline_markers(
+        text,
+        project_id=marker_env["project_id"],
+        tenant_id=marker_env["tenant_id"],
+        agent_id=marker_env["designer_id"],
+        agent_name="Designer",
+        is_org_root=False,
+    )
+    phase_actions = [a for a in actions if a["tool"] == "create_phase"]
+    assert phase_actions == []
+
+
+@pytest.mark.asyncio
+async def test_execute_inline_markers_allows_phase_for_org_root(marker_env):
+    """Org-root agents (is_org_root=True) create phases normally."""
+    text = '[CREATE_PHASE name="론칭" description="출시 단계"]'
+    actions = await _execute_inline_markers(
+        text,
+        project_id=marker_env["project_id"],
+        tenant_id=marker_env["tenant_id"],
+        agent_id=marker_env["ceo_id"],
+        agent_name="CEO",
+        is_org_root=True,
+    )
+    phase_actions = [a for a in actions if a["tool"] == "create_phase"]
+    assert len(phase_actions) == 1
+    assert phase_actions[0]["input"]["name"] == "론칭"
+
+
+@pytest.mark.asyncio
+async def test_execute_inline_markers_allows_task_for_subordinate(marker_env):
+    """Subordinates can still plan work via CREATE_TASK — only phase is gated."""
+    text = (
+        '[CREATE_PHASE name="should-be-blocked"]\n'
+        '[CREATE_TASK title="와이어프레임 스케치" assignee="Designer"]'
+    )
+    actions = await _execute_inline_markers(
+        text,
+        project_id=marker_env["project_id"],
+        tenant_id=marker_env["tenant_id"],
+        agent_id=marker_env["designer_id"],
+        agent_name="Designer",
+        is_org_root=False,
+    )
+    phase_actions = [a for a in actions if a["tool"] == "create_phase"]
+    task_actions = [a for a in actions if a["tool"] == "create_task"]
+    assert phase_actions == []
+    assert len(task_actions) == 1
+    assert task_actions[0]["input"]["title"] == "와이어프레임 스케치"
+
+
+@pytest.mark.asyncio
+async def test_execute_inline_markers_defaults_is_org_root_false(marker_env):
+    """Backward-safe default: unspecified is_org_root treats caller as subordinate.
+
+    Older call sites that haven't adopted the flag should not accidentally
+    gain phase-creation powers.
+    """
+    text = '[CREATE_PHASE name="default-gate"]'
+    actions = await _execute_inline_markers(
+        text,
+        project_id=marker_env["project_id"],
+        tenant_id=marker_env["tenant_id"],
+        agent_id=marker_env["designer_id"],
+        agent_name="Designer",
+    )
+    phase_actions = [a for a in actions if a["tool"] == "create_phase"]
+    assert phase_actions == []
