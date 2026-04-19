@@ -141,8 +141,8 @@ def get_tools_for_mode(mode: str, capabilities: list[str] | None) -> list[Tool]:
         caps = {(c or "").strip().lower() for c in (capabilities or [])}
         if "design" in caps:
             tool_names |= {"create_screen", "modify_screen"}
-    else:  # active — minimize tools to prevent LLM from burning iterations on file_read.
-        # Task/phase creation is done via inline markers; no file access needed in planning.
-        tool_names = {"list_tasks"}
+    else:  # active — ZERO tools. LLM must write inline markers directly.
+        # Qwen3 burns iterations calling any tool provided. Force text-only output.
+        tool_names = set()
 
     return [instances[name] for name in sorted(tool_names) if name in instances]
