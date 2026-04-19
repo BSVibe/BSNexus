@@ -1596,9 +1596,17 @@ async def chat_with_agent(
     await _store_and_publish(db, redis, project_id, role="user", content=body.message)
 
     # Enqueue all agents to per-agent FIFO queues.
+    # Publish processing state IMMEDIATELY so the UI shows green dot
+    # before the background task even starts.
     from backend.src.core.agent_queue import AgentRequest, get_agent_queue_manager
     mgr = get_agent_queue_manager()
     for agent in mentioned:
+        await _publish_event(redis, project_id, "agent_processing", {
+            "agent_id": str(agent.id),
+            "agent_name": agent.name,
+            "status": "started",
+            "mode": "active",
+        })
         await mgr.enqueue(AgentRequest(
             mode="active",
             project_id=project_id,

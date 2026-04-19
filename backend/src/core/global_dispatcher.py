@@ -360,12 +360,29 @@ class GlobalDispatcher:
 
             from backend.src.core.agent_queue import AgentRequest, get_agent_queue_manager
             mgr = get_agent_queue_manager()
+
+            # Publish processing state immediately so UI shows green dot
+            redis = self._stream.redis if self._stream else None
+            if redis:
+                from backend.src.queue.streams import RedisStreamManager
+                stream = RedisStreamManager.chat_events_stream(str(project_id))
+                await self._stream.publish(stream, {
+                    "event": "agent_processing",
+                    "data": {
+                        "agent_id": str(agent.id),
+                        "agent_name": agent.name,
+                        "status": "started",
+                        "mode": "passive",
+                    },
+                })
+                await redis.set(f"agent:processing:{agent.id}", str(project_id), ex=600)
+
             await mgr.enqueue(AgentRequest(
                 mode="passive",
                 project_id=project_id,
                 agent_id=agent.id,
                 tenant_id=agent.tenant_id,
-                redis=self._stream.redis if self._stream else None,
+                redis=redis,
                 task_id=task.id,
                 task_context=task_context,
             ))
