@@ -29,6 +29,7 @@ def _agent_to_response(
     has_online_worker: bool = False,
     default_executor_type: str | None = None,
     current_task: Task | None = None,
+    is_processing: bool = False,
 ) -> AgentResponse:
     response = AgentResponse.model_validate(agent)
     if agent.executor_config_id is None and default_executor_type is not None:
@@ -42,7 +43,10 @@ def _agent_to_response(
         agent,
         current_task=current_task,
         online_worker_available=has_online_worker,
+        is_processing=is_processing,
     )
+    if is_processing and not current_task:
+        response.activity = "처리 중..."
     if current_task is not None:
         response.current_task = CurrentTaskBrief(
             id=current_task.id,
@@ -159,12 +163,23 @@ async def list_agents(
     default_type = await _tenant_default_executor_type(db, tenant_id)
     agent_ids = [a.id for a in agents]
     running = await _running_tasks_by_agent(db, agent_ids)
+
+    # Check Redis for transient processing state
+    redis = getattr(request.app.state, "redis", None)
+    processing_ids: set[uuid.UUID] = set()
+    if redis:
+        for aid in agent_ids:
+            val = await redis.get(f"agent:processing:{aid}")
+            if val:
+                processing_ids.add(aid)
+
     return [
         _agent_to_response(
             a,
             has_online_worker=online,
             default_executor_type=default_type,
             current_task=running.get(a.id),
+            is_processing=a.id in processing_ids,
         )
         for a in agents
     ]

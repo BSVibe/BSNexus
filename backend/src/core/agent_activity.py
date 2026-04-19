@@ -56,13 +56,14 @@ def resolve_agent_status_dot(
     *,
     current_task: "Task | None" = None,
     online_worker_available: bool = False,
+    is_processing: bool = False,
 ) -> str:
     """Return the canonical status dot colour for an agent.
 
     Precedence (high → low):
 
     1. ``red``    — assigned a blocked task
-    2. ``green``  — assigned a running task
+    2. ``green``  — assigned a running task OR actively processing (LLM call in progress)
     3. ``yellow`` — online + idle (executor available)
     4. ``gray``   — offline
     """
@@ -73,6 +74,10 @@ def resolve_agent_status_dot(
             return "red"
         if current_task.status == TaskStatus.running:
             return "green"
+
+    # Agent is processing (active/passive mode, LLM call in progress)
+    if is_processing:
+        return "green"
 
     # LLM API executors are always-on when configured.
     if _is_llm_api_executor(agent.executor_type) and agent.executor_config_id:

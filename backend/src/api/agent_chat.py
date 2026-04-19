@@ -354,6 +354,16 @@ async def _publish_event(redis: Any, project_id: uuid.UUID, event: str, data: di
     stream_manager = RedisStreamManager(redis)
     stream = RedisStreamManager.chat_events_stream(str(project_id))
     await stream_manager.publish(stream, {"event": event, "data": data})
+
+    # Maintain transient Redis key for agent_processing state so the
+    # agents API can report it even if SSE was missed.
+    if event == "agent_processing":
+        agent_id = data.get("agent_id", "")
+        key = f"agent:processing:{agent_id}"
+        if data.get("status") == "started":
+            await redis.set(key, str(project_id), ex=600)  # 10 min TTL
+        else:
+            await redis.delete(key)
     try:
         await redis.xtrim(stream, maxlen=500, approximate=True)
     except Exception:
