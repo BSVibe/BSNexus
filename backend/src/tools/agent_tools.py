@@ -141,11 +141,8 @@ def get_tools_for_mode(mode: str, capabilities: list[str] | None) -> list[Tool]:
         caps = {(c or "").strip().lower() for c in (capabilities or [])}
         if "design" in caps:
             tool_names |= {"create_screen", "modify_screen"}
-    else:  # active — task/phase creation is done via inline markers, not tools
-        tool_names = {
-            "list_tasks",
-            "set_goal", "record_decision",
-            "file_read", "list_files",
-        }
+    else:  # active — minimize tools to prevent LLM from burning iterations on file_read.
+        # Task/phase creation is done via inline markers; no file access needed in planning.
+        tool_names = {"list_tasks"}
 
     return [instances[name] for name in sorted(tool_names) if name in instances]

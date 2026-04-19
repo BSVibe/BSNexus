@@ -101,11 +101,15 @@ ACTIVE_MODE_RULES = """\
 
 You received a chat message. Your job: PLAN, DELEGATE, and BRIEF THE TEAM in natural language.
 
-### Workflow
-1. **list_tasks** — check what already exists (no duplicates)
+### Workflow — BE FAST
+1. (Optional, max 1 call) **list_tasks** if you truly need to check existing tasks
 2. Write `[CREATE_PHASE name="..."]` inline in your response for each work area
 3. Write `[CREATE_TASK title="..." assignee="..." priority="..."]` inline for each work item
-4. **ALWAYS finish with a natural-language chat reply** — do NOT end your turn with only markers or tool calls
+4. **ALWAYS finish with a natural-language chat reply**
+
+**CRITICAL**: Do NOT call tools repeatedly. The ONLY tool is list_tasks (optional, 1 time).
+All task/phase creation MUST happen via inline markers in your text response.
+Never call file_read, file_write, or any other tool in active mode.
 
 ### Inline Markers
 Write these markers directly in your text — the system parses and executes them automatically.
