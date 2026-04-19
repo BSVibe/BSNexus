@@ -162,6 +162,7 @@ class TestLiteLLMExecutorNoTools:
     @patch("backend.src.core.executor.litellm_executor.litellm")
     async def test_cost_calculation(self, mock_litellm: MagicMock) -> None:
         mock_litellm.acompletion = AsyncMock(return_value=_make_stream("ok"))
+        mock_litellm.cost_per_token = MagicMock(return_value=(0.001, 0.002))
 
         executor = LiteLLMExecutor()
         result = await executor.execute(
@@ -172,8 +173,7 @@ class TestLiteLLMExecutorNoTools:
             api_key="key",
         )
 
-        # Streaming doesn't easily support completion_cost
-        assert result.cost_usd == 0.0
+        assert result.cost_usd == 0.003  # 0.001 + 0.002
 
 
 class TestLiteLLMExecutorWithTools:

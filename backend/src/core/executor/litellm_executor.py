@@ -164,7 +164,12 @@ class LiteLLMExecutor:
                             break
 
                 try:
-                    cost_usd = 0.0  # streaming doesn't easily support completion_cost
+                    cost_usd = litellm.cost_per_token(
+                        model=model,
+                        prompt_tokens=usage.prompt_tokens,
+                        completion_tokens=usage.completion_tokens,
+                    )
+                    cost_usd = sum(cost_usd) if isinstance(cost_usd, tuple) else float(cost_usd)
                 except Exception:
                     cost_usd = 0.0
 
