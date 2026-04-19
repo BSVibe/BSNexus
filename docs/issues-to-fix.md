@@ -220,18 +220,34 @@
 - **수정**: `order_by(Phase.order.asc()).limit(1)` — crash 방어
 - **남은**: 근본적으로 active phase가 1개만 되도록 create_phase에서 guard 필요
 
-### 23. Active mode agent busy 표시 없음 ✅ (세션 8)
-- **증상**: CEO가 active mode에서 채팅/task 생성 중일 때 green dot, typing "..." 안 뜸
-- **수정**: `agent_processing` SSE event (started/completed) 발행 + `agentProcessingStore` (zustand)
-  + `useChatEvents.ts` 핸들러 + `AgentStatusBar` dot override (처리 중 → green + "처리 중...")
-- SSE 끊김 시 `clearAll()`로 stale 상태 방어
+### 23. Active mode agent busy 표시 ✅→진행중 (세션 8)
+- **구현 완료**: `agent_processing` SSE event + `agentProcessingStore` (zustand) + Redis transient key
+- **스트리밍 전환**: `acompletion(stream=True)` → `[STATUS ...]` 마커 실시간 감지 → SSE `status_update`
+- **Project-scoped Redis key**: `agent:processing:{project_id}:{agent_id}` (멀티 프로젝트 safe)
+- **Dispatch-time 즉시 발행**: POST /chat, GlobalDispatcher에서 started 발행 (background 중복 제거)
+- **남은 문제**:
+  - `.pyc` 캐시로 새 코드 미반영 가능 → `PYTHONDONTWRITEBYTECODE=1` + `python -B` 사용
+  - Agent 탭(/agents)은 조직도 전용 — status 표시 안 함 (의도)
+  - Worker executor에서 streaming/STATUS 미지원 (다음 세션)
+  - 채팅 실시간 스트리밍 (ChatGPT 스타일 타이핑) — `text_delta` 이벤트 발행 중, 프론트 구현 필요
 
-### 24. 마커/tool 하이브리드 전환 ✅ (세션 8)
-- **수정**: inline marker 파싱 (`[CREATE_TASK title="..." assignee="..."]`) 추가
-  - `task_markers.py`: `parse_inline_task_markers()`, `parse_inline_phase_markers()`, `strip_inline_markers()`
-  - `plan_tools.py`: `create_task_from_params()`, `create_phase_from_params()` 추출 (tool + marker 공유)
-  - `agent_chat.py`: `_execute_inline_markers()` → `_process_response_text()` 파이프라인에 통합
-  - `harness.py`: `ACTIVE_MODE_RULES` 프롬프트에서 inline marker 사용 권장
-- Tool (CreateTaskTool, CreatePhaseTool) 병존 — 마커 사용 불가 시 fallback
-- Dedup guard (exact + fuzzy), IntegrityError race, 자기 할당 방지 모두 마커에서도 동작
-- 1025 tests passing (+28 신규)
+### 24. 마커 기반 전체 전환 ✅ (세션 8)
+- **수정**: create_task, create_phase, claim_task, complete_task 모두 tool에서 제거 → 마커로 대체
+  - `[CREATE_TASK title="..." assignee="..."]`, `[CREATE_PHASE name="..."]`
+  - `[CLAIM_TASK]`, `[COMPLETE_TASK summary="..."]`
+  - `[STATUS 현재 작업 상태]` — 실시간 activity text
+- Active mode tools: `list_tasks`, `set_goal`, `record_decision`, `file_read`, `list_files`만 유지
+- Passive mode tools: `file_write`, `file_read`, `list_files`, `list_tasks`, `create_screen`, `modify_screen`만 유지
+- Done-after-done 방지: dedup이 done task도 포함
+- Phase 생성 촉진 프롬프트 강화
+- CoT reasoning step 추가 (passive mode)
+- 1027 tests passing
+
+### 25. Task-Phase 미스매치
+- **증상**: "시장 조사 및 기획" phase에 frontend/backend 구현 task가 들어감
+- **원인**: CMO가 첫 phase에 모든 task를 넣고 phase를 분리하지 않음
+- **해결 방향**: 프롬프트에서 "각 phase는 하나의 작업 영역만" 규칙 강화
+
+### 26. Worker executor에서 budget/streaming 미지원
+- **증상**: Claude Code 같은 worker executor는 LiteLLM 기반이 아니라서 streaming/cost 계산 미대응
+- **해결 방향**: worker 프로토콜에 streaming + usage 필드 추가, executor별 override 구조
