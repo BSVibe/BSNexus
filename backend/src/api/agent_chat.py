@@ -204,6 +204,33 @@ def _find_org_root(agents: list[models.Agent]) -> models.Agent | None:
     return roots[0] if roots else agents[0]
 
 
+async def _should_skip_active_delegation(
+    *,
+    agent_id: uuid.UUID,
+    project_id: uuid.UUID,
+    db: AsyncSession,
+) -> bool:
+    """Return True if auto-delegation should skip the active enqueue.
+
+    Rationale: the global dispatcher scans pending assigned tasks every ~5s
+    and dispatches them passively. If the target agent already has pending
+    work in this project, firing an additional ``active`` request only bloats
+    the per-agent FIFO queue (8-9 deep in longrun E2E) and delays passive
+    execution. In that case the dispatcher is sufficient — we return True
+    so the caller skips enqueueing active.
+    """
+    from sqlalchemy import func as _sa_func
+
+    result = await db.execute(
+        select(_sa_func.count(models.Task.id)).where(
+            models.Task.project_id == project_id,
+            models.Task.assigned_agent_id == agent_id,
+            models.Task.status == models.TaskStatus.pending,
+        )
+    )
+    return (result.scalar_one() or 0) > 0
+
+
 async def _route_via_worker(
     message: str,
     agents: list[models.Agent],
@@ -1261,6 +1288,26 @@ async def _process_agent_in_background(
                                 root_agent=org_root.name,
                                 tasks_created=len(created_tasks))
 
+        # Throttle: drop active enqueues for agents that already have pending
+        # passive work. The global dispatcher will wake them in ≤5s — firing
+        # an additional active request just starves the passive queue.
+        if delegated:
+            async with async_session() as check_db:
+                filtered: list[models.Agent] = []
+                for d in delegated:
+                    if await _should_skip_active_delegation(
+                        agent_id=d.id, project_id=project_id, db=check_db,
+                    ):
+                        logger.info(
+                            "auto_delegation_skipped_dispatcher_will_handle",
+                            from_agent=str(agent_id),
+                            target_agent=d.name,
+                            reason="pending_tasks_exist",
+                        )
+                    else:
+                        filtered.append(d)
+                delegated = filtered
+
         if delegated:
             logger.info("delegation_triggered",
                         from_agent=str(agent_id),
@@ -1430,6 +1477,26 @@ async def _process_agent_in_background_passive(
                         to_agent=next_agent.name,
                         task_id=str(task_id),
                     )
+
+            if delegated:
+                # Same throttle as the active path: skip active enqueue for
+                # targets that already have pending passive work.
+                async with async_session() as check_db:
+                    filtered_pp: list[models.Agent] = []
+                    for d in delegated:
+                        if await _should_skip_active_delegation(
+                            agent_id=d.id, project_id=project_id, db=check_db,
+                        ):
+                            logger.info(
+                                "auto_delegation_skipped_dispatcher_will_handle",
+                                from_agent=agent.name,
+                                target_agent=d.name,
+                                reason="pending_tasks_exist",
+                                source="passive_ping_pong",
+                            )
+                        else:
+                            filtered_pp.append(d)
+                    delegated = filtered_pp
 
             if delegated:
                 from backend.src.core.agent_queue import AgentRequest, get_agent_queue_manager

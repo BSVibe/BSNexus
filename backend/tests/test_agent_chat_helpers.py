@@ -19,6 +19,7 @@ from backend.src.api.agent_chat import (
     _find_org_root,
     _msg_to_out,
     _parse_mentions,
+    _should_skip_active_delegation,
     _strip_all_markers,
 )
 from backend.src.models import Agent, ConversationMessage, Phase, PhaseStatus, Project, ProjectStatus
@@ -431,6 +432,110 @@ async def test_execute_inline_markers_allows_task_for_subordinate(marker_env):
     assert phase_actions == []
     assert len(task_actions) == 1
     assert task_actions[0]["input"]["title"] == "와이어프레임 스케치"
+
+
+# ── _should_skip_active_delegation — Part 2 (queue throttle) ────────
+
+
+@pytest_asyncio.fixture
+async def delegation_env(test_session_maker, marker_env):
+    """Reuse marker_env's tenant/project, return session maker for gate tests."""
+    return {**marker_env, "session_maker": test_session_maker}
+
+
+@pytest.mark.asyncio
+async def test_should_skip_active_delegation_false_when_no_pending(delegation_env):
+    """No tasks assigned to the agent → active delegation proceeds."""
+    async with delegation_env["session_maker"]() as db:
+        assert await _should_skip_active_delegation(
+            agent_id=delegation_env["ceo_id"],
+            project_id=delegation_env["project_id"],
+            db=db,
+        ) is False
+
+
+@pytest.mark.asyncio
+async def test_should_skip_active_delegation_true_when_pending_exists(delegation_env):
+    """Agent already has a pending assigned task → skip the active enqueue.
+
+    Global dispatcher will dispatch it passively within 5s.
+    """
+    from backend.src.models import Task, TaskStatus
+
+    async with delegation_env["session_maker"]() as db:
+        db.add(Task(
+            id=uuid.uuid4(),
+            project_id=delegation_env["project_id"],
+            phase_id=delegation_env["phase_id"],
+            title="pending work",
+            status=TaskStatus.pending,
+            assigned_agent_id=delegation_env["ceo_id"],
+        ))
+        await db.commit()
+
+    async with delegation_env["session_maker"]() as db:
+        assert await _should_skip_active_delegation(
+            agent_id=delegation_env["ceo_id"],
+            project_id=delegation_env["project_id"],
+            db=db,
+        ) is True
+
+
+@pytest.mark.asyncio
+async def test_should_skip_active_delegation_ignores_done_tasks(delegation_env):
+    """Completed/blocked tasks don't trigger the skip — agent is free."""
+    from backend.src.models import Task, TaskStatus
+
+    async with delegation_env["session_maker"]() as db:
+        db.add(Task(
+            id=uuid.uuid4(),
+            project_id=delegation_env["project_id"],
+            phase_id=delegation_env["phase_id"],
+            title="already finished",
+            status=TaskStatus.done,
+            assigned_agent_id=delegation_env["ceo_id"],
+        ))
+        await db.commit()
+
+    async with delegation_env["session_maker"]() as db:
+        assert await _should_skip_active_delegation(
+            agent_id=delegation_env["ceo_id"],
+            project_id=delegation_env["project_id"],
+            db=db,
+        ) is False
+
+
+@pytest.mark.asyncio
+async def test_should_skip_active_delegation_scoped_to_project(delegation_env):
+    """Pending tasks in a different project do not trigger the skip."""
+    from backend.src.models import Task, TaskStatus
+
+    other_project_id = uuid.uuid4()
+    other_phase_id = uuid.uuid4()
+    async with delegation_env["session_maker"]() as db:
+        db.add(Project(id=other_project_id, name="OtherP", description=""))
+        await db.flush()
+        db.add(Phase(
+            id=other_phase_id, project_id=other_project_id, name="P",
+            status=PhaseStatus.active, order=1, branch_name="phase/p",
+        ))
+        await db.flush()
+        db.add(Task(
+            id=uuid.uuid4(),
+            project_id=other_project_id,
+            phase_id=other_phase_id,
+            title="elsewhere",
+            status=TaskStatus.pending,
+            assigned_agent_id=delegation_env["ceo_id"],
+        ))
+        await db.commit()
+
+    async with delegation_env["session_maker"]() as db:
+        assert await _should_skip_active_delegation(
+            agent_id=delegation_env["ceo_id"],
+            project_id=delegation_env["project_id"],
+            db=db,
+        ) is False
 
 
 @pytest.mark.asyncio
