@@ -35,6 +35,12 @@ _INLINE_TASK_RE = re.compile(
 _INLINE_PHASE_RE = re.compile(
     r"\[CREATE_PHASE\s+((?:\w+=\"(?:[^\"\\]|\\.)*\"\s*)+)\]"
 )
+# [COMPLETE_TASK summary="..."] or just [COMPLETE_TASK]
+_INLINE_COMPLETE_RE = re.compile(
+    r"\[COMPLETE_TASK(?:\s+((?:\w+=\"(?:[^\"\\]|\\.)*\"\s*)+))?\]"
+)
+# [CLAIM_TASK] — no attributes needed (system finds the agent's pending task)
+_INLINE_CLAIM_RE = re.compile(r"\[CLAIM_TASK\]")
 # Extracts individual key="value" pairs from an attribute string.
 _ATTR_RE = re.compile(r'(\w+)="((?:[^"\\]|\\.)*)"')
 
@@ -88,10 +94,29 @@ def parse_inline_phase_markers(text: str) -> list[dict[str, str | None]]:
     return results
 
 
+def parse_inline_complete_markers(text: str) -> list[dict[str, str | None]]:
+    """Extract ``[COMPLETE_TASK ...]`` markers.
+
+    Returns list of dicts with optional ``summary`` key.
+    """
+    results: list[dict[str, str | None]] = []
+    for m in _INLINE_COMPLETE_RE.finditer(text):
+        attrs = _parse_attrs(m.group(1) or "")
+        results.append({"summary": attrs.get("summary")})
+    return results
+
+
+def has_claim_marker(text: str) -> bool:
+    """Check if text contains ``[CLAIM_TASK]``."""
+    return bool(_INLINE_CLAIM_RE.search(text))
+
+
 def strip_inline_markers(text: str) -> str:
-    """Remove inline ``[CREATE_TASK ...]`` and ``[CREATE_PHASE ...]`` markers."""
+    """Remove all inline markers from text."""
     text = _INLINE_TASK_RE.sub("", text)
     text = _INLINE_PHASE_RE.sub("", text)
+    text = _INLINE_COMPLETE_RE.sub("", text)
+    text = _INLINE_CLAIM_RE.sub("", text)
     return text.strip()
 
 

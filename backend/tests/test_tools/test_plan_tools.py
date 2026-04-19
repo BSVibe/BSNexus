@@ -141,7 +141,8 @@ class TestCreateTaskDuplicatePrevention:
         assert data1["task_id"] != data2["task_id"]
 
     @pytest.mark.asyncio
-    async def test_done_task_allows_recreation(self, ctx: ToolContext) -> None:
+    async def test_done_task_blocks_recreation(self, ctx: ToolContext) -> None:
+        """Done tasks now also block re-creation (done-after-done prevention)."""
         tool = CreateTaskTool()
         result1 = await tool.execute({"title": "Build API"}, ctx)
         task_id = json.loads(result1)["task_id"]
@@ -152,11 +153,11 @@ class TestCreateTaskDuplicatePrevention:
             task.status = TaskStatus.done
             await db.commit()
 
-        # Should allow re-creation
+        # Should return existing done task (not create a new one)
         result2 = await tool.execute({"title": "Build API"}, ctx)
         data2 = json.loads(result2)
-        assert data2["task_id"] != task_id
-        assert "already exists" not in data2.get("message", "")
+        assert data2["task_id"] == task_id
+        assert "already exists" in data2.get("message", "")
 
 
 # ── Issue #6: Self-Assign Prevention ──────────────────────────────────

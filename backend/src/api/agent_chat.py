@@ -30,6 +30,8 @@ from sse_starlette.sse import EventSourceResponse
 from backend.src import models
 from backend.src.api.settings import get_raw_llm_config
 from backend.src.core.task_markers import (
+    has_claim_marker,
+    parse_inline_complete_markers,
     parse_inline_phase_markers,
     parse_inline_task_markers,
     strip_action_markers,
@@ -544,6 +546,67 @@ async def _execute_inline_markers(
                         assignee=tm.get("assignee"), result_status=result.get("status"))
         except Exception:
             logger.warning("marker_task_creation_failed", title=tm.get("title"), exc_info=True)
+
+    # Claim: [CLAIM_TASK] — find agent's assigned pending/running task
+    if has_claim_marker(text):
+        try:
+            from backend.src.core.state_machine import TaskStateMachine
+            from backend.src.models import Task, TaskStatus
+            async with async_session() as db:
+                result = await db.execute(
+                    select(Task).where(
+                        Task.project_id == project_id,
+                        Task.assigned_agent_id == agent_id,
+                        Task.status == TaskStatus.pending,
+                    ).order_by(Task.created_at.desc()).limit(1)
+                )
+                task = result.scalar_one_or_none()
+                if task:
+                    sm = TaskStateMachine()
+                    await sm.transition(
+                        task, TaskStatus.running,
+                        actor=f"agent:{agent_id}",
+                        reason=f"Claimed by {agent_name} via marker",
+                        db_session=db,
+                    )
+                    await db.commit()
+                    actions.append({"type": "tool_claim_task", "tool": "claim_task", "input": {"task_id": str(task.id)}})
+                    logger.info("task_claimed_via_marker", task_id=str(task.id), agent=agent_name)
+        except Exception:
+            logger.warning("marker_claim_failed", exc_info=True)
+
+    # Complete: [COMPLETE_TASK summary="..."] — find agent's running task
+    for cm in parse_inline_complete_markers(text):
+        try:
+            from backend.src.core.state_machine import TaskStateMachine
+            from backend.src.models import Task, TaskStatus
+            async with async_session() as db:
+                result = await db.execute(
+                    select(Task).where(
+                        Task.project_id == project_id,
+                        Task.assigned_agent_id == agent_id,
+                        Task.status == TaskStatus.running,
+                    ).order_by(Task.created_at.desc()).limit(1)
+                )
+                task = result.scalar_one_or_none()
+                if task:
+                    summary = cm.get("summary") or f"Completed by {agent_name}"
+                    task.output_data = {"summary": summary, "completed_by": agent_name}
+                    sm = TaskStateMachine()
+                    await sm.transition(
+                        task, TaskStatus.done,
+                        actor=f"agent:{agent_id}",
+                        reason=summary,
+                        db_session=db,
+                    )
+                    await db.commit()
+                    actions.append({
+                        "type": "tool_complete_task", "tool": "complete_task",
+                        "input": {"task_id": str(task.id), "summary": summary},
+                    })
+                    logger.info("task_completed_via_marker", task_id=str(task.id), agent=agent_name)
+        except Exception:
+            logger.warning("marker_complete_failed", exc_info=True)
 
     return actions
 

@@ -117,14 +117,11 @@ async def create_task_from_params(
             )
         active = target_phase
 
-        # ── Duplicate check (phase-scoped) ──
+        # ── Duplicate check (phase-scoped, includes done tasks) ──
         from difflib import SequenceMatcher
 
         existing_result = await db.execute(
-            select(Task).where(
-                Task.phase_id == active.id,
-                Task.status != TaskStatus.done,
-            )
+            select(Task).where(Task.phase_id == active.id)
         )
         existing_tasks = list(existing_result.scalars().all())
         normalized_title = title.strip().lower()
@@ -135,7 +132,7 @@ async def create_task_from_params(
                 return {
                     "task_id": str(et.id), "title": et.title,
                     "status": et.status.value, "assigned_to": None,
-                    "message": "Task already exists in this phase — skipping creation.",
+                    "message": f"Task already exists in this phase ({et.status.value}) — skipping creation.",
                 }
 
         # Fuzzy match (>0.8 similarity) → error with suggestion

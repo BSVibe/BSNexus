@@ -169,10 +169,10 @@ class TestAssembleSystemPrompt:
             mode="passive",
             task_context="Task ID: abc\nTitle: Design UI",
         )
-        assert "claim_task" in prompt
-        assert "complete_task" in prompt
+        assert "CLAIM_TASK" in prompt
+        assert "COMPLETE_TASK" in prompt
         assert "Design UI" in prompt
-        assert "create_task" not in prompt or "Do NOT create" in prompt
+        assert "CREATE_TASK" not in prompt or "Do NOT create" in prompt
 
     @pytest.mark.asyncio
     async def test_fallback_when_no_workspace(self) -> None:
@@ -202,7 +202,7 @@ class TestAssembleSystemPrompt:
             agent, _project(), str(tmp_path), mode="passive",
         )
         # Generic passive rules present, but DESIGN_TASK_RULES fragment not injected
-        assert "claim_task" in prompt
+        assert "CLAIM_TASK" in prompt
         assert "Design Deliverable Rules" not in prompt
 
     @pytest.mark.asyncio

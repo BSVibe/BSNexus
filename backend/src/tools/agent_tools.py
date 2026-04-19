@@ -9,10 +9,6 @@ from __future__ import annotations
 from backend.src.tools.base import Tool
 from backend.src.tools.design_tools import CreateScreenTool, ModifyScreenTool
 from backend.src.tools.plan_tools import (
-    ClaimTaskTool,
-    CompleteTaskTool,
-    CreatePhaseTool,
-    CreateTaskTool,
     ListTasksTool,
     RecordDecisionTool,
     SetGoalTool,
@@ -32,12 +28,8 @@ def _ensure_instances() -> dict[str, Tool]:
             FileReadTool(),
             FileWriteTool(),
             ListFilesTool(),
-            # Plan management
-            CreateTaskTool(),
-            ClaimTaskTool(),
-            CompleteTaskTool(),
+            # Plan management (create/claim/complete via inline markers)
             ListTasksTool(),
-            CreatePhaseTool(),
             SetGoalTool(),
             RecordDecisionTool(),
             # Design
@@ -53,10 +45,10 @@ def _ensure_instances() -> dict[str, Tool]:
 
 CAPABILITY_TOOLS: dict[str, list[str]] = {
     "plan": [
-        "create_phase",
-        "create_task",
-        "complete_task",
-        "claim_task",
+
+
+
+
         "set_goal",
         "record_decision",
         "list_tasks",
@@ -69,24 +61,24 @@ CAPABILITY_TOOLS: dict[str, list[str]] = {
         "file_read",
         "file_write",
         "list_files",
-        "create_task",
-        "complete_task",
+
+
         "list_tasks",
     ],
     "coding": [
         "file_read",
         "file_write",
         "list_files",
-        "create_task",
-        "claim_task",
-        "complete_task",
+
+
+
         "list_tasks",
     ],
     "analyze": [
         "file_read",
         "list_files",
-        "create_task",
-        "complete_task",
+
+
         "record_decision",
         "list_tasks",
     ],
@@ -94,9 +86,9 @@ CAPABILITY_TOOLS: dict[str, list[str]] = {
         "file_read",
         "file_write",
         "list_files",
-        "create_task",
-        "create_phase",
-        "complete_task",
+
+
+
         "record_decision",
         "list_tasks",
     ],
@@ -104,8 +96,8 @@ CAPABILITY_TOOLS: dict[str, list[str]] = {
         "file_read",
         "file_write",
         "list_files",
-        "create_task",
-        "complete_task",
+
+
         "list_tasks",
     ],
 }
@@ -135,23 +127,23 @@ def get_tools_for_agent(capabilities: list[str] | None) -> list[Tool]:
 def get_tools_for_mode(mode: str, capabilities: list[str] | None) -> list[Tool]:
     """Return tools filtered by workflow mode.
 
-    Active mode: planning tools (create_task, create_phase, etc.)
+    Active mode: list_tasks + set_goal + record_decision (task/phase creation via inline markers)
     Passive mode: execution tools (claim_task, complete_task, file_write, etc.)
     """
     instances = _ensure_instances()
 
     if mode == "passive":
+        # claim/complete done via inline markers — only execution tools here
         tool_names: set[str] = {
-            "claim_task", "complete_task",
             "file_read", "file_write", "list_files", "list_tasks",
         }
         # Add capability-specific execution tools
         caps = {(c or "").strip().lower() for c in (capabilities or [])}
         if "design" in caps:
             tool_names |= {"create_screen", "modify_screen"}
-    else:  # active
+    else:  # active — task/phase creation is done via inline markers, not tools
         tool_names = {
-            "create_task", "create_phase", "list_tasks",
+            "list_tasks",
             "set_goal", "record_decision",
             "file_read", "list_files",
         }

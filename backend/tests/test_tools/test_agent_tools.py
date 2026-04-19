@@ -16,12 +16,15 @@ class TestGetToolsForAgent:
         names = {t.name for t in tools}
         assert set(UNIVERSAL_TOOLS).issubset(names)
 
-    def test_plan_capability_includes_create_phase(self) -> None:
+    def test_plan_capability_includes_planning_tools(self) -> None:
+        """Plan capability: set_goal, record_decision (create_task/phase via markers)."""
         tools = get_tools_for_agent(["plan"])
         names = {t.name for t in tools}
-        assert "create_phase" in names
         assert "set_goal" in names
         assert "record_decision" in names
+        # create_task/create_phase removed — handled by inline markers
+        assert "create_task" not in names
+        assert "create_phase" not in names
 
     def test_design_capability_includes_screen_tools(self) -> None:
         tools = get_tools_for_agent(["design"])
@@ -35,13 +38,13 @@ class TestGetToolsForAgent:
         names = {t.name for t in tools}
         assert "file_read" in names
         assert "file_write" in names
-        assert "claim_task" in names
+        # claim_task/complete_task removed — handled by inline markers
+        assert "claim_task" not in names
 
     def test_multiple_capabilities_union(self) -> None:
         tools = get_tools_for_agent(["plan", "design"])
         names = {t.name for t in tools}
         # plan tools
-        assert "create_phase" in names
         assert "set_goal" in names
         # design tools
         assert "create_screen" in names
