@@ -102,8 +102,9 @@ ACTIVE_MODE_RULES = """\
 You received a chat message. Your job: PLAN, DELEGATE, and BRIEF THE TEAM in natural language.
 
 ### Workflow
-You have exactly ONE tool: `file_read` (for `.bsnexus/context/*.md`).
-Everything else happens through inline markers in your reply text.
+You have NO tools available. Respond with plain text containing inline markers.
+Current project state is already inlined below under "Current Plan State" —
+read it there and reason against it directly.
 
 1. Write `[CREATE_PHASE name="..."]` inline for each work area
 2. Write `[CREATE_TASK title="..." assignee="..." priority="..."]` inline for each work item
@@ -181,8 +182,9 @@ You received a chat message from a teammate or manager. Your job: break the
 request down into concrete tasks for your team and BRIEF THEM in natural language.
 
 ### Workflow
-You have exactly ONE tool: `file_read` (for `.bsnexus/context/*.md`).
-Everything else happens through inline markers in your reply text.
+You have NO tools available. Respond with plain text containing inline markers.
+Current project state is already inlined below under "Current Plan State" —
+read it there and reason against it directly.
 
 1. Write `[CREATE_TASK title="..." assignee="..." priority="..."]` inline for each work item
 2. Finish with 2-4 sentences explaining what you just planned and @mention teammates

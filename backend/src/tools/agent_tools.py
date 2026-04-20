@@ -140,13 +140,13 @@ def get_tools_for_mode(mode: str, capabilities: list[str] | None) -> list[Tool]:
         caps = {(c or "").strip().lower() for c in (capabilities or [])}
         if "design" in caps:
             tool_names |= {"create_screen", "modify_screen"}
-    else:  # active — only file_read, no write/create tools.
-        # Planning happens via inline markers; we explicitly keep the tool
-        # set minimal because Qwen3-class models waste iterations exploring
-        # unused tools. ``file_read`` is the only exception: the agent MUST
-        # be able to pull the latest `.bsnexus/context/project.md` to see
-        # current phase/task state, otherwise its narrative drifts from DB
-        # reality (announcing a new phase that already completed).
-        tool_names = {"file_read"}
+    else:  # active — ZERO tools.
+        # Empirically confirmed across both Qwen3-coder:30b and GLM-4.7-flash:
+        # any tool we offer (even just file_read) gets stuck in a tool-call
+        # loop — agents burn 7-10 iterations reading files and never produce
+        # a text reply. The project-knowledge path is instead satisfied by
+        # inlining the current plan/decisions summary into the system
+        # prompt on every turn (see ``assemble_system_prompt``).
+        tool_names = set()
 
     return [instances[name] for name in sorted(tool_names) if name in instances]

@@ -78,28 +78,12 @@ class TestGetToolsForMode:
         assert "create_screen" in names
         assert "modify_screen" in names
 
-    def test_active_mode_includes_file_read(self) -> None:
-        """Active agents need file_read so they can check .bsnexus/context/
-        project.md for current phase/task state before replying. Without this
-        their chat narrative drifts from DB reality (e.g. announcing a new
-        phase that already completed)."""
-        tools = get_tools_for_mode("active", [])
-        names = {t.name for t in tools}
-        assert "file_read" in names
-
-    def test_active_mode_excludes_write_and_creation_tools(self) -> None:
-        """Active mode still bans file_write / create_screen / etc. — those
-        stay passive-only. Only read access is restored."""
+    def test_active_mode_has_no_tools(self) -> None:
+        """Active mode ships with ZERO tools. Both Qwen3-coder:30b and
+        GLM-4.7-flash were observed to loop on any tool we offered
+        (file_read×7-10 with no text reply). Current plan state is
+        inlined into the system prompt instead so the agent can reason
+        against it directly — no tool call needed."""
         tools = get_tools_for_mode("active", ["plan", "design"])
         names = {t.name for t in tools}
-        assert "file_write" not in names
-        assert "create_screen" not in names
-        assert "modify_screen" not in names
-
-    def test_active_mode_is_minimal(self) -> None:
-        """Active mode ships with ONLY file_read — no set_goal, no
-        record_decision, no list_tasks. Those would just waste Qwen3
-        iterations. Planning happens via inline markers."""
-        tools = get_tools_for_mode("active", ["plan"])
-        names = {t.name for t in tools}
-        assert names == {"file_read"}
+        assert names == set()
