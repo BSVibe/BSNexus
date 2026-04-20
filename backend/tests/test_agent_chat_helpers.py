@@ -382,7 +382,13 @@ async def test_execute_inline_markers_error_isolation(marker_env):
 
 @pytest.mark.asyncio
 async def test_execute_inline_markers_blocks_phase_for_subordinate(marker_env):
-    """Subordinate agents (is_org_root=False) cannot create phases."""
+    """Subordinate agents cannot open ADDITIONAL phases once the project
+    already has at least one. Prevents delegation-chain explosion.
+
+    ``marker_env`` seeds a ``Planning`` phase, so this exercises the
+    post-bootstrap case: any further CREATE_PHASE from a subordinate is
+    dropped silently.
+    """
     text = '[CREATE_PHASE name="설계" description="구조 설계"]'
     actions = await _execute_inline_markers(
         text,
@@ -394,6 +400,57 @@ async def test_execute_inline_markers_blocks_phase_for_subordinate(marker_env):
     )
     phase_actions = [a for a in actions if a["tool"] == "create_phase"]
     assert phase_actions == []
+
+
+@pytest.mark.asyncio
+async def test_execute_inline_markers_subordinate_bootstraps_first_phase(
+    test_session_maker, monkeypatch,
+):
+    """BOOTSTRAP: when a project has no phases yet, a subordinate must be
+    allowed to open the first one. Otherwise the first @mentioned agent
+    (often CMO/subordinate) cannot create tasks — create_task requires a
+    phase, so the whole conversation deadlocks. Only *additional* phases
+    are gated to org-root."""
+    tenant_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    parent_id = uuid.uuid4()
+    designer_id = uuid.uuid4()
+
+    async with test_session_maker() as session:
+        session.add(Tenant(id=tenant_id, name="T2", slug="t2", owner_user_id="u2"))
+        session.add(Project(id=project_id, name="P2", description=""))
+        await session.flush()
+        # Seed a parent (CEO) so Designer can reference it.
+        session.add(Agent(
+            id=parent_id, tenant_id=tenant_id, name="CEO", role="ceo",
+            executor_type="generic_llm", capabilities=["plan"], is_active=True,
+        ))
+        await session.flush()
+        # Designer is a subordinate (has a parent).
+        session.add(Agent(
+            id=designer_id, tenant_id=tenant_id, name="Designer", role="designer",
+            executor_type="generic_llm", capabilities=["design"], is_active=True,
+            parent_agent_id=parent_id,
+        ))
+        await session.commit()
+
+    monkeypatch.setattr("backend.src.api.agent_chat.async_session", test_session_maker)
+    monkeypatch.setattr(
+        "backend.src.tools.plan_tools.async_session", test_session_maker, raising=False
+    )
+
+    text = '[CREATE_PHASE name="부트스트랩" description="첫 단계"]'
+    actions = await _execute_inline_markers(
+        text,
+        project_id=project_id,
+        tenant_id=tenant_id,
+        agent_id=designer_id,
+        agent_name="Designer",
+        is_org_root=False,
+    )
+    phase_actions = [a for a in actions if a["tool"] == "create_phase"]
+    assert len(phase_actions) == 1
+    assert phase_actions[0]["input"]["name"] == "부트스트랩"
 
 
 @pytest.mark.asyncio

@@ -556,10 +556,38 @@ async def _execute_inline_markers(
 
     # Active mode: process CREATE markers. Passive agents skip these.
     if mode != "passive":
-        # CREATE_PHASE is gated to org-root agents. Subordinates who emit
-        # a phase marker (prompt drift) get it silently dropped with a log.
-        if is_org_root:
-            for pm in parse_inline_phase_markers(text):
+        phase_markers = parse_inline_phase_markers(text)
+        # CREATE_PHASE is normally gated to org-root agents to prevent a
+        # delegation chain from stacking one phase per agent. Exception:
+        # if the project has no phase yet, allow a subordinate to create
+        # the FIRST one — otherwise CREATE_TASK would fail with
+        # "No phase exists yet", deadlocking the scenario. Any phase
+        # markers beyond the first in this turn are still dropped for
+        # non-root agents.
+        may_create_phase = is_org_root
+        if not may_create_phase and phase_markers:
+            async with async_session() as phase_check_db:
+                from sqlalchemy import func as _sa_func
+
+                existing_phases = await phase_check_db.execute(
+                    select(_sa_func.count(models.Phase.id)).where(
+                        models.Phase.project_id == project_id
+                    )
+                )
+                if (existing_phases.scalar_one() or 0) == 0:
+                    may_create_phase = True
+                    logger.info(
+                        "phase_marker_bootstrap_allowed",
+                        agent=agent_name,
+                        agent_id=str(agent_id),
+                        name=phase_markers[0]["name"],
+                    )
+
+        if may_create_phase:
+            # Non-root agents only get to create ONE phase (the bootstrap).
+            # Org-root agents can create as many as they emit.
+            allowed = phase_markers if is_org_root else phase_markers[:1]
+            for pm in allowed:
                 try:
                     result = await create_phase_from_params(
                         name=pm["name"],
@@ -575,14 +603,23 @@ async def _execute_inline_markers(
                     logger.info("phase_created_via_marker", name=pm["name"], result=result.get("status"))
                 except Exception:
                     logger.warning("marker_phase_creation_failed", name=pm.get("name"), exc_info=True)
-        else:
-            skipped = [pm["name"] for pm in parse_inline_phase_markers(text)]
+            skipped = phase_markers[len(allowed):] if not is_org_root else []
             if skipped:
                 logger.info(
                     "phase_marker_skipped_non_root",
                     agent=agent_name,
                     agent_id=str(agent_id),
-                    names=skipped,
+                    names=[m["name"] for m in skipped],
+                    reason="subordinate_extra_phase",
+                )
+        else:
+            if phase_markers:
+                logger.info(
+                    "phase_marker_skipped_non_root",
+                    agent=agent_name,
+                    agent_id=str(agent_id),
+                    names=[m["name"] for m in phase_markers],
+                    reason="already_has_phase",
                 )
 
         task_markers = parse_inline_task_markers(text)
