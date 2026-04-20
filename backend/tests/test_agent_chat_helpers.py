@@ -982,6 +982,144 @@ async def test_set_goal_block_ignored_when_empty_body(marker_env, test_session_m
 
 
 @pytest.mark.asyncio
+async def test_assemble_prompt_inlines_project_goal_from_db(db_session):
+    """When a Project-level Goal exists, assemble_system_prompt injects it
+    under '## Project Goal' so every agent reads it inline — no file_read
+    needed."""
+    from sqlalchemy import select as _select
+    from sqlalchemy.orm import selectinload
+
+    from backend.src.core.harness import assemble_system_prompt
+    from backend.src.core.tenant_context import DEFAULT_TENANT_ID
+    from backend.src.models import Goal, Tenant
+
+    db_session.add(
+        Tenant(id=DEFAULT_TENANT_ID, name="Test", slug="test", owner_user_id="u"),
+    )
+    await db_session.commit()
+
+    project = Project(
+        id=uuid.uuid4(),
+        name="ProjX",
+        description="",
+        status=ProjectStatus.active,
+    )
+    db_session.add(project)
+    await db_session.flush()
+    goal = Goal(
+        tenant_id=DEFAULT_TENANT_ID,
+        project_id=project.id,
+        level="project",
+        title="Ship TodoApp MVP",
+        description="Users sign up + CRUD todos + mobile verified",
+    )
+    db_session.add(goal)
+    await db_session.commit()
+
+    result = await db_session.execute(
+        _select(Project).where(Project.id == project.id).options(selectinload(Project.phases))
+    )
+    project_loaded = result.scalar_one()
+
+    agent = _make_agent("CPO")
+    agent.tenant_id = DEFAULT_TENANT_ID
+
+    prompt = await assemble_system_prompt(
+        agent, project_loaded, workspace_dir=None,
+        mode="active", all_agents=[agent], project_goal=goal,
+    )
+    assert "## Project Goal" in prompt
+    assert "Ship TodoApp MVP" in prompt
+    assert "mobile verified" in prompt
+
+
+@pytest.mark.asyncio
+async def test_assemble_prompt_shows_missing_goal_warning_when_none(db_session):
+    """When no project Goal exists, assemble_system_prompt inlines a
+    warning inviting the first responder to emit [SET_GOAL], regardless
+    of role."""
+    from sqlalchemy import select as _select
+    from sqlalchemy.orm import selectinload
+
+    from backend.src.core.harness import assemble_system_prompt
+    from backend.src.core.tenant_context import DEFAULT_TENANT_ID
+    from backend.src.models import Tenant
+
+    db_session.add(
+        Tenant(id=DEFAULT_TENANT_ID, name="Test", slug="test", owner_user_id="u"),
+    )
+    await db_session.commit()
+
+    project = Project(id=uuid.uuid4(), name="NoGoalProj", description="")
+    db_session.add(project)
+    await db_session.commit()
+
+    result = await db_session.execute(
+        _select(Project).where(Project.id == project.id).options(selectinload(Project.phases))
+    )
+    project_loaded = result.scalar_one()
+    agent = _make_agent("Designer")
+    agent.tenant_id = DEFAULT_TENANT_ID
+
+    prompt = await assemble_system_prompt(
+        agent, project_loaded, workspace_dir=None,
+        mode="active", all_agents=[agent], project_goal=None,
+    )
+    assert "## Project Goal" in prompt
+    assert "Not set yet" in prompt
+    assert "[SET_GOAL]" in prompt
+
+
+@pytest.mark.asyncio
+async def test_fetch_project_goal_returns_project_level_row(db_session):
+    """_fetch_project_goal returns the single Goal(level='project') row,
+    ignoring mission/department/task-level goals from the same tenant."""
+    from backend.src.api.agent_chat import _fetch_project_goal
+    from backend.src.core.tenant_context import DEFAULT_TENANT_ID
+    from backend.src.models import Goal, Tenant
+
+    db_session.add(
+        Tenant(id=DEFAULT_TENANT_ID, name="Test", slug="test", owner_user_id="u"),
+    )
+    await db_session.commit()
+
+    project = Project(id=uuid.uuid4(), name="FetchGoalProj", description="")
+    db_session.add(project)
+    await db_session.flush()
+    db_session.add(Goal(
+        tenant_id=DEFAULT_TENANT_ID, level="mission",
+        title="Mission (should be ignored)",
+    ))
+    db_session.add(Goal(
+        tenant_id=DEFAULT_TENANT_ID, project_id=project.id, level="project",
+        title="The one true project goal", description="criteria",
+    ))
+    await db_session.commit()
+
+    goal = await _fetch_project_goal(db_session, project.id)
+    assert goal is not None
+    assert goal.title == "The one true project goal"
+
+
+@pytest.mark.asyncio
+async def test_fetch_project_goal_returns_none_when_missing(db_session):
+    from backend.src.api.agent_chat import _fetch_project_goal
+    from backend.src.core.tenant_context import DEFAULT_TENANT_ID
+    from backend.src.models import Tenant
+
+    db_session.add(
+        Tenant(id=DEFAULT_TENANT_ID, name="Test", slug="test", owner_user_id="u"),
+    )
+    await db_session.commit()
+
+    project = Project(id=uuid.uuid4(), name="NoGoal", description="")
+    db_session.add(project)
+    await db_session.commit()
+
+    assert await _fetch_project_goal(db_session, project.id) is None
+
+
+@pytest.mark.asyncio
 async def test_set_goal_block_works_for_non_org_root_agent(
     marker_env, test_session_maker,
 ):

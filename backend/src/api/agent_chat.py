@@ -310,8 +310,15 @@ async def _build_system_prompt(
     active_decisions: list[str] | None = None,
     mode: str = "active",
     task_context: str = "",
+    project_goal: models.Goal | None = None,
 ) -> str:
-    """Build the system prompt via the harness (workspace-based modules)."""
+    """Build the system prompt via the harness (workspace-based modules).
+
+    ``project_goal`` is inlined under ``## Project Goal`` when present; a
+    missing value renders the FIRST TURN SET_GOAL warning. The caller is
+    responsible for fetching the Goal(level='project') row (typically via
+    ``_fetch_project_goal``) so that this function stays DB-agnostic.
+    """
     from backend.src.core.harness import assemble_system_prompt, seed_harness
 
     workspace_dir = project.workspace_dir
@@ -325,7 +332,21 @@ async def _build_system_prompt(
         org_context=org_context,
         all_agents=all_agents,
         active_decisions=active_decisions,
+        project_goal=project_goal,
     )
+
+
+async def _fetch_project_goal(
+    db: AsyncSession, project_id: uuid.UUID,
+) -> models.Goal | None:
+    """Load the single Goal(level='project') row for a project, if any."""
+    result = await db.execute(
+        select(models.Goal).where(
+            models.Goal.project_id == project_id,
+            models.Goal.level == "project",
+        ).limit(1)
+    )
+    return result.scalar_one_or_none()
 
 
 def _strip_all_markers(text: str) -> str:
@@ -519,12 +540,15 @@ async def _build_chat_context(
     # single source of truth — no DB table).
     active_decisions = _load_decisions_from_workspace(project.workspace_dir)
 
+    project_goal = await _fetch_project_goal(db, project_id)
+
     system_prompt = await _build_system_prompt(
         agent, project, all_agents=all_agents,
         org_context=org_context,
         active_decisions=active_decisions,
         mode=mode,
         task_context=task_context,
+        project_goal=project_goal,
     )
     messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
     for h in history:

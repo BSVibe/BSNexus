@@ -478,6 +478,7 @@ async def assemble_system_prompt(
     org_context: str = "",
     all_agents: list["Agent"] | None = None,
     active_decisions: list[str] | None = None,
+    project_goal: "Goal | None" = None,
 ) -> str:
     """Build the system prompt with mode-specific rules.
 
@@ -548,6 +549,30 @@ async def assemble_system_prompt(
     skill_summaries = _build_skill_summaries(agent)
     if skill_summaries:
         parts.append(skill_summaries)
+
+    # ── Project Goal (inline for every turn) ──
+    # Pulled from DB Goal(level="project") so every agent sees the project
+    # end-state without needing file_read. Missing-goal warning doubles as
+    # the FIRST TURN SET_GOAL trigger — any role can emit the marker.
+    if project_goal is not None:
+        goal_body = project_goal.description or "(no completion criteria set)"
+        parts.append(
+            f"## Project Goal\n**{project_goal.title}**\n\n{goal_body}"
+        )
+    else:
+        parts.append(
+            "## Project Goal\n"
+            "⚠️ Not set yet. If you're the first agent responding in this "
+            "project, open your reply with:\n"
+            "```\n"
+            "[SET_GOAL]\n"
+            "{one-line project goal title}\n"
+            "{2-4 lines describing observable completion criteria — what "
+            "deliverables/state signal 'done'}\n"
+            "[/SET_GOAL]\n"
+            "```\n"
+            "Any role can do this — it is not CEO-only."
+        )
 
     # ── Current Plan State (inline for every turn) ──
     # Dumped from ``project.phases`` + ``phase.tasks`` so the agent always
