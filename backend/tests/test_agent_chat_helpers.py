@@ -847,3 +847,173 @@ async def test_execute_inline_markers_defaults_is_org_root_false(marker_env):
     )
     phase_actions = [a for a in actions if a["tool"] == "create_phase"]
     assert phase_actions == []
+
+
+# ── [SET_GOAL] block marker → DB Goal upsert ────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_set_goal_block_creates_project_goal(marker_env, test_session_maker):
+    """A fresh [SET_GOAL] block on a project with no goal creates
+    a Goal(level='project') row with title + description."""
+    from sqlalchemy import select as _select
+
+    from backend.src.models import Goal
+
+    text = (
+        "Got it. Defining the project end-state first.\n"
+        "[SET_GOAL]\n"
+        "Ship a working TodoApp MVP\n"
+        "- Users can sign up / log in\n"
+        "- CRUD for todos persists across sessions\n"
+        "- Mobile-responsive layout verified on iOS Safari\n"
+        "[/SET_GOAL]\n"
+        "[CREATE_TASK title=\"사용자 인증 스펙\" assignee=\"Designer\"]"
+    )
+    actions = await _execute_inline_markers(
+        text,
+        project_id=marker_env["project_id"],
+        tenant_id=marker_env["tenant_id"],
+        agent_id=marker_env["ceo_id"],
+        agent_name="CEO",
+        is_org_root=True,
+    )
+
+    goal_actions = [a for a in actions if a.get("tool") == "set_goal"]
+    assert len(goal_actions) == 1
+    assert goal_actions[0]["input"]["title"] == "Ship a working TodoApp MVP"
+
+    async with test_session_maker() as db:
+        result = await db.execute(
+            _select(Goal).where(
+                Goal.project_id == marker_env["project_id"],
+                Goal.level == "project",
+            )
+        )
+        goal = result.scalar_one()
+        assert goal.title == "Ship a working TodoApp MVP"
+        assert goal.description is not None
+        assert "CRUD for todos" in goal.description
+        assert "iOS Safari" in goal.description
+
+
+@pytest.mark.asyncio
+async def test_set_goal_block_updates_existing_project_goal(
+    marker_env, test_session_maker,
+):
+    """A second [SET_GOAL] block updates the existing Goal row rather than
+    creating a duplicate."""
+    from sqlalchemy import select as _select
+
+    from backend.src.models import Goal
+
+    async with test_session_maker() as db:
+        db.add(Goal(
+            tenant_id=marker_env["tenant_id"],
+            project_id=marker_env["project_id"],
+            level="project",
+            title="Old goal title",
+            description="Old description",
+        ))
+        await db.commit()
+
+    text = (
+        "[SET_GOAL]\n"
+        "Revised TodoApp goal\n"
+        "Updated completion criteria here.\n"
+        "[/SET_GOAL]\n"
+        "[CREATE_TASK title=\"재기획\" assignee=\"Designer\"]"
+    )
+    actions = await _execute_inline_markers(
+        text,
+        project_id=marker_env["project_id"],
+        tenant_id=marker_env["tenant_id"],
+        agent_id=marker_env["ceo_id"],
+        agent_name="CEO",
+        is_org_root=True,
+    )
+
+    goal_actions = [a for a in actions if a.get("tool") == "set_goal"]
+    assert len(goal_actions) == 1
+    assert goal_actions[0]["input"]["title"] == "Revised TodoApp goal"
+
+    async with test_session_maker() as db:
+        result = await db.execute(
+            _select(Goal).where(
+                Goal.project_id == marker_env["project_id"],
+                Goal.level == "project",
+            )
+        )
+        goals = list(result.scalars().all())
+        assert len(goals) == 1  # upsert, no duplicate
+        assert goals[0].title == "Revised TodoApp goal"
+        assert "Updated completion criteria" in goals[0].description
+
+
+@pytest.mark.asyncio
+async def test_set_goal_block_ignored_when_empty_body(marker_env, test_session_maker):
+    """A [SET_GOAL][/SET_GOAL] block with empty body is silently skipped —
+    no Goal row created, no action emitted."""
+    from sqlalchemy import select as _select
+
+    from backend.src.models import Goal
+
+    text = "[SET_GOAL][/SET_GOAL]\n[CREATE_TASK title=\"그냥 작업\" assignee=\"Designer\"]"
+    actions = await _execute_inline_markers(
+        text,
+        project_id=marker_env["project_id"],
+        tenant_id=marker_env["tenant_id"],
+        agent_id=marker_env["ceo_id"],
+        agent_name="CEO",
+        is_org_root=True,
+    )
+
+    goal_actions = [a for a in actions if a.get("tool") == "set_goal"]
+    assert goal_actions == []
+
+    async with test_session_maker() as db:
+        result = await db.execute(
+            _select(Goal).where(
+                Goal.project_id == marker_env["project_id"],
+                Goal.level == "project",
+            )
+        )
+        assert result.scalar_one_or_none() is None
+
+
+@pytest.mark.asyncio
+async def test_set_goal_block_works_for_non_org_root_agent(
+    marker_env, test_session_maker,
+):
+    """A non-org-root agent (e.g. Designer) receiving the first turn can
+    also emit [SET_GOAL]. The marker is role-agnostic — whoever responds
+    first is responsible for defining the project end-state."""
+    from sqlalchemy import select as _select
+
+    from backend.src.models import Goal
+
+    text = (
+        "[SET_GOAL]\n"
+        "Non-root defined goal\n"
+        "Criteria lives here.\n"
+        "[/SET_GOAL]\n"
+        "[CREATE_TASK title=\"첫 작업\" assignee=\"Designer\"]"
+    )
+    await _execute_inline_markers(
+        text,
+        project_id=marker_env["project_id"],
+        tenant_id=marker_env["tenant_id"],
+        agent_id=marker_env["designer_id"],
+        agent_name="Designer",
+        is_org_root=False,
+    )
+
+    async with test_session_maker() as db:
+        result = await db.execute(
+            _select(Goal).where(
+                Goal.project_id == marker_env["project_id"],
+                Goal.level == "project",
+            )
+        )
+        goal = result.scalar_one()
+        assert goal.title == "Non-root defined goal"

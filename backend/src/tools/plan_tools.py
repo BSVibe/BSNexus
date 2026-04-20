@@ -599,6 +599,50 @@ class CreatePhaseTool(Tool):
         return json.dumps(result)
 
 
+async def upsert_project_goal(
+    *,
+    db_session_factory: Any,
+    project_id: uuid.UUID,
+    tenant_id: uuid.UUID,
+    title: str,
+    description: str | None,
+) -> dict[str, str]:
+    """Insert-or-update the `level="project"` Goal for a project.
+
+    Shared by `SetGoalTool` (passive mode) and the inline `[SET_GOAL]`
+    block marker handler (active mode) so both paths end in the same
+    DB state — one `Goal(level="project")` row per project.
+    """
+    from backend.src.models import Goal
+
+    async with db_session_factory() as db:
+        result = await db.execute(
+            select(Goal).where(
+                Goal.project_id == project_id,
+                Goal.level == "project",
+            ).limit(1)
+        )
+        existing = result.scalar_one_or_none()
+
+        if existing:
+            existing.title = title
+            if description:
+                existing.description = description
+            await db.commit()
+            return {"goal_id": str(existing.id), "title": title, "status": "updated"}
+
+        goal = Goal(
+            tenant_id=tenant_id,
+            project_id=project_id,
+            level="project",
+            title=title,
+            description=description,
+        )
+        db.add(goal)
+        await db.commit()
+        return {"goal_id": str(goal.id), "title": title, "status": "created"}
+
+
 class SetGoalTool(Tool):
     """Set or update the project goal."""
 
@@ -622,37 +666,20 @@ class SetGoalTool(Tool):
         }
 
     async def execute(self, input: dict[str, Any], ctx: ToolContext) -> str:
-        from backend.src.models import Goal
-
         title = input["title"]
-        async with ctx.db_session_factory() as db:
-            result = await db.execute(
-                select(Goal).where(
-                    Goal.project_id == ctx.project_id,
-                    Goal.level == "project",
-                ).limit(1)
+        result = await upsert_project_goal(
+            db_session_factory=ctx.db_session_factory,
+            project_id=ctx.project_id,
+            tenant_id=ctx.tenant_id,
+            title=title,
+            description=input.get("description"),
+        )
+        if result["status"] == "created":
+            logger.info(
+                "goal_set_via_tool", goal_id=result["goal_id"], title=title,
+                agent=ctx.agent_name,
             )
-            existing = result.scalar_one_or_none()
-
-            if existing:
-                existing.title = title
-                if input.get("description"):
-                    existing.description = input["description"]
-                await db.commit()
-                return json.dumps({"goal_id": str(existing.id), "title": title, "status": "updated"})
-
-            goal = Goal(
-                tenant_id=ctx.tenant_id,
-                project_id=ctx.project_id,
-                level="project",
-                title=title,
-                description=input.get("description"),
-            )
-            db.add(goal)
-            await db.commit()
-
-            logger.info("goal_set_via_tool", goal_id=str(goal.id), title=title, agent=ctx.agent_name)
-            return json.dumps({"goal_id": str(goal.id), "title": title, "status": "created"})
+        return json.dumps(result)
 
 
 class RecordDecisionTool(Tool):

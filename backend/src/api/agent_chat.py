@@ -558,7 +558,11 @@ async def _execute_inline_markers(
     Returns action records in the same format as ``_build_tool_actions()``
     so the frontend invalidation logic works unchanged.
     """
-    from backend.src.tools.plan_tools import create_phase_from_params, create_task_from_params
+    from backend.src.tools.plan_tools import (
+        create_phase_from_params,
+        create_task_from_params,
+        upsert_project_goal,
+    )
 
     actions: list[dict[str, Any]] = []
 
@@ -567,6 +571,44 @@ async def _execute_inline_markers(
 
     # Active mode: process CREATE markers. Passive agents skip these.
     if mode != "passive":
+        # [SET_GOAL] blocks are role-agnostic — any agent receiving the
+        # first turn (CEO, CMO, Designer, ...) may define the project
+        # end-state. Matches the same spirit as the bootstrap-phase
+        # exception below.
+        for sm in SET_GOAL_RE.finditer(text):
+            body = (sm.group(1) or "").strip()
+            if not body:
+                continue
+            lines = [ln.strip() for ln in body.splitlines() if ln.strip()]
+            if not lines:
+                continue
+            title = lines[0]
+            description = "\n".join(lines[1:]).strip() or None
+            try:
+                result = await upsert_project_goal(
+                    db_session_factory=async_session,
+                    project_id=project_id,
+                    tenant_id=tenant_id,
+                    title=title,
+                    description=description,
+                )
+                actions.append({
+                    "type": "tool_set_goal",
+                    "tool": "set_goal",
+                    "input": {"title": title, "description": description},
+                })
+                logger.info(
+                    "goal_set_via_marker",
+                    goal_id=result["goal_id"],
+                    title=title,
+                    status=result["status"],
+                    agent=agent_name,
+                )
+            except Exception:
+                logger.warning(
+                    "marker_set_goal_failed", title=title, exc_info=True,
+                )
+
         phase_markers = parse_inline_phase_markers(text)
         task_markers_preview = parse_inline_task_markers(text)
         # CREATE_PHASE is normally gated to org-root agents to prevent a
