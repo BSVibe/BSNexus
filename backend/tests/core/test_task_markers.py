@@ -86,6 +86,23 @@ class TestParseInlineTaskMarkers:
         assert result[0]["assignee"] == "Designer"
         assert result[0]["priority"] == "low"
 
+    def test_assignee_at_prefix_stripped(self):
+        """GLM (and sometimes other local models) emit ``assignee="@Name"``
+        — the leading ``@`` must be stripped so ``_resolve_agent_by_name``
+        can still match. Without this, tasks end up with
+        ``assigned_agent_id IS NULL`` and the dispatcher never picks them
+        up (observed in the GLM E2E run)."""
+        text = '[CREATE_TASK title="작업" assignee="@Designer"]'
+        result = parse_inline_task_markers(text)
+        assert len(result) == 1
+        assert result[0]["assignee"] == "Designer"
+
+    def test_assignee_multiple_at_prefix_stripped(self):
+        """Leading whitespace + repeated @ also get cleaned."""
+        text = '[CREATE_TASK title="x" assignee="@@CEO"]'
+        result = parse_inline_task_markers(text)
+        assert result[0]["assignee"] == "CEO"
+
     def test_mixed_with_prose(self):
         text = """안녕하세요! 프로젝트 계획을 세웠습니다.
 [CREATE_TASK title="시장 조사" assignee="CMO"]

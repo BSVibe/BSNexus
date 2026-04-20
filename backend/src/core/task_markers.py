@@ -59,15 +59,23 @@ def parse_inline_task_markers(text: str) -> list[dict[str, str | None]]:
     Returns a list of dicts with keys: ``title``, ``assignee``,
     ``priority``, ``task_type``, ``phase_name``, ``description``.
     Missing optional attributes are ``None``.
+
+    ``assignee`` values are normalized — any leading ``@`` characters are
+    stripped. Some local LLMs (notably GLM-4.7) emit
+    ``assignee="@CEO"`` which would otherwise fail name resolution and
+    leave the task with ``assigned_agent_id IS NULL``.
     """
     results: list[dict[str, str | None]] = []
     for m in _INLINE_TASK_RE.finditer(text):
         attrs = _parse_attrs(m.group(1))
         if "title" not in attrs:
             continue
+        assignee = attrs.get("assignee")
+        if assignee:
+            assignee = assignee.lstrip("@ \t").strip() or None
         results.append({
             "title": attrs["title"],
-            "assignee": attrs.get("assignee"),
+            "assignee": assignee,
             "priority": attrs.get("priority"),
             "task_type": attrs.get("task_type"),
             "phase_name": attrs.get("phase_name"),
