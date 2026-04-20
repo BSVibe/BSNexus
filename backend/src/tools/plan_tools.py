@@ -228,6 +228,53 @@ async def create_task_from_params(
         return result_dict
 
 
+def _normalize_phase_name(name: str) -> str:
+    """Strip punctuation, collapse whitespace, lowercase.
+
+    Keeps Hangul (가-힣) and word chars so Korean phase names normalize correctly.
+    ``"Market research & ideation"`` → ``"market research ideation"``.
+    ``"시장 조사 및 아이디어 도출"`` → ``"시장 조사 및 아이디어 도출"``.
+    """
+    import re
+
+    cleaned = re.sub(r"[^\w가-힣]+", " ", name, flags=re.UNICODE)
+    return re.sub(r"\s+", " ", cleaned).strip().lower()
+
+
+def _find_duplicate_phase(new_name: str, existing: list) -> "Any | None":
+    """Return a Phase that's a near-duplicate of ``new_name``, or ``None``.
+
+    Collapses these patterns into the first phase that introduced the topic:
+      - exact case-insensitive match (preserved from the old logic)
+      - normalized exact match (differs only by punctuation / whitespace)
+      - substring containment, when both sides have ≥ 4 normalized chars
+      - ``SequenceMatcher`` ratio ≥ 0.75 on the normalized forms
+
+    Kept as a pure function for easy unit testing.
+    """
+    from difflib import SequenceMatcher
+
+    norm_new = _normalize_phase_name(new_name)
+    if not norm_new:
+        return None
+
+    for p in existing:
+        if p.name.lower() == new_name.lower():
+            return p
+        norm_ex = _normalize_phase_name(p.name)
+        if not norm_ex:
+            continue
+        if norm_new == norm_ex:
+            return p
+        if len(norm_new) >= 4 and len(norm_ex) >= 4 and (
+            norm_new in norm_ex or norm_ex in norm_new
+        ):
+            return p
+        if SequenceMatcher(None, norm_new, norm_ex).ratio() >= 0.75:
+            return p
+    return None
+
+
 async def create_phase_from_params(
     *,
     name: str,
@@ -235,7 +282,7 @@ async def create_phase_from_params(
     project_id: uuid.UUID,
     db_session_factory: Any,
 ) -> dict[str, Any]:
-    """Create a phase with dedup guard.
+    """Create a phase with exact + fuzzy dedup guard.
 
     Returns dict with ``phase_id``, ``name``, ``status``.
     """
@@ -246,9 +293,15 @@ async def create_phase_from_params(
             select(Phase).where(Phase.project_id == project_id)
         )
         existing = list(result.scalars().all())
-        for p in existing:
-            if p.name.lower() == name.lower():
-                return {"phase_id": str(p.id), "name": p.name, "status": "already_exists"}
+        dup = _find_duplicate_phase(name, existing)
+        if dup is not None:
+            logger.info(
+                "phase_dedup_match",
+                requested=name,
+                matched=dup.name,
+                phase_id=str(dup.id),
+            )
+            return {"phase_id": str(dup.id), "name": dup.name, "status": "already_exists"}
 
         next_order = max((p.order for p in existing), default=0) + 1
         branch = f"phase/{name.lower().replace(' ', '-')}"

@@ -14,7 +14,7 @@ from sqlalchemy.exc import IntegrityError
 from backend.src.models import Agent, Phase, PhaseStatus, Project, Task, TaskStatus, TaskType
 from backend.src.models.tenant import Tenant
 from backend.src.tools.base import ToolContext, ToolExecutionError
-from backend.src.tools.plan_tools import CreateTaskTool
+from backend.src.tools.plan_tools import CreateTaskTool, create_phase_from_params
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────
@@ -308,3 +308,119 @@ class TestCreateTaskRaceCondition:
         assert "already exists" in data.get("message", "")
         assert data["task_id"] == str(winner_id)
         mock_session.rollback.assert_awaited_once()
+
+
+# ── Issue #2 — create_phase fuzzy dedup ───────────────────────────────
+
+
+class TestCreatePhaseDeduplication:
+    """create_phase_from_params must dedup near-duplicate phase names.
+
+    Without this, CEO produces chains of nearly-identical phases like
+    '시장 조사' and '시장 조사 및 아이디어 도출' that fragment the plan tree.
+    """
+
+    @pytest.fixture
+    def project_setup(self):
+        """Return the project_id from plan_env as the common project under test."""
+        return None  # use plan_env via parameter
+
+    @pytest.mark.asyncio
+    async def test_exact_duplicate_returns_existing(
+        self, test_session_maker, plan_env: dict
+    ) -> None:
+        # plan_env already seeds "Phase 1"
+        result = await create_phase_from_params(
+            name="Phase 1",
+            description="dup attempt",
+            project_id=plan_env["project_id"],
+            db_session_factory=test_session_maker,
+        )
+        assert result["status"] == "already_exists"
+        assert result["phase_id"] == str(plan_env["phase_id"])
+
+    @pytest.mark.asyncio
+    async def test_case_insensitive_duplicate_returns_existing(
+        self, test_session_maker, plan_env: dict
+    ) -> None:
+        result = await create_phase_from_params(
+            name="phase 1",  # mixed case
+            project_id=plan_env["project_id"],
+            db_session_factory=test_session_maker,
+        )
+        assert result["status"] == "already_exists"
+        assert result["phase_id"] == str(plan_env["phase_id"])
+
+    @pytest.mark.asyncio
+    async def test_substring_phase_returns_existing(
+        self, test_session_maker,
+    ) -> None:
+        """'시장 조사' and '시장 조사 및 아이디어 도출' collapse to the first one."""
+        project_id = uuid.uuid4()
+        async with test_session_maker() as session:
+            session.add(Project(id=project_id, name="P", description=""))
+            await session.commit()
+
+        first = await create_phase_from_params(
+            name="시장 조사",
+            project_id=project_id,
+            db_session_factory=test_session_maker,
+        )
+        assert first["status"] == "created"
+
+        second = await create_phase_from_params(
+            name="시장 조사 및 아이디어 도출",
+            project_id=project_id,
+            db_session_factory=test_session_maker,
+        )
+        assert second["status"] == "already_exists"
+        assert second["phase_id"] == first["phase_id"]
+
+    @pytest.mark.asyncio
+    async def test_fuzzy_similar_phase_returns_existing(
+        self, test_session_maker,
+    ) -> None:
+        """High similarity (word reshuffling / typos) also collapses."""
+        project_id = uuid.uuid4()
+        async with test_session_maker() as session:
+            session.add(Project(id=project_id, name="P", description=""))
+            await session.commit()
+
+        first = await create_phase_from_params(
+            name="Market Research and Ideation",
+            project_id=project_id,
+            db_session_factory=test_session_maker,
+        )
+        assert first["status"] == "created"
+
+        second = await create_phase_from_params(
+            name="Market research & ideation",  # trivial variation
+            project_id=project_id,
+            db_session_factory=test_session_maker,
+        )
+        assert second["status"] == "already_exists"
+        assert second["phase_id"] == first["phase_id"]
+
+    @pytest.mark.asyncio
+    async def test_distinct_phase_is_created(
+        self, test_session_maker,
+    ) -> None:
+        """Genuinely different names (different topic) must create a new phase."""
+        project_id = uuid.uuid4()
+        async with test_session_maker() as session:
+            session.add(Project(id=project_id, name="P", description=""))
+            await session.commit()
+
+        first = await create_phase_from_params(
+            name="시장 조사",
+            project_id=project_id,
+            db_session_factory=test_session_maker,
+        )
+        second = await create_phase_from_params(
+            name="백엔드 개발",  # wholly different topic
+            project_id=project_id,
+            db_session_factory=test_session_maker,
+        )
+        assert first["status"] == "created"
+        assert second["status"] == "created"
+        assert first["phase_id"] != second["phase_id"]
