@@ -303,11 +303,33 @@
 - **timeout 상향**: `LLM_REQUEST_TIMEOUT=600→1200` (passive iteration이 길어서)
 - **assignee @ prefix strip**: GLM이 `@CEO` 넣어 `_resolve_agent_by_name` fail → 파서에서 strip
 
-### 35. 프로젝트 "종료" 정의 부재 (미해결, 세션 10 후보)
-- **증상**: 모든 phase completed 상태에서 CEO가 계속 새 phase 만들려 함. 65분 longrun에서도 무한 반복.
-- **근본 문제**: 종료 조건이 use case마다 다름 (기획/구현/출시/마케팅)
-- **해결 방향**:
-  - 초기 user message에서 "종료 조건"을 LLM이 추출해 Project 메타로 저장
-  - 매 turn 종료 criteria 체크 (goal tracker)
-  - 불확실하면 "@user 완료로 보입니다, 확인 바랍니다" human-in-loop
-- **Phase count cap은 금지** — 마케팅 포함 프로젝트는 10+ phase가 자연스러울 수 있음
+### 35. 프로젝트 "종료" 정의 부재 → PARTIAL (세션 10)
+- **세션 10 인프라 구축 완료**:
+  - `[SET_GOAL]` 블록 마커 활성화 — DB Goal(level="project") upsert. CMO/Designer 등 role-agnostic
+  - 프로젝트 Goal 을 매 턴 `## Project Goal` 섹션으로 system prompt 에 inline
+  - Goal 없을 때 ⚠️ 경고 + FIRST TURN SET_GOAL 지시문 자동 렌더
+  - `[PROJECT_COMPLETE summary="..."]` 인라인 마커 + 파서 + 핸들러
+  - `Project.status=completed` 전환 + SSE 이벤트 + dispatcher guard 2중
+  - `build_project_context` 에 phase.description (Scope) + all-completed 힌트
+  - ACTIVE_MODE_RULES + SUBORDINATE 에 "Project Completion STOP SIGNAL" 카운터룰
+- **Longrun 검증 결과 (2026-04-20, 7시간)**:
+  - ✅ CMO 가 첫 턴에 SET_GOAL 블록 emit → DB Goal 성공적 저장
+  - ✅ 프롬프트에 `## Project Goal` 인라인 확인
+  - ✅ marker stripping 정상 (chat 에 `[CREATE_TASK`/`[CREATE_PHASE` 0건)
+  - ✅ 12 agents 참여, 123 tasks done, delegation chain 정상
+  - ✅ Queue drain: DELETE 시 136 items drained, FK violation 없음
+  - ❌ **PROJECT_COMPLETE 마커 한 번도 emit 안 됨** — GLM 이 카운터룰을 무시하고 자연어로 "프로젝트 종료하겠습니다" 라고만 말함. 7 phases 까지 폭발.
+
+### 35-next. PROJECT_COMPLETE emit 강제 (세션 11 핵심)
+- **문제**: 프롬프트 규칙만으로 GLM-4.7-flash 가 마커 emit 을 수행하지 않음. 자연어로 "종료" 만 말함.
+- **해결 옵션**:
+  - A. **Backend-side auto-detection**: 모든 phase completed + stall 감지 시 LLM 에 "PROJECT_COMPLETE 마커 emit 또는 new phase 근거 제시" 재질문 유도
+  - B. **Tool 하나만 허용 active mode**: `complete_project` tool 하나를 agent에게 노출 (이전 실패 경험 있으므로 주의) — marker 와 병행
+  - C. **Gate-based**: `_auto_dispatch_phase_planning` 이 new phase 대신 PROJECT_COMPLETE evaluation 만 하는 전용 prompt 로 CEO 호출, response 에 마커 있으면 complete, 없으면 다시 normal dispatch
+  - D. **Human-in-loop**: 5분 stall 후 "@user 완료처럼 보입니다 확인 요청" 자동 발행
+- **권장**: C 시도 먼저. 실패하면 D 병행.
+
+### 36. markers_leaked 카운팅 — longrun spec 버그 (세션 10)
+- **증상**: longrun-marker-scenario.spec.ts 가 `markerLeakCount++` 를 매 poll iteration * 매 message 반복 → 같은 leaky msg 가 200+ 로 부풀려짐
+- **해결**: `const seenLeakIds = new Set<string>()` 추가해 msg.id 당 1회만 카운트. 세션 11 cleanup.
+- **영향**: 실제 marker leak 은 0건이지만 리포트는 216 로 찍혀 false alarm.
