@@ -14,7 +14,10 @@ export default function AgentStatusBar({ projectId }: { projectId?: string }) {
   const { data: agents = [], isLoading } = useQuery({
     queryKey: ['agents', projectId],
     queryFn: () => agentsApi.list(projectId),
-    refetchInterval: 30000,
+    // Poll every 10s so a missed SSE agent_processing event
+    // (e.g. after a brief stream hiccup) recovers within 10s instead
+    // of the agent looking idle for 30+ seconds.
+    refetchInterval: 10000,
   })
   const highlightedAgentId = usePlanStore((s) => s.highlightedAgentId)
   const setHighlightedAgent = usePlanStore((s) => s.setHighlightedAgent)
@@ -61,7 +64,11 @@ function AgentCard({ agent, highlighted, onToggle }: AgentCardProps) {
   const processingInfo = useAgentProcessingStore(
     (s) => s.processingAgents.get(agent.id)
   )
-  const isProcessing = !!processingInfo
+  // Trust either live SSE overlay OR the backend-computed dot. If the
+  // backend says the agent is green (Redis agent:processing key set or
+  // running task exists), honor that even if our zustand store hasn't
+  // received the matching SSE event yet (e.g. after a brief reconnect).
+  const isProcessing = !!processingInfo || agent.dot === 'green'
   const dot = isProcessing ? 'green' : (agent.dot || 'gray')
   const currentTask = agent.current_task
   const activity = agent.activity
@@ -69,8 +76,8 @@ function AgentCard({ agent, highlighted, onToggle }: AgentCardProps) {
   const glow = AGENT_STATUS_GLOW[dot] || ''
   const dotLabel = AGENT_STATUS_LABELS[dot] || dot
 
-  const subtitle = isProcessing
-    ? (processingInfo?.activity || '처리 중...')
+  const subtitle = processingInfo?.activity
+    ? processingInfo.activity
     : currentTask
       ? currentTask.title
       : activity || dotLabel

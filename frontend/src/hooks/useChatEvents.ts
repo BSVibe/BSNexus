@@ -209,7 +209,13 @@ export function useChatEvents(projectId: string | undefined) {
       source.onerror = () => {
         source.close()
         sourceRef.current = null
-        useAgentProcessingStore.getState().clearAll()
+        // Intentionally do NOT clear the processing store here. A single
+        // SSE hiccup would otherwise wipe every green dot and make live
+        // agents look idle until the next agent_processing event — which
+        // may not fire for minutes if the agent is mid-LLM-turn. The
+        // backend's agent_processing Redis key (TTL 600s) plus the
+        // /agents refetchInterval (30s) are the source of truth on
+        // reconnect; the zustand store is an optimistic overlay.
         if (cancelledRef.current) return
         if (retriesRef.current < MAX_RETRIES) {
           const delay = Math.min(1000 * Math.pow(2, retriesRef.current), 30000)
