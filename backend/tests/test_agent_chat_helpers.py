@@ -403,6 +403,83 @@ async def test_execute_inline_markers_blocks_phase_for_subordinate(marker_env):
 
 
 @pytest.mark.asyncio
+async def test_execute_inline_markers_auto_bootstraps_phase_for_tasks(
+    test_session_maker, monkeypatch,
+):
+    """When an agent emits CREATE_TASK markers without any CREATE_PHASE and
+    the project has no phase at all, the backend auto-creates a default
+    phase so the tasks can attach. Without this, LLMs that skip the
+    bootstrap prompt block deadlock the whole scenario on turn 1."""
+    tenant_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    parent_id = uuid.uuid4()
+    cmo_id = uuid.uuid4()
+
+    async with test_session_maker() as session:
+        session.add(Tenant(id=tenant_id, name="T3", slug="t3", owner_user_id="u3"))
+        session.add(Project(id=project_id, name="P3", description=""))
+        await session.flush()
+        session.add(Agent(
+            id=parent_id, tenant_id=tenant_id, name="CEO", role="ceo",
+            executor_type="generic_llm", capabilities=["plan"], is_active=True,
+        ))
+        await session.flush()
+        session.add(Agent(
+            id=cmo_id, tenant_id=tenant_id, name="CMO", role="cmo",
+            executor_type="generic_llm", capabilities=["plan"], is_active=True,
+            parent_agent_id=parent_id,
+        ))
+        await session.commit()
+
+    monkeypatch.setattr("backend.src.api.agent_chat.async_session", test_session_maker)
+    monkeypatch.setattr(
+        "backend.src.tools.plan_tools.async_session", test_session_maker, raising=False
+    )
+
+    text = (
+        '[CREATE_TASK title="시장 분석" assignee="Product_Manager"]\n'
+        '[CREATE_TASK title="기획서 작성" assignee="CPO"]'
+    )
+    actions = await _execute_inline_markers(
+        text,
+        project_id=project_id,
+        tenant_id=tenant_id,
+        agent_id=cmo_id,
+        agent_name="CMO",
+        is_org_root=False,
+    )
+    phase_actions = [a for a in actions if a["tool"] == "create_phase"]
+    task_actions = [a for a in actions if a["tool"] == "create_task"]
+    # A default phase was auto-created on behalf of the agent.
+    assert len(phase_actions) == 1
+    # Both tasks attach to it.
+    assert len(task_actions) == 2
+
+
+@pytest.mark.asyncio
+async def test_execute_inline_markers_no_auto_bootstrap_when_phase_exists(
+    marker_env,
+):
+    """The auto-bootstrap must NOT fire when the project already has a
+    phase — it's a one-time safety net, not an every-turn behavior.
+    ``marker_env`` seeds a Planning phase; running CREATE_TASK markers
+    should not spawn an additional phase."""
+    text = '[CREATE_TASK title="그냥 작업" assignee="Designer"]'
+    actions = await _execute_inline_markers(
+        text,
+        project_id=marker_env["project_id"],
+        tenant_id=marker_env["tenant_id"],
+        agent_id=marker_env["designer_id"],
+        agent_name="Designer",
+        is_org_root=False,
+    )
+    phase_actions = [a for a in actions if a["tool"] == "create_phase"]
+    task_actions = [a for a in actions if a["tool"] == "create_task"]
+    assert phase_actions == []
+    assert len(task_actions) == 1
+
+
+@pytest.mark.asyncio
 async def test_execute_inline_markers_subordinate_bootstraps_first_phase(
     test_session_maker, monkeypatch,
 ):

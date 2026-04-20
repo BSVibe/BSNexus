@@ -623,6 +623,53 @@ async def _execute_inline_markers(
                 )
 
         task_markers = parse_inline_task_markers(text)
+
+        # Safety net: if the agent emitted task markers but no CREATE_PHASE
+        # was processed this turn AND the project still has no phase,
+        # auto-create a default "기획" phase so the tasks attach to it.
+        # Qwen3-class local models frequently ignore the bootstrap prompt
+        # block; without this, create_task fails and the whole scenario
+        # stalls on turn 1.
+        if task_markers and not any(
+            a.get("tool") == "create_phase" for a in actions
+        ):
+            async with async_session() as bootstrap_db:
+                from sqlalchemy import func as _sa_func
+
+                existing = await bootstrap_db.execute(
+                    select(_sa_func.count(models.Phase.id)).where(
+                        models.Phase.project_id == project_id
+                    )
+                )
+                if (existing.scalar_one() or 0) == 0:
+                    try:
+                        result = await create_phase_from_params(
+                            name="기획",
+                            description="프로젝트 초기 기획 단계 (자동 생성)",
+                            project_id=project_id,
+                            db_session_factory=async_session,
+                        )
+                        actions.append({
+                            "type": "tool_create_phase",
+                            "tool": "create_phase",
+                            "input": {
+                                "name": "기획",
+                                "description": "프로젝트 초기 기획 단계 (자동 생성)",
+                            },
+                        })
+                        logger.info(
+                            "phase_auto_bootstrapped",
+                            agent=agent_name,
+                            task_count=len(task_markers),
+                            result=result.get("status"),
+                        )
+                    except Exception:
+                        logger.warning(
+                            "phase_auto_bootstrap_failed",
+                            agent=agent_name,
+                            exc_info=True,
+                        )
+
         created_count = 0
         for tm in task_markers[:10]:
             try:
