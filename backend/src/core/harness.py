@@ -102,7 +102,8 @@ ACTIVE_MODE_RULES = """\
 You received a chat message. Your job: PLAN, DELEGATE, and BRIEF THE TEAM in natural language.
 
 ### Workflow
-You have NO tools available. Respond with plain text containing inline markers.
+You have exactly ONE tool: `file_read` (for `.bsnexus/context/*.md`).
+Everything else happens through inline markers in your reply text.
 
 1. Write `[CREATE_PHASE name="..."]` inline for each work area
 2. Write `[CREATE_TASK title="..." assignee="..." priority="..."]` inline for each work item
@@ -180,7 +181,8 @@ You received a chat message from a teammate or manager. Your job: break the
 request down into concrete tasks for your team and BRIEF THEM in natural language.
 
 ### Workflow
-You have NO tools available. Respond with plain text containing inline markers.
+You have exactly ONE tool: `file_read` (for `.bsnexus/context/*.md`).
+Everything else happens through inline markers in your reply text.
 
 1. Write `[CREATE_TASK title="..." assignee="..." priority="..."]` inline for each work item
 2. Finish with 2-4 sentences explaining what you just planned and @mention teammates
@@ -544,6 +546,30 @@ async def assemble_system_prompt(
     skill_summaries = _build_skill_summaries(agent)
     if skill_summaries:
         parts.append(skill_summaries)
+
+    # ── Current Plan State (inline for every turn) ──
+    # Dumped from ``project.phases`` + ``phase.tasks`` so the agent always
+    # reasons against real DB state. This is critical in active mode:
+    # without it, Qwen3-class models announce "Phase X starts!" even when
+    # Phase X is already COMPLETED in the DB (chat vs plan tree drift).
+    #
+    # The workspace files at ``.bsnexus/context/*.md`` remain the expanded
+    # source of truth that agents can read for more detail via file_read.
+    try:
+        phases = list(getattr(project, "phases", None) or [])
+    except Exception:
+        phases = []
+    if phases:
+        from backend.src.core.task_markers import build_project_context
+
+        plan_summary = build_project_context(project)
+        parts.append(
+            "## Current Plan State\n"
+            "Snapshot of the project right now. Reason against this before "
+            "emitting CREATE_PHASE / CREATE_TASK — do NOT re-announce phases "
+            "that are already COMPLETED.\n\n"
+            f"```\n{plan_summary}\n```"
+        )
 
     # ── .bsnexus/ context reference (like Claude Code's .claude/) ──
 

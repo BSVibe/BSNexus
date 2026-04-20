@@ -140,8 +140,13 @@ def get_tools_for_mode(mode: str, capabilities: list[str] | None) -> list[Tool]:
         caps = {(c or "").strip().lower() for c in (capabilities or [])}
         if "design" in caps:
             tool_names |= {"create_screen", "modify_screen"}
-    else:  # active — ZERO tools. LLM must write inline markers directly.
-        # Qwen3 burns iterations calling any tool provided. Force text-only output.
-        tool_names = set()
+    else:  # active — only file_read, no write/create tools.
+        # Planning happens via inline markers; we explicitly keep the tool
+        # set minimal because Qwen3-class models waste iterations exploring
+        # unused tools. ``file_read`` is the only exception: the agent MUST
+        # be able to pull the latest `.bsnexus/context/project.md` to see
+        # current phase/task state, otherwise its narrative drifts from DB
+        # reality (announcing a new phase that already completed).
+        tool_names = {"file_read"}
 
     return [instances[name] for name in sorted(tool_names) if name in instances]

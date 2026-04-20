@@ -175,6 +175,53 @@ class TestAssembleSystemPrompt:
         assert "only the team lead" not in prompt
 
     @pytest.mark.asyncio
+    async def test_active_mode_prompt_inlines_current_plan_state(
+        self, tmp_path: Path
+    ) -> None:
+        """Active agents must see the real DB plan state in their system
+        prompt so their chat narrative doesn't drift ('new phase starts!'
+        when the phase is already completed). Inline is more reliable than
+        relying on file_read — Qwen3 often skips tools."""
+        from datetime import datetime, timezone
+
+        from backend.src.models import Phase, PhaseStatus, Task, TaskStatus, TaskType
+
+        project = _project()
+        phase = Phase(
+            id=uuid.uuid4(),
+            project_id=project.id,
+            name="기획",
+            description="",
+            status=PhaseStatus.completed,
+            order=1,
+            branch_name="phase/plan",
+            created_at=datetime.now(timezone.utc),
+        )
+        task = Task(
+            id=uuid.uuid4(),
+            project_id=project.id,
+            phase_id=phase.id,
+            title="시장 조사",
+            status=TaskStatus.done,
+            task_type=TaskType.feature,
+            created_at=datetime.now(timezone.utc),
+        )
+        phase.tasks = [task]
+        project.phases = [phase]
+
+        prompt = await assemble_system_prompt(_agent(), project, str(tmp_path))
+
+        # Current plan is inlined under a distinctive header so the agent
+        # sees real DB state without needing a file_read tool call.
+        assert "Current Plan State" in prompt
+        header_idx = prompt.find("Current Plan State")
+        tail = prompt[header_idx:]
+        assert "기획" in tail
+        assert "completed" in tail
+        assert "시장 조사" in tail
+        assert "done" in tail
+
+    @pytest.mark.asyncio
     async def test_active_subordinate_agent_gets_subordinate_rules(
         self, tmp_path: Path
     ) -> None:

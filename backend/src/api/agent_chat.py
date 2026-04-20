@@ -504,6 +504,17 @@ async def _build_chat_context(
 ) -> tuple[str, list[dict[str, str]]]:
     org_context = await _build_org_context(tenant_id, db)
 
+    # Refresh the `.bsnexus/context/*.md` workspace files so any file_read
+    # the agent performs this turn sees current DB state (phases, tasks,
+    # team). Until this call was wired in, those files stayed at their
+    # seed contents and caused chat-vs-plan-tree drift.
+    try:
+        from backend.src.core.harness import refresh_context
+
+        await refresh_context(project.workspace_dir, project, all_agents, goals=[])
+    except Exception:
+        logger.warning("refresh_context_failed", project_id=str(project_id), exc_info=True)
+
     # Load active decisions from .bsnexus/context/decisions.md (file-based,
     # single source of truth — no DB table).
     active_decisions = _load_decisions_from_workspace(project.workspace_dir)

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from backend.src.tools.agent_tools import UNIVERSAL_TOOLS, get_tools_for_agent
+from backend.src.tools.agent_tools import UNIVERSAL_TOOLS, get_tools_for_agent, get_tools_for_mode
 
 
 class TestGetToolsForAgent:
@@ -60,3 +60,46 @@ class TestGetToolsForAgent:
         for t in tools:
             assert hasattr(t, "execute")
             assert hasattr(t, "to_definition")
+
+
+class TestGetToolsForMode:
+    """Mode-based tool filtering — active has no creation/write tools, only
+    file_read for .bsnexus/context/*.md. Passive has execution tools."""
+
+    def test_passive_mode_includes_file_write_and_read(self) -> None:
+        tools = get_tools_for_mode("passive", [])
+        names = {t.name for t in tools}
+        assert "file_write" in names
+        assert "file_read" in names
+
+    def test_passive_design_capability_adds_screen_tools(self) -> None:
+        tools = get_tools_for_mode("passive", ["design"])
+        names = {t.name for t in tools}
+        assert "create_screen" in names
+        assert "modify_screen" in names
+
+    def test_active_mode_includes_file_read(self) -> None:
+        """Active agents need file_read so they can check .bsnexus/context/
+        project.md for current phase/task state before replying. Without this
+        their chat narrative drifts from DB reality (e.g. announcing a new
+        phase that already completed)."""
+        tools = get_tools_for_mode("active", [])
+        names = {t.name for t in tools}
+        assert "file_read" in names
+
+    def test_active_mode_excludes_write_and_creation_tools(self) -> None:
+        """Active mode still bans file_write / create_screen / etc. — those
+        stay passive-only. Only read access is restored."""
+        tools = get_tools_for_mode("active", ["plan", "design"])
+        names = {t.name for t in tools}
+        assert "file_write" not in names
+        assert "create_screen" not in names
+        assert "modify_screen" not in names
+
+    def test_active_mode_is_minimal(self) -> None:
+        """Active mode ships with ONLY file_read — no set_goal, no
+        record_decision, no list_tasks. Those would just waste Qwen3
+        iterations. Planning happens via inline markers."""
+        tools = get_tools_for_mode("active", ["plan"])
+        names = {t.name for t in tools}
+        assert names == {"file_read"}
