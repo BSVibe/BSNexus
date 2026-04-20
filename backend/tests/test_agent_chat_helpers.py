@@ -1119,6 +1119,115 @@ async def test_fetch_project_goal_returns_none_when_missing(db_session):
     assert await _fetch_project_goal(db_session, project.id) is None
 
 
+# ── build_project_context extensions (phase.description + hints) ────
+
+
+@pytest.mark.asyncio
+async def test_build_project_context_includes_phase_description(db_session):
+    """Phase `description` renders as `(Scope: ...)` under the phase line.
+
+    Makes it far less likely a subordinate agent plans off-scope tasks
+    when the active phase is already clearly framed.
+    """
+    from sqlalchemy import select as _select
+    from sqlalchemy.orm import selectinload
+
+    from backend.src.core.task_markers import build_project_context
+
+    from backend.src.models import Phase as PhaseModel
+
+    project = Project(id=uuid.uuid4(), name="PhaseDescTest", description="d")
+    db_session.add(project)
+    await db_session.flush()
+    db_session.add(PhaseModel(
+        id=uuid.uuid4(), project_id=project.id, name="Market Research",
+        description="시장 조사와 요구사항 정의 — 코드는 다음 단계에서",
+        status=PhaseStatus.active, order=1, branch_name="phase/research",
+    ))
+    await db_session.commit()
+
+    result = await db_session.execute(
+        _select(Project).where(Project.id == project.id).options(
+            selectinload(Project.phases).selectinload(PhaseModel.tasks),
+        )
+    )
+    loaded = result.scalar_one()
+
+    summary = build_project_context(loaded)
+    assert "Market Research" in summary
+    assert "(Scope:" in summary
+    assert "시장 조사" in summary
+
+
+@pytest.mark.asyncio
+async def test_build_project_context_emits_all_completed_hint(db_session):
+    """When every phase is `completed`, the summary ends with the
+    PROJECT_COMPLETE hint so the CEO stops inventing new phases."""
+    from sqlalchemy import select as _select
+    from sqlalchemy.orm import selectinload
+
+    from backend.src.core.task_markers import build_project_context
+    from backend.src.models import Phase as PhaseModel
+
+    project = Project(id=uuid.uuid4(), name="AllDone", description="d")
+    db_session.add(project)
+    await db_session.flush()
+    db_session.add(PhaseModel(
+        id=uuid.uuid4(), project_id=project.id, name="P1",
+        status=PhaseStatus.completed, order=1, branch_name="phase/p1",
+    ))
+    db_session.add(PhaseModel(
+        id=uuid.uuid4(), project_id=project.id, name="P2",
+        status=PhaseStatus.completed, order=2, branch_name="phase/p2",
+    ))
+    await db_session.commit()
+
+    result = await db_session.execute(
+        _select(Project).where(Project.id == project.id).options(
+            selectinload(Project.phases).selectinload(PhaseModel.tasks),
+        )
+    )
+    loaded = result.scalar_one()
+
+    summary = build_project_context(loaded)
+    assert "[PROJECT_COMPLETE" in summary
+    assert "All phases" in summary or "all phases" in summary.lower()
+
+
+@pytest.mark.asyncio
+async def test_build_project_context_no_hint_when_phase_pending(db_session):
+    """Hint only fires when every phase is completed — an active or
+    pending phase suppresses it."""
+    from sqlalchemy import select as _select
+    from sqlalchemy.orm import selectinload
+
+    from backend.src.core.task_markers import build_project_context
+    from backend.src.models import Phase as PhaseModel
+
+    project = Project(id=uuid.uuid4(), name="OneActive", description="d")
+    db_session.add(project)
+    await db_session.flush()
+    db_session.add(PhaseModel(
+        id=uuid.uuid4(), project_id=project.id, name="P1",
+        status=PhaseStatus.completed, order=1, branch_name="phase/p1",
+    ))
+    db_session.add(PhaseModel(
+        id=uuid.uuid4(), project_id=project.id, name="P2",
+        status=PhaseStatus.active, order=2, branch_name="phase/p2",
+    ))
+    await db_session.commit()
+
+    result = await db_session.execute(
+        _select(Project).where(Project.id == project.id).options(
+            selectinload(Project.phases).selectinload(PhaseModel.tasks),
+        )
+    )
+    loaded = result.scalar_one()
+
+    summary = build_project_context(loaded)
+    assert "[PROJECT_COMPLETE" not in summary
+
+
 # ── [PROJECT_COMPLETE] marker — loop-breaker ────────────────────────
 
 

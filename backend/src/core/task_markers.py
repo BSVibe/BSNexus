@@ -159,7 +159,13 @@ def strip_action_markers(text: str) -> str:
 
 
 def build_project_context(project: models.Project) -> str:
-    """Build a text summary of current project state for LLM prompts."""
+    """Build a text summary of current project state for LLM prompts.
+
+    Each phase line renders its description under the phase name so
+    subordinate agents see the phase scope directly and plan aligned
+    tasks. When every phase is `completed`, a hint trailer reminds the
+    agent to emit `[PROJECT_COMPLETE]` instead of inventing a new phase.
+    """
     lines = [
         f"Project: {project.name}",
         f"Status: {project.status.value}",
@@ -167,9 +173,21 @@ def build_project_context(project: models.Project) -> str:
         "",
         "Phases:",
     ]
-    for phase in sorted(project.phases, key=lambda p: p.order):
+    phases_sorted = sorted(project.phases, key=lambda p: p.order)
+    for phase in phases_sorted:
         lines.append(f"  [{phase.status.value}] {phase.name}")
+        if phase.description:
+            lines.append(f"      (Scope: {phase.description})")
         for task in sorted(phase.tasks, key=lambda t: t.created_at):
             task_type_label = f" ({task.task_type.value})" if task.task_type != models.TaskType.feature else ""
             lines.append(f"    - [{task.status.value}] {task.title}{task_type_label} (id: {task.id})")
+    if phases_sorted and all(
+        p.status == models.PhaseStatus.completed for p in phases_sorted
+    ):
+        lines.append("")
+        lines.append(
+            "⚠️ All phases are completed. If '## Project Goal' criteria are "
+            "met, emit [PROJECT_COMPLETE summary=\"...\"] instead of opening a "
+            "new phase."
+        )
     return "\n".join(lines)
