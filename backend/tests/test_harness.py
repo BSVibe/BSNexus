@@ -178,7 +178,9 @@ class TestAssembleSystemPrompt:
     async def test_active_subordinate_agent_gets_subordinate_rules(
         self, tmp_path: Path
     ) -> None:
-        """Subordinates (parent_agent_id set) are told NOT to create phases."""
+        """Subordinates (parent_agent_id set) are told NOT to create phases
+        once one exists, but MAY bootstrap the first phase on an empty project.
+        """
         agent = _agent()
         agent.parent_agent_id = uuid.uuid4()  # has a parent → subordinate
         prompt = await assemble_system_prompt(
@@ -186,8 +188,9 @@ class TestAssembleSystemPrompt:
         )
         # Task creation still available
         assert "CREATE_TASK" in prompt
-        # Subordinate guidance present
+        # Subordinate guidance present (no extra phases, but bootstrap allowed)
         assert "Do NOT create phases" in prompt
+        assert "BOOTSTRAP" in prompt
 
     @pytest.mark.asyncio
     async def test_passive_mode_has_execution_rules(self, tmp_path: Path) -> None:
