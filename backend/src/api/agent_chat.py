@@ -557,6 +557,7 @@ async def _execute_inline_markers(
     # Active mode: process CREATE markers. Passive agents skip these.
     if mode != "passive":
         phase_markers = parse_inline_phase_markers(text)
+        task_markers_preview = parse_inline_task_markers(text)
         # CREATE_PHASE is normally gated to org-root agents to prevent a
         # delegation chain from stacking one phase per agent. Exception:
         # if the project has no phase yet, allow a subordinate to create
@@ -583,11 +584,29 @@ async def _execute_inline_markers(
                         name=phase_markers[0]["name"],
                     )
 
-        if may_create_phase:
-            # Non-root agents only get to create ONE phase (the bootstrap).
-            # Org-root agents can create as many as they emit.
-            allowed = phase_markers if is_org_root else phase_markers[:1]
-            for pm in allowed:
+        # Cap phase markers to ONE per turn, even for org-root. Longrun E2E
+        # showed CEO emitting 4+ phases in a single reply, most of which
+        # stayed empty because the same turn's budget was spread thin across
+        # tasks. One phase per turn makes every live phase immediately
+        # populatable with the turn's tasks.
+        phase_markers_capped = phase_markers[:1]
+        dropped_phase_markers = phase_markers[1:]
+
+        # Gate: a phase with zero accompanying tasks this turn is a "ghost
+        # phase" that clutters the plan tree forever. Skip if the agent
+        # didn't emit at least one CREATE_TASK in the same reply.
+        if phase_markers_capped and not task_markers_preview:
+            logger.info(
+                "phase_marker_skipped_no_tasks",
+                agent=agent_name,
+                agent_id=str(agent_id),
+                names=[m["name"] for m in phase_markers_capped],
+                reason="no_tasks_in_turn",
+            )
+            phase_markers_capped = []
+
+        if may_create_phase and phase_markers_capped:
+            for pm in phase_markers_capped:
                 try:
                     result = await create_phase_from_params(
                         name=pm["name"],
@@ -603,24 +622,23 @@ async def _execute_inline_markers(
                     logger.info("phase_created_via_marker", name=pm["name"], result=result.get("status"))
                 except Exception:
                     logger.warning("marker_phase_creation_failed", name=pm.get("name"), exc_info=True)
-            skipped = phase_markers[len(allowed):] if not is_org_root else []
-            if skipped:
-                logger.info(
-                    "phase_marker_skipped_non_root",
-                    agent=agent_name,
-                    agent_id=str(agent_id),
-                    names=[m["name"] for m in skipped],
-                    reason="subordinate_extra_phase",
-                )
-        else:
-            if phase_markers:
-                logger.info(
-                    "phase_marker_skipped_non_root",
-                    agent=agent_name,
-                    agent_id=str(agent_id),
-                    names=[m["name"] for m in phase_markers],
-                    reason="already_has_phase",
-                )
+
+        if dropped_phase_markers:
+            logger.info(
+                "phase_markers_over_cap",
+                agent=agent_name,
+                agent_id=str(agent_id),
+                names=[m["name"] for m in dropped_phase_markers],
+                reason="one_phase_per_turn",
+            )
+        if phase_markers and not may_create_phase:
+            logger.info(
+                "phase_marker_skipped_non_root",
+                agent=agent_name,
+                agent_id=str(agent_id),
+                names=[m["name"] for m in phase_markers],
+                reason="already_has_phase",
+            )
 
         task_markers = parse_inline_task_markers(text)
 

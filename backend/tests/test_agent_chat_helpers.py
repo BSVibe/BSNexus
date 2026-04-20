@@ -279,7 +279,12 @@ async def test_execute_inline_markers_creates_task(marker_env):
 
 @pytest.mark.asyncio
 async def test_execute_inline_markers_creates_phase(marker_env):
-    text = '[CREATE_PHASE name="개발" description="구현 단계"]'
+    # Phase creation requires at least one accompanying task (#3: ghost
+    # phase guard). The test still exercises the phase-creation path.
+    text = (
+        '[CREATE_PHASE name="개발" description="구현 단계"]\n'
+        '[CREATE_TASK title="스펙 작성" assignee="Designer"]'
+    )
     actions = await _execute_inline_markers(
         text,
         project_id=marker_env["project_id"],
@@ -288,10 +293,9 @@ async def test_execute_inline_markers_creates_phase(marker_env):
         agent_name="CEO",
         is_org_root=True,
     )
-    assert len(actions) == 1
-    assert actions[0]["type"] == "tool_create_phase"
-    assert actions[0]["tool"] == "create_phase"
-    assert actions[0]["input"]["name"] == "개발"
+    phase_actions = [a for a in actions if a["tool"] == "create_phase"]
+    assert len(phase_actions) == 1
+    assert phase_actions[0]["input"]["name"] == "개발"
 
 
 @pytest.mark.asyncio
@@ -457,6 +461,77 @@ async def test_execute_inline_markers_auto_bootstraps_phase_for_tasks(
 
 
 @pytest.mark.asyncio
+async def test_execute_inline_markers_root_limited_to_one_phase_per_turn(
+    marker_env,
+):
+    """Even org-root emits CREATE_PHASE for at most ONE new phase per turn.
+
+    Longrun E2E showed CEO producing 4+ phases in a single turn, most of
+    which stayed empty because the agent had no budget to also fill them
+    with tasks. Cap it at 1 so every phase created has a chance of being
+    populated.
+    """
+    text = (
+        '[CREATE_PHASE name="개발" description="개발 시작"]\n'
+        '[CREATE_PHASE name="테스트"]\n'
+        '[CREATE_PHASE name="배포"]\n'
+        '[CREATE_TASK title="초기 설계" assignee="Designer"]'
+    )
+    actions = await _execute_inline_markers(
+        text,
+        project_id=marker_env["project_id"],
+        tenant_id=marker_env["tenant_id"],
+        agent_id=marker_env["ceo_id"],
+        agent_name="CEO",
+        is_org_root=True,
+    )
+    phase_actions = [a for a in actions if a["tool"] == "create_phase"]
+    assert len(phase_actions) == 1
+    assert phase_actions[0]["input"]["name"] == "개발"
+
+
+@pytest.mark.asyncio
+async def test_execute_inline_markers_skips_phase_without_tasks(
+    test_session_maker, monkeypatch,
+):
+    """Phase markers without any accompanying CREATE_TASK leave the phase
+    tree with empty scaffolding rows that the UI then shows as pending
+    forever. Skip the phase creation entirely in that case so every live
+    phase has at least one task.
+    """
+    tenant_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    ceo_id = uuid.uuid4()
+
+    async with test_session_maker() as session:
+        session.add(Tenant(id=tenant_id, name="T9", slug="t9", owner_user_id="u9"))
+        session.add(Project(id=project_id, name="P9", description=""))
+        await session.flush()
+        session.add(Agent(
+            id=ceo_id, tenant_id=tenant_id, name="CEO", role="ceo",
+            executor_type="generic_llm", capabilities=["plan"], is_active=True,
+        ))
+        await session.commit()
+
+    monkeypatch.setattr("backend.src.api.agent_chat.async_session", test_session_maker)
+    monkeypatch.setattr(
+        "backend.src.tools.plan_tools.async_session", test_session_maker, raising=False
+    )
+
+    text = '[CREATE_PHASE name="ghost phase" description="no tasks attached"]'
+    actions = await _execute_inline_markers(
+        text,
+        project_id=project_id,
+        tenant_id=tenant_id,
+        agent_id=ceo_id,
+        agent_name="CEO",
+        is_org_root=True,
+    )
+    phase_actions = [a for a in actions if a["tool"] == "create_phase"]
+    assert phase_actions == []
+
+
+@pytest.mark.asyncio
 async def test_execute_inline_markers_no_auto_bootstrap_when_phase_exists(
     marker_env,
 ):
@@ -516,7 +591,10 @@ async def test_execute_inline_markers_subordinate_bootstraps_first_phase(
         "backend.src.tools.plan_tools.async_session", test_session_maker, raising=False
     )
 
-    text = '[CREATE_PHASE name="부트스트랩" description="첫 단계"]'
+    text = (
+        '[CREATE_PHASE name="부트스트랩" description="첫 단계"]\n'
+        '[CREATE_TASK title="초기 조사" assignee="Designer"]'
+    )
     actions = await _execute_inline_markers(
         text,
         project_id=project_id,
@@ -532,8 +610,12 @@ async def test_execute_inline_markers_subordinate_bootstraps_first_phase(
 
 @pytest.mark.asyncio
 async def test_execute_inline_markers_allows_phase_for_org_root(marker_env):
-    """Org-root agents (is_org_root=True) create phases normally."""
-    text = '[CREATE_PHASE name="론칭" description="출시 단계"]'
+    """Org-root agents (is_org_root=True) create phases normally when at
+    least one task accompanies them in the same turn."""
+    text = (
+        '[CREATE_PHASE name="론칭" description="출시 단계"]\n'
+        '[CREATE_TASK title="런칭 체크리스트" assignee="Designer"]'
+    )
     actions = await _execute_inline_markers(
         text,
         project_id=marker_env["project_id"],
