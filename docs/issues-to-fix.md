@@ -251,3 +251,30 @@
 ### 26. Worker executor에서 budget/streaming 미지원
 - **증상**: Claude Code 같은 worker executor는 LiteLLM 기반이 아니라서 streaming/cost 계산 미대응
 - **해결 방향**: worker 프로토콜에 streaming + usage 필드 추가, executor별 override 구조
+
+### 27. Phase 폭발 방지 ✅ (세션 9)
+- **증상**: CMO → CEO → PM 체인에서 각 active agent가 phase를 만들어 E2E 4분에 22 phases 누적
+- **수정**: `agent.parent_agent_id IS NULL` (org-root)만 `[CREATE_PHASE]` 실행 허용
+  - `_execute_inline_markers`에 `is_org_root` 파라미터 추가 → root가 아니면 phase 마커 드롭
+  - `ACTIVE_MODE_RULES_SUBORDINATE` 프롬프트로 분리: 하위 agent는 task만 생성
+  - Bootstrap 예외: 프로젝트에 phase가 0개면 subordinate도 첫 phase 하나는 만들 수 있음
+- **Auto-bootstrap 안전망**: Qwen3이 bootstrap 프롬프트를 무시하고 CREATE_TASK만 보내는 경우,
+  phase가 없으면 backend가 자동으로 "기획" phase를 생성하여 task가 붙을 수 있게 함 (`phase_auto_bootstrapped` 로그)
+- **결과**: 35.6분 longrun E2E에서 phase 6개만 생성 (<= 10 달성)
+
+### 28. Active queue 과부하 ✅ (세션 9)
+- **증상**: Auto-delegation이 @mention 받은 agent를 무조건 active로 enqueue → 큐 8-9 깊이
+- **수정**: `_should_skip_active_delegation` 헬퍼
+  - 대상 agent에게 pending 상태 task가 있으면 active enqueue 생략
+  - Global dispatcher가 ≤5초 내 passive로 처리하므로 redundant
+  - Active auto-delegation + passive ping-pong 양쪽에 적용
+- **로그**: `auto_delegation_skipped_dispatcher_will_handle reason=pending_tasks_exist`
+- **결과**: longrun에서 5회 이상 skip, 큐 size 3 이하 유지
+
+### 29. 채팅 실시간 스트리밍 ✅ (세션 9)
+- **수정**: `_call_agent`에서 `message_id = uuid.uuid4()` 사전 생성 → `text_delta` 이벤트 payload에 포함
+  - `ConversationRepository.append`에 `message_id` 옵션 추가 → 영속 row와 id 일치
+  - `_publish_tool_event`: `text_delta`일 때 `message_id`/`agent_id`/`agent_name` enrich
+  - 프론트 `useChatEvents`: `text_delta` 리스너가 placeholder 메시지 upsert, 델타마다 content 누적
+  - `message_created` 도착 시 authoritative row가 placeholder 교체
+- **Out of scope**: Worker executor 경로 미포함 (issue #26 참조)
