@@ -103,14 +103,33 @@ async def create_task_from_params(
         phases = list(result.scalars().all())
 
         target_phase: Phase | None = None
+        fallback_reason: str | None = None
         if phase_name:
-            target_phase = next(
-                (p for p in phases if p.name.lower() == phase_name.lower()), None
-            )
+            target_phase = _match_phase_by_name(phase_name, phases)
+            if target_phase is None:
+                fallback_reason = "no_fuzzy_match"
         if not target_phase:
             target_phase = next((p for p in phases if p.status == PhaseStatus.active), None)
+            if target_phase and fallback_reason:
+                logger.warning(
+                    "phase_resolution_fallback",
+                    requested=phase_name,
+                    resolved_to=target_phase.name,
+                    resolved_status=target_phase.status.value,
+                    task_title=title,
+                    reason=fallback_reason,
+                )
         if not target_phase and phases:
             target_phase = phases[0]
+            if fallback_reason:
+                logger.warning(
+                    "phase_resolution_fallback",
+                    requested=phase_name,
+                    resolved_to=target_phase.name,
+                    resolved_status=target_phase.status.value,
+                    task_title=title,
+                    reason=f"{fallback_reason}_no_active",
+                )
         if not target_phase:
             raise ToolExecutionError(
                 "No phase exists yet. Use create_phase first to organize work, then create tasks."
@@ -241,38 +260,51 @@ def _normalize_phase_name(name: str) -> str:
     return re.sub(r"\s+", " ", cleaned).strip().lower()
 
 
-def _find_duplicate_phase(new_name: str, existing: list) -> "Any | None":
-    """Return a Phase that's a near-duplicate of ``new_name``, or ``None``.
+def _match_phase_by_name(requested: str, phases: list) -> "Any | None":
+    """Return the phase that most closely matches ``requested``, or None.
 
-    Collapses these patterns into the first phase that introduced the topic:
-      - exact case-insensitive match (preserved from the old logic)
-      - normalized exact match (differs only by punctuation / whitespace)
-      - substring containment, when both sides have ≥ 4 normalized chars
+    Matching ladder — first hit wins:
+      - exact case-insensitive match on ``name``
+      - normalized exact match (punctuation / whitespace collapsed)
+      - substring containment (when both sides have ≥ 4 normalized chars)
       - ``SequenceMatcher`` ratio ≥ 0.75 on the normalized forms
 
-    Kept as a pure function for easy unit testing.
+    Pure function — shared between phase dedup and ``create_task_from_params``
+    phase resolution so both behave identically. Accepts any object with a
+    ``name`` attribute (tests pass simple stand-ins).
     """
     from difflib import SequenceMatcher
 
-    norm_new = _normalize_phase_name(new_name)
-    if not norm_new:
+    if not requested:
+        return None
+    norm_req = _normalize_phase_name(requested)
+    if not norm_req:
         return None
 
-    for p in existing:
-        if p.name.lower() == new_name.lower():
+    for p in phases:
+        if p.name.lower() == requested.lower():
             return p
         norm_ex = _normalize_phase_name(p.name)
         if not norm_ex:
             continue
-        if norm_new == norm_ex:
+        if norm_req == norm_ex:
             return p
-        if len(norm_new) >= 4 and len(norm_ex) >= 4 and (
-            norm_new in norm_ex or norm_ex in norm_new
+        if len(norm_req) >= 4 and len(norm_ex) >= 4 and (
+            norm_req in norm_ex or norm_ex in norm_req
         ):
             return p
-        if SequenceMatcher(None, norm_new, norm_ex).ratio() >= 0.75:
+        # SequenceMatcher only fires on reasonably long names. Short generic
+        # names (e.g. "Phase 1" vs "Phase 2") produce a 0.85+ ratio from
+        # a single char difference and would collapse false positives.
+        if len(norm_req) >= 8 and len(norm_ex) >= 8 and (
+            SequenceMatcher(None, norm_req, norm_ex).ratio() >= 0.75
+        ):
             return p
     return None
+
+
+# Backwards-compat alias — existing phase-dedup call sites expect this name.
+_find_duplicate_phase = _match_phase_by_name
 
 
 async def create_phase_from_params(

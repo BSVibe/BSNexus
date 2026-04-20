@@ -424,3 +424,108 @@ class TestCreatePhaseDeduplication:
         assert first["status"] == "created"
         assert second["status"] == "created"
         assert first["phase_id"] != second["phase_id"]
+
+
+# ── _match_phase_by_name util (fuzzy) ───────────────────────────────
+
+
+class _FakePhase:
+    """Duck-typed stand-in for a Phase row — _match_phase_by_name only
+    touches `name`, so no ORM session is required."""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+
+class TestMatchPhaseByName:
+    """Extract fuzzy matching from _find_duplicate_phase into a reusable util.
+
+    This is what `create_task_from_params` uses to resolve `phase_name` —
+    not-exact-matches should still reach the intended phase so a mildly
+    misspelled or reworded name doesn't silently fall into the active phase.
+    """
+
+    def test_exact_match(self) -> None:
+        from backend.src.tools.plan_tools import _match_phase_by_name
+
+        p1 = _FakePhase("Market Research")
+        p2 = _FakePhase("Backend")
+        assert _match_phase_by_name("Market Research", [p1, p2]) is p1
+
+    def test_substring_match(self) -> None:
+        from backend.src.tools.plan_tools import _match_phase_by_name
+
+        p1 = _FakePhase("Market Research & Planning")
+        assert _match_phase_by_name("Market Research", [p1]) is p1
+
+    def test_fuzzy_match_similar_spelling(self) -> None:
+        from backend.src.tools.plan_tools import _match_phase_by_name
+
+        p1 = _FakePhase("백엔드 개발")
+        assert _match_phase_by_name("백엔드 개발 단계", [p1]) is p1
+
+    def test_no_match_returns_none(self) -> None:
+        from backend.src.tools.plan_tools import _match_phase_by_name
+
+        p1 = _FakePhase("Market Research")
+        assert _match_phase_by_name("Completely Different Thing", [p1]) is None
+
+
+# ── create_task_from_params resolves phase via fuzzy match ───────────
+
+
+class TestCreateTaskPhaseFuzzy:
+    """`create_task_from_params` must use fuzzy resolution so a close-but-
+    not-exact `phase_name` attaches to the intended phase, not silently
+    falls back to the active phase (and then looks off-topic)."""
+
+    @pytest.mark.asyncio
+    async def test_close_match_wins_over_active_fallback(
+        self, test_session_maker,
+    ) -> None:
+        from backend.src.tools.plan_tools import create_task_from_params
+
+        tenant_id = uuid.uuid4()
+        project_id = uuid.uuid4()
+        research_phase = uuid.uuid4()
+        backend_phase = uuid.uuid4()
+        creator_id = uuid.uuid4()
+
+        async with test_session_maker() as session:
+            session.add(Tenant(id=tenant_id, name="T", slug="t", owner_user_id="u"))
+            session.add(Project(id=project_id, name="P", description=""))
+            await session.flush()
+            # Active phase is Backend — fuzzy target should be Research
+            session.add(Phase(
+                id=research_phase, project_id=project_id, name="시장 조사",
+                status=PhaseStatus.completed, order=1, branch_name="phase/research",
+            ))
+            session.add(Phase(
+                id=backend_phase, project_id=project_id, name="Backend",
+                status=PhaseStatus.active, order=2, branch_name="phase/backend",
+            ))
+            session.add(Agent(
+                id=creator_id, tenant_id=tenant_id, name="PM", role="product_manager",
+                executor_type="generic_llm", capabilities=["plan"], is_active=True,
+            ))
+            await session.commit()
+
+        result = await create_task_from_params(
+            title="시장 세그먼트 추가 조사",
+            # Close but not exact — "시장 조사 추가" would normally fall to
+            # the active (Backend) phase under strict-exact matching.
+            phase_name="시장 조사 추가",
+            project_id=project_id,
+            tenant_id=tenant_id,
+            agent_id=creator_id,
+            agent_name="PM",
+            db_session_factory=test_session_maker,
+            priority="medium",
+            task_type="feature",
+        )
+
+        async with test_session_maker() as session:
+            task = await session.get(Task, uuid.UUID(result["task_id"]))
+            assert task is not None
+            # Must attach to the "시장 조사" phase, NOT the active "Backend"
+            assert task.phase_id == research_phase
