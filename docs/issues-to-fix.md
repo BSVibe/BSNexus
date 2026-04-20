@@ -278,3 +278,36 @@
   - 프론트 `useChatEvents`: `text_delta` 리스너가 placeholder 메시지 upsert, 델타마다 content 누적
   - `message_created` 도착 시 authoritative row가 placeholder 교체
 - **Out of scope**: Worker executor 경로 미포함 (issue #26 참조)
+
+### 30. Phase 중복 생성 방지 ✅ (세션 9)
+- **증상**: "시장 조사" / "시장 조사 및 아이디어 도출" 같은 유사 phase가 17개 누적 (longrun E2E)
+- **수정**: `_find_duplicate_phase` fuzzy matcher — normalized exact + substring(≥4 chars) + SequenceMatcher≥0.75. Hangul 보존.
+
+### 31. 빈 Phase 방지 ✅ (세션 9)
+- **증상**: "통합 테스트 및 배포 준비" 같은 phase가 task 0개로 plan tree에 영구 남음 (CEO가 phase만 만들고 task는 다음 turn으로 미룸)
+- **수정**: `_execute_inline_markers`에서 (a) phase 마커 per-turn cap 1개, (b) 같은 turn에 task 마커 없으면 phase 생성 스킵
+
+### 32. Agent status idle 회귀 ✅ (세션 9)
+- **증상**: 작업 중인데 status bar가 모두 idle
+- **원인**: `useChatEvents.onerror`가 SSE 끊김 시 `clearAll()` — 모든 green dot 날아감. 재연결 후 다음 `started` 이벤트까지 idle
+- **수정**: `clearAll()` 제거 + `agent.dot === 'green'` 백엔드 신호를 신뢰(store 비어도 green), `/agents` refetchInterval 30→10s
+
+### 33. file_read 제거 유지 — Local LLM tool-loop 재확인 ✅ (세션 9)
+- **증상**: file_read를 active mode에 복원하자 Qwen3/GLM 둘 다 `file_read×7~10` loop 후 텍스트 응답 없음
+- **수정**: active mode에서 file_read도 제거. 대신 `assemble_system_prompt`가 `build_project_context(project)` 결과를 "## Current Plan State" 섹션으로 system prompt에 **inline 주입**. Passive에만 file_read.
+- **추가**: `_build_chat_context`가 매 턴 `refresh_context` 호출 → `.bsnexus/context/*.md` 최신 유지 (passive file_read용)
+
+### 34. GLM-4.7-flash 전환 ✅ (세션 9)
+- **Model**: tenant default executor_config를 `ollama/glm-4.7-flash`로 변경
+- **think=false**: `litellm_executor.py`에서 glm-4/deepseek-r/qwq 계열이면 `extra_kwargs["think"]=False` 자동 주입 (안 하면 reasoning 필드로 가고 content 빈 문자열)
+- **timeout 상향**: `LLM_REQUEST_TIMEOUT=600→1200` (passive iteration이 길어서)
+- **assignee @ prefix strip**: GLM이 `@CEO` 넣어 `_resolve_agent_by_name` fail → 파서에서 strip
+
+### 35. 프로젝트 "종료" 정의 부재 (미해결, 세션 10 후보)
+- **증상**: 모든 phase completed 상태에서 CEO가 계속 새 phase 만들려 함. 65분 longrun에서도 무한 반복.
+- **근본 문제**: 종료 조건이 use case마다 다름 (기획/구현/출시/마케팅)
+- **해결 방향**:
+  - 초기 user message에서 "종료 조건"을 LLM이 추출해 Project 메타로 저장
+  - 매 turn 종료 criteria 체크 (goal tracker)
+  - 불확실하면 "@user 완료로 보입니다, 확인 바랍니다" human-in-loop
+- **Phase count cap은 금지** — 마케팅 포함 프로젝트는 10+ phase가 자연스러울 수 있음
