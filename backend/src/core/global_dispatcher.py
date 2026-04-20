@@ -209,7 +209,15 @@ class GlobalDispatcher:
         After phase advancement, auto-dispatches the org-root agent (CEO) in
         active mode so they can plan tasks for the next phase — this is the key
         mechanism that keeps the delegation chain going across phase boundaries.
+
+        Completed projects are short-circuited here as a double-safety: the
+        tick loop already filters them via ``_list_active_projects``, but a
+        direct caller (tests, a future hook) still gets the guard.
         """
+        project = await db.get(Project, project_id)
+        if project is None or project.status == ProjectStatus.completed:
+            return
+
         phase_repo = PhaseRepository(db)
         active_phase = await phase_repo.get_active_phase(project_id)
         if active_phase is None:
@@ -253,6 +261,19 @@ class GlobalDispatcher:
         next_phase: Any | None,
     ) -> None:
         """Dispatch org-root agent to plan the next phase after completion."""
+        # Double-safety: if the project got marked completed (via the
+        # [PROJECT_COMPLETE] marker) between the phase transition above and
+        # this call, stop chaining. Prevents CEO from being re-invoked after
+        # the end-state signal has been emitted.
+        project = await db.get(Project, project_id)
+        if project is None or project.status == ProjectStatus.completed:
+            logger.info(
+                "phase_auto_chain_skipped_project_completed",
+                project_id=str(project_id),
+                completed_phase=completed_phase.name,
+            )
+            return
+
         agents_result = await db.execute(
             select(Agent).where(Agent.is_active.is_(True))
         )

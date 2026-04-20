@@ -148,6 +148,18 @@ NEVER leave the chat empty or with only markers/JSON. A message without prose is
 - When you see all tasks in a phase are done, CREATE A NEW PHASE for the next area
 - Do NOT keep creating tasks in a completed phase — move forward
 
+### Project Completion — STOP SIGNAL (any role)
+If all phases are `[completed]` AND the completion criteria in
+"## Project Goal" above are met, DO NOT create a new phase. Emit exactly
+one line instead:
+
+`[PROJECT_COMPLETE summary="1-2 sentences on what was achieved"]`
+
+The system marks the project completed and stops auto-chaining. If you
+are uncertain whether criteria are met, re-read "## Project Goal". Any
+agent can emit this — not just the org-root. Emitting a PROJECT_COMPLETE
+is preferred over inventing a new phase when the goal is already met.
+
 ### Delegation Chain
 After creating tasks, @mention the **team leads who should plan the next area**.
 Assigned agents will be automatically dispatched to execute their tasks.
@@ -224,6 +236,15 @@ NEVER leave the chat empty or with only markers/JSON.
 - Do NOT @mention yourself
 - Do NOT assign tasks to yourself — you are the planner, not the executor
 - Do NOT create duplicate tasks — if the task already exists, skip it
+
+### Project Completion — STOP SIGNAL (any role)
+If all phases are `[completed]` AND "## Project Goal" criteria are met,
+emit exactly one line:
+
+`[PROJECT_COMPLETE summary="1-2 sentences on what was achieved"]`
+
+The system marks the project completed. You do not need to be the org-root
+to emit this — whichever agent sees the end-state is reached should call it.
 
 ### Delegation Chain
 After creating tasks, @mention the **people who should plan the next sub-area**.

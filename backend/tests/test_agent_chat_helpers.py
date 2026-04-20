@@ -1119,6 +1119,93 @@ async def test_fetch_project_goal_returns_none_when_missing(db_session):
     assert await _fetch_project_goal(db_session, project.id) is None
 
 
+# ── [PROJECT_COMPLETE] marker — loop-breaker ────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_parse_inline_project_complete_markers():
+    """Parser extracts [PROJECT_COMPLETE summary="..."] with attributes,
+    and bare [PROJECT_COMPLETE] without."""
+    from backend.src.core.task_markers import parse_inline_project_complete_markers
+
+    text = (
+        "We achieved all the goals.\n"
+        '[PROJECT_COMPLETE summary="Shipped MVP with auth and CRUD"]\n'
+        "Thanks team!"
+    )
+    out = parse_inline_project_complete_markers(text)
+    assert len(out) == 1
+    assert out[0]["summary"] == "Shipped MVP with auth and CRUD"
+
+    text2 = "Done. [PROJECT_COMPLETE]"
+    out2 = parse_inline_project_complete_markers(text2)
+    assert len(out2) == 1
+    assert out2[0].get("summary") is None
+
+
+@pytest.mark.asyncio
+async def test_strip_inline_markers_removes_project_complete():
+    """`strip_inline_markers` scrubs PROJECT_COMPLETE so end-users never
+    see the raw marker in stored chat messages."""
+    from backend.src.core.task_markers import strip_inline_markers
+
+    text = 'Great work!\n[PROJECT_COMPLETE summary="All done"]\nFinal note.'
+    cleaned = strip_inline_markers(text)
+    assert "PROJECT_COMPLETE" not in cleaned
+    assert "Great work" in cleaned
+    assert "Final note" in cleaned
+
+
+@pytest.mark.asyncio
+async def test_project_complete_marker_sets_project_status_completed(
+    marker_env, test_session_maker,
+):
+    """When any agent emits [PROJECT_COMPLETE ...], the handler flips
+    Project.status to `completed` — regardless of role. This is the
+    signal the global dispatcher uses to stop auto-chaining CEO."""
+    from sqlalchemy import select as _select
+
+    from backend.src.models import Project as ProjectModel, ProjectStatus as PS
+
+    text = (
+        '[CREATE_TASK title="사소한 작업" assignee="Designer"]\n'
+        '[PROJECT_COMPLETE summary="All phases completed and criteria met"]'
+    )
+    await _execute_inline_markers(
+        text,
+        project_id=marker_env["project_id"],
+        tenant_id=marker_env["tenant_id"],
+        agent_id=marker_env["designer_id"],
+        agent_name="Designer",
+        is_org_root=False,
+    )
+
+    async with test_session_maker() as db:
+        result = await db.execute(
+            _select(ProjectModel).where(ProjectModel.id == marker_env["project_id"])
+        )
+        project = result.scalar_one()
+        assert project.status == PS.completed
+
+
+@pytest.mark.asyncio
+async def test_project_complete_marker_emits_action(marker_env):
+    """The handler emits an action record so the frontend can react
+    (toast, status bar update, etc.)."""
+    text = '[PROJECT_COMPLETE summary="shipped"]'
+    actions = await _execute_inline_markers(
+        text,
+        project_id=marker_env["project_id"],
+        tenant_id=marker_env["tenant_id"],
+        agent_id=marker_env["ceo_id"],
+        agent_name="CEO",
+        is_org_root=True,
+    )
+    complete_actions = [a for a in actions if a.get("tool") == "project_complete"]
+    assert len(complete_actions) == 1
+    assert complete_actions[0]["input"]["summary"] == "shipped"
+
+
 @pytest.mark.asyncio
 async def test_set_goal_block_works_for_non_org_root_agent(
     marker_env, test_session_maker,

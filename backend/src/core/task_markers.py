@@ -41,6 +41,10 @@ _INLINE_COMPLETE_RE = re.compile(
 )
 # [CLAIM_TASK] — no attributes needed (system finds the agent's pending task)
 _INLINE_CLAIM_RE = re.compile(r"\[CLAIM_TASK\]")
+# [PROJECT_COMPLETE summary="..."] or just [PROJECT_COMPLETE] — loop-breaker
+_INLINE_PROJECT_COMPLETE_RE = re.compile(
+    r"\[PROJECT_COMPLETE(?:\s+((?:\w+=\"(?:[^\"\\]|\\.)*\"\s*)+))?\]"
+)
 # Extracts individual key="value" pairs from an attribute string.
 _ATTR_RE = re.compile(r'(\w+)="((?:[^"\\]|\\.)*)"')
 
@@ -119,12 +123,26 @@ def has_claim_marker(text: str) -> bool:
     return bool(_INLINE_CLAIM_RE.search(text))
 
 
+def parse_inline_project_complete_markers(text: str) -> list[dict[str, str | None]]:
+    """Extract ``[PROJECT_COMPLETE ...]`` markers.
+
+    Returns a list of dicts with optional ``summary`` key. A bare
+    ``[PROJECT_COMPLETE]`` (no attrs) yields ``{"summary": None}``.
+    """
+    results: list[dict[str, str | None]] = []
+    for m in _INLINE_PROJECT_COMPLETE_RE.finditer(text):
+        attrs = _parse_attrs(m.group(1) or "")
+        results.append({"summary": attrs.get("summary")})
+    return results
+
+
 def strip_inline_markers(text: str) -> str:
     """Remove all inline markers from text."""
     text = _INLINE_TASK_RE.sub("", text)
     text = _INLINE_PHASE_RE.sub("", text)
     text = _INLINE_COMPLETE_RE.sub("", text)
     text = _INLINE_CLAIM_RE.sub("", text)
+    text = _INLINE_PROJECT_COMPLETE_RE.sub("", text)
     return text.strip()
 
 

@@ -33,6 +33,7 @@ from backend.src.core.task_markers import (
     has_claim_marker,
     parse_inline_complete_markers,
     parse_inline_phase_markers,
+    parse_inline_project_complete_markers,
     parse_inline_task_markers,
     strip_action_markers,
 )
@@ -855,6 +856,37 @@ async def _execute_inline_markers(
                     logger.info("task_completed_via_marker", task_id=str(task.id), agent=agent_name)
         except Exception:
             logger.warning("marker_complete_failed", exc_info=True)
+
+    # Project complete: [PROJECT_COMPLETE summary="..."] — loop-breaker.
+    # Any agent (not just org-root) may emit this when the Goal's completion
+    # criteria are met and all phases are done. Flips Project.status to
+    # `completed` so the global dispatcher stops auto-chaining CEO.
+    for pc in parse_inline_project_complete_markers(text):
+        try:
+            from backend.src.models import Project as _Project
+            from backend.src.models import ProjectStatus as _PS
+            async with async_session() as db:
+                result = await db.execute(
+                    select(_Project).where(_Project.id == project_id)
+                )
+                project = result.scalar_one_or_none()
+                if project and project.status != _PS.completed:
+                    project.status = _PS.completed
+                    await db.commit()
+                    summary = pc.get("summary") or ""
+                    actions.append({
+                        "type": "tool_project_complete",
+                        "tool": "project_complete",
+                        "input": {"summary": summary},
+                    })
+                    logger.info(
+                        "project_completed_via_marker",
+                        project_id=str(project_id),
+                        summary=summary,
+                        by_agent=agent_name,
+                    )
+        except Exception:
+            logger.warning("marker_project_complete_failed", exc_info=True)
 
     return actions
 

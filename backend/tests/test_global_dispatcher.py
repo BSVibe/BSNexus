@@ -360,6 +360,47 @@ async def test_phase_auto_chain_no_next_phase(db_session, stream_mock, monkeypat
     assert "다음에 필요한 단계" in req.message
 
 
+async def test_auto_chain_skipped_when_project_completed(
+    db_session, stream_mock, monkeypatch,
+):
+    """A project whose status is `completed` must not auto-dispatch CEO
+    even when a phase would otherwise complete. This is the loop-breaker
+    that stops the infinite `phase_auto_chain_dispatched next_phase=None`
+    cycle observed in GLM longrun (#35)."""
+    from backend.src.models import ProjectStatus as _PS
+
+    project = await _mk_project(db_session)
+    project.status = _PS.completed
+    phase1 = await _mk_phase(db_session, project, order=1, status=PhaseStatus.active)
+    await _mk_task(db_session, project, phase1, status=TaskStatus.done)
+    await _mk_agent(db_session, name="CEO", role="ceo")
+    await db_session.commit()
+
+    dispatcher = GlobalDispatcher(stream_mock)
+    monkeypatch.setattr(
+        "backend.src.core.global_dispatcher.async_session",
+        _make_session_factory(db_session),
+    )
+    dispatcher._worker_dispatcher.dispatch_task = AsyncMock(return_value="msg-1")  # type: ignore[assignment]
+
+    mock_queue_mgr = MagicMock()
+    mock_queue_mgr.enqueue = AsyncMock()
+    monkeypatch.setattr(
+        "backend.src.core.agent_queue.get_agent_queue_manager",
+        lambda: mock_queue_mgr,
+    )
+
+    # Completed projects are filtered out of _list_active_projects entirely,
+    # so tick() should not touch the phase nor enqueue CEO.
+    await dispatcher.tick()
+
+    mock_queue_mgr.enqueue.assert_not_called()
+    # Phase stays active because _advance_phase_if_complete was never
+    # reached (project filtered out upstream).
+    await db_session.refresh(phase1)
+    assert phase1.status == PhaseStatus.active
+
+
 # ── Helpers ──────────────────────────────────────────────────────────
 
 
