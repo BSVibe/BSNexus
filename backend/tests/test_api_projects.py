@@ -247,6 +247,58 @@ async def test_delete_project_cascades_phases(client: AsyncClient, db_session: A
     assert phases_resp.status_code == 404
 
 
+async def test_delete_project_drains_agent_queue(
+    client: AsyncClient, db_session: AsyncSession, monkeypatch,
+) -> None:
+    """DELETE /projects/{id} must drain in-flight agent queue items for
+    that project — otherwise workers keep executing requests whose FK
+    target (the project) has vanished, spewing FK violations."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    project = await _create_project(db_session)
+
+    mock_mgr = MagicMock()
+    mock_mgr.cancel_project = AsyncMock(return_value=2)
+    monkeypatch.setattr(
+        "backend.src.api.projects.get_agent_queue_manager",
+        lambda: mock_mgr,
+    )
+
+    resp = await client.delete(f"/api/v1/projects/{project.id}")
+    assert resp.status_code == 200
+
+    # The DELETE handler must have drained the project's queue
+    mock_mgr.cancel_project.assert_awaited_once_with(project.id)
+
+
+async def test_batch_delete_drains_agent_queue(
+    client: AsyncClient, db_session: AsyncSession, monkeypatch,
+) -> None:
+    """Batch delete must drain the queue for every project in the batch."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    p1 = await _create_project(db_session, name="BDQ1")
+    p2 = await _create_project(db_session, name="BDQ2")
+
+    mock_mgr = MagicMock()
+    mock_mgr.cancel_project = AsyncMock(return_value=0)
+    monkeypatch.setattr(
+        "backend.src.api.projects.get_agent_queue_manager",
+        lambda: mock_mgr,
+    )
+
+    resp = await client.post(
+        "/api/v1/projects/batch-delete",
+        json={"ids": [str(p1.id), str(p2.id)]},
+    )
+    assert resp.status_code == 200
+    assert mock_mgr.cancel_project.await_count == 2
+    drained_ids = {
+        call.args[0] for call in mock_mgr.cancel_project.await_args_list
+    }
+    assert drained_ids == {p1.id, p2.id}
+
+
 # ── POST /api/v1/projects/batch-delete ───────────────────────────────────────
 
 

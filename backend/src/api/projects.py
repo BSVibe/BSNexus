@@ -5,8 +5,10 @@ import unicodedata
 from typing import Optional
 from uuid import UUID
 
+import structlog
 from bsvibe_auth import BSVibeUser
 from backend.src import models, schemas
+from backend.src.core.agent_queue import get_agent_queue_manager
 from backend.src.core.auth import Permission, require_permission
 from backend.src.core.workspace import LocalStorageBackend, WorkspaceService
 from backend.src.repositories.phase_repository import PhaseRepository
@@ -26,6 +28,8 @@ import os as _os
 _workspace_service = WorkspaceService(
     LocalStorageBackend(_os.environ.get("WORKSPACE_BASE_DIR", "./data/workspaces"))
 )
+
+logger = structlog.get_logger(__name__)
 
 # -- Helpers -------------------------------------------------------------------
 
@@ -169,6 +173,22 @@ async def delete_project(
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
 
+    # Drain in-flight agent queue work for this project before the DB
+    # row disappears. Without this, workers keep executing requests
+    # whose FK target (the project) has vanished and emit endless
+    # ForeignKeyViolation logs.
+    try:
+        cancelled = await get_agent_queue_manager().cancel_project(project.id)
+        logger.info(
+            "project_delete_queue_drained",
+            project_id=str(project.id), cancelled=cancelled,
+        )
+    except Exception:
+        logger.warning(
+            "project_delete_queue_drain_failed",
+            project_id=str(project.id), exc_info=True,
+        )
+
     # Clean up server-managed workspace
     if project.workspace_type == models.WorkspaceType.server_managed:
         await _workspace_service.cleanup_workspace(project.id)
@@ -187,6 +207,17 @@ async def batch_delete_projects(
 ) -> schemas.BatchDeleteResponse:
     """Delete multiple projects by IDs."""
     from sqlalchemy import delete as sa_delete
+
+    # Drain in-flight work for each project before deleting the rows.
+    queue_mgr = get_agent_queue_manager()
+    for pid in body.ids:
+        try:
+            await queue_mgr.cancel_project(pid)
+        except Exception:
+            logger.warning(
+                "project_batch_delete_queue_drain_failed",
+                project_id=str(pid), exc_info=True,
+            )
 
     result = await db.execute(sa_delete(models.Project).where(models.Project.id.in_(body.ids)))
     await db.commit()
