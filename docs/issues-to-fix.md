@@ -303,23 +303,22 @@
 - **timeout 상향**: `LLM_REQUEST_TIMEOUT=600→1200` (passive iteration이 길어서)
 - **assignee @ prefix strip**: GLM이 `@CEO` 넣어 `_resolve_agent_by_name` fail → 파서에서 strip
 
-### 35. 프로젝트 "종료" 정의 부재 → DONE (세션 10)
-- **인프라**:
-  - `[SET_GOAL]` 블록 마커 → DB Goal(level="project") upsert. role-agnostic (CMO/Designer/CEO 모두 가능)
-  - 매 턴 `## Project Goal` 섹션으로 system prompt inline. 없으면 FIRST TURN SET_GOAL 경고
-  - `[PROJECT_COMPLETE summary="..."]` 인라인 마커 → Project.status=completed + SSE 발행
-  - Dispatcher guard 2중 (`_list_active_projects` 필터 + `_advance_phase_if_complete` / `_auto_dispatch_phase_planning` early-return)
-  - `build_project_context` 에 phase.description (Scope) + all-completed 힌트
-  - ACTIVE_MODE_RULES + SUBORDINATE 양쪽에 "Project Completion STOP SIGNAL" 카운터룰
-- **loop-breaker (마지막 조각)**: `_auto_dispatch_phase_planning` 의 `next_phase=None` 분기 prose 메시지를
-  **directive prompt 로 교체** — CEO 가 `[PROJECT_COMPLETE summary=...]` 또는 `[CREATE_PHASE ...] + [CREATE_TASK ...] (3-5)` 중 하나를 반드시 emit 하도록 강제. 이 조각이 없으면 GLM-4.7-flash 는 자연어로만 "종료하겠습니다" 라고 답해서 loop 이 안 끊어졌다.
-- **Longrun 검증 (2026-04-21, 50분 프로젝트)**:
-  - CMO 가 첫 턴에 SET_GOAL emit → DB 저장
-  - Phase 1 모든 tasks 완료
-  - `phase_auto_chain_dispatched next_phase=None` → CEO 에게 directive prompt 전달
-  - CEO 가 `[PROJECT_COMPLETE summary="..."]` emit
-  - `project_completed_via_marker by_agent=CEO` 로그 확인
-  - **`Project.status = completed`** DB 확인. Loop 정상 종료.
+### 35. 프로젝트 "종료" 정의 부재 → PARTIAL (세션 10)
+- **인프라 전반 완성**:
+  - `[SET_GOAL]` 블록 마커 → DB Goal(level="project") upsert. role-agnostic
+  - 매 턴 `## Project Goal` 섹션으로 system prompt inline
+  - `[PROJECT_COMPLETE summary="..."]` 인라인 마커 + Project.status=completed + SSE
+  - Dispatcher guard 2중 (list_active_projects 필터 + advance_phase / auto_dispatch 에 early-return)
+  - `build_project_context` 에 phase.description Scope + all-completed 힌트
+  - ACTIVE_MODE_RULES + SUBORDINATE 양쪽 카운터룰
+  - `_auto_dispatch_phase_planning` next_phase=None 분기 — **per-criterion checklist directive**
+    (Goal 기준을 ✅/❌로 평가한 뒤, 모두 ✅ 인 경우에만 PROJECT_COMPLETE, 하나라도 ❌ 면 CREATE_PHASE 의무)
+- **Longrun 검증 결과**:
+  - **v3 실패 (premature completion)**: 50분 run / phase 1개 (기획) 만 완료 상태에서 CEO 가 PROJECT_COMPLETE emit. Goal 은 "실제 동작하는 앱 소스코드 + 디자인 화면" 이었는데 screens:0 stub files 만 있음. "pick one" prompt 가 너무 느슨 → GLM 이 escape hatch 선택.
+  - **v4 pending**: per-criterion checklist directive 로 교체 후 재검증 필요. 실제 multi-phase 로 진행하는지, 끝나야 할 때만 끝나는지 확인.
+- **남은 과제 (세션 11)**:
+  - v4 이상 longrun 으로 "Goal 충족 시점에만 PROJECT_COMPLETE" 실제 작동 확인
+  - Checklist directive 가 false positive 재발동 시 추가 가드 (예: `completion_evaluation_attempts` 카운트 / human-in-loop fallback)
 
 ### 36. markers_leaked 카운팅 — longrun spec 버그 (세션 10)
 - **증상**: longrun-marker-scenario.spec.ts 가 `markerLeakCount++` 를 매 poll iteration * 매 message 반복 → 같은 leaky msg 가 200+ 로 부풀려짐
