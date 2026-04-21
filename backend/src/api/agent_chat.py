@@ -907,9 +907,65 @@ async def _execute_inline_markers(
                         "tool": "project_complete",
                         "input": {"summary": summary, "missing": missing},
                     })
-                    # Do NOT flip status. The dispatcher's next
-                    # all-phases-done tick will re-prompt CEO; the
-                    # directive prompt already demands a checklist.
+                    # Do NOT flip status. The dispatcher's next tick
+                    # won't re-invoke CEO on its own (all phases are
+                    # already marked completed, so _advance_phase_if_complete
+                    # short-circuits). Push the rejection feedback
+                    # straight back to the org-root so they can open a
+                    # CREATE_PHASE for the missing artifacts — otherwise
+                    # the project silently stalls.
+                    try:
+                        from backend.src.core.agent_queue import (
+                            AgentRequest,
+                            get_agent_queue_manager,
+                        )
+                        from backend.src.models import Agent as _Agent
+                        root = (await db.execute(
+                            select(_Agent).where(
+                                _Agent.tenant_id == tenant_id,
+                                _Agent.parent_agent_id.is_(None),
+                                _Agent.is_active.is_(True),
+                            ).limit(1)
+                        )).scalar_one_or_none()
+                        if root is not None:
+                            missing_str = "; ".join(missing)
+                            feedback = (
+                                f"직전 응답의 [PROJECT_COMPLETE] 는 백엔드 artifact "
+                                f"gate 가 거부했습니다. workspace scan 결과 아래 산출물이 "
+                                f"실제로 존재하지 않습니다:\n"
+                                f"- {missing_str}\n\n"
+                                f"제시하신 .bsnexus/context/*.md 또는 메타 파일은 "
+                                f"소스코드/디자인 증거로 쓸 수 없습니다 (harness 자동 생성 "
+                                f"파일입니다).\n\n"
+                                f"**지금 즉시** 다음을 emit 하세요:\n"
+                                f"```\n"
+                                f"[CREATE_PHASE name=\"<누락 영역 이름>\" description=\"위 "
+                                f"missing 항목을 실제 파일로 산출\"]\n"
+                                f"[CREATE_TASK title=\"<파일 산출 task>\" assignee=\"...\" "
+                                f"priority=\"high\"]  (3-5개)\n"
+                                f"```\n"
+                                f"[PROJECT_COMPLETE] 재시도는 금지. 위 task 들이 실제 파일을 "
+                                f"만든 뒤 다음 phase 완료 시점에 재평가 됩니다."
+                            )
+                            await get_agent_queue_manager().enqueue(AgentRequest(
+                                mode="active",
+                                project_id=project_id,
+                                agent_id=root.id,
+                                tenant_id=tenant_id,
+                                redis=None,
+                                message=feedback,
+                            ))
+                            logger.info(
+                                "project_complete_rejection_feedback_dispatched",
+                                project_id=str(project_id),
+                                to_agent=root.name,
+                                missing=missing,
+                            )
+                    except Exception:
+                        logger.warning(
+                            "project_complete_rejection_redispatch_failed",
+                            exc_info=True,
+                        )
                     continue
 
                 project.status = _PS.completed

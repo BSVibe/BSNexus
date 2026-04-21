@@ -1390,6 +1390,59 @@ def test_verify_goal_artifacts_passes_when_goal_has_no_known_keywords(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_rejected_project_complete_redispatches_ceo_with_feedback(
+    marker_env, test_session_maker, monkeypatch, tmp_path,
+):
+    """When artifacts are missing, the handler must re-enqueue the
+    org-root with explicit feedback — otherwise the project silently
+    stalls because `_advance_phase_if_complete` won't re-fire once
+    all phases are already completed."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from backend.src.models import Goal as GoalModel
+    from backend.src.models import Project as ProjectModel
+
+    async with test_session_maker() as db:
+        project = await db.get(ProjectModel, marker_env["project_id"])
+        project.workspace_dir = str(tmp_path)
+        db.add(GoalModel(
+            tenant_id=marker_env["tenant_id"],
+            project_id=marker_env["project_id"],
+            level="project",
+            title="Ship MVP",
+            description="실행 가능한 앱 소스코드와 디자인 화면 포함한 MVP",
+        ))
+        await db.commit()
+
+    mock_mgr = MagicMock()
+    mock_mgr.enqueue = AsyncMock()
+    monkeypatch.setattr(
+        "backend.src.core.agent_queue.get_agent_queue_manager",
+        lambda: mock_mgr,
+    )
+
+    text = '[PROJECT_COMPLETE summary="all done"]'
+    await _execute_inline_markers(
+        text,
+        project_id=marker_env["project_id"],
+        tenant_id=marker_env["tenant_id"],
+        agent_id=marker_env["ceo_id"],
+        agent_name="CEO",
+        is_org_root=True,
+    )
+
+    mock_mgr.enqueue.assert_called_once()
+    req = mock_mgr.enqueue.call_args[0][0]
+    # The feedback re-dispatch must target the org-root (CEO has
+    # parent_agent_id IS NULL in marker_env) and contain both the
+    # rejection reason and a CREATE_PHASE instruction.
+    assert req.agent_id == marker_env["ceo_id"]
+    assert "거부" in req.message or "reject" in req.message.lower()
+    assert "[CREATE_PHASE" in req.message
+    assert "[PROJECT_COMPLETE] 재시도는 금지" in req.message
+
+
+@pytest.mark.asyncio
 async def test_project_complete_marker_rejected_when_artifacts_missing(
     marker_env, test_session_maker, monkeypatch, tmp_path,
 ):
