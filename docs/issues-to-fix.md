@@ -344,13 +344,18 @@
   - Session 10 범위는 **인프라 + prompt 엔지니어링**. 이 두 층 완료.
   - **Agent compliance 는 prompt 밖의 영역**. Backend enforcement (COMPLETE_TASK 수신 시 evidence 체크, task output_data.verified 필드 필수화, verification 자동 inject 등) 가 session 11 과제.
 
-### 37. COMPLETE_TASK marker 가 evidence 없이 수락됨 (세션 11)
-- **증상 (v8)**: Worker 가 `[COMPLETE_TASK summary="..."]` emit 만 하면 state=done. shell_exec 호출 없어도 통과.
-- **해결 방향**:
-  - A. `_execute_inline_markers` 에서 `COMPLETE_TASK` 처리 시 task.output_data 에 `verified_by` 또는 `exit_code` 필드 필수화 (없으면 reject + 재dispatch)
-  - B. Worker side: executor 가 verification step 을 자동 삽입
-  - C. Task creation 시 `qa_prompt` 자동 생성 (verify 요구사항), task 완료 전 별도 QA pass 필요
-- **주의**: role-agnostic (QA agent 없어도 작동), 앱개발/마케팅/리서치 어떤 goal 이든 적용 가능한 형태로
+### 37. Worker 가 verification tool 자발 사용 안 함 (세션 10 추가 시도 결과, 세션 11 과제)
+
+- **v8 시도 (prompt 강화)**: PASSIVE_MODE_RULES 에 "MUST verify, use shell_exec liberally" 직접 지시 → **shell_exec 0건**. 다른 tool 은 정상 호출 (file_write 3, create_screen 4, create_task 24 등).
+- **v9 시도 (CoT Q1/Q2/Q3 재구성)**: "성공 조건 → 테스트 방법 → 작업" 순서로 사전 선언 강제 → **file_read 2→13 (6배 증가)**, **shell_exec 여전히 0**. CoT 가 read-only verify 는 유도하지만 shell command 는 못 유도.
+- **해석**: GLM-4.7-flash 는 file_read/file_write 패턴은 익숙하지만 `npm test`, `tsc --noEmit`, `pytest` 같은 shell command 는 tool description 에 있어도 자발 선택 안 함. "안전한 read-back" 쪽으로 편향.
+- **세션 10 conclusion**: prompt 엔지니어링 (직접 지시 + CoT) **모두 실패** — GLM tool uptake 의 inherent limit.
+- **세션 11 방향**:
+  - A. **Backend-level enforcement**: `_execute_inline_markers` 에서 `COMPLETE_TASK` 수신 시 해당 turn 의 tool_calls_made 에 verification 호출 (`shell_exec` / `file_read`) 있는지 체크. 없으면 reject + "verification 없이 complete 불가" 재dispatch.
+  - B. **output_data evidence 필수화**: task.output_data 에 `{verified_by: "...", result: "..."}` 필드 없으면 state=blocked.
+  - C. **강제 auto-verify step**: executor 가 worker turn 종료 시점에 자동으로 "방금 만든 파일을 verify 하세요" 후속 prompt 주입.
+  - 권장: A (단순, marker-level), C (fallback).
+- **role-agnostic**: QA agent 존재 여부 무관하게 작동, 앱개발/마케팅/리서치 어느 goal 에든 적용.
 
 ### 35-next. Checklist 근거 강화 → DONE (세션 10)
 - **구현 (commit 15-16)**:
