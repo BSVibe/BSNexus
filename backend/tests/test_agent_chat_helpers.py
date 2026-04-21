@@ -1315,6 +1315,126 @@ async def test_project_complete_marker_emits_action(marker_env):
     assert complete_actions[0]["input"]["summary"] == "shipped"
 
 
+# ── Artifact gate — PROJECT_COMPLETE must be backed by real files ───
+
+
+def test_verify_goal_artifacts_rejects_empty_workspace(tmp_path):
+    """Goal mentions '소스코드' but workspace has only .md files — reject."""
+    from backend.src.core.goal_verification import verify_goal_artifacts
+
+    (tmp_path / "README.md").write_text("# Project readme")
+
+    met, missing = verify_goal_artifacts(
+        goal_description="실행 가능한 앱 소스코드와 디자인 화면을 모두 갖춘 MVP",
+        workspace_dir=str(tmp_path),
+    )
+    assert met is False
+    assert "소스코드" in " ".join(missing) or "code" in " ".join(missing).lower()
+
+
+def test_verify_goal_artifacts_rejects_empty_bsd_stubs(tmp_path):
+    """Goal mentions '디자인 화면' but .bsd files all have generated_code: null."""
+    from backend.src.core.goal_verification import verify_goal_artifacts
+
+    (tmp_path / "design").mkdir()
+    (tmp_path / "design" / "login.bsd").write_text(
+        '{"name":"Login","spec":{"type":"Screen"},"generated_code":null}'
+    )
+    # Also drop a code file to satisfy the "code" half if it gets checked
+    (tmp_path / "app.ts").write_text("export const app = () => {}")
+
+    met, missing = verify_goal_artifacts(
+        goal_description="앱 소스코드와 UI/UX 디자인 화면 포함한 MVP",
+        workspace_dir=str(tmp_path),
+    )
+    assert met is False
+    assert any("디자인" in m or "design" in m.lower() or "screen" in m.lower()
+               for m in missing)
+
+
+def test_verify_goal_artifacts_passes_with_real_artifacts(tmp_path):
+    """Goal mentions 소스코드 + 디자인. Workspace has real .ts file and
+    a .bsd with populated spec — should pass."""
+    from backend.src.core.goal_verification import verify_goal_artifacts
+
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "index.ts").write_text(
+        "import { h } from 'preact';\nexport const App = () => h('div', null, 'hi');"
+    )
+    (tmp_path / "package.json").write_text('{"name":"mvp","version":"0.1.0"}')
+    (tmp_path / "design").mkdir()
+    (tmp_path / "design" / "login.bsd").write_text(
+        '{"name":"Login","spec":{"type":"Screen","components":[{"type":"button","label":"signin"}]},"generated_code":"const L = () => h(\\"div\\",null,\\"login\\");"}'
+    )
+
+    met, missing = verify_goal_artifacts(
+        goal_description="앱 소스코드와 디자인 화면 포함한 MVP",
+        workspace_dir=str(tmp_path),
+    )
+    assert met is True
+    assert missing == []
+
+
+def test_verify_goal_artifacts_passes_when_goal_has_no_known_keywords(tmp_path):
+    """If the Goal description has no recognizable keywords, don't block —
+    we'd rather trust CEO than reject for unknown criteria."""
+    from backend.src.core.goal_verification import verify_goal_artifacts
+
+    (tmp_path / "notes.md").write_text("some notes")
+    met, missing = verify_goal_artifacts(
+        goal_description="브레인스토밍 및 아이디어 정리",  # no code/design keywords
+        workspace_dir=str(tmp_path),
+    )
+    assert met is True
+    assert missing == []
+
+
+@pytest.mark.asyncio
+async def test_project_complete_marker_rejected_when_artifacts_missing(
+    marker_env, test_session_maker, monkeypatch, tmp_path,
+):
+    """PROJECT_COMPLETE with missing artifacts must NOT flip Project.status.
+    Handler should log rejection and leave status untouched, so the
+    dispatcher can re-prompt CEO on the next tick."""
+    from sqlalchemy import select as _select
+
+    from backend.src.models import Goal as GoalModel
+    from backend.src.models import Project as ProjectModel
+    from backend.src.models import ProjectStatus as PS
+
+    # Attach an empty workspace + Goal that demands code artifacts
+    async with test_session_maker() as db:
+        project = await db.get(ProjectModel, marker_env["project_id"])
+        project.workspace_dir = str(tmp_path)
+        db.add(GoalModel(
+            tenant_id=marker_env["tenant_id"],
+            project_id=marker_env["project_id"],
+            level="project",
+            title="Ship MVP",
+            description="실제 동작하는 앱 소스코드와 디자인 화면 포함한 완성형 MVP",
+        ))
+        await db.commit()
+    # workspace is empty → no code, no design, no .bsd
+
+    text = '[PROJECT_COMPLETE summary="all done"]'
+    await _execute_inline_markers(
+        text,
+        project_id=marker_env["project_id"],
+        tenant_id=marker_env["tenant_id"],
+        agent_id=marker_env["ceo_id"],
+        agent_name="CEO",
+        is_org_root=True,
+    )
+
+    async with test_session_maker() as db:
+        result = await db.execute(
+            _select(ProjectModel).where(ProjectModel.id == marker_env["project_id"])
+        )
+        project = result.scalar_one()
+        # Must NOT flip to completed — artifacts missing
+        assert project.status != PS.completed
+
+
 @pytest.mark.asyncio
 async def test_set_goal_block_works_for_non_org_root_agent(
     marker_env, test_session_maker,

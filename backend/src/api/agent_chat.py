@@ -860,9 +860,15 @@ async def _execute_inline_markers(
     # Project complete: [PROJECT_COMPLETE summary="..."] — loop-breaker.
     # Any agent (not just org-root) may emit this when the Goal's completion
     # criteria are met and all phases are done. Flips Project.status to
-    # `completed` so the global dispatcher stops auto-chaining CEO.
+    # `completed` so the global dispatcher stops auto-chaining CEO —
+    # BUT only after an artifact-gate verifies real files exist on disk
+    # for the keyword families the Goal calls out. Without that gate,
+    # GLM-class models emit PROJECT_COMPLETE with an approving checklist
+    # even when only empty stubs are in the workspace.
     for pc in parse_inline_project_complete_markers(text):
         try:
+            from backend.src.core.goal_verification import verify_goal_artifacts
+            from backend.src.models import Goal as _Goal
             from backend.src.models import Project as _Project
             from backend.src.models import ProjectStatus as _PS
             async with async_session() as db:
@@ -870,21 +876,55 @@ async def _execute_inline_markers(
                     select(_Project).where(_Project.id == project_id)
                 )
                 project = result.scalar_one_or_none()
-                if project and project.status != _PS.completed:
-                    project.status = _PS.completed
-                    await db.commit()
-                    summary = pc.get("summary") or ""
-                    actions.append({
-                        "type": "tool_project_complete",
-                        "tool": "project_complete",
-                        "input": {"summary": summary},
-                    })
-                    logger.info(
-                        "project_completed_via_marker",
+                if not project or project.status == _PS.completed:
+                    continue
+
+                # Gate: does the workspace actually hold the artifacts
+                # the Goal says it should?
+                goal_row = (await db.execute(
+                    select(_Goal).where(
+                        _Goal.project_id == project_id,
+                        _Goal.level == "project",
+                    ).limit(1)
+                )).scalar_one_or_none()
+
+                met, missing = verify_goal_artifacts(
+                    goal_description=(goal_row.description if goal_row else None),
+                    workspace_dir=project.workspace_dir,
+                )
+
+                summary = pc.get("summary") or ""
+                if not met:
+                    logger.warning(
+                        "project_complete_rejected_missing_artifacts",
                         project_id=str(project_id),
-                        summary=summary,
+                        missing=missing,
                         by_agent=agent_name,
+                        summary=summary,
                     )
+                    actions.append({
+                        "type": "tool_project_complete_rejected",
+                        "tool": "project_complete",
+                        "input": {"summary": summary, "missing": missing},
+                    })
+                    # Do NOT flip status. The dispatcher's next
+                    # all-phases-done tick will re-prompt CEO; the
+                    # directive prompt already demands a checklist.
+                    continue
+
+                project.status = _PS.completed
+                await db.commit()
+                actions.append({
+                    "type": "tool_project_complete",
+                    "tool": "project_complete",
+                    "input": {"summary": summary},
+                })
+                logger.info(
+                    "project_completed_via_marker",
+                    project_id=str(project_id),
+                    summary=summary,
+                    by_agent=agent_name,
+                )
         except Exception:
             logger.warning("marker_project_complete_failed", exc_info=True)
 
