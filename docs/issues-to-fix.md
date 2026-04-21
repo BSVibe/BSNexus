@@ -303,7 +303,7 @@
 - **timeout 상향**: `LLM_REQUEST_TIMEOUT=600→1200` (passive iteration이 길어서)
 - **assignee @ prefix strip**: GLM이 `@CEO` 넣어 `_resolve_agent_by_name` fail → 파서에서 strip
 
-### 35. 프로젝트 "종료" 정의 부재 → DONE (세션 10) — loop-breaker + artifact gate
+### 35. 프로젝트 "종료" 정의 부재 → PARTIAL (세션 10) — 인프라 완성, compliance 미해결
 - **인프라**:
   - `[SET_GOAL]` 블록 마커 → DB Goal(level="project") upsert. role-agnostic
   - 매 턴 `## Project Goal` 섹션으로 system prompt inline
@@ -331,15 +331,26 @@
   - auto-chain 무한 loop 끊어짐 (directive prompt 가 마커 강제)
   - Artifact gate 가 Goal 키워드 (`소스코드`, `디자인 화면`) 대응 파일 존재 검증 — 없으면 PROJECT_COMPLETE 거부. `.bsnexus/context/*.md` 같은 메타 파일은 증거로 인정 안 함, 빈 `.bsd` stub 도 무효
   - Rejection 시 org-root 에 피드백 메시지 re-enqueue → silent stall 방지
-- **v7 real end-to-end 성공 (2026-04-21, 52분, project 62b367c3)**:
-  - Phase 진행: 기획 → 개발 (frontend/backend 실제 코드) → 최종 검증 및 배포 (.bsd populated)
-  - 최종 산출물 14 files, 총 35KB:
-    - frontend: App.tsx, Header.tsx, ProtectedRoute.tsx, AuthContext.tsx + .js (+ App.js, Header.js)
-    - backend: controllers/auth.js, models/index.js, routes/auth.js
-    - design: `main-dashboard---health-routine-app.bsd` (populated Appbar + ScrollView + Card spec)
-    - docs: market-research.md (6KB), wireframes.md (12KB), final-project-plan.md (3KB)
-  - `project_completed_via_marker by_agent=CEO` 로그 확인. gate PASS (reject 아님). DB `status=completed`.
-  - **Goal 충족**: "실제 동작하는 앱 소스코드 + UI/UX 디자인 화면 + 완성형 MVP" — 기초 auth flow + dashboard screen + models 산출.
+- **v7 "성공" 재검증 — 표면적이었음**: workspace 실측 결과 `package.json` 없음, schema.sql/prisma 없음, App.tsx 가 없는 파일들(`Footer`, `ThemeContext`, `Login`, `Dashboard` 등) import 하는 **깨진 scaffolding**. 파일이 존재한다고 동작 보장 X. Gate heuristic 이 "파일 존재 + non-empty" 수준이라 관계적 일관성 / runnability 검증 못 함.
+
+### #35-next 세션 10 에서 추가 작업 (B route — self-execution infra)
+- **ShellExecTool 추가**: asyncio.subprocess 로 `/bin/sh -c <command>` 실행. cwd=workspace, stdout/stderr 10KB cap, timeout 60s (max 300s), exit_code + timed_out 플래그 반환. 9 unit tests. Universal passive-mode tool (role/capability 무관).
+- **PASSIVE_MODE_RULES 에 TDD/verification 페르소나 섹션**: 범용 원칙 (Code/Docs/Design/Marketing/Config 유형별 verify 예시), COMPLETE_TASK summary 에 `exit=0` 또는 `verified_by=file_read` 증거 의무. Verification 실패 시 COMPLETE_TASK 금지.
+- **v8 longrun 결과 (prompt만으로는 부족)**:
+  - `shell_exec_ran` 이벤트 0건 — worker 가 tool 자발적 사용 안 함
+  - Designer create_screen 반복 실패 (schema validation errors) 후 retry 포기 → 짐작 fake-done
+  - Phase 2 "디자인 산출물 검증 및 최종화" 24초 만에 `done`, screens:0 불변
+- **결론**:
+  - Session 10 범위는 **인프라 + prompt 엔지니어링**. 이 두 층 완료.
+  - **Agent compliance 는 prompt 밖의 영역**. Backend enforcement (COMPLETE_TASK 수신 시 evidence 체크, task output_data.verified 필드 필수화, verification 자동 inject 등) 가 session 11 과제.
+
+### 37. COMPLETE_TASK marker 가 evidence 없이 수락됨 (세션 11)
+- **증상 (v8)**: Worker 가 `[COMPLETE_TASK summary="..."]` emit 만 하면 state=done. shell_exec 호출 없어도 통과.
+- **해결 방향**:
+  - A. `_execute_inline_markers` 에서 `COMPLETE_TASK` 처리 시 task.output_data 에 `verified_by` 또는 `exit_code` 필드 필수화 (없으면 reject + 재dispatch)
+  - B. Worker side: executor 가 verification step 을 자동 삽입
+  - C. Task creation 시 `qa_prompt` 자동 생성 (verify 요구사항), task 완료 전 별도 QA pass 필요
+- **주의**: role-agnostic (QA agent 없어도 작동), 앱개발/마케팅/리서치 어떤 goal 이든 적용 가능한 형태로
 
 ### 35-next. Checklist 근거 강화 → DONE (세션 10)
 - **구현 (commit 15-16)**:
