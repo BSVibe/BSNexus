@@ -348,8 +348,9 @@
 
 - **v8 시도 (prompt 강화)**: PASSIVE_MODE_RULES 에 "MUST verify, use shell_exec liberally" 직접 지시 → **shell_exec 0건**. 다른 tool 은 정상 호출 (file_write 3, create_screen 4, create_task 24 등).
 - **v9 시도 (CoT Q1/Q2/Q3 재구성)**: "성공 조건 → 테스트 방법 → 작업" 순서로 사전 선언 강제 → **file_read 2→13 (6배 증가)**, **shell_exec 여전히 0**. CoT 가 read-only verify 는 유도하지만 shell command 는 못 유도.
-- **해석**: GLM-4.7-flash 는 file_read/file_write 패턴은 익숙하지만 `npm test`, `tsc --noEmit`, `pytest` 같은 shell command 는 tool description 에 있어도 자발 선택 안 함. "안전한 read-back" 쪽으로 편향.
-- **세션 10 conclusion**: prompt 엔지니어링 (직접 지시 + CoT) **모두 실패** — GLM tool uptake 의 inherent limit.
+- **v10 시도 (Q2 E2E framing + file_read as primary verify 금지)**: "end user / 빌드 시스템이 실제로 쓴다면" 프레이밍 + 실행 가능 산출물에 대해 file_read 를 단독 verify 로 금지 + 예시 전체를 `curl endpoint` · `sqlite3 schema.sql` · `json.tool parse` 로 교체 → **shell_exec 여전히 0**. file_read 6회, file_write 4회 (정상 pattern). 산출물에 `backend/package.json` 등장했지만 worker 가 build/install 검증 전혀 안 함.
+- **3회 연속 실측 결론**: GLM-4.7-flash 가 `shell_exec` tool 을 **자발적으로 선택하는 것을 prompt 로 유도 불가**. Tool description + CoT 선언 + E2E framing 모두 효과 없음. Model inherent preference.
+- **세션 10 최종 conclusion**: prompt 엔지니어링 (직접 지시 → CoT → E2E framing) **3회 연속 실패**. Prompt 층은 여기까지가 한계.
 - **세션 11 방향**:
   - A. **Backend-level enforcement**: `_execute_inline_markers` 에서 `COMPLETE_TASK` 수신 시 해당 turn 의 tool_calls_made 에 verification 호출 (`shell_exec` / `file_read`) 있는지 체크. 없으면 reject + "verification 없이 complete 불가" 재dispatch.
   - B. **output_data evidence 필수화**: task.output_data 에 `{verified_by: "...", result: "..."}` 필드 없으면 state=blocked.
