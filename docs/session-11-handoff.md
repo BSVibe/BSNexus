@@ -1,62 +1,64 @@
-# Session 11 Handoff — #35 완전 해결, 정리 및 차순위
+# Session 11 Handoff — #37 Verification Enforcement (prompt 한계 확정)
 
 브랜치: `feat/plan-view-overhaul`
-이전 세션 마지막 커밋: `65754da fix(dispatcher): force structured PROJECT_COMPLETE vs CREATE_PHASE choice when all phases done`
-테스트 상태: **1080 passing**
+이전 세션 마지막 커밋: 플랜트리 API `agent_name` 수정 + 문서 정리
+테스트 상태: **1098 passing** (기존 1057 + 세션 10 신규 41)
 
-## 세션 10 성과 (9 commits, #35 DONE)
+## 세션 10 성과 (27 commits)
 
-| # | 주제 | 파일 |
-| --- | --- | --- |
-| 1 | `[SET_GOAL]` 블록 → DB Goal upsert, `upsert_project_goal` util | agent_chat, plan_tools |
-| 2 | `## Project Goal` system prompt inline + missing warning = FIRST TURN SET_GOAL (role-agnostic) | harness, agent_chat |
-| 3 | `[PROJECT_COMPLETE]` 인라인 마커 + dispatcher guard 2중 + ACTIVE_MODE 양쪽 카운터룰 | task_markers, agent_chat, global_dispatcher, harness |
-| 4 | `build_project_context` 에 phase.description (Scope) + all-completed 힌트 | task_markers |
-| 5 | 공용 `_match_phase_by_name` (4-ladder fuzzy) + `create_task_from_params` 호출 | plan_tools |
-| 6 | `ACTIVE_MODE_RULES_SUBORDINATE` 에 Phase Alignment 의무 규칙 | harness |
-| 7 | `DELETE /projects/{id}` + batch delete 가 `cancel_project()` 호출 | projects.py |
-| 8 | docs (session-11 handoff + issues-to-fix + memory) | docs |
-| 9 | `_auto_dispatch_phase_planning` 의 `next_phase=None` 분기를 **directive prompt** 로 교체 — loop-breaker | global_dispatcher |
+**인프라 5층 (모두 작동 확인)**:
+1. **Loop-breaker**: `[SET_GOAL]` DB upsert + `## Project Goal` 매턴 inline + `[PROJECT_COMPLETE]` marker + dispatcher guard + directive prompt
+2. **Artifact gate** (`goal_verification.py`): Goal keyword → workspace 파일 존재 검증. `.bsnexus/*.md` 메타 / 빈 `.bsd` stub 제외
+3. **Redispatch**: 거짓 PROJECT_COMPLETE 수신 시 org-root 재enqueue (silent stall 방지)
+4. **ShellExecTool**: subprocess 기반 real exec, workspace cwd, stdout/stderr 10KB cap, timeout 60s, exit_code/timed_out 반환. Passive mode universal
+5. **PASSIVE_MODE_RULES CoT**: Q1/Q2/Q3 (성공조건 → E2E 테스트 방법 → 작업). file_read as primary verify 금지 (실행 가능 산출물 한정)
 
-## Longrun 검증 — #35 Loop 종료 확인
+**부가 수정**:
+- plan-tree API `agent_name` 필드를 creator → assignee 기반 (fallback creator) — session 10 진단 중 발견한 side-effect
 
-**프로젝트**: `91cb9e77-a193-4169-9fdd-d0d7837d1ada` / "E2E Longrun 04-21 00:09" (50분)
+## V11 실측 결과 (종합 데이터)
 
-| 시각 | 이벤트 |
-| --- | --- |
-| 00:09 | CMO 가 SET_GOAL 블록 emit → DB Goal 저장 |
-| 00:09~30 | Phase 1 "기획" 에서 7 tasks 생성 + 모두 done |
-| 00:30 | `phase_auto_chain_dispatched next_phase=None` — **directive prompt 로 CEO 재호출** |
-| 00:39 | CEO 가 `[PROJECT_COMPLETE summary="..."]` emit |
-| 00:39 | `project_completed_via_marker by_agent=CEO` 백엔드 로그 |
-| ✅ | `Project.status = completed` DB 확인. auto-chain loop 정상 종료 |
+사용자 지적대로 측정 너무 일찍 끊지 않고 DB 직접 쿼리:
 
-**이전 세션 (commit 1-8 만) 의 문제점**: GLM-4.7-flash 는 프롬프트 카운터룰을 무시하고 자연어로 "프로젝트 종료하겠습니다" 라고만 답변 → 마커가 안 emit 되어 loop 유지. **Commit 9 의 directive prompt 로 해결**. 명시적으로 "아래 2개 마커 중 하나 반드시 emit" 을 요구한 게 결정적.
+| 지표 | 값 | 의미 |
+|---|---|---|
+| Tasks assignees | Designer 8, CTO 4, Marketer 3, Backend_Engineer 1, Frontend_Engineer 1, QA_Lead 1, CPO 1, PM 1, CEO 1, unassigned 4 | **Routing 정상** — 다양한 agent 배정됨 |
+| `file_read` | 22 회 | Passive workers 실제 동작 (v8=2, v9=13, v10=6) |
+| `file_write` | 5 회 | 정상 |
+| `create_screen` | 1 회 | Designer 동작 |
+| **`shell_exec`** | **0 회** | GLM-4.7-flash 가 자발 선택 안 함 |
+| Agents appearing in chat | CEO, CMO, Designer, Frontend_Engineer, QA_Lead | Multiple agents active |
 
-## 차순위 이슈
+**결론**: 세션 10 의 3회 prompt 실험 (v8 direct / v9 CoT / v10 E2E) 은 유효했음. Routing 은 정상 작동, passive workers 도 능동적으로 tool 사용. 단지 **`shell_exec` 만 자발 선택 안 됨** — GLM 의 inherent tool preference limit 확정.
 
-### #25 Task-Phase 미스매치 → ~PARTIAL (세션 10)
-- commit 4: phase.description Scope 인라인, commit 5: fuzzy phase_name, commit 6: Phase Alignment rule
-- 세션 11 에서 longrun 으로 실측 확인 (fallback warning 로그 발생 빈도, 실제 미스매치 건수)
+## 세션 11 최우선 과제
 
-### #36 longrun spec markers_leaked 카운팅 버그
-- `markerLeakCount++` 가 poll * msg 로 중복 증가 → 실제 leak 0 인데 216 으로 찍힘
-- `seenLeakIds: Set<string>` 로 msg.id 당 1회 집계
+### #37 — COMPLETE_TASK evidence enforcement (backend-level, role-agnostic)
 
-### #26 Worker executor streaming/budget 미지원
-- Claude Code worker 경로에서 streaming/usage/text_delta 없음 (세션 9 out-of-scope)
+**근거**: Prompt 층 3회 시도 모두 실패. Prompt 를 강화해도 모델이 안 따르므로 backend enforcement 가 유일한 현실적 경로.
 
-### stress-test: 여러 프로젝트 동시 진행
-- `cancel_project(project_id)` unit mock 만 있음. fresh-PG integration 테스트 필요
-- 동시 10 프로젝트에서 queue drain, dispatcher, goal 등 체크
+**구현 방향**:
+1. `_execute_inline_markers` 의 `[COMPLETE_TASK]` 처리 시점:
+   - 해당 agent turn 의 `result.tool_calls_made` 목록 확인
+   - `shell_exec` / `file_read` (read-only 허용 type) 호출 여부 체크
+   - 없으면 → status=done 거부, 재dispatch (message: "verification tool 호출 없이 complete 불가. shell_exec 또는 file_read 로 증거 생성 필요")
+2. Task type 별 허용 verify tool mapping:
+   - 실행 가능 (code, API, schema, config, .bsd) → shell_exec 필수
+   - 실행 불가 (docs, 분석, 마케팅) → file_read + 가능하면 shell_exec grep
+3. Tests:
+   - `test_complete_task_without_verify_rejected` — COMPLETE_TASK 마커만 있고 tool_calls_made 비면 reject
+   - `test_complete_task_with_shell_exec_accepted` — shell_exec 있으면 pass
+   - `test_complete_task_with_file_read_accepted_for_docs_task` — docs task 는 file_read 만으로 OK
 
-### #35 파생 — 좀 더 다양한 종료 시나리오
-- "출시까지" / "마케팅까지" 같은 multi-phase 프로젝트에서도 directive prompt 가 작동하는지 (세션 10 은 "기획부터 개발/디자인까지" 50분 프로젝트에서만 검증)
-- longrun 테스트 prompt 조정해 출시/마케팅 포함한 장시간 시나리오 돌리기 → 5+ phases 진행 후 PROJECT_COMPLETE emit 되는지
+## 차순위
+
+- #26 Worker executor streaming/budget — 이월
+- CMO 가 assignee 를 CREATE_TASK 마커에 명시하도록 프롬프트 강화 (현재는 auto keyword routing 으로 커버되지만 명시적이면 더 안정)
+- Schema validation 실패 retry 가 Designer 에서 자주 발생 — error msg 표준화
 
 ## 시나리오 테스트 절차
 
-### Backend 재시작 (PID 선별)
+### Backend 재시작 (PID 선별 kill)
 ```bash
 docker exec bsnexus-feat-company-os-app-1 bash -c "pgrep -f 'uvicorn backend' | xargs -r kill; \
   find /workspace/backend -name '*.pyc' -delete; \
@@ -68,8 +70,7 @@ docker exec -d bsnexus-feat-company-os-app-1 bash -c "cd /workspace && \
   PYTHONPATH=/workspace PYTHONDONTWRITEBYTECODE=1 \
   REDIS_URL=redis://redis:6379 \
   DATABASE_URL='postgresql+asyncpg://bsnexus:bsnexus_dev@postgres:5432/bsnexus' \
-  E2E_TEST_TOKEN='$JWT' \
-  E2E_TEST_USER_TENANT_ID=ab8bfb15-cb63-4068-a600-54b02b33396d \
+  E2E_TEST_TOKEN='$JWT' E2E_TEST_USER_TENANT_ID=ab8bfb15-cb63-4068-a600-54b02b33396d \
   LLM_REQUEST_TIMEOUT=1200 OLLAMA_NUM_CTX=40960 \
   uv run --project backend python -B -m uvicorn backend.src.main:app \
   --host 0.0.0.0 --port 8000 > /tmp/backend.log 2>&1"
@@ -77,34 +78,31 @@ docker exec -d bsnexus-feat-company-os-app-1 bash -c "cd /workspace && \
 sleep 20 && curl -sf http://localhost:18100/health/llm
 ```
 
-### Longrun
+### Longrun + 핵심 측정
 ```bash
-cd /Users/blasin/Works/BSNexus/feat-company-os/frontend && \
-  LIVE_FRONTEND_URL=http://localhost:13100 LIVE_API_URL=http://localhost:18100 \
-  E2E_TOKEN="$JWT" \
-  pnpm exec playwright test e2e/specs/longrun-marker-scenario.spec.ts \
-  --timeout=29000000 --reporter=list 2>&1 | tee /tmp/longrun-e2e.log
+# shell_exec uptake (enforcement 후 > 0 되어야 함)
+docker exec bsnexus-feat-company-os-app-1 bash -c "grep -c shell_exec_ran /tmp/backend.log"
+
+# Task assignee 분포 (routing 정상성)
+docker exec bsnexus-feat-company-os-postgres-1 psql -U bsnexus -d bsnexus -c \
+  "SELECT a.name, COUNT(*) FROM tasks t LEFT JOIN agents a ON t.assigned_agent_id=a.id \
+   WHERE t.project_id='<PID>' GROUP BY a.name ORDER BY 2 DESC;"
+
+# Completion flow
+docker exec bsnexus-feat-company-os-app-1 bash -c \
+  "grep -E 'project_completed_via_marker|project_complete_rejected_missing_artifacts|complete_task_rejected_no_evidence' /tmp/backend.log | tail -10"
 ```
 
-### #35 검증 commands
-```bash
-# Goal 저장
-docker exec bsnexus-feat-company-os-postgres-1 psql -U bsnexus -d bsnexus -c \
-  "SELECT title, left(description,120) FROM goals WHERE project_id='<PID>' AND level='project';"
+## 세션 10 에서 배운 것 (세션 11 이 실수 반복 안 하도록)
 
-# Project 종료 확인
-docker exec bsnexus-feat-company-os-postgres-1 psql -U bsnexus -d bsnexus -c \
-  "SELECT name, status FROM projects WHERE id='<PID>';"
+1. **측정 중단 신중히** — CHAIN_COMPLETE / STALL_FAIL 까지 기다리고 `agents=[]` snapshot 만 보지 말 것 (polling 타이밍 이슈). DB 직접 쿼리가 확실.
+2. **실험 유효성 먼저 확인** — "X tool 호출 0" 이면 "X 가 필요한 경로가 도는지" 부터 체크.
+3. **Prompt engineering 한계 수용** — 3회 prompt 실험 모두 shell_exec uptake 0. 추가 prompt 시도보다 backend enforcement 가 효율적.
+4. **Docker pkill 주의** — `pgrep -f ... | xargs -r kill` 로 PID 1 보호.
+5. **Phase count cap 금지** — 세션 9 사용자 명시.
 
-# Loop-breaker 작동 로그
-docker exec bsnexus-feat-company-os-app-1 grep -E \
-  'project_completed_via_marker|phase_auto_chain_skipped_project_completed' /tmp/backend.log
-```
+## Open issues 요약
 
-## 작업 방식
-
-- **TDD 필수** (`/feature-workflow` 스킬). 1080 passing 깨지 말 것.
-- **MCP Playwright 대신 기존 spec 사용** — `longrun-marker-scenario.spec.ts`
-- **Phase count cap 금지** — directive prompt 가 동작하므로 이제 cap 필요 없음
-- **Active mode 에 tool 재추가 금지** — GLM/Qwen3 모두 loop 검증됨
-- **docker exec 에서 pkill 은 surgical** — `pgrep -f ... | xargs -r kill` 로 PID 1 보호
+- **#35**: PARTIAL — 인프라 5층 완성, compliance (shell_exec uptake) 는 prompt 로 불가. #37 필요.
+- **#37**: COMPLETE_TASK evidence enforcement — 세션 11 최우선.
+- **#26**: Worker executor streaming/budget — 이월.

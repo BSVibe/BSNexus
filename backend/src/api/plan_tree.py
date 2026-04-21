@@ -140,8 +140,16 @@ async def get_plan_tree(
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    # Resolve agent names referenced by tasks in one query.
-    agent_ids = {t.creator_agent_id for p in project.phases for t in p.tasks if t.creator_agent_id is not None}
+    # Resolve agent names referenced by tasks in one query. Collect both
+    # creator and assignee ids — agent_name prefers assignee (who will
+    # do the work) and falls back to creator when no one is assigned.
+    agent_ids: set[uuid.UUID] = set()
+    for p in project.phases:
+        for t in p.tasks:
+            if t.creator_agent_id is not None:
+                agent_ids.add(t.creator_agent_id)
+            if t.assigned_agent_id is not None:
+                agent_ids.add(t.assigned_agent_id)
     agent_names: dict[uuid.UUID, str] = {}
     if agent_ids:
         result = await db.execute(select(models.Agent.id, models.Agent.name).where(models.Agent.id.in_(agent_ids)))
@@ -163,7 +171,18 @@ async def get_plan_tree(
     phase_nodes: list[PlanPhaseNode] = []
     for phase in phases_sorted:
         tasks_sorted = sorted(phase.tasks, key=lambda t: t.created_at)
-        task_nodes = [_task_to_node(t, agent_names.get(t.creator_agent_id) if t.creator_agent_id else None) for t in tasks_sorted]
+        task_nodes = [
+            _task_to_node(
+                t,
+                # Prefer the assignee (will do the work). Fall back to
+                # creator only if no one is assigned so the UI still has
+                # a meaningful label for unassigned tasks.
+                agent_names.get(t.assigned_agent_id)
+                if t.assigned_agent_id is not None
+                else (agent_names.get(t.creator_agent_id) if t.creator_agent_id else None),
+            )
+            for t in tasks_sorted
+        ]
         phase_nodes.append(
             PlanPhaseNode(
                 id=phase.id,

@@ -172,6 +172,59 @@ async def test_plan_tree_groups_tasks_by_phase(client: AsyncClient, db_session) 
     assert running_task["agent_name"] == "CTO"
 
 
+async def test_plan_tree_agent_name_reflects_assignee_when_set(
+    client: AsyncClient, db_session,
+) -> None:
+    """The ``agent_name`` on a task node should describe WHO WILL DO it,
+    not who created it. Assigned agent takes precedence over creator —
+    falling back to creator only when no assignee is set.
+
+    Regression guard: session-10 v11 longrun surfaced a diagnostic
+    confusion where CMO was the creator of 10 tasks but the real
+    assignees were Designer / Backend_Engineer / QA_Lead / etc. The
+    plan-tree API returned 'CMO' for all of them, which masked the
+    fact that delegation was actually working.
+    """
+    project, phase = await _seed_project(db_session)
+    cmo = await _add_agent(db_session, name="CMO", role="cmo")
+    designer = await _add_agent(db_session, name="Designer", role="designer")
+    await _add_task(
+        db_session, project, phase,
+        title="Make a login screen",
+        status=TaskStatus.pending,
+        creator_agent_id=cmo.id,
+        assigned_agent_id=designer.id,
+    )
+    await db_session.commit()
+
+    resp = await client.get(f"/api/v1/projects/{project.id}/plan-tree")
+    assert resp.status_code == 200
+    node = resp.json()["phases"][0]["tasks"][0]
+    # Must be Designer (assignee), not CMO (creator).
+    assert node["agent_name"] == "Designer"
+
+
+async def test_plan_tree_agent_name_falls_back_to_creator_when_unassigned(
+    client: AsyncClient, db_session,
+) -> None:
+    """No assignee → agent_name reflects the creator so the UI still
+    has something to show. Existing behavior must not regress."""
+    project, phase = await _seed_project(db_session)
+    creator = await _add_agent(db_session, name="CEO", role="ceo")
+    await _add_task(
+        db_session, project, phase,
+        title="Kickoff",
+        status=TaskStatus.pending,
+        creator_agent_id=creator.id,
+        assigned_agent_id=None,
+    )
+    await db_session.commit()
+
+    resp = await client.get(f"/api/v1/projects/{project.id}/plan-tree")
+    node = resp.json()["phases"][0]["tasks"][0]
+    assert node["agent_name"] == "CEO"
+
+
 async def test_plan_tree_orders_phases_by_order_field(client: AsyncClient, db_session) -> None:
     project, phase1 = await _seed_project(db_session)
     now = datetime.now(timezone.utc)
