@@ -253,6 +253,33 @@ class TestAssembleSystemPrompt:
         assert "CREATE_TASK" not in prompt or "Do NOT create" in prompt
 
     @pytest.mark.asyncio
+    async def test_passive_mode_has_cot_verification_structure(self, tmp_path: Path) -> None:
+        """Passive mode must embed a Q1/Q2/Q3 Chain-of-Thought that
+        forces the agent to pre-declare success criteria AND the
+        verification method BEFORE producing the deliverable.
+
+        The intent is to get the LLM to naturally reach for shell_exec
+        (or file_read) because it has committed to a specific check
+        upstream — not because the prompt nagged it into compliance."""
+        prompt = await assemble_system_prompt(
+            _agent(["coding"]), _project(), str(tmp_path),
+            mode="passive",
+            task_context="Task ID: abc\nTitle: Build API",
+        )
+        # The three reasoning stations must each be present and
+        # explicitly labelled so the model answers them in order.
+        assert "Q1" in prompt
+        assert "Q2" in prompt
+        assert "Q3" in prompt
+        # Q1 = success condition
+        assert "\uc131\uacf5 \uc870\uac74" in prompt or "success condition" in prompt.lower()
+        # Q2 = test method
+        assert "\ud14c\uc2a4\ud2b8 \ubc29\ubc95" in prompt or "test method" in prompt.lower()
+        # The available verification tool must be named inside the CoT
+        # so the LLM sees it while deciding Q2.
+        assert "shell_exec" in prompt
+
+    @pytest.mark.asyncio
     async def test_fallback_when_no_workspace(self) -> None:
         """No workspace_dir → mode rules + skill summaries still present."""
         prompt = await assemble_system_prompt(
