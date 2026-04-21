@@ -13,6 +13,7 @@ from backend.src.tools.plan_tools import (
     RecordDecisionTool,
     SetGoalTool,
 )
+from backend.src.tools.shell_tools import ShellExecTool
 from backend.src.tools.workspace_tools import FileReadTool, FileWriteTool, ListFilesTool
 
 # ── Tool instances (singletons) ──────────────────────────────────────
@@ -35,6 +36,8 @@ def _ensure_instances() -> dict[str, Tool]:
             # Design
             CreateScreenTool(),
             ModifyScreenTool(),
+            # Verification — real shell exec inside workspace
+            ShellExecTool(),
         ]
         for t in tools:
             _TOOL_INSTANCES[t.name] = t
@@ -135,7 +138,9 @@ def get_tools_for_mode(mode: str, capabilities: list[str] | None) -> list[Tool]:
     if mode == "passive":
         # claim/complete done via inline markers.
         # file_read allowed for .bsnexus/context/*.md project context.
-        tool_names: set[str] = {"file_write", "file_read"}
+        # shell_exec is universal so every worker can self-verify (build /
+        # test / smoke / lint) before marking a task done.
+        tool_names: set[str] = {"file_write", "file_read", "shell_exec"}
         # Add capability-specific execution tools
         caps = {(c or "").strip().lower() for c in (capabilities or [])}
         if "design" in caps:
