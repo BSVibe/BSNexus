@@ -349,17 +349,35 @@
 - **v8 시도 (prompt 강화)**: PASSIVE_MODE_RULES 에 "MUST verify, use shell_exec liberally" 직접 지시 → **shell_exec 0건**. 다른 tool 은 정상 호출 (file_write 3, create_screen 4, create_task 24 등).
 - **v9 시도 (CoT Q1/Q2/Q3 재구성)**: "성공 조건 → 테스트 방법 → 작업" 순서로 사전 선언 강제 → **file_read 2→13 (6배 증가)**, **shell_exec 여전히 0**. CoT 가 read-only verify 는 유도하지만 shell command 는 못 유도.
 - **v10 시도 (Q2 E2E framing + file_read as primary verify 금지)**: "end user / 빌드 시스템이 실제로 쓴다면" 프레이밍 + 실행 가능 산출물에 대해 file_read 를 단독 verify 로 금지 + 예시 전체를 `curl endpoint` · `sqlite3 schema.sql` · `json.tool parse` 로 교체 → **shell_exec 여전히 0**. file_read 6회, file_write 4회 (정상 pattern). 산출물에 `backend/package.json` 등장했지만 worker 가 build/install 검증 전혀 안 함.
-- **v11 (끝까지 관찰 + DB 실측)**: 사용자 지적 — "측정을 너무 일찍 끊었다. chat/activity 확인해라" → V11 재실행 + DB 직접 쿼리. **실제 발견**:
-  - 25 tasks 모두 정상 assignee 로 분산 배정됨 (Designer 8, CTO 4, Marketer 3, Backend_Engineer 1, Frontend_Engineer 1, QA_Lead 1, CPO 1, PM 1, CEO 1, unassigned 4). **Routing 정상**.
-  - `file_read` **22회** 호출 (v9 의 13 보다 더 많음). Passive workers 들이 **실제로** 동작 중 — self-assign 문제 아님.
-  - **shell_exec 여전히 0회**. Passive worker 들이 active 하게 tool 쓰는 중에도 shell_exec 회피.
-  - 내가 초기 snapshot 의 `agents=[CMO,CEO]` 만 보고 "passive 안 돈다" 오진. 나중에 Designer/Frontend_Engineer/QA_Lead 모두 chat 메시지 남김.
-  - **plan-tree API agent_name 이 assignee 아닌 creator 를 반환**하던 side-effect 는 commit 27 에서 수정.
-- **세션 10 최종 conclusion (재확정)**:
-  - Routing 은 정상. Passive workers 실제 동작 (file_read 22).
-  - **Prompt-layer 실험 (v8 direct, v9 CoT, v10 E2E)** 은 실제로 유효했음 — 3회 연속 shell_exec 0 은 real data.
-  - GLM-4.7-flash 의 `shell_exec` tool uptake 한계 확정.
-  - 세션 11 최우선: **#37 COMPLETE_TASK evidence enforcement** (marker handler 에서 해당 turn 의 tool_calls_made 에 verification tool 호출 있는지 체크, 없으면 reject).
+- **v11 (끝까지 관찰 + DB 실측)**: 사용자 지적 — "측정을 너무 일찍 끊었다" → V11 재실행 + DB 직접 쿼리. 발견:
+  - Task assignee 정상 분산 (Designer 8, CTO 4, Marketer 3, Backend_Engineer 1 등). Routing 정상.
+  - `file_read` 22회, passive workers 실제 동작 중.
+  - **shell_exec 여전히 0회**.
+  - plan-tree API `agent_name` 이 creator 를 반환하던 side-effect → commit 27 에서 수정 (assignee 기반, fallback creator).
+- **v12 (사용자 "끝까지 해보자" 지시, 3.7 시간 full patience)**:
+  - 5 phases, 47 tasks all done, 11 agents 참여 (CMO/CPO/PM/CEO/FE/QA_Lead/CTO/QA/Designer/Marketer/BE)
+  - `file_write` 19회, `file_read` 13회, `create_phase` 7회, `create_task` 57회 — 매우 활발한 tool 사용
+  - 실제 산출물: `App.tsx`, `Layout.tsx`, `backend/schema.sql`, `market-analysis.md`
+  - CEO 체크리스트 정상 작동 ("❌ 실제 동작하는 모바일 앱 소스코드 (workspace 에 .ts/.py/.js ...)" 라고 정확히 판정)
+  - **shell_exec 여전히 0회** — 3.7 시간 내내 한 번도 호출 안 함
+  - EXIT: STALL_FAIL (success: true — task/phase 임계 넘음)
+- **세션 10 최종 conclusion (v12 로 재확정)**:
+  - Routing / passive worker / tool offering 모두 정상.
+  - CEO 는 gate rejection 과 ❌ 판정을 정확히 이해함 (prompt 의미 전달 OK).
+  - **그럼에도 GLM-4.7-flash 는 `shell_exec` 를 자발적으로 절대 선택 안 함** (v8, v9, v10, v12 모두 0).
+  - Prompt-layer 시도 4회 (direct / CoT / E2E / full-pipeline CoT+E2E) 실패 확정.
+  - 세션 11: (1) claude-code executor cross-check → model vs prompt 본질 판별, (2) #37 backend enforcement (marker 처리 시 verify tool call 없으면 reject).
+
+### 38. Claude Code executor cross-check (세션 11 진단 필수)
+- **목적**: v8-v12 의 shell_exec=0 원인이 GLM 모델 한계인지, prompt 본질적 결함인지 판별.
+- **방법**:
+  - Claude Code CLI 이미 container 에 설치됨 (`/usr/local/share/npm-global/bin/claude`, v2.1.109)
+  - `executor_configs` 테이블에서 tenant default 를 `executor_type="claude_code"` 로 변경 또는 특정 agent 만 claude_code 로 설정
+  - 동일한 longrun 시나리오 재실행
+- **판별 기준**:
+  - claude-code 에서도 shell_exec 0 → prompt 본질적 문제. 프롬프트 재설계 필요.
+  - claude-code 에서 shell_exec > 0 → GLM 의 tool preference 한계 확정. Backend enforcement (#37) 가 유일한 해결책.
+- **주의**: claude CLI auth (API key 또는 `.claude/` 폴더) 설정 확인 필요.
 - **세션 11 방향**:
   - A. **Backend-level enforcement**: `_execute_inline_markers` 에서 `COMPLETE_TASK` 수신 시 해당 turn 의 tool_calls_made 에 verification 호출 (`shell_exec` / `file_read`) 있는지 체크. 없으면 reject + "verification 없이 complete 불가" 재dispatch.
   - B. **output_data evidence 필수화**: task.output_data 에 `{verified_by: "...", result: "..."}` 필드 없으면 state=blocked.

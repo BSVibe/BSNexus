@@ -33,9 +33,37 @@
 
 ## 세션 11 최우선 과제
 
+### #38 — Claude Code executor cross-check (model vs prompt 본질 판별)
+
+**V12 (3.7h full run) 결정적 데이터**:
+- 5 phases · 47 tasks done · 11 agents (CMO/CPO/PM/CEO/FE/QA_Lead/CTO/QA/Designer/Marketer/BE)
+- 실제 산출물 4개 (`App.tsx`, `Layout.tsx`, `schema.sql`, `market-analysis.md`)
+- CEO 체크리스트에서 ❌ 정확히 판정 (prompt 의미 이해 OK)
+- **shell_exec: 0** (3.7 시간 내내)
+
+이는 **GLM-4.7-flash 의 tool preference 한계** 시사. 단, model vs prompt 본질의 결정적 판별은 다른 model 로 cross-check 필요.
+
+**절차**:
+```bash
+# Claude CLI 이미 container 에 있음 (v2.1.109)
+# executor_configs tenant default 변경
+docker exec bsnexus-feat-company-os-postgres-1 psql -U bsnexus -d bsnexus -c \
+  "UPDATE executor_configs SET executor_type='claude_code' WHERE is_default=true AND tenant_id='ab8bfb15-cb63-4068-a600-54b02b33396d';"
+# Auth 설정 확인 (.claude/ 폴더 mount 또는 env var)
+# Longrun 재실행
+```
+
+**판별 matrix**:
+| Result | 결론 |
+| --- | --- |
+| shell_exec > 0 | GLM 한계 확정 → #37 backend enforcement 로 |
+| shell_exec = 0 | Prompt 본질적 결함 → Q1/Q2/Q3 재설계 필요 |
+
 ### #37 — COMPLETE_TASK evidence enforcement (backend-level, role-agnostic)
 
-**근거**: Prompt 층 3회 시도 모두 실패. Prompt 를 강화해도 모델이 안 따르므로 backend enforcement 가 유일한 현실적 경로.
+**근거**: Prompt 층 4회 시도 (direct / CoT / E2E framing / full 3.7h run) 모두 실패. #38 cross-check 결과에 따라 두 갈래:
+- GLM 한계 확정 시 → enforcement 가 유일한 경로
+- Prompt 본질 결함 시 → prompt 재설계 후에도 enforcement 병행 검토
 
 **구현 방향**:
 1. `_execute_inline_markers` 의 `[COMPLETE_TASK]` 처리 시점:
