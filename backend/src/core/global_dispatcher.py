@@ -295,27 +295,40 @@ class GlobalDispatcher:
                 f"적절한 팀원에게 @mention으로 배분해주세요."
             )
         else:
-            # All phases are done. Force a structured choice — a prose-only
-            # "프로젝트를 종료하겠습니다" reply causes infinite auto-chain
-            # because the dispatcher re-invokes CEO on the next phase advance.
-            # Either PROJECT_COMPLETE or CREATE_PHASE must appear in the reply.
+            # All phases are done. Force a structured, *evaluated* choice.
+            # Early naive "pick one of two" directive caused false-positive
+            # PROJECT_COMPLETE — GLM took the easy escape hatch and
+            # declared a project "done" with only the planning phase run.
+            # Require a per-criterion checklist against the Goal BEFORE
+            # allowing PROJECT_COMPLETE.
             message = (
-                f"'{completed_phase.name}' 단계가 완료되었고 모든 phase 가 "
-                f"completed 상태입니다. '## Project Goal' 섹션의 종료 기준을 "
-                f"다시 읽어보고 아래 2가지 중 **정확히 하나**를 응답에 포함해 주세요. "
-                f"자연어로만 '종료하겠습니다' 같은 답변은 시스템이 인식하지 못합니다.\n\n"
-                f"**선택 1 — 목표 기준이 충족됐다면**:\n"
+                f"'{completed_phase.name}' 단계가 완료되었고 현재 열린 phase 중 "
+                f"pending/active 가 없습니다. 그러나 프로젝트가 정말 끝났는지는 "
+                f"'## Project Goal' 의 **완료 기준**이 실제로 충족됐는지에 달렸습니다.\n\n"
+                f"### 1단계 — 체크리스트 평가 (MANDATORY)\n"
+                f"'## Project Goal' 의 description 에서 완료 기준을 **한 줄씩** 추출해 "
+                f"아래 형식으로 평가하세요. 각 기준마다 ✅ (실제 산출물 존재) 또는 "
+                f"❌ (미충족) 로 판정하고, ✅ 인 경우 Current Plan State 에서 **근거가 될 "
+                f"구체 파일/task 이름**을 괄호로 표시하세요. 추정·희망은 ❌ 처리하세요.\n\n"
+                f"예시:\n"
                 f"```\n"
-                f"[PROJECT_COMPLETE summary=\"무엇을 달성했는지 1-2문장 요약\"]\n"
+                f"- ✅ 시장 조사 완료 (task: '경쟁사 분석', '사용자 설문')\n"
+                f"- ❌ 동작하는 앱 소스코드 (backend/frontend 구현 phase 없음)\n"
+                f"- ❌ 디자인 화면 3종 (screens: 0)\n"
+                f"```\n\n"
+                f"### 2단계 — 분기\n"
+                f"**모든 항목이 ✅ 인 경우에만** 아래 한 줄을 emit:\n"
                 f"```\n"
-                f"(이 한 줄을 emit 하면 프로젝트가 공식 종료됩니다.)\n\n"
-                f"**선택 2 — 아직 더 필요한 작업이 있다면**, 먼저 왜 필요한지 "
-                f"1-2문장으로 서술한 뒤:\n"
+                f"[PROJECT_COMPLETE summary=\"충족된 각 기준의 실제 산출물 1-2문장 요약\"]\n"
+                f"```\n\n"
+                f"**하나라도 ❌ 가 있으면 반드시** 다음 phase 를 여세요 "
+                f"(`[PROJECT_COMPLETE]` emit 금지):\n"
                 f"```\n"
-                f"[CREATE_PHASE name=\"...\" description=\"...\"]\n"
+                f"[CREATE_PHASE name=\"...\" description=\"미충족 기준을 채우는 작업 범위\"]\n"
                 f"[CREATE_TASK title=\"...\" assignee=\"...\" priority=\"...\"]  (3-5개)\n"
-                f"```\n"
-                f"둘 중 하나의 마커가 반드시 응답에 있어야 합니다."
+                f"```\n\n"
+                f"자연어로 '완료했습니다' / '종료하겠습니다' 라고만 답하면 시스템이 "
+                f"무시합니다. 체크리스트 + 마커 중 하나가 반드시 있어야 합니다."
             )
 
         from backend.src.core.agent_queue import AgentRequest, get_agent_queue_manager

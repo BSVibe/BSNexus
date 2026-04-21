@@ -361,6 +361,14 @@ async def test_phase_auto_chain_no_next_phase(db_session, stream_mock, monkeypat
     # responses from GLM were the longrun #35 failure mode.
     assert "[PROJECT_COMPLETE" in req.message
     assert "[CREATE_PHASE" in req.message
+    # Must force per-criterion checklist evaluation BEFORE allowing
+    # PROJECT_COMPLETE — an unchecked "pick one" prompt caused a
+    # 50-min longrun to emit PROJECT_COMPLETE with only the 기획 phase
+    # done, while the Goal required a full working app + design screens.
+    assert "✅" in req.message
+    assert "❌" in req.message
+    # Must explicitly forbid prose-only "종료" replies
+    assert "체크리스트" in req.message or "checklist" in req.message.lower()
 
 
 async def test_auto_chain_skipped_when_project_completed(
