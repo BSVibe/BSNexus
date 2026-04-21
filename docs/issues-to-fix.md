@@ -349,8 +349,21 @@
 - **v8 시도 (prompt 강화)**: PASSIVE_MODE_RULES 에 "MUST verify, use shell_exec liberally" 직접 지시 → **shell_exec 0건**. 다른 tool 은 정상 호출 (file_write 3, create_screen 4, create_task 24 등).
 - **v9 시도 (CoT Q1/Q2/Q3 재구성)**: "성공 조건 → 테스트 방법 → 작업" 순서로 사전 선언 강제 → **file_read 2→13 (6배 증가)**, **shell_exec 여전히 0**. CoT 가 read-only verify 는 유도하지만 shell command 는 못 유도.
 - **v10 시도 (Q2 E2E framing + file_read as primary verify 금지)**: "end user / 빌드 시스템이 실제로 쓴다면" 프레이밍 + 실행 가능 산출물에 대해 file_read 를 단독 verify 로 금지 + 예시 전체를 `curl endpoint` · `sqlite3 schema.sql` · `json.tool parse` 로 교체 → **shell_exec 여전히 0**. file_read 6회, file_write 4회 (정상 pattern). 산출물에 `backend/package.json` 등장했지만 worker 가 build/install 검증 전혀 안 함.
-- **3회 연속 실측 결론**: GLM-4.7-flash 가 `shell_exec` tool 을 **자발적으로 선택하는 것을 prompt 로 유도 불가**. Tool description + CoT 선언 + E2E framing 모두 효과 없음. Model inherent preference.
-- **세션 10 최종 conclusion**: prompt 엔지니어링 (직접 지시 → CoT → E2E framing) **3회 연속 실패**. Prompt 층은 여기까지가 한계.
+- **v11 (끝까지 관찰 시도)**: 사용자 지적 — "측정을 너무 일찍 끊었다. Phase 후반 E2E test 가능성" → V11 재실행 + CoT activity/chat 추적. **40분 관찰 결과: shell_exec 0**, 그러나 진짜 근본 문제 드러남:
+  - **모든 task 가 CMO 또는 CEO 에게 self-assign**. 구현 agent (Backend_Engineer, Frontend_Engineer, Designer, QA_Lead) 한 명도 passive dispatch 안 됨.
+  - CMO 자연어 응답엔 `@Backend_Engineer`, `@Designer` 멘션 있지만 **CREATE_TASK 마커의 `assignee=` 필드가 비어있음** → backend 가 caller(CMO) 로 self-assign.
+  - Passive worker 경로가 전혀 안 돌기 때문에 shell_exec 측정 자체가 **N/A** — 쓸 agent 가 없었던 것.
+- **세션 10 최종 conclusion 수정**:
+  - prompt 엔지니어링 3회 실험은 유효하지 않았음 (샘플 자체가 passive worker 무작동 상태).
+  - **실제 장벽은 organizational routing**: CEO/CMO 가 task 마커에 assignee 를 제대로 채우지 않아 구현 agent 가 호출 안 됨. 이 조건에서 shell_exec 논의는 성립 불가.
+
+### 38. CEO/CMO 가 CREATE_TASK marker assignee 필드 비워둠 (세션 11 최우선)
+- **증상**: 자연어 응답엔 `@Backend_Engineer` 등 멘션이 있지만 `[CREATE_TASK title="..."]` 에는 `assignee="..."` 가 누락. Backend 는 이를 caller self-assign 으로 처리.
+- **결과**: 모든 task 가 CMO/CEO 에 몰림 → 실제 구현 workers (Backend/Frontend/Designer) 한 명도 dispatch 안 됨 → passive worker path 무동작 → shell_exec 검증 층이 작동할 기회 자체 없음.
+- **방향**:
+  - A. ACTIVE_MODE_RULES 에 "assignee 가 빈 CREATE_TASK 는 자동 거부됨" 명시 + backend 가 실제로 reject
+  - B. Backend 가 `@Name` 을 자연어에서 추출해 assignee 비면 자동 채움
+  - C. Capability 기반 auto-routing: task.title 키워드로 적합한 agent 탐색
 - **세션 11 방향**:
   - A. **Backend-level enforcement**: `_execute_inline_markers` 에서 `COMPLETE_TASK` 수신 시 해당 turn 의 tool_calls_made 에 verification 호출 (`shell_exec` / `file_read`) 있는지 체크. 없으면 reject + "verification 없이 complete 불가" 재dispatch.
   - B. **output_data evidence 필수화**: task.output_data 에 `{verified_by: "...", result: "..."}` 필드 없으면 state=blocked.
