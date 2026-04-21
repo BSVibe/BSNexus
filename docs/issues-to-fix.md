@@ -303,7 +303,7 @@
 - **timeout 상향**: `LLM_REQUEST_TIMEOUT=600→1200` (passive iteration이 길어서)
 - **assignee @ prefix strip**: GLM이 `@CEO` 넣어 `_resolve_agent_by_name` fail → 파서에서 strip
 
-### 35. 프로젝트 "종료" 정의 부재 → DONE (세션 10)
+### 35. 프로젝트 "종료" 정의 부재 → PARTIAL (세션 10, loop-breaker 만)
 - **인프라**:
   - `[SET_GOAL]` 블록 마커 → DB Goal(level="project") upsert. role-agnostic
   - 매 턴 `## Project Goal` 섹션으로 system prompt inline
@@ -322,6 +322,21 @@
   | 33min | phase 2 완료 | 모든 기준 ✅ | `[PROJECT_COMPLETE summary=...]` emit |
   - DB `Project.status = completed`, auto-chain 재발동 없음
   - **핵심 검증**: 동일한 상황에서 v3 는 거짓 ✅ 찍고 종료했으나 v4 는 ❌ 찍고 phase 추가. Goal 기준 실제 평가가 강제됨.
+- **그러나 v4 2번째 평가는 또 다른 false positive**:
+  - 최종 산출물 실측: `schema.sql` (2KB PostgreSQL 스키마) + `deploy.sh` + `.github/workflows/deploy.yml` + 4 `.bsd` screen stub (모두 `generated_code: null`, `spec.type: "Screen"` 만 있음) + docs 3개
+  - 실행 가능한 앱 코드 0 (`.js`, `.ts`, `package.json` 없음)
+  - CEO 가 task.status=done 을 ✅ 근거로 사용 — 실제 파일 존재 체크 하지 않음
+  - 예: `✅ 실제 동작하는 앱 소스코드 (task: '앱 기능 구현 및 화면 개발')` — 그 task 가 done 이라는 이유만으로 ✅ 찍음. 파일 확인 안 함.
+- **loop-breaker 자체는 DONE**: auto-chain 무한 loop 는 확실히 끊어짐, Project.status=completed 로 전환 확인. 이 부분은 해결.
+- **하지만 "정확한 종료 판정" 은 미해결**: directive 를 한 단계 더 강화 필요.
+
+### 35-next. Checklist 근거 강화 (세션 11 핵심)
+- **문제**: CEO 가 task.status 만으로 ✅ 판정. `done` task 가 실제로 파일을 산출했는지 체크 안 함.
+- **방향**:
+  - A. directive 에 "근거는 task 이름 금지, 파일 경로 + 크기 명시 의무화" 추가
+  - B. backend 가 `_execute_inline_markers` 에서 PROJECT_COMPLETE 수신 시 **산출물 검증**: Goal.description 에서 키워드 추출 (`소스코드`, `디자인 화면` 등) → workspace 파일 스캔 → 매칭되는 실제 파일이 있는지 확인. 매칭 실패 시 PROJECT_COMPLETE 거부 + 재평가 요청
+  - C. Worker-side 강제: task 완료 시 `.output_path` 또는 `output_data` 에 파일 경로 기록 의무화 → CEO 가 그 경로를 근거로만 ✅
+- **권장**: A + B 병행. A 는 프롬프트만 수정 (경량), B 는 backend 검증 (강력).
 
 ### 36. markers_leaked 카운팅 — longrun spec 버그 (세션 10)
 - **증상**: longrun-marker-scenario.spec.ts 가 `markerLeakCount++` 를 매 poll iteration * 매 message 반복 → 같은 leaky msg 가 200+ 로 부풀려짐
