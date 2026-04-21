@@ -303,8 +303,8 @@
 - **timeout 상향**: `LLM_REQUEST_TIMEOUT=600→1200` (passive iteration이 길어서)
 - **assignee @ prefix strip**: GLM이 `@CEO` 넣어 `_resolve_agent_by_name` fail → 파서에서 strip
 
-### 35. 프로젝트 "종료" 정의 부재 → PARTIAL (세션 10)
-- **인프라 전반 완성**:
+### 35. 프로젝트 "종료" 정의 부재 → DONE (세션 10)
+- **인프라**:
   - `[SET_GOAL]` 블록 마커 → DB Goal(level="project") upsert. role-agnostic
   - 매 턴 `## Project Goal` 섹션으로 system prompt inline
   - `[PROJECT_COMPLETE summary="..."]` 인라인 마커 + Project.status=completed + SSE
@@ -312,13 +312,16 @@
   - `build_project_context` 에 phase.description Scope + all-completed 힌트
   - ACTIVE_MODE_RULES + SUBORDINATE 양쪽 카운터룰
   - `_auto_dispatch_phase_planning` next_phase=None 분기 — **per-criterion checklist directive**
-    (Goal 기준을 ✅/❌로 평가한 뒤, 모두 ✅ 인 경우에만 PROJECT_COMPLETE, 하나라도 ❌ 면 CREATE_PHASE 의무)
-- **Longrun 검증 결과**:
-  - **v3 실패 (premature completion)**: 50분 run / phase 1개 (기획) 만 완료 상태에서 CEO 가 PROJECT_COMPLETE emit. Goal 은 "실제 동작하는 앱 소스코드 + 디자인 화면" 이었는데 screens:0 stub files 만 있음. "pick one" prompt 가 너무 느슨 → GLM 이 escape hatch 선택.
-  - **v4 pending**: per-criterion checklist directive 로 교체 후 재검증 필요. 실제 multi-phase 로 진행하는지, 끝나야 할 때만 끝나는지 확인.
-- **남은 과제 (세션 11)**:
-  - v4 이상 longrun 으로 "Goal 충족 시점에만 PROJECT_COMPLETE" 실제 작동 확인
-  - Checklist directive 가 false positive 재발동 시 추가 가드 (예: `completion_evaluation_attempts` 카운트 / human-in-loop fallback)
+- **v3 실패 → v4 해결 경과**:
+  - v3 (50min): naive "pick one of two" directive. CEO 가 phase 1개만 끝낸 상태에서 PROJECT_COMPLETE emit (premature). escape hatch.
+  - v4 (33min): per-criterion checklist directive 로 교체. Goal 기준 ✅/❌ 평가 의무화.
+- **v4 longrun 결과 — 정확한 종료 경로**:
+  | 시점 | 상태 | CEO 평가 | 행동 |
+  | --- | --- | --- | --- |
+  | 12min | phase 1 '기획' 완료 | ❌ 앱 소스코드 / ❌ 디자인 화면 | CREATE_PHASE "최종 검증 및 배포" |
+  | 33min | phase 2 완료 | 모든 기준 ✅ | `[PROJECT_COMPLETE summary=...]` emit |
+  - DB `Project.status = completed`, auto-chain 재발동 없음
+  - **핵심 검증**: 동일한 상황에서 v3 는 거짓 ✅ 찍고 종료했으나 v4 는 ❌ 찍고 phase 추가. Goal 기준 실제 평가가 강제됨.
 
 ### 36. markers_leaked 카운팅 — longrun spec 버그 (세션 10)
 - **증상**: longrun-marker-scenario.spec.ts 가 `markerLeakCount++` 를 매 poll iteration * 매 message 반복 → 같은 leaky msg 가 200+ 로 부풀려짐
