@@ -303,7 +303,7 @@
 - **timeout 상향**: `LLM_REQUEST_TIMEOUT=600→1200` (passive iteration이 길어서)
 - **assignee @ prefix strip**: GLM이 `@CEO` 넣어 `_resolve_agent_by_name` fail → 파서에서 strip
 
-### 35. 프로젝트 "종료" 정의 부재 → PARTIAL (세션 10, loop-breaker 만)
+### 35. 프로젝트 "종료" 정의 부재 → DONE (세션 10) — loop-breaker + artifact gate
 - **인프라**:
   - `[SET_GOAL]` 블록 마커 → DB Goal(level="project") upsert. role-agnostic
   - 매 턴 `## Project Goal` 섹션으로 system prompt inline
@@ -327,16 +327,31 @@
   - 실행 가능한 앱 코드 0 (`.js`, `.ts`, `package.json` 없음)
   - CEO 가 task.status=done 을 ✅ 근거로 사용 — 실제 파일 존재 체크 하지 않음
   - 예: `✅ 실제 동작하는 앱 소스코드 (task: '앱 기능 구현 및 화면 개발')` — 그 task 가 done 이라는 이유만으로 ✅ 찍음. 파일 확인 안 함.
-- **loop-breaker 자체는 DONE**: auto-chain 무한 loop 는 확실히 끊어짐, Project.status=completed 로 전환 확인. 이 부분은 해결.
-- **하지만 "정확한 종료 판정" 은 미해결**: directive 를 한 단계 더 강화 필요.
+- **loop-breaker + gate 둘 다 DONE**:
+  - auto-chain 무한 loop 끊어짐 (directive prompt 가 마커 강제)
+  - Artifact gate 가 Goal 키워드 (`소스코드`, `디자인 화면`) 대응 파일 존재 검증 — 없으면 PROJECT_COMPLETE 거부. `.bsnexus/context/*.md` 같은 메타 파일은 증거로 인정 안 함, 빈 `.bsd` stub 도 무효
+  - Rejection 시 org-root 에 피드백 메시지 re-enqueue → silent stall 방지
+- **남은 작은 이슈 → #37** (세션 11): Rejection 후 CEO 가 기획 phase 만 rehash 하는 경향 — 이건 구현/planning 의사결정 프롬프트 층이지, 종료 판정 메커니즘의 결함은 아님.
 
-### 35-next. Checklist 근거 강화 (세션 11 핵심)
-- **문제**: CEO 가 task.status 만으로 ✅ 판정. `done` task 가 실제로 파일을 산출했는지 체크 안 함.
-- **방향**:
-  - A. directive 에 "근거는 task 이름 금지, 파일 경로 + 크기 명시 의무화" 추가
-  - B. backend 가 `_execute_inline_markers` 에서 PROJECT_COMPLETE 수신 시 **산출물 검증**: Goal.description 에서 키워드 추출 (`소스코드`, `디자인 화면` 등) → workspace 파일 스캔 → 매칭되는 실제 파일이 있는지 확인. 매칭 실패 시 PROJECT_COMPLETE 거부 + 재평가 요청
-  - C. Worker-side 강제: task 완료 시 `.output_path` 또는 `output_data` 에 파일 경로 기록 의무화 → CEO 가 그 경로를 근거로만 ✅
-- **권장**: A + B 병행. A 는 프롬프트만 수정 (경량), B 는 backend 검증 (강력).
+### 35-next. Checklist 근거 강화 → DONE (세션 10)
+- **구현 (commit 15-16)**:
+  - `backend/src/core/goal_verification.py` — Goal description 키워드 스캔 (code/design family) → workspace 파일 존재 검증. 빈 `.bsd` stub 제외.
+  - `_execute_inline_markers` 가 PROJECT_COMPLETE 수신 시 `verify_goal_artifacts` 호출. missing 있으면 status 플립 거부 + `project_complete_rejected_missing_artifacts` 로그
+  - Rejection 발생 시 org-root 에게 피드백 메시지 re-enqueue: "거부됨, 누락 항목 X 를 위한 CREATE_PHASE 필요, `.bsnexus/context/*.md` 는 증거 아님" → dispatcher 가 자체적으로 재호출 안 하는 상태에서도 CEO loop 재개
+  - Directive prompt 강화: ✅ 근거로 **파일 경로 + 크기** 요구, task 이름 금지
+- **v5 검증**: CEO 가 `.bsnexus/context/*.md` 를 "소스코드 증거" 로 거짓 제시 → gate reject → 그러나 재호출 없어서 stall. **수정됨 (commit 16)**.
+- **v6 검증**: Rejection → redispatch → CEO 가 CREATE_PHASE 로 응답 (loop 끊김 확인) → 그러나 새 phase 도 다시 기획 phase (구현 phase 아님).
+
+### 37. CEO 가 rejection 후에도 구현 phase 대신 기획 phase rehash (세션 11)
+- **증상 (v6 longrun, project 729e0a44)**:
+  - Gate 2회 reject 했음에도 CEO 가 "기획 상세화" → "기획 및 기술 스택 선정" 같은 planning phase 연속 엶
+  - 모든 task 를 self (CEO) 에 assign ("do NOT assign to yourself" 룰 무시)
+  - Workers 는 CEO-assigned task 에 대해 .md 문서만 생성. 실제 `.ts/.js/.py` 파일 0건
+  - Gate → reject → redispatch → 또 기획 phase → ... (logical loop 은 아님, 진짜 산출물 부재 상태에서 무한 planning)
+- **해결 방향 (세션 11)**:
+  - A. Redispatch 메시지에 "기획 phase 금지, assignee 는 Backend_Engineer/Frontend_Engineer/Designer 중에서 선택 필수, 파일 생성 task 3-5개" 엄격 명시
+  - B. N회 연속 rejection 후 human-in-loop 자동 호출 ("@user 진행 안 되는 중입니다, 확인 바랍니다")
+  - C. Worker-side: task title 이 "구현"/"개발" 포함할 때 실제 code 파일 산출 템플릿 강제 (worker prompt 엔지니어링)
 
 ### 36. markers_leaked 카운팅 — longrun spec 버그 (세션 10)
 - **증상**: longrun-marker-scenario.spec.ts 가 `markerLeakCount++` 를 매 poll iteration * 매 message 반복 → 같은 leaky msg 가 200+ 로 부풀려짐
