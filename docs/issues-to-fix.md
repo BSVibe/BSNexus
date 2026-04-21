@@ -331,7 +331,15 @@
   - auto-chain 무한 loop 끊어짐 (directive prompt 가 마커 강제)
   - Artifact gate 가 Goal 키워드 (`소스코드`, `디자인 화면`) 대응 파일 존재 검증 — 없으면 PROJECT_COMPLETE 거부. `.bsnexus/context/*.md` 같은 메타 파일은 증거로 인정 안 함, 빈 `.bsd` stub 도 무효
   - Rejection 시 org-root 에 피드백 메시지 re-enqueue → silent stall 방지
-- **남은 작은 이슈 → #37** (세션 11): Rejection 후 CEO 가 기획 phase 만 rehash 하는 경향 — 이건 구현/planning 의사결정 프롬프트 층이지, 종료 판정 메커니즘의 결함은 아님.
+- **v7 real end-to-end 성공 (2026-04-21, 52분, project 62b367c3)**:
+  - Phase 진행: 기획 → 개발 (frontend/backend 실제 코드) → 최종 검증 및 배포 (.bsd populated)
+  - 최종 산출물 14 files, 총 35KB:
+    - frontend: App.tsx, Header.tsx, ProtectedRoute.tsx, AuthContext.tsx + .js (+ App.js, Header.js)
+    - backend: controllers/auth.js, models/index.js, routes/auth.js
+    - design: `main-dashboard---health-routine-app.bsd` (populated Appbar + ScrollView + Card spec)
+    - docs: market-research.md (6KB), wireframes.md (12KB), final-project-plan.md (3KB)
+  - `project_completed_via_marker by_agent=CEO` 로그 확인. gate PASS (reject 아님). DB `status=completed`.
+  - **Goal 충족**: "실제 동작하는 앱 소스코드 + UI/UX 디자인 화면 + 완성형 MVP" — 기초 auth flow + dashboard screen + models 산출.
 
 ### 35-next. Checklist 근거 강화 → DONE (세션 10)
 - **구현 (commit 15-16)**:
