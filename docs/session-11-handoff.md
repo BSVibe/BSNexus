@@ -1,85 +1,63 @@
-# Session 11 Handoff — Enforce PROJECT_COMPLETE emit + Longrun spec cleanup
+# Session 11 Handoff — #35 완전 해결, 정리 및 차순위
 
 브랜치: `feat/plan-view-overhaul`
-이전 세션 마지막 커밋: `462130c fix(projects): drain agent queue on project delete + batch delete`
-테스트 상태: **1080 passing** (기존 1057 + 세션 10 신규 23)
+이전 세션 마지막 커밋: `65754da fix(dispatcher): force structured PROJECT_COMPLETE vs CREATE_PHASE choice when all phases done`
+테스트 상태: **1080 passing**
 
-## 세션 10 성과 (7 commits, 1080 tests)
+## 세션 10 성과 (9 commits, #35 DONE)
 
 | # | 주제 | 파일 |
 | --- | --- | --- |
 | 1 | `[SET_GOAL]` 블록 → DB Goal upsert, `upsert_project_goal` util | agent_chat, plan_tools |
-| 2 | `## Project Goal` 섹션 system prompt inline + missing warning = FIRST TURN SET_GOAL rule (role-agnostic) | harness, agent_chat |
-| 3 | `[PROJECT_COMPLETE]` 인라인 마커 + dispatcher guard + ACTIVE_MODE 양쪽 카운터룰 | task_markers, agent_chat, global_dispatcher, harness |
+| 2 | `## Project Goal` system prompt inline + missing warning = FIRST TURN SET_GOAL (role-agnostic) | harness, agent_chat |
+| 3 | `[PROJECT_COMPLETE]` 인라인 마커 + dispatcher guard 2중 + ACTIVE_MODE 양쪽 카운터룰 | task_markers, agent_chat, global_dispatcher, harness |
 | 4 | `build_project_context` 에 phase.description (Scope) + all-completed 힌트 | task_markers |
 | 5 | 공용 `_match_phase_by_name` (4-ladder fuzzy) + `create_task_from_params` 호출 | plan_tools |
 | 6 | `ACTIVE_MODE_RULES_SUBORDINATE` 에 Phase Alignment 의무 규칙 | harness |
 | 7 | `DELETE /projects/{id}` + batch delete 가 `cancel_project()` 호출 | projects.py |
+| 8 | docs (session-11 handoff + issues-to-fix + memory) | docs |
+| 9 | `_auto_dispatch_phase_planning` 의 `next_phase=None` 분기를 **directive prompt** 로 교체 — loop-breaker | global_dispatcher |
 
-## Longrun 검증 (2026-04-20, 7h)
+## Longrun 검증 — #35 Loop 종료 확인
 
-프로젝트: `6a669df0-def6-4de0-94fb-c7ca944e7da8` — "E2E Longrun 04-20 16:02"
-결과: **STALL** (commits 3-7 loop-breaker 가 효과 부족)
+**프로젝트**: `91cb9e77-a193-4169-9fdd-d0d7837d1ada` / "E2E Longrun 04-21 00:09" (50분)
 
-### ✅ 작동 확인
-- **CMO role-agnostic SET_GOAL** — 첫 턴에 자발적으로 `[SET_GOAL]` 블록 emit, DB 저장됨:
-  ```
-  title: "E2E Longrun 04-20 16:02 프로젝트 목표 설정"
-  desc : "실제 동작하는 앱의 소스코드와 디자인 화면을 모두 완성하여 시장에 출시 가능한 MVP를 제공함."
-  ```
-- **Marker stripping** — chat 20 msgs 에 `[CREATE_TASK`/`[CREATE_PHASE` 0건
-- **Delegation chain** — 12 agents 참여 (CMO/CEO/CTO/QA_Lead/Backend_Engineer/Frontend_Engineer/Designer/DevOps/QA/Engineer/Product_Manager/Content_Writer)
-- **123 tasks 생성 + 123 done** — execution pipeline 정상
-- **Queue drain** — 프로젝트 DELETE 시 `project_delete_queue_drained cancelled=136` 로그 확인
+| 시각 | 이벤트 |
+| --- | --- |
+| 00:09 | CMO 가 SET_GOAL 블록 emit → DB Goal 저장 |
+| 00:09~30 | Phase 1 "기획" 에서 7 tasks 생성 + 모두 done |
+| 00:30 | `phase_auto_chain_dispatched next_phase=None` — **directive prompt 로 CEO 재호출** |
+| 00:39 | CEO 가 `[PROJECT_COMPLETE summary="..."]` emit |
+| 00:39 | `project_completed_via_marker by_agent=CEO` 백엔드 로그 |
+| ✅ | `Project.status = completed` DB 확인. auto-chain loop 정상 종료 |
 
-### ❌ 미해결 (세션 11 최우선)
-- **PROJECT_COMPLETE 마커 0건 emit** — 모든 agents 가 자연어로 "프로젝트 성공적으로 종료하겠습니다" 라고만 말하고 마커는 안 씀
-- **7 phases 폭발** — CEO 가 auto-chain 에서 계속 new phase 만듦 (Phase count cap 금지 사용자 명시)
-- **54min stall** — CHAIN_COMPLETE 기준 (phases≥3, tasks≥15, agents≥5, doneTasks≥10, files≥5) 중 files:3 만 미달, 나머지는 오래 전에 넘음
+**이전 세션 (commit 1-8 만) 의 문제점**: GLM-4.7-flash 는 프롬프트 카운터룰을 무시하고 자연어로 "프로젝트 종료하겠습니다" 라고만 답변 → 마커가 안 emit 되어 loop 유지. **Commit 9 의 directive prompt 로 해결**. 명시적으로 "아래 2개 마커 중 하나 반드시 emit" 을 요구한 게 결정적.
 
-## 세션 11 최우선 과제
+## 차순위 이슈
 
-### 1. PROJECT_COMPLETE emit 강제 (#35-next)
+### #25 Task-Phase 미스매치 → ~PARTIAL (세션 10)
+- commit 4: phase.description Scope 인라인, commit 5: fuzzy phase_name, commit 6: Phase Alignment rule
+- 세션 11 에서 longrun 으로 실측 확인 (fallback warning 로그 발생 빈도, 실제 미스매치 건수)
 
-프롬프트 룰만으로는 GLM-4.7-flash 가 마커 emit 수행 안 함. 더 강한 장치 필요.
+### #36 longrun spec markers_leaked 카운팅 버그
+- `markerLeakCount++` 가 poll * msg 로 중복 증가 → 실제 leak 0 인데 216 으로 찍힘
+- `seenLeakIds: Set<string>` 로 msg.id 당 1회 집계
 
-**추천 접근 C (gate-based prompt)**:
-- `_auto_dispatch_phase_planning` 이 CEO 를 호출하기 전에, project 상태가 "종료 가까움" (예: 모든 phase done + goal.description 에 부합하는 산출물 있음) 이면
-- **전용 종료-평가 프롬프트** 로 CEO 호출:
-  ```
-  아래 Goal criteria 와 현재 Plan State 를 검토해주세요.
-  - criteria 가 전부 충족됐으면 한 줄로 `[PROJECT_COMPLETE summary="..."]` 만 emit
-  - 아직 필요한 작업이 있으면 평소처럼 CREATE_PHASE + CREATE_TASK
-  반드시 둘 중 하나를 해야 합니다.
-  ```
-- 응답에 PROJECT_COMPLETE 있으면 `_execute_inline_markers` 가 `Project.status=completed` 로 전환
-- 없으면 일반 flow 로 복귀
+### #26 Worker executor streaming/budget 미지원
+- Claude Code worker 경로에서 streaming/usage/text_delta 없음 (세션 9 out-of-scope)
 
-**대안**:
-- **D. Human-in-loop**: 10min stall 감지 시 backend 가 자동으로 user 채팅에 "완료처럼 보여요 — 맞으면 `ok` 답신해주세요" 발행, `ok` 수신 시 force complete
-- **B. 단일 tool**: 매우 제한된 active-mode tool `complete_project(summary)` 하나만 노출 (Qwen3/GLM 모두 tool loop 경험 있으므로 주의)
+### stress-test: 여러 프로젝트 동시 진행
+- `cancel_project(project_id)` unit mock 만 있음. fresh-PG integration 테스트 필요
+- 동시 10 프로젝트에서 queue drain, dispatcher, goal 등 체크
 
-### 2. Longrun spec 카운팅 버그 (#36)
-`longrun-marker-scenario.spec.ts` 의 `markerLeakCount++` 는 매 poll 마다 재카운트 → false alarm 216. `seenLeakIds: Set<string>` 으로 msg.id 당 1회 집계.
-
-### 3. 남은 세션 10 계획 작업
-- ~~Commit 8 (docs)~~ 는 이 handoff 포함으로 진행 중
-- `test_delete_project_drains_queue` 통합 테스트 (real PG + real queue) — 현재 unit mock 만 있음. 가능하면 fresh-PG integration 으로 격상.
-
-## 차순위
-
-- #26 Worker executor streaming/budget — 이월
-- markdown 기반 Design view 검증 — 세션 9에서 중단
-- `stuck-watchdog` (금지 영역) — 계속 건드리지 말 것
+### #35 파생 — 좀 더 다양한 종료 시나리오
+- "출시까지" / "마케팅까지" 같은 multi-phase 프로젝트에서도 directive prompt 가 작동하는지 (세션 10 은 "기획부터 개발/디자인까지" 50분 프로젝트에서만 검증)
+- longrun 테스트 prompt 조정해 출시/마케팅 포함한 장시간 시나리오 돌리기 → 5+ phases 진행 후 PROJECT_COMPLETE emit 되는지
 
 ## 시나리오 테스트 절차
 
-세션 10 handoff 원본 그대로 사용 (JWT 토큰 고정, Backend 기동 스크립트 동일).
-
-### Backend 재시작
-
+### Backend 재시작 (PID 선별)
 ```bash
-# 컨테이너가 죽지 않도록 PID 선별 kill (PID 1 은 devcontainer init shell)
 docker exec bsnexus-feat-company-os-app-1 bash -c "pgrep -f 'uvicorn backend' | xargs -r kill; \
   find /workspace/backend -name '*.pyc' -delete; \
   find /workspace/backend -name '__pycache__' -type d -exec rm -rf {} +"
@@ -96,11 +74,10 @@ docker exec -d bsnexus-feat-company-os-app-1 bash -c "cd /workspace && \
   uv run --project backend python -B -m uvicorn backend.src.main:app \
   --host 0.0.0.0 --port 8000 > /tmp/backend.log 2>&1"
 
-sleep 15 && curl -sf http://localhost:18100/health/llm
+sleep 20 && curl -sf http://localhost:18100/health/llm
 ```
 
-### E2E Longrun
-
+### Longrun
 ```bash
 cd /Users/blasin/Works/BSNexus/feat-company-os/frontend && \
   LIVE_FRONTEND_URL=http://localhost:13100 LIVE_API_URL=http://localhost:18100 \
@@ -109,31 +86,25 @@ cd /Users/blasin/Works/BSNexus/feat-company-os/frontend && \
   --timeout=29000000 --reporter=list 2>&1 | tee /tmp/longrun-e2e.log
 ```
 
-### Goal 및 status 확인
-
+### #35 검증 commands
 ```bash
-# SET_GOAL 저장 확인
+# Goal 저장
 docker exec bsnexus-feat-company-os-postgres-1 psql -U bsnexus -d bsnexus -c \
-  "SELECT title, left(description,120) FROM goals \
-   WHERE project_id='<PROJECT_ID>' AND level='project';"
+  "SELECT title, left(description,120) FROM goals WHERE project_id='<PID>' AND level='project';"
 
-# PROJECT_COMPLETE 후 status 확인
+# Project 종료 확인
 docker exec bsnexus-feat-company-os-postgres-1 psql -U bsnexus -d bsnexus -c \
-  "SELECT name, status FROM projects WHERE id='<PROJECT_ID>';"
-```
+  "SELECT name, status FROM projects WHERE id='<PID>';"
 
-### Auto-chain 재발동 체크
-
-```bash
-docker exec bsnexus-feat-company-os-app-1 grep "phase_auto_chain_dispatched" /tmp/backend.log | \
-  awk -F'project_id=' '{print $2}' | sort | uniq -c
-# completed 프로젝트는 더 이상 재발동되지 않아야 함
+# Loop-breaker 작동 로그
+docker exec bsnexus-feat-company-os-app-1 grep -E \
+  'project_completed_via_marker|phase_auto_chain_skipped_project_completed' /tmp/backend.log
 ```
 
 ## 작업 방식
 
 - **TDD 필수** (`/feature-workflow` 스킬). 1080 passing 깨지 말 것.
-- **MCP Playwright 대신 기존 spec 사용** — `longrun-marker-scenario.spec.ts` 가 이미 있음 (사용자 지적)
-- **Phase count cap 같은 기계적 상한 금지** (#35 결정)
-- **Active mode 에 tool 다시 추가 금지** — Qwen3/GLM 모두 loop 검증됨
-- **docker exec 에서 pkill 은 PID 1 가능성 고려** — `pgrep -f ... | xargs kill` 로 surgical
+- **MCP Playwright 대신 기존 spec 사용** — `longrun-marker-scenario.spec.ts`
+- **Phase count cap 금지** — directive prompt 가 동작하므로 이제 cap 필요 없음
+- **Active mode 에 tool 재추가 금지** — GLM/Qwen3 모두 loop 검증됨
+- **docker exec 에서 pkill 은 surgical** — `pgrep -f ... | xargs -r kill` 로 PID 1 보호

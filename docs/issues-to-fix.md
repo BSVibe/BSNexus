@@ -303,31 +303,28 @@
 - **timeout 상향**: `LLM_REQUEST_TIMEOUT=600→1200` (passive iteration이 길어서)
 - **assignee @ prefix strip**: GLM이 `@CEO` 넣어 `_resolve_agent_by_name` fail → 파서에서 strip
 
-### 35. 프로젝트 "종료" 정의 부재 → PARTIAL (세션 10)
-- **세션 10 인프라 구축 완료**:
-  - `[SET_GOAL]` 블록 마커 활성화 — DB Goal(level="project") upsert. CMO/Designer 등 role-agnostic
-  - 프로젝트 Goal 을 매 턴 `## Project Goal` 섹션으로 system prompt 에 inline
-  - Goal 없을 때 ⚠️ 경고 + FIRST TURN SET_GOAL 지시문 자동 렌더
-  - `[PROJECT_COMPLETE summary="..."]` 인라인 마커 + 파서 + 핸들러
-  - `Project.status=completed` 전환 + SSE 이벤트 + dispatcher guard 2중
+### 35. 프로젝트 "종료" 정의 부재 → DONE (세션 10)
+- **인프라**:
+  - `[SET_GOAL]` 블록 마커 → DB Goal(level="project") upsert. role-agnostic (CMO/Designer/CEO 모두 가능)
+  - 매 턴 `## Project Goal` 섹션으로 system prompt inline. 없으면 FIRST TURN SET_GOAL 경고
+  - `[PROJECT_COMPLETE summary="..."]` 인라인 마커 → Project.status=completed + SSE 발행
+  - Dispatcher guard 2중 (`_list_active_projects` 필터 + `_advance_phase_if_complete` / `_auto_dispatch_phase_planning` early-return)
   - `build_project_context` 에 phase.description (Scope) + all-completed 힌트
-  - ACTIVE_MODE_RULES + SUBORDINATE 에 "Project Completion STOP SIGNAL" 카운터룰
-- **Longrun 검증 결과 (2026-04-20, 7시간)**:
-  - ✅ CMO 가 첫 턴에 SET_GOAL 블록 emit → DB Goal 성공적 저장
-  - ✅ 프롬프트에 `## Project Goal` 인라인 확인
-  - ✅ marker stripping 정상 (chat 에 `[CREATE_TASK`/`[CREATE_PHASE` 0건)
-  - ✅ 12 agents 참여, 123 tasks done, delegation chain 정상
-  - ✅ Queue drain: DELETE 시 136 items drained, FK violation 없음
-  - ❌ **PROJECT_COMPLETE 마커 한 번도 emit 안 됨** — GLM 이 카운터룰을 무시하고 자연어로 "프로젝트 종료하겠습니다" 라고만 말함. 7 phases 까지 폭발.
+  - ACTIVE_MODE_RULES + SUBORDINATE 양쪽에 "Project Completion STOP SIGNAL" 카운터룰
+- **loop-breaker (마지막 조각)**: `_auto_dispatch_phase_planning` 의 `next_phase=None` 분기 prose 메시지를
+  **directive prompt 로 교체** — CEO 가 `[PROJECT_COMPLETE summary=...]` 또는 `[CREATE_PHASE ...] + [CREATE_TASK ...] (3-5)` 중 하나를 반드시 emit 하도록 강제. 이 조각이 없으면 GLM-4.7-flash 는 자연어로만 "종료하겠습니다" 라고 답해서 loop 이 안 끊어졌다.
+- **Longrun 검증 (2026-04-21, 50분 프로젝트)**:
+  - CMO 가 첫 턴에 SET_GOAL emit → DB 저장
+  - Phase 1 모든 tasks 완료
+  - `phase_auto_chain_dispatched next_phase=None` → CEO 에게 directive prompt 전달
+  - CEO 가 `[PROJECT_COMPLETE summary="..."]` emit
+  - `project_completed_via_marker by_agent=CEO` 로그 확인
+  - **`Project.status = completed`** DB 확인. Loop 정상 종료.
 
-### 35-next. PROJECT_COMPLETE emit 강제 (세션 11 핵심)
-- **문제**: 프롬프트 규칙만으로 GLM-4.7-flash 가 마커 emit 을 수행하지 않음. 자연어로 "종료" 만 말함.
-- **해결 옵션**:
-  - A. **Backend-side auto-detection**: 모든 phase completed + stall 감지 시 LLM 에 "PROJECT_COMPLETE 마커 emit 또는 new phase 근거 제시" 재질문 유도
-  - B. **Tool 하나만 허용 active mode**: `complete_project` tool 하나를 agent에게 노출 (이전 실패 경험 있으므로 주의) — marker 와 병행
-  - C. **Gate-based**: `_auto_dispatch_phase_planning` 이 new phase 대신 PROJECT_COMPLETE evaluation 만 하는 전용 prompt 로 CEO 호출, response 에 마커 있으면 complete, 없으면 다시 normal dispatch
-  - D. **Human-in-loop**: 5분 stall 후 "@user 완료처럼 보입니다 확인 요청" 자동 발행
-- **권장**: C 시도 먼저. 실패하면 D 병행.
+### 36. markers_leaked 카운팅 — longrun spec 버그 (세션 10)
+- **증상**: longrun-marker-scenario.spec.ts 가 `markerLeakCount++` 를 매 poll iteration * 매 message 반복 → 같은 leaky msg 가 200+ 로 부풀려짐
+- **해결**: `const seenLeakIds = new Set<string>()` 추가해 msg.id 당 1회만 카운트. 세션 11 cleanup.
+- **영향**: 실제 marker leak 은 0건이지만 리포트는 216 로 찍혀 false alarm.
 
 ### 36. markers_leaked 카운팅 — longrun spec 버그 (세션 10)
 - **증상**: longrun-marker-scenario.spec.ts 가 `markerLeakCount++` 를 매 poll iteration * 매 message 반복 → 같은 leaky msg 가 200+ 로 부풀려짐
