@@ -295,11 +295,27 @@ class GlobalDispatcher:
                 f"적절한 팀원에게 @mention으로 배분해주세요."
             )
         else:
+            # All phases are done. Force a structured choice — a prose-only
+            # "프로젝트를 종료하겠습니다" reply causes infinite auto-chain
+            # because the dispatcher re-invokes CEO on the next phase advance.
+            # Either PROJECT_COMPLETE or CREATE_PHASE must appear in the reply.
             message = (
-                f"'{completed_phase.name}' 단계가 완료되었습니다. "
-                f"프로젝트 목표를 확인하고 다음에 필요한 단계를 판단해주세요. "
-                f"아직 해야 할 일이 있다면 새 phase를 만들고 task를 배분해주세요. "
-                f"모든 작업이 끝났다면 완료 상태를 알려주세요."
+                f"'{completed_phase.name}' 단계가 완료되었고 모든 phase 가 "
+                f"completed 상태입니다. '## Project Goal' 섹션의 종료 기준을 "
+                f"다시 읽어보고 아래 2가지 중 **정확히 하나**를 응답에 포함해 주세요. "
+                f"자연어로만 '종료하겠습니다' 같은 답변은 시스템이 인식하지 못합니다.\n\n"
+                f"**선택 1 — 목표 기준이 충족됐다면**:\n"
+                f"```\n"
+                f"[PROJECT_COMPLETE summary=\"무엇을 달성했는지 1-2문장 요약\"]\n"
+                f"```\n"
+                f"(이 한 줄을 emit 하면 프로젝트가 공식 종료됩니다.)\n\n"
+                f"**선택 2 — 아직 더 필요한 작업이 있다면**, 먼저 왜 필요한지 "
+                f"1-2문장으로 서술한 뒤:\n"
+                f"```\n"
+                f"[CREATE_PHASE name=\"...\" description=\"...\"]\n"
+                f"[CREATE_TASK title=\"...\" assignee=\"...\" priority=\"...\"]  (3-5개)\n"
+                f"```\n"
+                f"둘 중 하나의 마커가 반드시 응답에 있어야 합니다."
             )
 
         from backend.src.core.agent_queue import AgentRequest, get_agent_queue_manager

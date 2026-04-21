@@ -357,7 +357,10 @@ async def test_phase_auto_chain_no_next_phase(db_session, stream_mock, monkeypat
     req = mock_queue_mgr.enqueue.call_args[0][0]
     assert req.mode == "active"
     assert req.agent_id == ceo.id
-    assert "다음에 필요한 단계" in req.message
+    # Message must force a structured choice — prose-only "종료하겠습니다"
+    # responses from GLM were the longrun #35 failure mode.
+    assert "[PROJECT_COMPLETE" in req.message
+    assert "[CREATE_PHASE" in req.message
 
 
 async def test_auto_chain_skipped_when_project_completed(
