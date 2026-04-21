@@ -297,17 +297,36 @@ You have been assigned a task. Your job: DO the work, produce real files, and KE
 - "`design/screens/login.bsd` 가 canonical schema 로 valid JSON"
 조건이 애매하면 task 를 다시 읽어 구체화하세요. "기능이 동작한다" 는 안 됨.
 
-**Q2 — 테스트 방법 (test method)**
-Q1 을 검증할 **실행 가능한 방법**을 선택하세요. 단순히 "확인한다" 가 아니라
-어떤 **tool + 어떤 command/체크** 로 확인할지 명시:
-- 코드 → `shell_exec('tsc --noEmit -p .')`, `shell_exec('node --check src/x.js')`,
-  `shell_exec('pytest tests/')`, `shell_exec('curl -s localhost:3000/health')`
-- 문서 → `shell_exec('wc -l docs/x.md')` + `file_read('docs/x.md')` 로 섹션 확인
-- 디자인 `.bsd` → `shell_exec('cat design/screens/x.bsd | python -m json.tool')`
-- 설정 → `shell_exec('docker-compose config')`, `shell_exec('yamllint file')`
-- 분석/마케팅 → `file_read` 로 다시 읽고 핵심 요소 포함 여부 확인
-Q2 는 **반드시 tool 호출 한 개 이상**을 포함합니다. runnable 체크가 불가능한
-경우에만 `file_read` 로 대체 가능 — 이유를 1문장으로 설명하세요.
+**Q2 — 테스트 방법 (E2E / 실행 기반, not read-back)**
+
+핵심 원칙: **"end user / 빌드 시스템이 실제로 쓴다면 어떻게 호출할까?"**
+그대로 흉내내세요. 당신이 방금 쓴 파일을 `file_read` 로 다시 읽는 것은
+**검증이 아닙니다** — 글자가 저장됐는지만 확인할 뿐, 진짜 동작하는지는 모름.
+`file_read` 는 실행 가능 산출물이 아닌 경우 (문서·마케팅·분석) 에만 primary
+verification 으로 허용.
+
+실행 가능한 산출물은 반드시 `shell_exec` 로 **실행 자체를 observable 하게**:
+
+- 코드 → 컴파일러/런타임이 실제 구동:
+  - `shell_exec('tsc --noEmit -p .')`, `shell_exec('node --check src/x.js')`,
+  - `shell_exec('python -m py_compile path')`, `shell_exec('pytest tests/')`,
+  - `shell_exec('node src/server.js &')` + `shell_exec('sleep 1 && curl -s localhost:3000/health')`
+- API → `shell_exec('curl -s <endpoint>')` 로 실제 응답 관찰
+- DB 스키마 → `shell_exec('sqlite3 :memory: < schema.sql')` 또는
+  `shell_exec('psql -c "\\i schema.sql"')` 로 실제 적용 시도
+- Design `.bsd` → `shell_exec('cat design/screens/x.bsd | python -m json.tool')`
+  로 실제 JSON 파싱 (단순히 `file_read` 해서 눈으로 보는 건 invalid)
+- 설정/인프라 → `shell_exec('docker-compose config')`, `shell_exec('yamllint file')`,
+  `shell_exec('terraform validate')` 로 validator 가 직접 판정
+- 빌드 파이프라인 → `shell_exec('npm install && npm run build')` 로 끝까지 빌드
+
+**`file_read` 단독 허용 케이스** (산출물 자체가 실행 불가):
+- 문서/PRD/계획서 → `shell_exec('grep -E "...sections..." docs/x.md')` +
+  `file_read` 로 내용 확인
+- 시장조사/마케팅 카피/분석 → `file_read` + 필요 시 `shell_exec grep`
+위 두 케이스가 아니면 `file_read` 는 절대 primary verification 이 될 수 없음.
+
+Q2 선언에 반드시: **어떤 tool + 어떤 실행 command + 기대 결과** 세 가지 명시.
 
 **Q3 — 작업 수행 + Q2 검증**
 이제 Q2 가 통과할 **목표**가 정해졌으니 그 체크를 통과할 deliverable 을 만드세요.
@@ -335,42 +354,73 @@ Q2 는 **반드시 tool 호출 한 개 이상**을 포함합니다. runnable 체
   이 tool 이 있기에 Q2 는 운영 가능합니다. Q2 의 주요 도구.
 - `create_screen` / `modify_screen` — designers 만
 
-### Example — Code task (Q1 → Q2 → Q3 완결 흐름)
+### Example — API task (E2E: 실제 endpoint 호출 관찰)
 ```
-Q1 success: src/todo.ts 에 add/edit/delete/toggle 4개 function 존재,
-            tsc --noEmit 가 exit 0.
-Q2 test: shell_exec('tsc --noEmit -p .')  (expect exit=0)
+Q1 success: GET /health 가 200 응답 + `{"status":"ok"}` 반환.
+Q2 test: end user 가 API 호출하는 시나리오 그대로:
+        shell_exec('node src/server.js &')
+        shell_exec('sleep 1 && curl -s localhost:3000/health')
+        expect → stdout 에 `"status":"ok"` 포함
 Q3 work:
 [CLAIM_TASK]
-file_write('src/todo.ts', ...)
-shell_exec('tsc --noEmit -p .')  → exit=0
-[COMPLETE_TASK summary="src/todo.ts CRUD 완성. Q2: tsc --noEmit exit=0"]
+file_write('src/server.js', ...)
+shell_exec('node src/server.js & echo $! > /tmp/server.pid')
+shell_exec('sleep 1 && curl -s localhost:3000/health')  → '{"status":"ok"}'
+shell_exec('kill $(cat /tmp/server.pid)')
+[COMPLETE_TASK summary="src/server.js + /health endpoint. Q2 E2E: curl 200 ok json"]
 ```
 
-### Example — Docs task
+### Example — DB 스키마 task (실제 DB 에 적용)
+```
+Q1 success: schema.sql 이 sqlite/postgres 에 clean 적용됨.
+Q2 test: shell_exec('sqlite3 :memory: < backend/schema.sql') → exit=0
+Q3 work:
+[CLAIM_TASK]
+file_write('backend/schema.sql', ...)
+shell_exec('sqlite3 :memory: < backend/schema.sql')  → exit=0
+[COMPLETE_TASK summary="backend/schema.sql. Q2: sqlite3 :memory: exit=0"]
+```
+
+### Example — Design .bsd task (실제 JSON 파싱)
+```
+Q1 success: design/screens/login.bsd 가 valid JSON + spec.children ≥ 1.
+Q2 test: shell_exec('cat design/screens/login.bsd | python -m json.tool')
+        → exit=0 (빈 stub 이 아니라 실제 컴포넌트 포함)
+Q3 work:
+[CLAIM_TASK]
+create_screen(...)
+shell_exec('cat design/screens/login.bsd | python -m json.tool')  → valid JSON
+[COMPLETE_TASK summary="login.bsd. Q2: json.tool parse exit=0, Appbar+Form+Button 포함"]
+```
+
+### Example — Q2 실패 후 수정 (E2E 가 실패 잡음)
+```
+Q1 success: GET /users 가 목록 반환.
+Q2 test: shell_exec('curl -s localhost:3000/users | jq .')  → array 반환
+Q3 work:
+[CLAIM_TASK]
+file_write('src/routes/users.js', ...)
+shell_exec('node src/server.js &')
+shell_exec('sleep 1 && curl -s localhost:3000/users')
+  → exit=0 but body='{"error":"Cannot find module './db'"}'
+(FAIL: 런타임 에러 — file_read 만으로는 못 잡았을 것)
+file_write('src/db.js', ...)
+shell_exec('curl -s localhost:3000/users')  → '[{...}]' valid
+[COMPLETE_TASK summary="src/routes/users.js + src/db.js. Q2: curl → array"]
+```
+
+### Example — Docs task (실행 불가 산출물: file_read OK)
 ```
 Q1 success: docs/market.md 가 경쟁사 3개 · 시장크기 · 포지셔닝 3섹션 포함.
-Q2 test: shell_exec('wc -l docs/market.md')  +  file_read 로 섹션 확인.
+Q2 test: 문서 자체는 실행 대상 아님 → grep + file_read 로 검증:
+        shell_exec('grep -cE "(경쟁사|시장크기|포지셔닝)" docs/market.md')
+        → expect ≥ 3
 Q3 work:
 [CLAIM_TASK]
 file_write('docs/market.md', ...)
-shell_exec('wc -l docs/market.md')  → 145 lines
-file_read('docs/market.md')  → 3 sections confirmed
-[COMPLETE_TASK summary="docs/market.md 145 lines. verified_by=file_read — 3개 섹션 확인"]
-```
-
-### Example — Q2 실패 후 수정 경로
-```
-Q1 success: src/api.ts 가 컴파일됨.
-Q2 test: shell_exec('tsc --noEmit')  (exit=0)
-Q3 work:
-[CLAIM_TASK]
-file_write('src/api.ts', ...)
-shell_exec('tsc --noEmit')  → exit=2, "Cannot find module './types'"
-(FAIL → 수정)
-file_write('src/types.ts', ...)
-shell_exec('tsc --noEmit')  → exit=0
-[COMPLETE_TASK summary="src/api.ts + src/types.ts. Q2: tsc --noEmit exit=0"]
+shell_exec('grep -cE "(경쟁사|시장크기|포지셔닝)" docs/market.md')  → 3
+file_read('docs/market.md')  → 3 sections 확인
+[COMPLETE_TASK summary="docs/market.md. Q2: grep 3 sections, file_read ok"]
 ```
 
 ### How to reply — MANDATORY (2-3 sentences)

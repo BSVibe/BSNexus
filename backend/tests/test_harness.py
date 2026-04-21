@@ -278,6 +278,19 @@ class TestAssembleSystemPrompt:
         # The available verification tool must be named inside the CoT
         # so the LLM sees it while deciding Q2.
         assert "shell_exec" in prompt
+        # Q2 must be framed as E2E / execution-based — reading the file
+        # you just wrote is NOT verification.
+        assert "E2E" in prompt or "end user" in prompt.lower() or "실행 기반" in prompt
+        # Must explicitly disallow file_read as primary verification for
+        # runnable deliverables (code / API / schema / bsd).
+        # Matches any wording that frames read-back as NOT verification.
+        assert "file_read" in prompt
+        assert (
+            "\uac80\uc99d\uc774 \uc544" in prompt       # 검증이 아(닙니다/니다)
+            or "not verification" in prompt.lower()
+            or "\uc2e4\ud589\uc774 \uc544" in prompt    # 실행이 아(닙니다/니다)
+            or "\ub2e4\uc2dc \uc77d\ub294 \uac83\uc740" in prompt  # 다시 읽는 것은
+        )
 
     @pytest.mark.asyncio
     async def test_fallback_when_no_workspace(self) -> None:
