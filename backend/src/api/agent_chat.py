@@ -1186,10 +1186,22 @@ async def _call_via_executor(
     mode: str = "active",
     task_context: str = "",
 ) -> models.ConversationMessage:
-    """Call the agent via LiteLLMExecutor with tool_use support."""
+    """Call the agent via the executor factory (#39 — not hardcoded).
+
+    The executor class is chosen by ``agent.executor_type`` via
+    ``get_executor_for_agent`` so that ``executor_configs.executor_type``
+    is actually honored. Callers must never construct LiteLLMExecutor /
+    ClaudeCodeExecutor directly from here — that path silently ignored
+    the tenant config and was a prod-incident risk (#39).
+    """
     # Phase A: Build context (short-lived DB session).
+    from backend.src.core.executor.factory import get_executor_for_agent
+
     async with async_session() as setup_db:
-        llm_config = await _resolve_llm_config(agent, setup_db)
+        executor, model_cfg = await get_executor_for_agent(
+            agent, setup_db,
+            workspace_dir=project.workspace_dir,
+        )
         _, messages = await _build_chat_context(
             agent, project, project_id, history, user_message, setup_db, all_agents,
             tenant_id=tenant_id, mode=mode, task_context=task_context,
@@ -1228,15 +1240,16 @@ async def _call_via_executor(
     # placeholder on first delta and replaces it on message_created.
     message_id = uuid.uuid4()
 
-    # Phase C: Run agentic loop (no DB held).
-    executor = LiteLLMExecutor()
+    # Phase C: Run agentic loop (no DB held). Executor was selected by
+    # get_executor_for_agent() in Phase A — LiteLLM or a LiteLLM-shaped
+    # adapter (e.g. ClaudeCodeLLMAdapter), chosen by executor_configs.
     result = await executor.execute(
         messages=messages,
         tools=[t.to_definition() for t in tools] if tools else None,
         tool_handler=tool_handler,
-        model=llm_config.model,
-        api_key=llm_config.api_key,
-        base_url=llm_config.base_url,
+        model=model_cfg["model"],
+        api_key=model_cfg["api_key"],
+        base_url=model_cfg.get("base_url"),
         project_id=project_id,
         on_event=lambda e: _publish_tool_event(
             redis, project_id, e,
