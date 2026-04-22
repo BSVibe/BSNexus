@@ -91,7 +91,12 @@ class ExecutionRun(Base):
     )
     composition_snapshot_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid,
-        ForeignKey("composition_snapshots.id", ondelete="SET NULL"),
+        ForeignKey(
+            "composition_snapshots.id",
+            ondelete="SET NULL",
+            use_alter=True,
+            name="fk_execution_runs_composition_snapshot",
+        ),
         nullable=True,
     )
 

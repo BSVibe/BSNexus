@@ -44,7 +44,12 @@ class Request(Base):
 
     origin_message_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid,
-        ForeignKey("conversation_messages.id", ondelete="SET NULL"),
+        ForeignKey(
+            "conversation_messages.id",
+            ondelete="SET NULL",
+            use_alter=True,
+            name="fk_requests_origin_message",
+        ),
         nullable=True,
     )
 
@@ -62,7 +67,12 @@ class Request(Base):
 
     composition_root_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid,
-        ForeignKey("composition_snapshots.id", ondelete="SET NULL"),
+        ForeignKey(
+            "composition_snapshots.id",
+            ondelete="SET NULL",
+            use_alter=True,
+            name="fk_requests_composition_root",
+        ),
         nullable=True,
     )
 
