@@ -385,7 +385,22 @@
   - 세션 11 최우선. #38 cross-check 도 이 선행 작업 후에 가능.
 - **임시 방어 (세션 10 내)**: executor_configs UI 에서 generic_llm 이외 선택 시 warning 추가 또는 schema validator 에서 reject.
 
-### 38. Claude Code executor cross-check (세션 11 — #39 이후)
+### 38. Claude Code executor cross-check → DONE (세션 10, V13)
+
+- **V13 결과 (31min real completion, project 089cfec1)**:
+  - `project_completed_via_marker by_agent=CTO` — gate PASS
+  - DB `status=completed`
+  - 2091 files 산출: 10 populated `.bsd` screens, 5 docs, `db/schema.sql`, FastAPI 백엔드 + React 프론트엔드 + 8개 pytest 파일
+  - `.pytest_cache/` 존재 = 실제 pytest 실행 증거 (Claude CLI 의 자체 bash 사용)
+- **GLM vs Claude 비교**:
+  | | GLM V12 (3.7h) | Claude V13 (31min) |
+  | --- | --- | --- |
+  | Files | 4 | 2091 |
+  | Screens populated | 1 stub | 10 |
+  | Actual execution | 없음 | pytest 실행 (.pytest_cache) |
+  | Gate 결과 | never passed | PASS |
+- **결론**: 세션 10 인프라 (loop-breaker + gate + redispatch + CoT+E2E prompt + shell_exec tool) **구조적으로 완벽 작동**. GLM-4.7-flash 가 verify-execution behavior 를 수행 못 하는 것이 **model-specific** 한계. Prompt 설계 결함 아님.
+- **세션 11 방향**: GLM 운영 시 backend enforcement (#37) 가 필요하지만 Claude/더 큰 모델이면 prompt 만으로 작동.
 - **목적**: v8-v12 의 shell_exec=0 원인이 GLM 모델 한계인지, prompt 본질적 결함인지 판별.
 - **방법**:
   - Claude Code CLI 이미 container 에 설치됨 (`/usr/local/share/npm-global/bin/claude`, v2.1.109)
