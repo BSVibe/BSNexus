@@ -14,6 +14,7 @@ export default {
         gray: {
           50: '#f2f3f7',
           100: '#e4e6ee',
+          200: '#c8ccdb',
           300: '#a8adc6',
           400: '#8187a8',
           500: '#5a5f7d',
@@ -23,6 +24,20 @@ export default {
           850: '#181926',
           900: '#111218',
           950: '#0a0b0f',
+        },
+        brand: {
+          indigo: '#6366f1',
+          blue: '#3b82f6',
+          amber: '#f59e0b',
+          rose: '#f43f5e',
+          emerald: '#10b981',
+        },
+        product: {
+          bsvibe: '#6366f1',
+          bsnexus: '#3b82f6',
+          bsgateway: '#f59e0b',
+          bsupervisor: '#f43f5e',
+          bsage: '#10b981',
         },
         bg: {
           primary: 'var(--bg-primary)',
@@ -103,6 +118,7 @@ export default {
         md: 'var(--radius-md)',
         lg: 'var(--radius-lg)',
         xl: 'var(--radius-xl)',
+        full: 'var(--radius-full)',
       },
       keyframes: {
         'slide-in-right': {

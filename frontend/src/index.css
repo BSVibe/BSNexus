@@ -4,80 +4,105 @@
 
 @layer base {
   :root {
-    /* BSNexus Design Tokens */
+    /* Values mirror ~/Docs/design_system.md v0.1.0.
+       See ./design-tokens.ts for the TS source of truth.
+       Run `pnpm tokens:verify` to check for drift. */
 
-    /* Background tokens */
-    --bg-primary: #121317;
-    --bg-surface: #1a1b20;
-    --bg-card: #1f1f24;
-    --bg-elevated: #292a2e;
-    --bg-hover: #343439;
-    --bg-input: #0d0e12;
+    /* Background — gray scale */
+    --bg-primary: #0a0b0f;      /* gray-950 */
+    --bg-surface: #111218;      /* gray-900 */
+    --bg-card: #181926;         /* gray-850 */
+    --bg-elevated: #1e2033;     /* gray-800 */
+    --bg-hover: #2a2d42;        /* gray-700 */
+    --bg-input: #0a0b0f;        /* gray-950 */
 
-    /* Accent / Primary */
-    --accent: #4d8eff;
-    --accent-light: #adc6ff;
-    --accent-hover: #adc6ff;
-    --accent-text: #adc6ff;
+    /* Accent — BSNexus = blue */
+    --accent: #3b82f6;          /* blue-500 */
+    --accent-light: #8187a8;    /* gray-400 (for de-emphasis) */
+    --accent-hover: #60a5fa;    /* blue-400 approx */
+    --accent-text: #3b82f6;     /* blue-500 */
+    --color-accent: #3b82f6;    /* canonical; switches per subdomain */
 
-    /* Text tokens */
-    --text-primary: #e3e2e8;
-    --text-secondary: #c2c6d6;
-    --text-tertiary: #8c909f;
-    --text-muted: #424754;
+    /* Sibling product accents (Inside panel badges) */
+    --color-bsvibe: #6366f1;    /* indigo */
+    --color-bsnexus: #3b82f6;   /* blue */
+    --color-bsgateway: #f59e0b; /* amber */
+    --color-bsupervisor: #f43f5e; /* rose */
+    --color-bsage: #10b981;     /* emerald */
 
-    /* Border tokens */
-    --border: #424754;
-    --border-subtle: #343439;
+    /* Text */
+    --text-primary: #f2f3f7;    /* gray-50 */
+    --text-secondary: #8187a8;  /* gray-400 */
+    --text-tertiary: #5a5f7d;   /* gray-500 */
+    --text-muted: #3d4160;      /* gray-600 */
 
-    /* Status colors */
-    --status-waiting: #F59E0B;
-    --status-ready: #3B82F6;
-    --status-queued: #8B5CF6;
-    --status-in-progress: #10B981;
-    --status-review: #EC4899;
-    --status-done: #22C55E;
-    --status-rejected: #EF4444;
-    --status-blocked: #6B7280;
-    --status-redesign: #F59E0B;
+    /* Border */
+    --border: #2a2d42;          /* gray-700 */
+    --border-subtle: #1e2033;   /* gray-800 */
+    --border-strong: #3d4160;   /* gray-600 */
+
+    /* Status colors — keep names, align to semantic palette */
+    --status-waiting: #f59e0b;      /* amber */
+    --status-ready: #3b82f6;        /* blue */
+    --status-queued: #6366f1;       /* indigo */
+    --status-in-progress: #10b981;  /* emerald */
+    --status-review: #f43f5e;       /* rose */
+    --status-done: #10b981;         /* emerald */
+    --status-rejected: #f43f5e;     /* rose */
+    --status-blocked: #5a5f7d;      /* gray-500 */
+    --status-redesign: #f59e0b;     /* amber */
 
     /* Semantic UI colors */
-    --color-error: #ffb4ab;
-    --color-error-muted: #93000a;
-    --color-success: #22C55E;
-    --color-success-muted: #14532D;
-    --color-warning: #ffb786;
-    --color-warning-muted: #723600;
-    --color-info: #b1c6f9;
+    --color-error: #f43f5e;         /* rose */
+    --color-error-muted: #7a1d2f;   /* rose darkened */
+    --color-success: #10b981;       /* emerald */
+    --color-success-muted: #065f46; /* emerald darkened */
+    --color-warning: #f59e0b;       /* amber */
+    --color-warning-muted: #7c4a0a; /* amber darkened */
+    --color-info: #3b82f6;          /* blue */
 
-    /* Material surface tokens */
-    --stitch-surface: #121317;
-    --stitch-surface-container-low: #1a1b20;
-    --stitch-surface-container: #1f1f24;
-    --stitch-surface-container-high: #292a2e;
-    --stitch-surface-container-highest: #343439;
-    --stitch-surface-container-lowest: #0d0e12;
-    --stitch-primary: #adc6ff;
-    --stitch-primary-container: #4d8eff;
-    --stitch-on-primary: #002e6a;
-    --stitch-on-primary-container: #00285d;
-    --stitch-on-surface: #e3e2e8;
-    --stitch-on-surface-variant: #c2c6d6;
-    --stitch-outline: #8c909f;
-    --stitch-outline-variant: #424754;
-    --stitch-secondary: #b1c6f9;
-    --stitch-secondary-container: #304671;
-    --stitch-on-secondary-container: #9fb5e7;
-    --stitch-tertiary: #ffb786;
-    --stitch-tertiary-container: #df7412;
-    --stitch-error: #ffb4ab;
-    --stitch-error-container: #93000a;
+    /* Material-style surface tokens — legacy, aligned to new gray scale.
+       TODO(P7): retire in favor of semantic bg-* tokens during Stitch regen. */
+    --stitch-surface: #0a0b0f;
+    --stitch-surface-container-lowest: #0a0b0f;
+    --stitch-surface-container-low: #111218;
+    --stitch-surface-container: #181926;
+    --stitch-surface-container-high: #1e2033;
+    --stitch-surface-container-highest: #2a2d42;
+    --stitch-primary: #60a5fa;
+    --stitch-primary-container: #3b82f6;
+    --stitch-on-primary: #0a0b0f;
+    --stitch-on-primary-container: #f2f3f7;
+    --stitch-on-surface: #f2f3f7;
+    --stitch-on-surface-variant: #8187a8;
+    --stitch-outline: #5a5f7d;
+    --stitch-outline-variant: #2a2d42;
+    --stitch-secondary: #60a5fa;
+    --stitch-secondary-container: #1e2033;
+    --stitch-on-secondary-container: #a8adc6;
+    --stitch-tertiary: #f59e0b;
+    --stitch-tertiary-container: #7c4a0a;
+    --stitch-error: #f43f5e;
+    --stitch-error-container: #7a1d2f;
 
-    /* Radius tokens */
+    /* Radius */
     --radius-sm: 4px;
     --radius-md: 8px;
     --radius-lg: 12px;
     --radius-xl: 16px;
+    --radius-full: 9999px;
+
+    /* Shadows — dark theme uses borders over shadows */
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+
+    /* Motion */
+    --duration-fast: 100ms;
+    --duration-normal: 200ms;
+    --duration-slow: 300ms;
+    --easing-default: cubic-bezier(0.4, 0, 0.2, 1);
+    --easing-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
   }
 
   html {
