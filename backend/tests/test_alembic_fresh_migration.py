@@ -1,153 +1,80 @@
-"""Smoke test: alembic upgrade head must succeed against a *fresh* PostgreSQL.
+"""Fresh-PG alembic smoke test.
 
-Why this test exists
---------------------
-The rest of the suite uses SQLite (aiosqlite) and never exercises PostgreSQL
-enum semantics, ``ALTER COLUMN TYPE`` rewrites, or ``DROP TYPE`` dependency
-chains. Long-lived dev databases are migrated incrementally over time, so a
-broken migration can hide for weeks until someone tries to bootstrap a new
-environment.
+Runs ``alembic upgrade head`` against an empty PostgreSQL database.
+Catches issues like:
 
-This test catches that class of bug at PR time by spinning up a throwaway
-postgres container, running ``alembic upgrade head`` once on an empty schema,
-then a full ``downgrade base`` round-trip. It is intentionally cheap (~10s)
-and is skipped automatically when docker is not available.
+- Enum double-creation (CREATE TYPE conflicts).
+- FK references to tables that haven't been created yet.
+- ``ALTER COLUMN`` targets that don't exist after prior drops.
+
+Skipped unless ``BSNEXUS_INTEGRATION_PG_URL`` is set, so local quick
+runs stay fast. CI sets it against a throwaway container per skill
+``alembic-fresh-pg-smoke-test``.
 """
 
 from __future__ import annotations
 
 import os
-import shutil
-import socket
-import subprocess
-import time
-import uuid
 
 import pytest
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
 
-
-def _docker_available() -> bool:
-    if shutil.which("docker") is None:
-        return False
-    try:
-        subprocess.run(
-            ["docker", "info"], check=True, capture_output=True, timeout=5,
-        )
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
-        return False
-    return True
-
-
-def _inside_container() -> bool:
-    """Detect if we're running inside a Docker container (DooD mode)."""
-    return os.path.exists("/.dockerenv") or os.path.exists("/run/.containerenv")
-
-
-def _find_devcontainer_network() -> str | None:
-    """Find the Docker network this container is attached to."""
-    try:
-        hostname = socket.gethostname()
-        result = subprocess.run(
-            ["docker", "inspect", hostname, "--format", "{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}"],
-            capture_output=True, text=True, timeout=5,
-        )
-        if result.returncode == 0:
-            networks = result.stdout.strip().split()
-            return networks[0] if networks else None
-    except Exception:
-        pass
-    return None
-
-
-def _free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
-def _wait_for_pg(container: str, timeout_s: float = 30.0) -> None:
-    deadline = time.monotonic() + timeout_s
-    last_err: str = ""
-    while time.monotonic() < deadline:
-        result = subprocess.run(
-            ["docker", "exec", container, "pg_isready", "-U", "bsnexus", "-d", "bsnexus"],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode == 0:
-            return
-        last_err = result.stderr or result.stdout
-        time.sleep(0.5)
-    raise TimeoutError(f"postgres did not become ready: {last_err}")
-
+_PG_URL = os.environ.get("BSNEXUS_INTEGRATION_PG_URL")
 
 pytestmark = pytest.mark.skipif(
-    not _docker_available(),
-    reason="docker is not available; skipping fresh-migration smoke test",
+    not _PG_URL,
+    reason="Set BSNEXUS_INTEGRATION_PG_URL to a throwaway PG to enable.",
 )
 
 
-REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-ALEMBIC_INI = os.path.join(REPO_ROOT, "backend", "alembic.ini")
+@pytest.mark.asyncio
+async def test_alembic_upgrade_head_on_fresh_pg():
+    import os
+    import subprocess
 
+    engine = create_async_engine(_PG_URL)
+    async with engine.begin() as conn:
+        await conn.execute(text("DROP SCHEMA public CASCADE"))
+        await conn.execute(text("CREATE SCHEMA public"))
+    await engine.dispose()
 
-def _alembic(database_url: str, *args: str) -> subprocess.CompletedProcess[str]:
-    env = os.environ.copy()
-    env["DATABASE_URL"] = database_url
-    return subprocess.run(
-        ["uv", "run", "--project", "backend", "alembic", "-c", ALEMBIC_INI, *args],
-        cwd=REPO_ROOT,
-        env=env,
+    # Run alembic out-of-process — env.py uses asyncio.run, which clashes
+    # with the pytest-asyncio loop when invoked in-process.
+    result = subprocess.run(
+        ["uv", "run", "--project", ".", "alembic", "upgrade", "head"],
+        env={**os.environ, "DATABASE_URL": _PG_URL},
         capture_output=True,
         text=True,
-        timeout=300,
+        timeout=60,
     )
+    assert result.returncode == 0, f"alembic upgrade head failed:\n{result.stderr}"
 
+    engine = create_async_engine(_PG_URL)
+    async with engine.connect() as conn:
+        tables = (
+            await conn.execute(
+                text(
+                    "SELECT table_name FROM information_schema.tables "
+                    "WHERE table_schema = 'public' ORDER BY table_name"
+                )
+            )
+        ).scalars().all()
+    await engine.dispose()
 
-def test_alembic_upgrade_head_on_fresh_postgres() -> None:
-    """``alembic upgrade head`` must succeed against an empty postgres.
-
-    Catches the kind of bugs SQLite cannot see:
-      * ALTER COLUMN TYPE blocked by an enum-typed column DEFAULT
-      * CREATE TYPE colliding with SQLAlchemy's enum auto-creation
-      * DROP TYPE blocked by surviving FKs
-
-    Note: this test does not exercise downgrade. Several migrations on this
-    branch are intentionally lossy (the 4-state TaskStatus collapse) and
-    raise ``NotImplementedError`` on downgrade by design.
-    """
-    container = f"bsnexus-migrate-test-{uuid.uuid4().hex[:8]}"
-    in_container = _inside_container()
-    network = _find_devcontainer_network() if in_container else None
-
-    docker_run_cmd = [
-        "docker", "run", "-d", "--rm",
-        "--name", container,
-        "-e", "POSTGRES_DB=bsnexus",
-        "-e", "POSTGRES_USER=bsnexus",
-        "-e", "POSTGRES_PASSWORD=bsnexus_dev",
-    ]
-    if network:
-        # DooD mode: use container name as hostname via shared network
-        docker_run_cmd.extend(["--network", network])
-        pg_host = container
-    else:
-        # Host mode: bind to localhost random port
-        port = _free_port()
-        docker_run_cmd.extend(["-p", f"127.0.0.1:{port}:5432"])
-        pg_host = f"127.0.0.1:{port}"
-
-    docker_run_cmd.append("postgres:16-alpine")
-
-    subprocess.run(docker_run_cmd, check=True, capture_output=True)
-    try:
-        _wait_for_pg(container)
-        if network:
-            database_url = f"postgresql+asyncpg://bsnexus:bsnexus_dev@{pg_host}:5432/bsnexus"
-        else:
-            database_url = f"postgresql+asyncpg://bsnexus:bsnexus_dev@{pg_host}/bsnexus"
-
-        up = _alembic(database_url, "upgrade", "head")
-        assert up.returncode == 0, f"upgrade head failed:\nSTDOUT:\n{up.stdout}\nSTDERR:\n{up.stderr}"
-    finally:
-        subprocess.run(["docker", "rm", "-f", container], capture_output=True)
+    expected = {
+        "composition_snapshots",
+        "conversation_messages",
+        "decisions",
+        "deliverable_versions",
+        "deliverables",
+        "execution_run_activities",
+        "execution_run_dependencies",
+        "execution_run_history",
+        "execution_runs",
+        "projects",
+        "requests",
+        "tenant_integration_configs",
+    }
+    missing = expected - set(tables)
+    assert not missing, f"Missing tables after upgrade: {missing}"

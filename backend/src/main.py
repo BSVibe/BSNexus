@@ -7,7 +7,16 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
-from backend.src.api import auth
+from backend.src.api import (
+    auth,
+    conversation,
+    decisions as decisions_api,
+    deliverables,
+    inside,
+    integrations,
+    projects,
+    requests_api,
+)
 from backend.src.config import Settings, settings as app_settings
 from backend.src.core.rate_limiter import RateLimitMiddleware
 from backend.src.core.security_headers import SecurityHeadersMiddleware
@@ -85,8 +94,15 @@ async def lifespan(app: FastAPI):
 
 _ROUTERS = [
     auth.router,
-    # P3+ reintroduces resource routers (projects, requests, deliverables,
-    # decisions, integrations, workers, executor_configs) atop the new schema.
+    projects.router,
+    conversation.router,
+    requests_api.router,
+    deliverables.router,
+    decisions_api.project_router,
+    decisions_api.decision_router,
+    inside.runs_router,
+    inside.snapshot_router,
+    integrations.router,
 ]
 
 

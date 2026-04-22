@@ -51,9 +51,13 @@ class Classifier(Protocol):
 class StaticKeywordClassifier:
     """Fallback classifier used when no LLM is available.
 
-    Cheap heuristic: tokens like "please", "can you", imperative verbs
-    → ``request``. Questions with "?" → ``question``. Otherwise
-    ``chit_chat``. Won't match modifications.
+    Heuristic:
+    - Empty → ``chit_chat``.
+    - Ends with "?" without request verbs → ``question``.
+    - Contains a modification verb (change/update/also/actually/but…)
+      AND there are open requests → ``modification``.
+    - Contains a request verb → ``request``.
+    - Otherwise ``chit_chat``.
     """
 
     REQUEST_KEYWORDS = {
@@ -62,16 +66,36 @@ class StaticKeywordClassifier:
         "ship", "please",
     }
 
+    MODIFICATION_CUES = {
+        "change", "update", "also", "instead", "actually",
+        "but ", "rather", "revise", "reword", "reconsider",
+    }
+
     async def classify(
         self, content: str, open_request_summaries: list[str]
     ) -> ClassificationResult:
         lowered = content.strip().lower()
         if not lowered:
             return ClassificationResult(MessageIntent.chit_chat, "", 1.0)
-        if lowered.endswith("?") and not any(k in lowered for k in self.REQUEST_KEYWORDS):
+
+        if lowered.endswith("?") and not any(
+            k in lowered for k in self.REQUEST_KEYWORDS
+        ):
             return ClassificationResult(MessageIntent.question, lowered[:120], 0.7)
-        if any(k in lowered for k in self.REQUEST_KEYWORDS):
-            return ClassificationResult(MessageIntent.request, content.strip()[:240], 0.6)
+
+        has_request_cue = any(k in lowered for k in self.REQUEST_KEYWORDS)
+        has_modification_cue = any(cue in lowered for cue in self.MODIFICATION_CUES)
+
+        if open_request_summaries and has_modification_cue:
+            return ClassificationResult(
+                MessageIntent.modification, content.strip()[:240], 0.65
+            )
+
+        if has_request_cue:
+            return ClassificationResult(
+                MessageIntent.request, content.strip()[:240], 0.6
+            )
+
         return ClassificationResult(MessageIntent.chit_chat, "", 0.5)
 
 
