@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock
 
 import pytest
@@ -11,8 +11,8 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.core.worker_dispatch import WorkerDispatcher
-from backend.src.models import Agent, Task, Tenant
-from backend.src.models._legacy import TaskStatus, TaskPriority, TaskType, TaskSource
+from backend.src.models import Task, Tenant
+from backend.src.models import TaskStatus, TaskPriority, TaskType, TaskSource
 from backend.src.models.worker import Worker
 
 _TENANT_ID = uuid.UUID("00000000-0000-0000-0000-000000000000")
@@ -23,7 +23,7 @@ _PHASE_ID = uuid.UUID("22222222-2222-2222-2222-222222222222")
 @pytest_asyncio.fixture(autouse=True)
 async def _seed(db_session):
     """Seed tenant, project, and phase."""
-    from backend.src.models._legacy import Project, Phase, PhaseStatus
+    from backend.src.models import Project, Phase, PhaseStatus
     t = Tenant(id=_TENANT_ID, name="Test", slug="test", owner_user_id="user-1")
     db_session.add(t)
     p = Project(id=_PROJECT_ID, name="TestProject", description="test", repo_path="/tmp/test")
@@ -54,8 +54,8 @@ async def _create_worker(db: AsyncSession, name: str = "worker-1", capabilities:
 async def _create_task(
     db: AsyncSession,
     title: str = "Test Task",
-    status: TaskStatus = TaskStatus.ready,
-    agent_id: uuid.UUID | None = None,
+    status: TaskStatus = TaskStatus.pending,
+    creator_agent_id: uuid.UUID | None = None,
     executor_type: str = "coding",
 ) -> Task:
     task = Task(
@@ -65,8 +65,8 @@ async def _create_task(
         status=status,
         priority=TaskPriority.medium,
         task_type=TaskType.feature,
-        source=TaskSource.architect,
-        agent_id=agent_id,
+        source=TaskSource.llm,
+        creator_agent_id=creator_agent_id,
         executor_type=executor_type,
     )
     db.add(task)
@@ -122,6 +122,28 @@ async def test_find_available_worker_none_online(db_session):
 
     worker = await dispatcher.find_available_worker(db_session)
     assert worker is None
+
+
+@pytest.mark.asyncio
+async def test_find_available_worker_stale_heartbeat(db_session):
+    """Workers with stale heartbeat (>120s) are not returned."""
+    stale_time = datetime.now(timezone.utc) - timedelta(seconds=300)
+    w = Worker(
+        tenant_id=_TENANT_ID,
+        name="stale-worker",
+        labels=[],
+        capabilities=["coding"],
+        token_hash="hash-stale",
+        status="online",
+        last_heartbeat=stale_time,
+    )
+    db_session.add(w)
+    await db_session.flush()
+    await db_session.commit()
+
+    dispatcher = WorkerDispatcher(AsyncMock())
+    worker = await dispatcher.find_available_worker(db_session)
+    assert worker is None, "Stale worker should not be returned"
 
 
 @pytest.mark.asyncio

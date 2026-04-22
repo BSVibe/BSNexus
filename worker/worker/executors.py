@@ -34,9 +34,10 @@ class CLIExecutor:
     cli_command: str = ""
     install_hint: str = ""
 
-    def __init__(self, timeout: int = 3600, skip_permissions: bool = True) -> None:
+    def __init__(self, timeout: int = 3600, skip_permissions: bool = True, model: str = "") -> None:
         self.timeout = timeout
         self.skip_permissions = skip_permissions
+        self.model = model
 
     def resolve_cmd(self) -> str | None:
         """Find the CLI binary in PATH."""
@@ -91,6 +92,8 @@ class ClaudeCodeExecutor(CLIExecutor):
         args = ["--print"]
         if self.skip_permissions:
             args.append("--dangerously-skip-permissions")
+        if self.model:
+            args.extend(["--model", self.model])
         return args
 
 
@@ -105,6 +108,8 @@ class CodexExecutor(CLIExecutor):
         args = ["--quiet"]
         if self.skip_permissions:
             args.append("--full-auto")
+        if self.model:
+            args.extend(["--model", self.model])
         return args
 
 

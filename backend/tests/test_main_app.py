@@ -203,7 +203,7 @@ async def test_lifespan_rejects_dev_encryption_key_in_production() -> None:
 # -- _setup_logging with file handlers ----------------------------------------
 
 
-def test_setup_logging_with_file_handlers(tmp_path: object) -> None:
+async def test_setup_logging_with_file_handlers(tmp_path: object) -> None:
     """Exercise _setup_logging file handler code (lines 48-68) when TESTING is unset."""
     import logging
     import os
@@ -224,13 +224,12 @@ def test_setup_logging_with_file_handlers(tmp_path: object) -> None:
 
         # Should have console + file handler on root
         assert len(root.handlers) >= 2
-        # Orchestrator logger should have its own handler
-        orch_logger = logging.getLogger("backend.src.core.orchestrator")
-        assert len(orch_logger.handlers) >= 1
+        # State machine logger should have its own handler
+        sm_logger = logging.getLogger("backend.src.core.state_machine")
+        assert len(sm_logger.handlers) >= 1
     finally:
         root.handlers.clear()
         root.handlers.extend(original_handlers)
-        logging.getLogger("backend.src.core.orchestrator").handlers.clear()
         logging.getLogger("backend.src.core.state_machine").handlers.clear()
         if env_backup is not None:
             os.environ["TESTING"] = env_backup

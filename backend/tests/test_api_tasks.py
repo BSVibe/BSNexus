@@ -73,7 +73,7 @@ async def test_create_task_success(client: AsyncClient, db_session):
     assert response.status_code == 201
     data = response.json()
     assert data["title"] == "Test Task"
-    assert data["status"] == "ready"  # No dependencies means READY
+    assert data["status"] == "pending"  # No dependencies means READY
     assert data["priority"] == "medium"
     assert data["project_id"] == str(project.id)
     assert data["phase_id"] == str(phase.id)
@@ -175,7 +175,7 @@ async def test_update_task_waiting_status(client: AsyncClient, db_session):
         },
     )
     task_id = create_response.json()["id"]
-    assert create_response.json()["status"] == "waiting"
+    assert create_response.json()["status"] == "pending"
 
     response = await client.patch(
         f"/api/v1/tasks/{task_id}",
@@ -199,7 +199,7 @@ async def test_update_task_in_progress_400(client: AsyncClient, db_session):
         project_id=project.id,
         phase_id=phase.id,
         title="In Progress Task",
-        status=TaskStatus.in_progress,
+        status=TaskStatus.running,
         priority=TaskPriority.medium,
         version=1,
         created_at=now,
@@ -214,7 +214,7 @@ async def test_update_task_in_progress_400(client: AsyncClient, db_session):
     )
 
     assert response.status_code == 400
-    assert "waiting or ready" in response.json()["detail"]
+    assert "pending" in response.json()["detail"]
 
 
 async def test_transition_task_valid(client: AsyncClient, db_session):
@@ -236,18 +236,18 @@ async def test_transition_task_valid(client: AsyncClient, db_session):
         },
     )
     task_id = create_response.json()["id"]
-    assert create_response.json()["status"] == "ready"
+    assert create_response.json()["status"] == "pending"
 
     # Transition READY -> IN_PROGRESS
     response = await client.post(
         f"/api/v1/tasks/{task_id}/transition",
-        json={"new_status": "in_progress", "actor": "test"},
+        json={"new_status": "running", "actor": "test"},
     )
 
     assert response.status_code == 200
     data = response.json()
-    assert data["status"] == "in_progress"
-    assert data["previous_status"] == "ready"
+    assert data["status"] == "running"
+    assert data["previous_status"] == "pending"
 
 
 async def test_transition_task_invalid_400(client: AsyncClient, db_session):
@@ -332,11 +332,11 @@ async def test_transition_with_matching_version(client: AsyncClient, db_session)
 
     response = await client.post(
         f"/api/v1/tasks/{task_id}/transition",
-        json={"new_status": "in_progress", "actor": "test", "expected_version": version},
+        json={"new_status": "running", "actor": "test", "expected_version": version},
     )
 
     assert response.status_code == 200
-    assert response.json()["status"] == "in_progress"
+    assert response.json()["status"] == "running"
 
 
 async def test_transition_with_mismatched_version_409(client: AsyncClient, db_session):
@@ -360,7 +360,7 @@ async def test_transition_with_mismatched_version_409(client: AsyncClient, db_se
 
     response = await client.post(
         f"/api/v1/tasks/{task_id}/transition",
-        json={"new_status": "in_progress", "actor": "test", "expected_version": 999},
+        json={"new_status": "running", "actor": "test", "expected_version": 999},
     )
 
     assert response.status_code == 409
@@ -389,7 +389,7 @@ async def test_transition_without_expected_version(client: AsyncClient, db_sessi
 
     response = await client.post(
         f"/api/v1/tasks/{task_id}/transition",
-        json={"new_status": "in_progress", "actor": "test"},
+        json={"new_status": "running", "actor": "test"},
     )
 
     assert response.status_code == 200
@@ -490,11 +490,11 @@ async def test_list_tasks_with_status_filter(client: AsyncClient, db_session):
     db_session.add(done_task)
     await db_session.commit()
 
-    response = await client.get(f"/api/v1/tasks/by-project/{project.id}?status=ready")
+    response = await client.get(f"/api/v1/tasks/by-project/{project.id}?status=pending")
 
     assert response.status_code == 200
     data = response.json()
-    assert all(t["status"] == "ready" for t in data)
+    assert all(t["status"] == "pending" for t in data)
     assert len(data) == 1
 
 
@@ -587,7 +587,7 @@ async def test_409_response_contains_current_version(client: AsyncClient, db_ses
 
     response = await client.post(
         f"/api/v1/tasks/{task_id}/transition",
-        json={"new_status": "in_progress", "actor": "test", "expected_version": 999},
+        json={"new_status": "running", "actor": "test", "expected_version": 999},
     )
 
     assert response.status_code == 409
@@ -609,10 +609,10 @@ def _make_task_orm(**overrides) -> Task:
         phase_id=uuid.uuid4(),
         title="T",
         description="d",
-        status=TaskStatus.ready,
+        status=TaskStatus.pending,
         priority=TaskPriority.medium,
         task_type=models.TaskType.feature,
-        source=models.TaskSource.architect,
+        source=models.TaskSource.llm,
         parent_task_id=None,
         worker_prompt={"prompt": "w"},
         qa_prompt={"prompt": "q"},
@@ -646,7 +646,7 @@ async def test_build_task_response_basic(db_session):
     task = _make_task_orm()
     resp = build_task_response(task)
     assert resp.title == "T"
-    assert resp.status == schemas.TaskStatus.ready
+    assert resp.status == schemas.TaskStatus.pending
     assert resp.depends_on == []
 
 
@@ -679,7 +679,7 @@ async def test_create_task_active_phase_direct(db_session):
     )
     request = MagicMock()
     result = await create_task(task_data, request, _auth=MagicMock(), db=db_session)
-    assert result.status == schemas.TaskStatus.ready
+    assert result.status == schemas.TaskStatus.pending
     assert result.title == "Direct Create"
 
 
@@ -721,7 +721,7 @@ async def test_create_task_inactive_phase_direct(db_session):
     )
     request = MagicMock()
     result = await create_task(task_data, request, _auth=MagicMock(), db=db_session)
-    assert result.status == schemas.TaskStatus.waiting
+    assert result.status == schemas.TaskStatus.pending
 
 
 async def test_create_task_with_deps_direct(db_session):
@@ -753,7 +753,7 @@ async def test_create_task_with_deps_direct(db_session):
         depends_on=[dep_result.id],
     )
     result = await create_task(task_data, request, _auth=MagicMock(), db=db_session)
-    assert result.status == schemas.TaskStatus.waiting
+    assert result.status == schemas.TaskStatus.pending
     assert dep_result.id in result.depends_on
 
 
@@ -790,7 +790,7 @@ async def test_get_task_found_direct(db_session):
         project_id=project.id,
         phase_id=phase.id,
         title="Find Me",
-        status=TaskStatus.ready,
+        status=TaskStatus.pending,
         priority=TaskPriority.medium,
         version=1,
         created_at=now,
@@ -823,7 +823,7 @@ async def test_update_task_ready_direct(db_session):
         project_id=project.id,
         phase_id=phase.id,
         title="Updatable",
-        status=TaskStatus.ready,
+        status=TaskStatus.pending,
         priority=TaskPriority.medium,
         version=1,
         created_at=now,
@@ -847,7 +847,7 @@ async def test_update_task_waiting_direct(db_session):
         project_id=project.id,
         phase_id=phase.id,
         title="Waiting",
-        status=TaskStatus.waiting,
+        status=TaskStatus.pending,
         priority=TaskPriority.low,
         version=1,
         created_at=now,
@@ -881,7 +881,7 @@ async def test_update_task_non_editable_status_direct(db_session):
         project_id=project.id,
         phase_id=phase.id,
         title="Review",
-        status=TaskStatus.review,
+        status=TaskStatus.running,
         priority=TaskPriority.high,
         version=1,
         created_at=now,
@@ -893,7 +893,7 @@ async def test_update_task_non_editable_status_direct(db_session):
     with pytest.raises(HTTPException) as exc_info:
         await update_task(task.id, schemas.TaskUpdate(title="No"), db=db_session)
     assert exc_info.value.status_code == 400
-    assert "waiting or ready" in exc_info.value.detail
+    assert "pending" in exc_info.value.detail
 
 
 async def test_update_task_done_status_direct(db_session):
@@ -928,7 +928,7 @@ async def test_update_task_version_conflict_direct(db_session):
         project_id=project.id,
         phase_id=phase.id,
         title="Versioned",
-        status=TaskStatus.ready,
+        status=TaskStatus.pending,
         priority=TaskPriority.medium,
         version=1,
         created_at=now,
@@ -952,7 +952,7 @@ async def test_transition_task_not_found_direct(db_session):
     request = MagicMock()
     request.app.state = MagicMock()
     request.app.state.stream_manager = None
-    transition = schemas.TaskTransition(new_status=schemas.TaskStatus.in_progress, actor="test")
+    transition = schemas.TaskTransition(new_status=schemas.TaskStatus.running, actor="test")
     with pytest.raises(HTTPException) as exc_info:
         await transition_task(uuid.uuid4(), transition, request, db=db_session)
     assert exc_info.value.status_code == 404
@@ -967,7 +967,7 @@ async def test_transition_task_valid_direct(db_session, mock_stream_manager):
         project_id=project.id,
         phase_id=phase.id,
         title="Trans",
-        status=TaskStatus.ready,
+        status=TaskStatus.pending,
         priority=TaskPriority.medium,
         version=1,
         created_at=now,
@@ -978,10 +978,10 @@ async def test_transition_task_valid_direct(db_session, mock_stream_manager):
 
     request = MagicMock()
     request.app.state.stream_manager = mock_stream_manager
-    transition = schemas.TaskTransition(new_status=schemas.TaskStatus.in_progress, actor="worker")
+    transition = schemas.TaskTransition(new_status=schemas.TaskStatus.running, actor="worker")
     result = await transition_task(task.id, transition, request, db=db_session)
-    assert result.status == schemas.TaskStatus.in_progress
-    assert result.previous_status == schemas.TaskStatus.ready
+    assert result.status == schemas.TaskStatus.running
+    assert result.previous_status == schemas.TaskStatus.pending
 
 
 async def test_transition_task_invalid_direct(db_session, mock_stream_manager):
@@ -993,7 +993,7 @@ async def test_transition_task_invalid_direct(db_session, mock_stream_manager):
         project_id=project.id,
         phase_id=phase.id,
         title="BadTrans",
-        status=TaskStatus.ready,
+        status=TaskStatus.pending,
         priority=TaskPriority.medium,
         version=1,
         created_at=now,
@@ -1021,7 +1021,7 @@ async def test_transition_task_version_conflict_direct(db_session, mock_stream_m
         project_id=project.id,
         phase_id=phase.id,
         title="VerTrans",
-        status=TaskStatus.ready,
+        status=TaskStatus.pending,
         priority=TaskPriority.medium,
         version=1,
         created_at=now,
@@ -1035,7 +1035,7 @@ async def test_transition_task_version_conflict_direct(db_session, mock_stream_m
     from fastapi import HTTPException
 
     transition = schemas.TaskTransition(
-        new_status=schemas.TaskStatus.in_progress,
+        new_status=schemas.TaskStatus.running,
         actor="test",
         expected_version=999,
     )
@@ -1058,7 +1058,7 @@ async def test_list_project_tasks_direct(db_session):
                 project_id=project.id,
                 phase_id=phase.id,
                 title=title,
-                status=TaskStatus.ready,
+                status=TaskStatus.pending,
                 priority=TaskPriority.medium,
                 version=1,
                 created_at=now,
@@ -1089,7 +1089,7 @@ async def test_list_project_tasks_with_filters_direct(db_session):
             project_id=project.id,
             phase_id=phase.id,
             title="High Ready",
-            status=TaskStatus.ready,
+            status=TaskStatus.pending,
             priority=TaskPriority.high,
             version=1,
             created_at=now,
@@ -1113,7 +1113,7 @@ async def test_list_project_tasks_with_filters_direct(db_session):
 
     result = await list_project_tasks(
         project.id,
-        status="ready",
+        status="pending",
         phase_id=None,
         priority="high",
         limit=50,
@@ -1135,7 +1135,7 @@ async def test_list_project_tasks_pagination_direct(db_session):
                 project_id=project.id,
                 phase_id=phase.id,
                 title=f"Task {i}",
-                status=TaskStatus.ready,
+                status=TaskStatus.pending,
                 priority=TaskPriority.medium,
                 version=1,
                 created_at=now,
@@ -1204,7 +1204,7 @@ async def test_list_project_tasks_phase_filter_direct(db_session):
             project_id=project.id,
             phase_id=phase.id,
             title="Ph1 Task",
-            status=TaskStatus.ready,
+            status=TaskStatus.pending,
             priority=TaskPriority.medium,
             version=1,
             created_at=now,
@@ -1217,7 +1217,7 @@ async def test_list_project_tasks_phase_filter_direct(db_session):
             project_id=project.id,
             phase_id=phase2.id,
             title="Ph2 Task",
-            status=TaskStatus.ready,
+            status=TaskStatus.pending,
             priority=TaskPriority.medium,
             version=1,
             created_at=now,

@@ -9,38 +9,76 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from sqlalchemy import select
 
-from backend.src.models import Agent, ExecutorConfig, Worker
+from backend.src.core.agent_activity import (
+    has_online_worker,
+    resolve_agent_runtime_status,
+    resolve_agent_status_dot,
+)
+from backend.src.core.tenant_context import get_tenant_id
+from backend.src.models import Agent, ExecutorConfig, Task
 from backend.src.repositories.agent_repository import AgentRepository
-from backend.src.schemas.agent import AgentCreate, AgentOrgChartResponse, AgentResponse, AgentUpdate
+from backend.src.schemas.agent import AgentCreate, AgentOrgChartResponse, AgentResponse, AgentUpdate, CurrentTaskBrief
 from backend.src.storage.database import get_db
 
 router = APIRouter(prefix="/api/v1/agents", tags=["agents"])
 
-# Placeholder tenant_id until multi-tenancy middleware is wired (Step 5)
-_DEFAULT_TENANT_ID = uuid.UUID("00000000-0000-0000-0000-000000000000")
 
-
-def _agent_to_response(agent: Agent, *, has_online_worker: bool = False) -> AgentResponse:
+def _agent_to_response(
+    agent: Agent,
+    *,
+    has_online_worker: bool = False,
+    default_executor_type: str | None = None,
+    current_task: Task | None = None,
+    is_processing: bool = False,
+    processing_activity: str = "",
+) -> AgentResponse:
     response = AgentResponse.model_validate(agent)
-    # Worker-typed agents derive status from worker availability
-    if agent.executor_type == "worker":
-        response.status = "online" if has_online_worker else "offline"
+    if agent.executor_config_id is None and default_executor_type is not None:
+        response.executor_type = default_executor_type
+    response.status = resolve_agent_runtime_status(
+        agent,
+        current_task=current_task,
+        online_worker_available=has_online_worker,
+    )
+    response.dot = resolve_agent_status_dot(
+        agent,
+        current_task=current_task,
+        online_worker_available=has_online_worker,
+        is_processing=is_processing,
+    )
+    if is_processing and not current_task:
+        response.activity = processing_activity or "처리 중..."
+    if current_task is not None:
+        response.current_task = CurrentTaskBrief(
+            id=current_task.id,
+            title=current_task.title,
+            status=current_task.status.value,
+        )
+        response.activity = current_task.title
     return response
 
 
-async def _has_online_worker(db: AsyncSession) -> bool:
-    """True if any active worker is online (used for worker-typed agent status)."""
+async def _tenant_default_executor_type(
+    db: AsyncSession, tenant_id: uuid.UUID
+) -> str | None:
+    """Return the executor_type of the tenant's current default config, or None."""
     result = await db.execute(
-        select(Worker.id).where(
-            Worker.tenant_id == _DEFAULT_TENANT_ID,
-            Worker.is_active.is_(True),
-            Worker.status == "online",
+        select(ExecutorConfig.executor_type).where(
+            ExecutorConfig.tenant_id == tenant_id,
+            ExecutorConfig.is_default.is_(True),
         ).limit(1)
     )
-    return result.scalar_one_or_none() is not None
+    return result.scalar_one_or_none()
 
 
-async def _resolve_executor_type(db: AsyncSession, config_id: uuid.UUID | None) -> str:
+async def _has_online_worker(db: AsyncSession, tenant_id: uuid.UUID) -> bool:
+    """True if any active worker in the tenant is online."""
+    return await has_online_worker(db, tenant_id)
+
+
+async def _resolve_executor_type(
+    db: AsyncSession, config_id: uuid.UUID | None, tenant_id: uuid.UUID
+) -> str:
     """Resolve executor_type from config_id, falling back to tenant default."""
     if config_id:
         result = await db.execute(select(ExecutorConfig).where(ExecutorConfig.id == config_id))
@@ -50,20 +88,24 @@ async def _resolve_executor_type(db: AsyncSession, config_id: uuid.UUID | None) 
     # Fall back to tenant default
     result = await db.execute(
         select(ExecutorConfig).where(
-            ExecutorConfig.tenant_id == _DEFAULT_TENANT_ID,
+            ExecutorConfig.tenant_id == tenant_id,
             ExecutorConfig.is_default.is_(True),
         ).limit(1)
     )
     ec = result.scalar_one_or_none()
-    return ec.executor_type if ec else "claude_api"
+    return ec.executor_type if ec else "generic_llm"
 
 
 @router.post("", response_model=AgentResponse, status_code=201)
-async def create_agent(body: AgentCreate, db: AsyncSession = Depends(get_db)) -> AgentResponse:
+async def create_agent(
+    body: AgentCreate,
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+) -> AgentResponse:
     repo = AgentRepository(db)
-    executor_type = await _resolve_executor_type(db, body.executor_config_id)
+    executor_type = await _resolve_executor_type(db, body.executor_config_id, tenant_id)
     agent = Agent(
-        tenant_id=_DEFAULT_TENANT_ID,
+        tenant_id=tenant_id,
         name=body.name,
         role=body.role,
         title=body.title,
@@ -82,29 +124,89 @@ async def create_agent(body: AgentCreate, db: AsyncSession = Depends(get_db)) ->
     await repo.add(agent)
     await repo.commit()
     await repo.refresh(agent)
-    online = await _has_online_worker(db)
+    online = await _has_online_worker(db, tenant_id)
     return _agent_to_response(agent, has_online_worker=online)
+
+
+async def _running_tasks_by_agent(
+    db: AsyncSession, agent_ids: list[uuid.UUID],
+) -> dict[uuid.UUID, Task]:
+    """Return one running task per agent (first match)."""
+    from backend.src.models import TaskStatus
+
+    if not agent_ids:
+        return {}
+    result = await db.execute(
+        select(Task).where(
+            Task.status == TaskStatus.running,
+            Task.assigned_agent_id.in_(agent_ids),
+        )
+    )
+    by_agent: dict[uuid.UUID, Task] = {}
+    for task in result.scalars().all():
+        if task.assigned_agent_id is not None and task.assigned_agent_id not in by_agent:
+            by_agent[task.assigned_agent_id] = task
+    return by_agent
 
 
 @router.get("", response_model=list[AgentResponse])
 async def list_agents(
+    request: Request,
     active_only: bool = True,
     limit: int = 100,
     offset: int = 0,
     db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
 ) -> list[AgentResponse]:
     repo = AgentRepository(db)
-    agents = await repo.list_by_tenant(_DEFAULT_TENANT_ID, active_only=active_only, limit=limit, offset=offset)
-    online = await _has_online_worker(db)
-    return [_agent_to_response(a, has_online_worker=online) for a in agents]
+    agents = await repo.list_by_tenant(tenant_id, active_only=active_only, limit=limit, offset=offset)
+    online = await _has_online_worker(db, tenant_id)
+    default_type = await _tenant_default_executor_type(db, tenant_id)
+    agent_ids = [a.id for a in agents]
+    running = await _running_tasks_by_agent(db, agent_ids)
+
+    # Check Redis for transient processing state (project-scoped)
+    redis = getattr(request.app.state, "redis", None)
+    processing_info: dict[uuid.UUID, str] = {}  # agent_id → activity
+    # Only check processing state if a project_id filter is provided
+    filter_project_id = request.query_params.get("project_id")
+    if redis and filter_project_id:
+        import json as _json
+        for aid in agent_ids:
+            val = await redis.get(f"agent:processing:{filter_project_id}:{aid}")
+            if val:
+                try:
+                    data = _json.loads(val)
+                    processing_info[aid] = data.get("activity", "처리 중...")
+                except (ValueError, TypeError):
+                    processing_info[aid] = "처리 중..."
+
+    return [
+        _agent_to_response(
+            a,
+            has_online_worker=online,
+            default_executor_type=default_type,
+            current_task=running.get(a.id),
+            is_processing=a.id in processing_info,
+            processing_activity=processing_info.get(a.id, ""),
+        )
+        for a in agents
+    ]
 
 
 @router.get("/org-chart", response_model=list[AgentOrgChartResponse])
-async def get_org_chart(db: AsyncSession = Depends(get_db)) -> list[AgentOrgChartResponse]:
+async def get_org_chart(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+) -> list[AgentOrgChartResponse]:
     """Return org chart as a tree of root agents with nested children."""
     repo = AgentRepository(db)
-    all_agents = await repo.list_by_tenant(_DEFAULT_TENANT_ID, active_only=True, limit=500)
-    online = await _has_online_worker(db)
+    all_agents = await repo.list_by_tenant(tenant_id, active_only=True, limit=500)
+    online = await _has_online_worker(db, tenant_id)
+    default_type = await _tenant_default_executor_type(db, tenant_id)
+    agent_ids = [a.id for a in all_agents]
+    running = await _running_tasks_by_agent(db, agent_ids)
 
     # Build tree
     by_parent: dict[uuid.UUID | None, list[Agent]] = {}
@@ -115,7 +217,12 @@ async def get_org_chart(db: AsyncSession = Depends(get_db)) -> list[AgentOrgChar
         children = by_parent.get(parent_id, [])
         return [
             AgentOrgChartResponse(
-                agent=_agent_to_response(child, has_online_worker=online),
+                agent=_agent_to_response(
+                    child,
+                    has_online_worker=online,
+                    default_executor_type=default_type,
+                    current_task=running.get(child.id),
+                ),
                 children=_build_tree(child.id),
             )
             for child in children
@@ -125,13 +232,25 @@ async def get_org_chart(db: AsyncSession = Depends(get_db)) -> list[AgentOrgChar
 
 
 @router.get("/{agent_id}", response_model=AgentResponse)
-async def get_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> AgentResponse:
+async def get_agent(
+    agent_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+) -> AgentResponse:
     repo = AgentRepository(db)
     agent = await repo.get_by_id(agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
-    online = await _has_online_worker(db)
-    return _agent_to_response(agent, has_online_worker=online)
+    online = await _has_online_worker(db, tenant_id)
+    default_type = await _tenant_default_executor_type(db, tenant_id)
+    running = await _running_tasks_by_agent(db, [agent.id])
+    return _agent_to_response(
+        agent,
+        has_online_worker=online,
+        default_executor_type=default_type,
+        current_task=running.get(agent.id),
+    )
 
 
 @router.patch("/{agent_id}", response_model=AgentResponse)
@@ -139,6 +258,7 @@ async def update_agent(
     agent_id: uuid.UUID,
     body: AgentUpdate,
     db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
 ) -> AgentResponse:
     repo = AgentRepository(db)
     agent = await repo.get_by_id(agent_id)
@@ -146,19 +266,26 @@ async def update_agent(
         raise HTTPException(status_code=404, detail="Agent not found")
 
     update_data = body.model_dump(exclude_unset=True)
-    online = await _has_online_worker(db)
+    online = await _has_online_worker(db, tenant_id)
+    default_type = await _tenant_default_executor_type(db, tenant_id)
     if not update_data:
-        return _agent_to_response(agent, has_online_worker=online)
+        return _agent_to_response(
+            agent, has_online_worker=online, default_executor_type=default_type
+        )
 
     # Sync executor_type when executor_config_id changes
     if "executor_config_id" in update_data:
-        update_data["executor_type"] = await _resolve_executor_type(db, update_data["executor_config_id"])
+        update_data["executor_type"] = await _resolve_executor_type(
+            db, update_data["executor_config_id"], tenant_id
+        )
 
     updated = await repo.update_fields(agent_id, **update_data)
     await repo.commit()
     if not updated:
         raise HTTPException(status_code=404, detail="Agent not found after update")
-    return _agent_to_response(updated, has_online_worker=online)
+    return _agent_to_response(
+        updated, has_online_worker=online, default_executor_type=default_type
+    )
 
 
 @router.delete("/{agent_id}", status_code=204)

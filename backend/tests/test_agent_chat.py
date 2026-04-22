@@ -6,7 +6,6 @@ arrive via SSE. These tests verify routing, persistence, markers, and events.
 
 from __future__ import annotations
 
-import json
 import uuid
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
@@ -62,7 +61,7 @@ async def agents(db_session) -> list[Agent]:
     for name, role in [("CEO", "cto"), ("Engineer", "engineer"), ("QA_Lead", "qa")]:
         a = Agent(
             tenant_id=_TENANT_ID, name=name, role=role,
-            executor_type="claude_api", executor_config={},
+            executor_type="generic_llm", executor_config={},
             capabilities=["coding"], status="online",
         )
         db_session.add(a)
@@ -72,39 +71,46 @@ async def agents(db_session) -> list[Agent]:
     return result
 
 
+def _executor_result(content: str = "Here is my response.") -> "ExecutionResult":
+    from backend.src.core.executor.litellm_executor import ExecutionResult
+    return ExecutionResult(
+        content=content,
+        prompt_tokens=10,
+        completion_tokens=20,
+        total_tokens=30,
+        model="gpt-4o",
+        cost_usd=0.001,
+        stop_reason="end_turn",
+        iterations=1,
+    )
+
+
 @pytest.fixture
 def mock_llm():
-    with patch("backend.src.api.agent_chat.LLMClient") as mock_cls:
+    """Mock the LiteLLMExecutor so no real LLM calls are made."""
+    with patch("backend.src.api.agent_chat.LiteLLMExecutor") as mock_cls:
         instance = AsyncMock()
-        instance.chat = AsyncMock(return_value="Here is my response.")
+        instance.execute = AsyncMock(return_value=_executor_result("Here is my response."))
         mock_cls.return_value = instance
         yield instance
 
 
 @pytest.fixture
 def mock_llm_with_task():
-    response = (
-        'Creating the task now.\n\n'
-        '[CREATE_TASK]{"title": "Implement Auth API", "description": "JWT endpoints", '
-        '"priority": "high", "task_type": "feature"}[/CREATE_TASK]\n\nDone!'
-    )
-    with patch("backend.src.api.agent_chat.LLMClient") as mock_cls:
+    """Mock executor that returns a response (tools handle task creation now)."""
+    with patch("backend.src.api.agent_chat.LiteLLMExecutor") as mock_cls:
         instance = AsyncMock()
-        instance.chat = AsyncMock(return_value=response)
+        instance.execute = AsyncMock(return_value=_executor_result("Creating the task now. Done!"))
         mock_cls.return_value = instance
         yield instance
 
 
 @pytest.fixture
 def mock_llm_with_goal():
-    response = (
-        'Setting the project goal.\n\n'
-        '[SET_GOAL]{"title": "Ship auth v2 by Q3", "level": "project", '
-        '"description": "Complete auth system with OAuth + JWT"}[/SET_GOAL]\n\nGoal set!'
-    )
-    with patch("backend.src.api.agent_chat.LLMClient") as mock_cls:
+    """Mock executor that returns a response (tools handle goal setting now)."""
+    with patch("backend.src.api.agent_chat.LiteLLMExecutor") as mock_cls:
         instance = AsyncMock()
-        instance.chat = AsyncMock(return_value=response)
+        instance.execute = AsyncMock(return_value=_executor_result("Setting the project goal. Goal set!"))
         mock_cls.return_value = instance
         yield instance
 
@@ -153,7 +159,7 @@ class TestOrgRootFallback:
     def test_falls_back_to_first(self, db_session) -> None:
         a = Agent(
             tenant_id=_TENANT_ID, name="Worker", role="worker",
-            executor_type="claude_api", executor_config={},
+            executor_type="generic_llm", executor_config={},
             capabilities=["coding"], status="online",
         )
         assert _find_org_root([a]) == a
@@ -387,19 +393,4 @@ class TestWorkerDispatch:
         assert resp.status_code == 200
 
 
-# ── Phase auto-create ───────────────────────────────────────────────
-
-
-class TestPhaseAutoCreate:
-    @pytest.mark.asyncio
-    async def test_auto_creates_phase_when_none_exists(self, db_session) -> None:
-        from backend.src.api.agent_chat import _ensure_active_phase
-        # Project with no phases
-        p = Project(name="No Phases", description="", status=ProjectStatus.active)
-        db_session.add(p)
-        await db_session.flush()
-
-        phase = await _ensure_active_phase(p.id, db_session)
-        assert phase is not None
-        assert phase.status == PhaseStatus.active
-        assert phase.name == "Phase 1"
+# ── Phase auto-create (now handled by CreateTaskTool) ────────────────

@@ -4,7 +4,16 @@ Project instructions for Claude Code when working on BSNexus.
 
 ## Project Overview
 
-BSNexus is an AI-powered development management system. An LLM Architect designs projects through conversation, and distributed Worker nodes automatically write code.
+BSNexus is an AI Company OS. Users hire AI agents (Designer, Analyzer,
+Planner, Engineer, QA, ...) into an org chart, give them goals, and the
+agents collaborate via a unified chat to plan and execute work. A
+distributed worker pool runs the heavy code-execution tasks; the
+backend orchestrates dispatch, dependency promotion, and phase
+advancement on a single global loop.
+
+There is no separate "Architect" agent or "PM Orchestrator" — every
+agent is a normal `Agent` row with a tailored `system_prompt`, and
+every task flows through the same worker dispatch pipeline.
 
 ## Core Stack
 
@@ -19,25 +28,49 @@ BSNexus is an AI-powered development management system. An LLM Architect designs
 ## Project Structure
 
 ```
-backend/src/           # FastAPI backend
-  api/                 # Route handlers
-  core/                # Business logic (state machine, orchestrator, git ops)
-  storage/             # Database & Redis clients
-  queue/               # Redis Streams management
-  repositories/        # Data access layer
-  models.py            # SQLAlchemy models
-  schemas.py           # Pydantic request/response schemas
-  main.py              # App entry point
+backend/src/
+  api/                   # Route handlers (one router per resource)
+  core/                  # Business logic
+    state_machine.py     # 4-state Task lifecycle + activity emission
+    global_dispatcher.py # Background loop: pending -> running, phase advance
+    channel_adapter.py   # Slack/Discord fan-out adapters
+    channel_supervisor.py# Lifespan task that runs one fanout per project
+    memory.py            # Local + BSage memory providers
+    tenant_context.py    # JWT-derived tenant id middleware
+    workspace/           # Per-project workspace storage
+    workspace_storage.py # Pluggable storage backends (local, git, ...)
+    import_sources.py    # Pluggable source providers (local, git, tarball)
+    task_markers.py      # CREATE_TASK / CREATE_PHASE / SET_GOAL marker parsers
+    harness.py           # Workspace-based prompt assembly (.bsnexus/)
+    agent_activity.py    # Redis-backed busy tracker + unified status resolver
+  prompts/
+    skills.py            # Capability-driven skill fragments (design/analyze/plan/...)
+    review.yaml          # QA review prompts
+  models/                # SQLAlchemy models, one file per domain
+  schemas/               # Pydantic request/response schemas
+  repositories/          # Data access layer
+  alembic/versions/      # DB migrations
+  storage/               # Database + Redis clients
+  queue/streams.py       # Redis Streams abstraction
+  main.py                # App entry point + lifespan
 
-frontend/src/          # React frontend
-  api/                 # Axios API clients
-  components/          # UI components (layout, architect, board, workers)
-  hooks/               # Custom hooks (useWebSocket, useSSE, useBoard)
-  pages/               # Page components
-  stores/              # Zustand stores
-  types/               # TypeScript types (mirror backend schemas)
+frontend/src/
+  api/                   # Axios clients per resource
+  components/
+    plan/                # PlanTree, AgentStatusBar, DetailPanel, PlanView
+    project/             # Chat sidebar, channels modal, design view, ...
+    common/              # Modal, Button, etc.
+  hooks/                 # useChatEvents, usePlanEvents
+  pages/                 # ProjectPage, AgentsPage, DashboardPage, ...
+  stores/                # Zustand: planStore, agentStore, toastStore
+  types/                 # TypeScript types
 
-worker/src/            # Distributed worker agent
+worker/                  # Distributed worker agent (parallel execution)
+
+.bsnexus/                # Per-project workspace harness (auto-seeded)
+  rules/                 # response-format, conflict-check, communication
+  skills/                # design, analyze, plan, architect, marketing, memory
+  context/               # Auto-generated: project, team, decisions, goals
 ```
 
 ## Development Commands
@@ -45,13 +78,17 @@ worker/src/            # Distributed worker agent
 ```bash
 # Backend
 uvicorn backend.src.main:app --host 0.0.0.0 --port 8000 --reload
-python -m pytest backend/tests/ -v --cov=backend/src --cov-fail-under=80
-ruff check backend/src/
+uv run --project backend pytest backend/tests/ -v --cov=backend/src --cov-fail-under=80
+uv run --project backend ruff check backend/src/
 
 # Frontend
 cd frontend && pnpm dev          # Dev server on port 3000
 cd frontend && pnpm lint         # ESLint
+cd frontend && pnpm exec tsc -b  # Type-check
 cd frontend && pnpm build        # Production build
+
+# E2E
+cd frontend && pnpm test:e2e     # Playwright (mock-API mode)
 
 # Infrastructure
 docker compose -f .devcontainer/docker-compose.yml up -d postgres redis
@@ -59,15 +96,24 @@ docker compose -f .devcontainer/docker-compose.yml up -d postgres redis
 
 ## MUST Rules
 
-- **Async everywhere**: Use `async/await` for all I/O. No synchronous blocking calls.
+- **Async everywhere**: `async/await` for all I/O. No synchronous blocking.
 - **Type hints**: On all functions and methods.
 - **Pydantic models**: For all request/response schemas.
-- **Redis Streams**: Use consumer group pattern with JSON serialization and `XACK`. Never use Redis Pub/Sub.
-- **LiteLLM only**: All LLM calls go through LiteLLM. Never import provider SDKs directly (no `openai`, no `anthropic`).
-- **Dependency Injection**: Use FastAPI `Depends()` for DB sessions, Redis, etc.
-- **Decimal for money**: Use `Decimal` type, never `float`.
-- **Env vars for secrets**: Validate with Pydantic BaseSettings. Document in `.env.example`.
-- **Tests required**: All code must have tests. Minimum 80% coverage.
+- **Redis Streams**: Consumer group pattern with JSON serialization and
+  `XACK`. Never use Redis Pub/Sub.
+- **LiteLLM only**: All LLM calls go through LiteLLM. No direct
+  `openai`/`anthropic` SDK imports.
+- **Tenant scoping**: Routes that mutate data take
+  `tenant_id: uuid.UUID = Depends(get_tenant_id)` and pass it through
+  every closure. Don't fall back to `DEFAULT_TENANT_ID` outside of
+  install-token / unauthenticated worker paths.
+- **Dependency Injection**: Use FastAPI `Depends()` for DB sessions,
+  Redis, tenant id, etc.
+- **Decimal for money**: Use `Decimal`, never `float`.
+- **Env vars for secrets**: Validate with Pydantic BaseSettings.
+  Document in `.env.example`.
+- **Tests required**: All code must have tests. Minimum 80% coverage
+  enforced by CI.
 
 ## NEVER Rules
 
@@ -78,67 +124,166 @@ docker compose -f .devcontainer/docker-compose.yml up -d postgres redis
 - Never include `Co-Authored-By` in commit messages
 - Never use `float` for monetary values
 - Never use synchronous blocking I/O
-- Never use gRPC, Redpanda, or Kong Gateway (legacy stack)
+- Never reintroduce a static "Architect" or "PM Orchestrator" — agents
+  do that work via `system_prompt` + worker dispatch
+- Never store project assets (designs, plans, screens) in DB tables
+  when a workspace file would do — `.bsd` files for designs are the
+  template
+- Never bypass `state_machine.transition()` for task status changes —
+  it writes both `TaskHistory` and `TaskActivity` rows and emits the
+  Plan SSE event
 
 ## API Endpoints
 
-| Prefix                              | Description                                   |
-| ----------------------------------- | --------------------------------------------- |
-| `/api/v1/projects`                  | Project and phase CRUD                        |
-| `/api/v1/projects/{id}/chat`        | Unified project chat (DB-backed, SSE events)  |
-| `/api/v1/projects/{id}/chat/events` | SSE: real-time chat message stream            |
-| `/api/v1/tasks`                     | Task CRUD and state transitions               |
-| `/api/v1/agents`                    | Agent CRUD + org chart                        |
-| `/api/v1/workers`                   | Worker registration, heartbeat, poll, result  |
-| `/api/v1/board`                     | Kanban board state and events                 |
-| `/api/v1/architect`                 | Design session chat (HTTP + WebSocket)        |
-| `/api/v1/pm`                        | PM orchestration control                      |
+| Prefix                                          | Description                                              |
+| ----------------------------------------------- | -------------------------------------------------------- |
+| `/api/v1/projects`                              | Project and phase CRUD                                   |
+| `/api/v1/projects/{id}/chat`                    | Unified project chat (DB-backed, fire-and-forget)        |
+| `/api/v1/projects/{id}/chat/events`             | SSE: real-time chat message stream                       |
+| `/api/v1/projects/{id}/plan-tree`               | Goal → Phase → Task tree for the Plan view               |
+| `/api/v1/projects/{id}/plan-tree/events`        | SSE: task transitions, phase advances, agent status      |
+| `/api/v1/projects/{id}/agent-status`            | Agent status cards (current task + dot color)            |
+| `/api/v1/projects/{id}/design/system`           | DesignSystem `.bsd` file (lazy-created)                  |
+| `/api/v1/projects/{id}/design/screens`          | Screen `.bsd` file CRUD                                  |
+| `/api/v1/projects/{id}/memories`                | Long-term memory (Local or BSage provider)               |
+| `/api/v1/projects/{id}/channels`                | External chat channel links (Slack, ...)                 |
+| `/api/v1/projects/import`                       | Import an existing codebase (local/git/tarball)          |
+| `/api/v1/tasks`                                 | Task CRUD and state transitions                          |
+| `/api/v1/tasks/{id}/activity`                   | Task activity feed (milestone + tool log)                |
+| `/api/v1/agents`                                | Agent CRUD + org chart                                   |
+| `/api/v1/agent-templates`                       | Predefined org chart templates (startup/minimal/enterprise) |
+| `/api/v1/workers`                               | Worker registration, heartbeat, poll, result             |
+| `/api/v1/goals`                                 | Goal CRUD (mission, department, project, task levels)   |
+| `/api/v1/budget`                                | Per-agent budgets and cost records                       |
+| `/api/v1/dashboard`                             | Project + task aggregates                                |
+| `/api/v1/settings`                              | Global LLM + per-tenant install token                    |
+| `/api/v1/executor-configs`                      | Executor backend registrations                           |
+| `/api/v1/mcp`                                   | MCP-style task/dependency endpoints                      |
+
+## Plan View Architecture
+
+The Plan view replaces the old Kanban board. It is the primary lens
+on what every agent is doing right now.
+
+- **Backend**: `plan_tree.py` returns a `Goal → Phases → Tasks` tree.
+  `state_machine.transition()` publishes a `task_transition` event
+  to `project:events:{project_id}` on every status change. The global
+  dispatcher publishes `phase_advanced` when an active phase
+  completes.
+- **Frontend**: `PlanView` lays out the agent status bar (top),
+  `PlanTree` (left, 35%), and `DetailPanel` (right). `usePlanEvents`
+  subscribes to the SSE stream and patches the React Query cache
+  directly.
+- **Status model**: 4 states only — `pending`, `running`, `blocked`,
+  `done`. The 6-state Kanban legacy was deleted.
 
 ## Project Chat Architecture
 
-The unified project chat is **source-agnostic** so it can fan out to web, Slack,
-or any other channel via adapter without changing the core flow.
+The unified project chat is **source-agnostic** so it can fan out to
+web, Slack, or any other channel via `ChannelFanout` without changing
+the core flow.
 
-- **Persistence**: `conversation_messages` table (one row per message). Fields
-  `source`, `external_id`, `thread_ref` let adapters round-trip with external
-  systems (Slack ts, Discord message id, etc.). Repository:
-  `backend/src/repositories/conversation_repository.py`.
-- **Routing**: Mentions are parsed from the user message and matched against
-  agent names. With no mention, `_pick_default_agent` scores each agent by
-  `routing_keywords` (3x weight) plus `job_description`/`capabilities` token
-  overlap, falling back to the org-chart root.
-- **Delegation chain**: After the synchronously called agents respond, any
-  `@mentions` in their replies are queued as a background `asyncio.Task` that
-  uses a fresh DB session. This keeps long chains from blocking the HTTP
-  response.
-- **Event bus**: Every persisted message is published to the Redis Stream
-  `chat:events:{project_id}` (`event=message_created`). Clear publishes
-  `event=history_cleared`. Streams (not Pub/Sub) so adapters can use consumer
-  groups for delivery guarantees if needed; the SSE handler tails with
-  `XREAD $` for fan-out.
-- **Frontend**: `useChatEvents(projectId)` opens an `EventSource` and patches
-  the React Query cache directly. No polling.
-- **Slack roadmap**: A `SlackChannelAdapter` will tail the same chat events
-  stream and post via Slack Web API; an inbound webhook handler will call the
-  same internal flow as the web POST endpoint.
+- **Persistence**: `conversation_messages` table. Fields `source`,
+  `external_id`, `thread_ref` let adapters round-trip with external
+  systems (Slack ts, Discord message id, etc.).
+- **Routing**: `@mentions` are parsed and matched against agent names.
+  With no mention, the org-chart root's worker chooses the right agent
+  via a one-shot LLM call. The static `routing_keywords` field is gone.
+- **Delegation chain**: Background `asyncio.Task` per agent — fresh DB
+  session per phase (setup, then release before long waits). No depth
+  limit — agents collaborate freely. Loop prevention is a prompt
+  responsibility via the harness conflict-check rule.
+- **Worker dispatch**: Parallel execution (`max_parallel_tasks=5`).
+  DB sessions are short-lived — released before the Redis poll so
+  30-minute worker turns don't exhaust the connection pool.
+- **Event bus**: Every persisted message is published to the Redis
+  Stream `chat:events:{project_id}`.
+- **Harness prompt system**: System prompts are assembled from
+  `.bsnexus/` files in the project workspace (rules, skills, context).
+  See `core/harness.py`. Users can add custom rules by dropping `.md`
+  files in `.bsnexus/rules/`.
+- **Markers**: Agents proactively create plan items via markers:
+  `[CREATE_PHASE]`, `[CREATE_TASK]`, `[SET_GOAL]`, `[DECISION]`,
+  `[STATUS]`. All are stripped from displayed text.
+- **ProjectDecision**: `[DECISION]` markers are saved to
+  `.bsnexus/context/decisions.md` (file-based, no DB table). Only
+  agents with `plan` capability can create decisions. Active decisions
+  are injected into every agent's prompt.
+- **Org-mission injection**: Every system prompt prepends the active
+  tenant's `Goal.level == "mission"` rows so cross-session context is
+  stable.
+- **Capability-driven skills**: Agent capabilities (`plan`, `analyze`,
+  `design`, `architect`, `marketing`) resolve to skill prompt fragments
+  at dispatch time via `CAPABILITY_TO_SKILLS`. `memory_keeping` is
+  universal.
+
+## Channel Fan-out
+
+- **Per-project rows**: `ProjectChannel` (kind, external_channel_id,
+  credentials_encrypted, is_active).
+- **Adapters**: `core/channel_adapter.py` defines `ChannelAdapter`
+  Protocol + `SlackChannelAdapter`. Adding Discord/Teams is a one-class
+  change plus a registry entry.
+- **Supervisor**: `ChannelSupervisor` runs in the FastAPI lifespan,
+  reconciles `ProjectChannel` rows every 30s, and starts/stops one
+  `ChannelFanout` task per project. Each fanout tails
+  `chat:events:{project_id}` and posts new messages to every active
+  channel.
 
 ## Task State Machine
 
 ```
-waiting → ready → queued → in_progress → review → done
-                                       ↘ rejected → ready (retry)
-waiting/ready → blocked → ready (unblock)
+pending → running → done
+   ↑        ↓
+   ╰────────┤
+            ↓
+         blocked → pending
 ```
+
+- `pending`: not yet started or waiting on dependencies
+- `running`: actively being worked on (worker dispatched)
+- `blocked`: stuck — needs human intervention or replan
+- `done`: completed (terminal)
+
+State changes go through `state_machine.transition()`, which writes a
+`TaskHistory` row, a milestone `TaskActivity` row, and publishes a
+`task_transition` event to the per-project plan event stream.
+
+## Tenant Model
+
+- **Personal tenants**: A user without a `tenant_id` claim in the JWT
+  gets a deterministic UUIDv5 personal tenant id derived from their
+  user id. `ensure_personal_tenant` lazy-creates the row on first
+  authenticated request.
+- **Middleware**: `TenantMiddleware` decodes the JWT (no signature
+  check — that happens in the auth dependency) and stamps
+  `request.state.tenant_id`. Routes consume it via
+  `Depends(get_tenant_id)`.
+- **Worker install tokens**: Per tenant, stored on
+  `Tenant.worker_install_token_hash`. Workers register with the token
+  and inherit the tenant. Open-mode (no token at all) only works when
+  the default tenant has not minted one — single-tenant dev preserved.
 
 ## Testing Patterns
 
 - **Framework**: pytest + pytest-asyncio (`asyncio_mode = "auto"`)
 - **Test DB**: SQLite in-memory (via `aiosqlite`)
-- **Redis mock**: `AsyncMock` for stream operations
-- **Fixtures**: `db_session`, `mock_stream_manager`, `client` (see `backend/tests/conftest.py`)
-- **Integration tests**: `backend/tests/integration/`
+- **Redis mock**: `AsyncMock` for stream operations. **Always set
+  `tail.return_value = []` and yield with `asyncio.sleep(0)` in
+  polling loops** — busy AsyncMock loops hang otherwise.
+- **Fixtures**: `db_session`, `mock_stream_manager`, `client` (see
+  `backend/tests/conftest.py`)
+- **Fresh-PG integration tests**: `test_integration_fresh_db.py` — real
+  uvicorn subprocess + throwaway PG/Redis containers, e2e bypass token,
+  no mocks. Catches wiring bugs that SQLite + fixture overrides miss.
+- **Fresh-PG migration smoke**: `test_alembic_fresh_migration.py` —
+  `alembic upgrade head` against an empty PG container.
+- **Isolated e2e stack**: `frontend/e2e/scripts/run-isolated.mjs` —
+  orchestrates PG + Redis + uvicorn + vite + bsnexus-worker (stub
+  claude) for fully hermetic real e2e. Run: `pnpm test:e2e:isolated`.
+- **Coverage gate**: 80% (CI fails below).
 
 ## Commit Style
 
-Conventional Commits: `feat(scope):`, `fix(scope):`, `test(scope):`, `docs(scope):`
-No `Co-Authored-By` lines.
+Conventional Commits: `feat(scope):`, `fix(scope):`, `test(scope):`,
+`docs(scope):`. No `Co-Authored-By` lines.

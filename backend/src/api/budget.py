@@ -10,20 +10,22 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.core.budget import BudgetService
+from backend.src.core.tenant_context import get_tenant_id
 from backend.src.models import Agent, CostRecord
 from backend.src.schemas.budget import AgentBudgetSummary, BudgetOverviewResponse, CostRecordResponse
 from backend.src.storage.database import get_db
 
 router = APIRouter(prefix="/api/v1/budget", tags=["budget"])
 
-_DEFAULT_TENANT_ID = uuid.UUID("00000000-0000-0000-0000-000000000000")
-
 
 @router.get("/summary", response_model=BudgetOverviewResponse)
-async def get_budget_summary(db: AsyncSession = Depends(get_db)) -> BudgetOverviewResponse:
+async def get_budget_summary(
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+) -> BudgetOverviewResponse:
     """Return budget overview with per-agent summaries."""
     result = await db.execute(
-        select(Agent).where(Agent.tenant_id == _DEFAULT_TENANT_ID, Agent.is_active.is_(True))
+        select(Agent).where(Agent.tenant_id == tenant_id, Agent.is_active.is_(True))
     )
     agents = result.scalars().all()
 
@@ -80,9 +82,12 @@ async def get_cost_records(
 
 
 @router.post("/reset")
-async def reset_monthly_budgets(db: AsyncSession = Depends(get_db)) -> dict:
+async def reset_monthly_budgets(
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+) -> dict:
     """Reset all agents' monthly spend counters."""
     service = BudgetService(db)
-    count = await service.reset_monthly_budgets(_DEFAULT_TENANT_ID)
+    count = await service.reset_monthly_budgets(tenant_id)
     await db.commit()
     return {"reset_count": count}

@@ -29,9 +29,16 @@ class PhaseRepository(BaseRepository):
         return result.scalar_one() + 1
 
     async def get_active_phase(self, project_id: uuid.UUID) -> Phase | None:
-        """Get the active phase for a project (at most one)."""
+        """Get the active phase for a project.
+
+        If multiple phases are active (race from parallel create_phase),
+        return the one with the lowest order to avoid crashing the dispatcher.
+        """
         result = await self.db.execute(
-            select(Phase).where(Phase.project_id == project_id, Phase.status == PhaseStatus.active)
+            select(Phase)
+            .where(Phase.project_id == project_id, Phase.status == PhaseStatus.active)
+            .order_by(Phase.order.asc())
+            .limit(1)
         )
         return result.scalar_one_or_none()
 
@@ -59,5 +66,12 @@ class PhaseRepository(BaseRepository):
         """Count tasks in the phase that are not done."""
         result = await self.db.execute(
             select(func.count(Task.id)).where(Task.phase_id == phase_id, Task.status != TaskStatus.done)
+        )
+        return result.scalar_one()
+
+    async def count_total_tasks(self, phase_id: uuid.UUID) -> int:
+        """Count all tasks in the phase regardless of status."""
+        result = await self.db.execute(
+            select(func.count(Task.id)).where(Task.phase_id == phase_id)
         )
         return result.scalar_one()

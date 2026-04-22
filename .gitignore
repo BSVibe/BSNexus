@@ -61,3 +61,13 @@ frontend/core
 # Local agent / MCP / Claude Code config
 .claude/
 .mcp.json
+.local-data/
+
+# Workspace data (server-managed project files)
+data/workspaces/
+
+# Stitch design tool
+.stitch-project.json
+
+# Screenshots (temporary)
+screen_*.png

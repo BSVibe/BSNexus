@@ -39,7 +39,7 @@ export default function AddTaskModal({ open, onClose, project }: AddTaskModalPro
       description,
       task_type: taskType as 'feature',
       priority: priority as 'medium',
-      agent_id: agentId || undefined,
+      creator_agent_id: agentId || undefined,
       source: 'manual',
     }),
     onSuccess: () => {

@@ -10,8 +10,6 @@ from httpx import AsyncClient
 
 from backend.src.api.dashboard import get_projects_summary
 from backend.src.models import (
-    DesignSession,
-    DesignSessionStatus,
     Phase,
     PhaseStatus,
     Project,
@@ -64,10 +62,10 @@ async def test_projects_summary_with_data(client: AsyncClient, db_session) -> No
     # 2 ready tasks, 1 done task, 1 bug task
     for i, (status, task_type) in enumerate(
         [
-            (TaskStatus.ready, TaskType.feature),
-            (TaskStatus.ready, TaskType.feature),
+            (TaskStatus.pending, TaskType.feature),
+            (TaskStatus.pending, TaskType.feature),
             (TaskStatus.done, TaskType.feature),
-            (TaskStatus.ready, TaskType.bug),
+            (TaskStatus.pending, TaskType.bug),
         ]
     ):
         db_session.add(
@@ -79,7 +77,7 @@ async def test_projects_summary_with_data(client: AsyncClient, db_session) -> No
                 status=status,
                 priority=TaskPriority.medium,
                 task_type=task_type,
-                source=TaskSource.architect,
+                source=TaskSource.llm,
                 created_at=now,
                 updated_at=now,
             )
@@ -96,54 +94,8 @@ async def test_projects_summary_with_data(client: AsyncClient, db_session) -> No
     assert summary["status"] == "active"
     assert summary["current_phase"] == "Phase 1"
     assert summary["bug_count"] == 1
-    assert summary["task_counts"]["ready"] == 3
+    assert summary["task_counts"]["pending"] == 3
     assert summary["task_counts"]["done"] == 1
-
-
-@pytest.mark.asyncio
-async def test_projects_summary_architect_session(client: AsyncClient, db_session) -> None:
-    """Detects has_architect_session when project_bound session exists."""
-    now = datetime.now(timezone.utc)
-
-    project = Project(
-        id=uuid.uuid4(),
-        name="P",
-        description="d",
-        repo_path="/t",
-        status=ProjectStatus.active,
-        created_at=now,
-        updated_at=now,
-    )
-    db_session.add(project)
-
-    phase = Phase(
-        id=uuid.uuid4(),
-        project_id=project.id,
-        name="Ph",
-        order=1,
-        status=PhaseStatus.active,
-        branch_name="b",
-        created_at=now,
-        updated_at=now,
-    )
-    db_session.add(phase)
-
-    session = DesignSession(
-        id=uuid.uuid4(),
-        status=DesignSessionStatus.project_bound,
-        project_id=project.id,
-        llm_config={},
-        created_at=now,
-        updated_at=now,
-    )
-    db_session.add(session)
-    await db_session.flush()
-
-    resp = await client.get("/api/v1/dashboard/projects-summary")
-    assert resp.status_code == 200
-    data = resp.json()
-    assert len(data) == 1
-    assert data[0]["has_architect_session"] is True
 
 
 @pytest.mark.asyncio
@@ -244,7 +196,6 @@ async def test_projects_summary_no_tasks(client: AsyncClient, db_session) -> Non
     assert len(data) == 1
     assert data[0]["task_counts"] == {}
     assert data[0]["bug_count"] == 0
-    assert data[0]["has_architect_session"] is False
     assert data[0]["last_activity"] is None
 
 
@@ -290,7 +241,7 @@ async def test_projects_summary_last_activity(client: AsyncClient, db_session) -
             status=TaskStatus.done,
             priority=TaskPriority.medium,
             task_type=TaskType.feature,
-            source=TaskSource.architect,
+            source=TaskSource.llm,
             created_at=earlier,
             updated_at=earlier,
         )
@@ -301,10 +252,10 @@ async def test_projects_summary_last_activity(client: AsyncClient, db_session) -
             project_id=project.id,
             phase_id=phase.id,
             title="New Task",
-            status=TaskStatus.in_progress,
+            status=TaskStatus.running,
             priority=TaskPriority.high,
             task_type=TaskType.feature,
-            source=TaskSource.architect,
+            source=TaskSource.llm,
             created_at=later,
             updated_at=later,
         )
@@ -357,10 +308,10 @@ async def test_projects_summary_bug_count_aggregation(client: AsyncClient, db_se
                 project_id=project.id,
                 phase_id=phase.id,
                 title=f"Task {i}",
-                status=TaskStatus.ready,
+                status=TaskStatus.pending,
                 priority=TaskPriority.medium,
                 task_type=tt,
-                source=TaskSource.architect,
+                source=TaskSource.llm,
                 created_at=now,
                 updated_at=now,
             )
@@ -372,7 +323,7 @@ async def test_projects_summary_bug_count_aggregation(client: AsyncClient, db_se
     data = resp.json()
     assert len(data) == 1
     assert data[0]["bug_count"] == 3
-    assert data[0]["task_counts"]["ready"] == 5
+    assert data[0]["task_counts"]["pending"] == 5
 
 
 async def test_projects_summary_multiple_projects_with_tasks(client: AsyncClient, db_session) -> None:
@@ -432,7 +383,7 @@ async def test_projects_summary_multiple_projects_with_tasks(client: AsyncClient
             status=TaskStatus.done,
             priority=TaskPriority.medium,
             task_type=TaskType.feature,
-            source=TaskSource.architect,
+            source=TaskSource.llm,
             created_at=now,
             updated_at=now,
         )
@@ -443,7 +394,7 @@ async def test_projects_summary_multiple_projects_with_tasks(client: AsyncClient
             project_id=p1.id,
             phase_id=ph1.id,
             title="P1 bug",
-            status=TaskStatus.ready,
+            status=TaskStatus.pending,
             priority=TaskPriority.high,
             task_type=TaskType.bug,
             source=TaskSource.auto_bug,
@@ -459,7 +410,7 @@ async def test_projects_summary_multiple_projects_with_tasks(client: AsyncClient
             project_id=p2.id,
             phase_id=ph2.id,
             title="P2 waiting",
-            status=TaskStatus.waiting,
+            status=TaskStatus.pending,
             priority=TaskPriority.low,
             task_type=TaskType.chore,
             source=TaskSource.manual,
@@ -478,13 +429,12 @@ async def test_projects_summary_multiple_projects_with_tasks(client: AsyncClient
 
     assert by_name["P1"]["bug_count"] == 1
     assert by_name["P1"]["task_counts"]["done"] == 1
-    assert by_name["P1"]["task_counts"]["ready"] == 1
+    assert by_name["P1"]["task_counts"]["pending"] == 1
     assert by_name["P1"]["current_phase"] == "Ph1"
 
     assert by_name["P2"]["bug_count"] == 0
-    assert by_name["P2"]["task_counts"]["waiting"] == 1
+    assert by_name["P2"]["task_counts"]["pending"] == 1
     assert by_name["P2"]["current_phase"] is None  # pending phase, not active
-    assert by_name["P2"]["has_architect_session"] is False
 
 
 # ── Direct-call tests (bypass ASGITransport for coverage tracking) ──────────
@@ -530,7 +480,6 @@ async def test_get_projects_summary_direct_no_active_phase(db_session) -> None:
     assert result[0].task_counts == {}
     assert result[0].bug_count == 0
     assert result[0].last_activity is None
-    assert result[0].has_architect_session is False
 
 
 async def test_get_projects_summary_direct_with_tasks_and_bugs(db_session) -> None:
@@ -573,10 +522,10 @@ async def test_get_projects_summary_direct_with_tasks_and_bugs(db_session) -> No
             project_id=project.id,
             phase_id=phase.id,
             title="feat-ready",
-            status=TaskStatus.ready,
+            status=TaskStatus.pending,
             priority=TaskPriority.medium,
             task_type=TaskType.feature,
-            source=TaskSource.architect,
+            source=TaskSource.llm,
             created_at=earlier,
             updated_at=earlier,
         )
@@ -590,7 +539,7 @@ async def test_get_projects_summary_direct_with_tasks_and_bugs(db_session) -> No
             status=TaskStatus.done,
             priority=TaskPriority.medium,
             task_type=TaskType.feature,
-            source=TaskSource.architect,
+            source=TaskSource.llm,
             created_at=earlier,
             updated_at=earlier,
         )
@@ -601,7 +550,7 @@ async def test_get_projects_summary_direct_with_tasks_and_bugs(db_session) -> No
             project_id=project.id,
             phase_id=phase.id,
             title="bug-ready",
-            status=TaskStatus.ready,
+            status=TaskStatus.pending,
             priority=TaskPriority.high,
             task_type=TaskType.bug,
             source=TaskSource.auto_bug,
@@ -615,7 +564,7 @@ async def test_get_projects_summary_direct_with_tasks_and_bugs(db_session) -> No
             project_id=project.id,
             phase_id=phase.id,
             title="bug-ip",
-            status=TaskStatus.in_progress,
+            status=TaskStatus.running,
             priority=TaskPriority.high,
             task_type=TaskType.bug,
             source=TaskSource.auto_bug,
@@ -630,52 +579,9 @@ async def test_get_projects_summary_direct_with_tasks_and_bugs(db_session) -> No
     s = result[0]
     assert s.name == "Full"
     assert s.current_phase == "Active Phase"
-    assert s.task_counts == {"ready": 2, "done": 1, "in_progress": 1}
+    assert s.task_counts == {"pending": 2, "done": 1, "running": 1}
     assert s.bug_count == 2
     assert s.last_activity is not None
-
-
-async def test_get_projects_summary_direct_architect_session(db_session) -> None:
-    """Direct call: has_architect_session is True when project_bound session exists."""
-    now = datetime.now(timezone.utc)
-
-    project = Project(
-        id=uuid.uuid4(),
-        name="WithSession",
-        description="d",
-        repo_path="/t",
-        status=ProjectStatus.active,
-        created_at=now,
-        updated_at=now,
-    )
-    db_session.add(project)
-
-    phase = Phase(
-        id=uuid.uuid4(),
-        project_id=project.id,
-        name="Ph",
-        order=1,
-        status=PhaseStatus.active,
-        branch_name="b",
-        created_at=now,
-        updated_at=now,
-    )
-    db_session.add(phase)
-
-    session = DesignSession(
-        id=uuid.uuid4(),
-        status=DesignSessionStatus.project_bound,
-        project_id=project.id,
-        llm_config={},
-        created_at=now,
-        updated_at=now,
-    )
-    db_session.add(session)
-    await db_session.flush()
-
-    result = await get_projects_summary(db=db_session)
-    assert len(result) == 1
-    assert result[0].has_architect_session is True
 
 
 async def test_get_projects_summary_direct_multiple_projects(db_session) -> None:
@@ -733,7 +639,7 @@ async def test_get_projects_summary_direct_multiple_projects(db_session) -> None
             project_id=p1.id,
             phase_id=ph1.id,
             title="P1-bug",
-            status=TaskStatus.ready,
+            status=TaskStatus.pending,
             priority=TaskPriority.high,
             task_type=TaskType.bug,
             source=TaskSource.auto_bug,
@@ -750,7 +656,7 @@ async def test_get_projects_summary_direct_multiple_projects(db_session) -> None
             status=TaskStatus.done,
             priority=TaskPriority.medium,
             task_type=TaskType.feature,
-            source=TaskSource.architect,
+            source=TaskSource.llm,
             created_at=now - timedelta(hours=1),
             updated_at=now - timedelta(hours=1),
         )
@@ -765,7 +671,7 @@ async def test_get_projects_summary_direct_multiple_projects(db_session) -> None
     by_name = {s.name: s for s in result}
 
     assert by_name["P1"].bug_count == 1
-    assert by_name["P1"].task_counts == {"ready": 1, "done": 1}
+    assert by_name["P1"].task_counts == {"pending": 1, "done": 1}
     assert by_name["P1"].current_phase == "Ph1"
     assert by_name["P1"].last_activity is not None
 

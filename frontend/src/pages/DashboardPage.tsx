@@ -4,9 +4,8 @@ import { projectsApi } from '../api/projects'
 import { dashboardApi } from '../api/dashboard'
 import { budgetApi } from '../api/budget'
 import type { ProjectDashboardSummary } from '../types/project'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { Badge, Button, Modal, StatCard } from '../components/common'
-import FolderPicker from '../components/common/FolderPicker'
 import Header from '../components/layout/Header'
 
 const statusBadgeColors: Record<string, string> = {
@@ -20,7 +19,6 @@ const INPUT_CLASS =
   'w-full px-3 py-2 bg-stitch-surface-low border border-stitch-outline-variant/20 rounded-md text-text-primary text-sm placeholder:text-text-tertiary focus:outline-none focus:border-stitch-primary focus:ring-1 focus:ring-stitch-primary'
 
 export default function DashboardPage() {
-  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [createModalOpen, setCreateModalOpen] = useState(false)
   const [newName, setNewName] = useState('')
@@ -77,18 +75,29 @@ export default function DashboardPage() {
     setSelectedIds(new Set())
   }
 
+  const invalidateAfterDelete = (ids: string[]) => {
+    queryClient.invalidateQueries({ queryKey: ['projects'] })
+    queryClient.invalidateQueries({ queryKey: ['projects-summary'] })
+    // Evict per-project caches so stale data doesn't linger.
+    for (const id of ids) {
+      queryClient.removeQueries({ queryKey: ['project', id] })
+      queryClient.removeQueries({ queryKey: ['project-chat', id] })
+      queryClient.removeQueries({ queryKey: ['plan-tree', id] })
+    }
+  }
+
   const deleteMutation = useMutation({
     mutationFn: (id: string) => projectsApi.delete(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['projects'] })
+    onSuccess: (_data, id) => {
+      invalidateAfterDelete([id])
       setDeleteTarget(null)
     },
   })
 
   const batchDeleteMutation = useMutation({
     mutationFn: (ids: string[]) => projectsApi.batchDelete(ids),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['projects'] })
+    onSuccess: (_data, ids) => {
+      invalidateAfterDelete(ids)
       exitSelectMode()
       setShowBatchDeleteModal(false)
     },
@@ -154,13 +163,6 @@ export default function DashboardPage() {
     <>
       <Header title="Dashboard" action={
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => navigate('/migrate')}
-            className="bg-stitch-surface-highest text-text-primary px-4 py-1.5 rounded-md text-sm font-semibold hover:opacity-80 transition-opacity flex items-center gap-2"
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>folder_open</span>
-            Import
-          </button>
           <button
             onClick={() => setCreateModalOpen(true)}
             className="bg-gradient-to-r from-stitch-primary to-stitch-primary-container text-stitch-on-primary-container px-4 py-1.5 rounded-md text-sm font-bold shadow-lg shadow-stitch-primary/20 hover:opacity-90 transition-opacity"
@@ -313,7 +315,7 @@ export default function DashboardPage() {
                         const total = Object.values(counts).reduce((a, b) => a + b, 0)
                         if (total === 0) return null
                         const done = counts['done'] || 0
-                        const inProgress = (counts['in_progress'] || 0) + (counts['review'] || 0)
+                        const inProgress = counts['running'] || 0
                         const pctDone = Math.round((done / total) * 100)
                         const pctInProgress = Math.round((inProgress / total) * 100)
                         return (
@@ -484,10 +486,12 @@ export default function DashboardPage() {
             {newWorkspaceType === 'local_import' && (
               <div className="mt-3">
                 <label className="block text-xs text-text-tertiary mb-1">Project Path *</label>
-                <FolderPicker
+                <input
+                  type="text"
                   value={newRepoPath}
-                  onChange={setNewRepoPath}
+                  onChange={(e) => setNewRepoPath(e.target.value)}
                   placeholder="/home/user/projects/my-app"
+                  className="w-full px-3 py-2 bg-stitch-surface-low border border-stitch-outline-variant/20 rounded-md text-text-primary text-sm placeholder:text-text-tertiary focus:outline-none focus:border-stitch-primary"
                 />
               </div>
             )}

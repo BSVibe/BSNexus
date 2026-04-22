@@ -90,37 +90,6 @@ async def list_projects(
     return [schemas.ProjectResponse.model_validate(p) for p in projects]
 
 
-@router.get("/board/{project_id}")
-async def get_board_state(
-    project_id: uuid.UUID,
-    _auth: BSVibeUser = Depends(require_permission(Permission.board_read)),
-    db: AsyncSession = Depends(get_db),
-) -> dict:
-    """Get kanban board state for a project."""
-    repo = TaskRepository(db)
-    tasks = await repo.list_by_project(project_id, limit=500)
-
-    kanban_statuses = [s for s in models.TaskStatus if s != models.TaskStatus.redesign]
-    columns: dict[str, list[dict]] = {status.value: [] for status in kanban_statuses}
-    redesign_tasks: list[dict] = []
-
-    for task in tasks:
-        summary = _task_summary(task)
-        if task.status == models.TaskStatus.redesign:
-            redesign_tasks.append(summary)
-        else:
-            columns[task.status.value].append(summary)
-
-    status_counts = await repo.count_by_status(project_id)
-
-    return {
-        "project_id": str(project_id),
-        "columns": columns,
-        "stats": status_counts,
-        "redesign_tasks": redesign_tasks,
-    }
-
-
 @router.post("/tasks", status_code=201)
 async def create_task(
     body: MCPCreateTaskRequest,
@@ -149,9 +118,7 @@ async def create_task(
         priority=models.TaskPriority.medium,
         task_type=models.TaskType(body.task_type.value),
         source=models.TaskSource.manual,
-        status=(
-            models.TaskStatus.ready if active_phase.status == models.PhaseStatus.active else models.TaskStatus.waiting
-        ),
+        status=models.TaskStatus.pending,
         worker_prompt={"prompt": body.description},
         qa_prompt={"prompt": f"Verify that: {body.title}"},
         version=1,
@@ -250,56 +217,35 @@ async def get_task_dependencies(
 async def trigger_executor(
     task_id: uuid.UUID,
     request: Request,
-    _auth: BSVibeUser = Depends(require_permission(Permission.pm_control)),
+    _auth: BSVibeUser = Depends(require_permission(Permission.task_transition)),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Trigger execution for a task by transitioning it to ready.
-
-    The PM orchestrator's execution loop will pick it up automatically.
-    """
+    """Unblock a blocked task so the dispatcher can pick it up again."""
     repo = TaskRepository(db)
     task = await repo.get_by_id(task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
 
-    if task.status not in (models.TaskStatus.waiting, models.TaskStatus.redesign):
+    if task.status != models.TaskStatus.blocked:
         raise HTTPException(
             status_code=400,
-            detail=f"Task cannot be triggered from status '{task.status.value}'. Must be 'waiting' or 'redesign'.",
+            detail=f"Task cannot be unblocked from status '{task.status.value}'. Must be 'blocked'.",
         )
 
     stream_manager = getattr(getattr(request.app, "state", None), "stream_manager", None)
 
-    if task.status == models.TaskStatus.redesign:
-        # redesign -> waiting (valid transition), then waiting -> ready
-        task.retry_count = 0
-        task.error_message = None
-        await state_machine.transition(
-            task=task,
-            new_status=models.TaskStatus.waiting,
-            reason="Reset via MCP trigger",
-            actor="mcp",
-            db_session=db,
-            stream_manager=stream_manager,
-        )
-        await state_machine.transition(
-            task=task,
-            new_status=models.TaskStatus.ready,
-            reason="Triggered via MCP",
-            actor="mcp",
-            db_session=db,
-            stream_manager=stream_manager,
-        )
-    else:
-        # waiting -> ready
-        await state_machine.transition(
-            task=task,
-            new_status=models.TaskStatus.ready,
-            reason="Triggered via MCP",
-            actor="mcp",
-            db_session=db,
-            stream_manager=stream_manager,
-        )
+    # blocked -> pending: reset retry counter and clear error so the dispatcher
+    # can pick the task up again on the next cycle.
+    task.retry_count = 0
+    task.error_message = None
+    await state_machine.transition(
+        task=task,
+        new_status=models.TaskStatus.pending,
+        reason="Unblocked via MCP",
+        actor="mcp",
+        db_session=db,
+        stream_manager=stream_manager,
+    )
     await db.commit()
 
     task = await repo.get_by_id(task_id)

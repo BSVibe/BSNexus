@@ -19,6 +19,7 @@ class ConversationMessage(Base):
     __tablename__ = "conversation_messages"
     __table_args__ = (
         Index("ix_conversation_messages_project_created", "project_id", "created_at"),
+        Index("ix_conversation_messages_task", "task_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
@@ -33,6 +34,11 @@ class ConversationMessage(Base):
         Uuid, ForeignKey("agents.id", ondelete="SET NULL"), nullable=True
     )
     agent_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    # Link to the task this message relates to (nullable for general chat).
+    task_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True
+    )
 
     actions: Mapped[list] = mapped_column(JSON, nullable=False, default=list, server_default="[]")
 

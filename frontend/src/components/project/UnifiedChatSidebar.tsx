@@ -2,9 +2,20 @@ import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { agentChatApi } from '../../api/agentChat'
 import { agentsApi } from '../../api/agents'
+import { planTreeApi } from '../../api/planTree'
 import { useChatEvents } from '../../hooks/useChatEvents'
+import { useToastStore } from '../../stores/toastStore'
+import ApprovalSettings from '../plan/ApprovalSettings'
+import StopAllButton from '../plan/StopAllButton'
 import ChatMessage from './ChatMessage'
 import MentionAutocomplete from './MentionAutocomplete'
+
+// Safety net: if the backend never publishes a response within this
+// window we force-clear the typing indicator and surface a toast. The
+// backend already publishes ``[Error]`` messages on failure (which
+// clear the indicator on their own), but a Redis hiccup or a worker
+// silently dropping the result must not leave the UI stuck forever.
+const PENDING_TIMEOUT_MS = 90_000
 
 const MIN_WIDTH = 240
 const MAX_WIDTH = 600
@@ -31,6 +42,13 @@ export default function UnifiedChatSidebar({ projectId }: Props) {
     queryFn: () => agentsApi.list(),
   })
 
+  // Project-scoped agent status — only agents with running tasks in THIS project
+  const { data: agentStatus = [] } = useQuery({
+    queryKey: ['agent-status', projectId],
+    queryFn: () => planTreeApi.getAgentStatus(projectId),
+    refetchInterval: 5000,
+  })
+
   // SSE: real-time chat events from server
   useChatEvents(projectId)
 
@@ -44,6 +62,7 @@ export default function UnifiedChatSidebar({ projectId }: Props) {
   // Optimistic state: user message + dispatched agent names for typing indicators
   const [pendingMessage, setPendingMessage] = useState<string | null>(null)
   const [pendingAgents, setPendingAgents] = useState<string[]>([])
+  const [pendingSentAt, setPendingSentAt] = useState<string>('')
 
   // Hide optimistic user bubble once the real one arrives via SSE
   const showPendingUser = useMemo(() => {
@@ -74,26 +93,53 @@ export default function UnifiedChatSidebar({ projectId }: Props) {
     return agents.filter((a) => a.name.toLowerCase().startsWith(mentionQuery.toLowerCase()))
   }, [agents, mentionQuery])
 
+  const addToast = useToastStore((s) => s.addToast)
+
   const sendMutation = useMutation({
     mutationFn: (message: string) => agentChatApi.send(projectId, message),
     onSuccess: (data) => {
       setPendingAgents(data.dispatched_agents)
     },
-    onError: () => {
+    onError: (err) => {
       setPendingMessage(null)
       setPendingAgents([])
+      addToast(`Failed to send: ${(err as Error).message}`, 'error')
     },
   })
 
-  // Auto-clear pending state once all agents have responded (derived check in render)
+  // Auto-clear pending state once all agents have responded. Using
+  // useEffect instead of a render-time microtask so React does not
+  // clear pendingMessage/pendingAgents during the same render pass
+  // that computed them (which caused the typing indicator to flash
+  // away before the user saw it, and the optimistic user bubble to
+  // vanish before the real SSE message arrived).
   const allDone = pendingAgents.length > 0 && activeTypingAgents.length === 0 && !showPendingUser
-  if (allDone && pendingMessage) {
-    // Schedule clear for next tick to avoid setState during render warning
-    queueMicrotask(() => {
+  useEffect(() => {
+    if (allDone && pendingMessage) {
+      const t = setTimeout(() => {
+        setPendingMessage(null)
+        setPendingAgents([])
+      }, 0)
+      return () => clearTimeout(t)
+    }
+  }, [allDone, pendingMessage])
+
+  // Safety net: if the backend never publishes a response within
+  // PENDING_TIMEOUT_MS we force-clear and toast the user. Without this,
+  // a dropped Redis publish or a silently-failed worker turn would leave
+  // the typing indicator on forever.
+  useEffect(() => {
+    if (!pendingMessage || pendingAgents.length === 0) return
+    const timer = setTimeout(() => {
+      addToast(
+        'No response from the agent within 90s — check the worker / LLM status.',
+        'error',
+      )
       setPendingMessage(null)
       setPendingAgents([])
-    })
-  }
+    }, PENDING_TIMEOUT_MS)
+    return () => clearTimeout(timer)
+  }, [pendingMessage, pendingAgents, addToast])
 
   const clearMutation = useMutation({
     mutationFn: () => agentChatApi.clear(projectId),
@@ -132,6 +178,7 @@ export default function UnifiedChatSidebar({ projectId }: Props) {
     const trimmed = input.trim()
     if (!trimmed || sendMutation.isPending) return
     setPendingMessage(trimmed)
+    setPendingSentAt(new Date().toISOString())
     // Set temporary typing agents from @mentions in the message (will be overwritten by server response)
     const mentionMatches = [...trimmed.matchAll(/@(\S+)/g)]
     const mentionedNames = mentionMatches
@@ -254,28 +301,58 @@ export default function UnifiedChatSidebar({ projectId }: Props) {
                 content: pendingMessage,
                 agent_id: null,
                 agent_name: null,
-                created_at: new Date().toISOString(),
+                task_id: null,
+                created_at: pendingSentAt,
                 actions: [],
               }}
             />
           )}
 
-          {/* Typing indicators — one per dispatched agent still waiting */}
-          {activeTypingAgents.map((agentName) => (
-            <ChatMessage
-              key={`typing-${agentName}`}
-              message={{
-                id: `__typing_${agentName}`,
-                role: 'assistant',
-                content: '​',
-                agent_id: null,
-                agent_name: agentName === '...' ? null : agentName,
-                created_at: new Date().toISOString(),
-                actions: [],
-              }}
-              typing
-            />
-          ))}
+          {/* Typing indicators — combine:
+              1. Client-side: agents we just dispatched (activeTypingAgents)
+              2. Server-side: agents with dot=blue from the agents query
+                 (survives page refresh because it's Redis-backed)
+              Dedup by name so an agent doesn't show two typing bubbles. */}
+          {(() => {
+            const shown = new Set<string>()
+            const typingBubbles: Array<{ name: string; activity?: string }> = []
+
+            // Client-side pending (immediate, before server catches up)
+            for (const name of activeTypingAgents) {
+              if (name === '...') {
+                typingBubbles.push({ name: '...' })
+                shown.add('...')
+              } else if (!shown.has(name)) {
+                shown.add(name)
+                typingBubbles.push({ name })
+              }
+            }
+
+            // Server-side: only agents with running tasks in THIS project
+            for (const card of agentStatus) {
+              if (card.current_task && !shown.has(card.name)) {
+                shown.add(card.name)
+                typingBubbles.push({ name: card.name, activity: card.current_task.title })
+              }
+            }
+
+            return typingBubbles.map(({ name, activity }) => (
+              <ChatMessage
+                key={`typing-${name}`}
+                message={{
+                  id: `__typing_${name}`,
+                  role: 'assistant',
+                  content: activity || '​',
+                  agent_id: null,
+                  agent_name: name === '...' ? null : name,
+                  task_id: null,
+                  created_at: pendingSentAt,
+                  actions: [],
+                }}
+                typing
+              />
+            ))
+          })()}
 
           <div ref={messagesEndRef} />
         </div>
@@ -286,6 +363,14 @@ export default function UnifiedChatSidebar({ projectId }: Props) {
             {(sendMutation.error as { response?: { data?: { detail?: string } } })?.response?.data?.detail || (sendMutation.error as Error).message || 'Failed to send'}
           </p>
         )}
+
+        {/* Controls — approval mode + stop all */}
+        <div className="border-t border-stitch-outline-variant/10 px-3 py-2 flex items-center justify-between gap-2 overflow-hidden">
+          <div className="min-w-0 flex-1">
+            <ApprovalSettings projectId={projectId} />
+          </div>
+          <StopAllButton projectId={projectId} />
+        </div>
 
         {/* Input area */}
         <div className="border-t border-stitch-outline-variant/10 p-3 relative">

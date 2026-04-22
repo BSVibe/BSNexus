@@ -20,9 +20,17 @@ class WorkerSettings(BaseSettings):
     # Polling
     poll_interval_seconds: int = 5
 
-    # Claude Code execution
+    # Execution
     claude_timeout_seconds: int = 3600
     skip_permissions: bool = True
+    # LLM model override — passed as --model to the CLI executor.
+    # Empty string = use the CLI's own default model.
+    model: str = ""
+    # How many CLI calls to run in parallel. Each task spawns a separate
+    # subprocess, so this is bounded by CPU / memory. Default 5 covers
+    # a typical agent delegation chain where CEO dispatches 3-4 reports
+    # simultaneously.
+    max_parallel_tasks: int = 5
 
     model_config = SettingsConfigDict(env_file=".env", env_prefix="BSNEXUS_")
 

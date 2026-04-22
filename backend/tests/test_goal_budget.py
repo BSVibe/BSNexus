@@ -28,7 +28,7 @@ async def agent(db_session, tenant):
         tenant_id=_TENANT_ID,
         name="Test Bot",
         role="engineer",
-        executor_type="claude_api",
+        executor_type="generic_llm",
         capabilities=["coding"],
         monthly_budget_cents=10000,  # $100
         current_month_spent_cents=0,
@@ -123,7 +123,7 @@ class TestBudgetService:
     async def test_check_budget_no_limit(self, db_session, tenant) -> None:
         a = Agent(
             tenant_id=_TENANT_ID, name="Unlimited", role="eng",
-            executor_type="claude_api", capabilities=["coding"],
+            executor_type="generic_llm", capabilities=["coding"],
             monthly_budget_cents=None,
         )
         db_session.add(a)

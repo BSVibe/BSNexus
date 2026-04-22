@@ -90,7 +90,7 @@ export const mockProjectsSummary = [
     task_counts: { waiting: 2, ready: 3, in_progress: 1, review: 1, done: 5 },
     bug_count: 2,
     current_phase: 'Frontend',
-    has_architect_session: true,
+    
     last_activity: '2026-03-28T12:00:00Z',
   },
   {
@@ -100,7 +100,7 @@ export const mockProjectsSummary = [
     task_counts: { waiting: 0, ready: 0, in_progress: 0, review: 0, done: 8 },
     bug_count: 0,
     current_phase: null,
-    has_architect_session: false,
+    
     last_activity: '2026-03-20T00:00:00Z',
   },
   {
@@ -110,7 +110,7 @@ export const mockProjectsSummary = [
     task_counts: {},
     bug_count: 0,
     current_phase: null,
-    has_architect_session: false,
+    
     last_activity: null,
   },
 ]
@@ -122,10 +122,10 @@ export function makeMockTask(overrides: Record<string, unknown> = {}) {
     phase_id: 'phase-002',
     title: 'Implement dashboard stat cards',
     description: 'Add StatCard component with bento grid layout',
-    status: 'ready',
+    status: 'pending',
     priority: 'medium',
     task_type: 'feature',
-    source: 'architect',
+    source: 'llm',
     parent_task_id: null,
     worker_prompt: null,
     qa_prompt: null,
@@ -147,46 +147,102 @@ export function makeMockTask(overrides: Record<string, unknown> = {}) {
   }
 }
 
-export const mockBoardResponse = {
+export const mockPlanTreeResponse = {
   project_id: 'proj-001',
-  columns: {
-    waiting: {
+  project_name: 'BSVibe Tax SaaS',
+  project_status: 'active',
+  goal: 'Ship MVP by Q3',
+  phases: [
+    {
+      id: 'phase-001',
+      name: 'Core Backend',
+      description: 'API + DB foundations',
+      status: 'completed',
+      order: 1,
       tasks: [
-        makeMockTask({ id: 'task-w1', title: 'Design settings page', status: 'waiting', priority: 'low', task_type: 'feature' }),
-        makeMockTask({ id: 'task-w2', title: 'Add notification system', status: 'waiting', priority: 'medium', task_type: 'feature' }),
+        {
+          id: 'task-d1',
+          title: 'Setup project structure',
+          status: 'done',
+          priority: 'high',
+          task_type: 'chore',
+          creator_agent_id: 'agent-001',
+          agent_name: 'Alex',
+          depends_on_ids: [],
+          started_at: '2026-03-15T00:00:00Z',
+          completed_at: '2026-03-15T08:00:00Z',
+        },
       ],
     },
-    ready: {
+    {
+      id: 'phase-002',
+      name: 'Frontend',
+      description: 'React UI on top of the API',
+      status: 'active',
+      order: 2,
       tasks: [
-        makeMockTask({ id: 'task-r1', title: 'Implement dashboard stat cards', status: 'ready', priority: 'medium', task_type: 'feature' }),
-        makeMockTask({ id: 'task-r2', title: 'Fix auth redirect loop', status: 'ready', priority: 'high', task_type: 'bug' }),
-        makeMockTask({ id: 'task-r3', title: 'Add task filtering', status: 'ready', priority: 'low', task_type: 'improvement' }),
+        {
+          id: 'task-r1',
+          title: 'Implement plan view',
+          status: 'pending',
+          priority: 'medium',
+          task_type: 'feature',
+          creator_agent_id: null,
+          agent_name: null,
+          depends_on_ids: [],
+          started_at: null,
+          completed_at: null,
+        },
+        {
+          id: 'task-ip1',
+          title: 'Build agent status bar',
+          status: 'running',
+          priority: 'high',
+          task_type: 'feature',
+          creator_agent_id: 'agent-002',
+          agent_name: 'Dev-1',
+          depends_on_ids: [],
+          started_at: '2026-03-28T10:00:00Z',
+          completed_at: null,
+        },
       ],
     },
-    in_progress: {
-      tasks: [
-        makeMockTask({ id: 'task-ip1', title: 'Build kanban board', status: 'in_progress', priority: 'high', task_type: 'feature', started_at: '2026-03-28T10:00:00Z' }),
-      ],
-    },
-    review: {
-      tasks: [
-        makeMockTask({ id: 'task-rv1', title: 'Refactor API client', status: 'review', priority: 'medium', task_type: 'refactor' }),
-      ],
-    },
-    done: {
-      tasks: [
-        makeMockTask({ id: 'task-d1', title: 'Setup project structure', status: 'done', priority: 'high', task_type: 'chore', completed_at: '2026-03-15T00:00:00Z' }),
-        makeMockTask({ id: 'task-d2', title: 'Create database models', status: 'done', priority: 'high', task_type: 'feature', completed_at: '2026-03-18T00:00:00Z' }),
-        makeMockTask({ id: 'task-d3', title: 'Write unit tests', status: 'done', priority: 'medium', task_type: 'test', completed_at: '2026-03-20T00:00:00Z' }),
-      ],
-    },
+  ],
+}
+
+export const mockAgentStatusCards = [
+  {
+    agent_id: 'agent-001',
+    name: 'Alex',
+    role: 'cto',
+    title: 'CTO',
+    dot: 'yellow',
+    current_task: null,
   },
-  stats: { waiting: 2, ready: 3, in_progress: 1, review: 1, done: 3 },
-  phases: {
-    'phase-001': { name: 'Core Backend', order: 0, status: 'completed' },
-    'phase-002': { name: 'Frontend', order: 1, status: 'active' },
+  {
+    agent_id: 'agent-002',
+    name: 'Dev-1',
+    role: 'engineer',
+    title: 'Senior Engineer',
+    dot: 'green',
+    current_task: { id: 'task-ip1', title: 'Build agent status bar', status: 'running' },
+    activity: '',
   },
-  redesign_tasks: [],
+]
+
+export const mockTaskActivity = {
+  task_id: 'task-ip1',
+  entries: [
+    {
+      id: 'act-1',
+      task_id: 'task-ip1',
+      level: 'milestone',
+      event_type: 'task_started',
+      summary: 'Started by dispatcher',
+      detail: { from_status: 'pending', to_status: 'running', actor: 'dispatcher' },
+      created_at: '2026-03-28T10:00:00Z',
+    },
+  ],
 }
 
 export const mockAgents = [
@@ -209,6 +265,9 @@ export const mockAgents = [
     monthly_budget_cents: 6000,
     current_month_spent_cents: 1200,
     status: 'online',
+    dot: 'yellow',
+    current_task: null,
+    activity: '',
     is_active: true,
     created_at: '2026-04-01T00:00:00Z',
     updated_at: '2026-04-05T10:00:00Z',
@@ -232,6 +291,9 @@ export const mockAgents = [
     monthly_budget_cents: 30000,
     current_month_spent_cents: 4500,
     status: 'busy',
+    dot: 'green',
+    current_task: { id: 'task-ip1', title: 'Build agent status bar', status: 'running' },
+    activity: '',
     is_active: true,
     created_at: '2026-04-01T00:00:00Z',
     updated_at: '2026-04-05T12:00:00Z',
@@ -255,6 +317,9 @@ export const mockAgents = [
     monthly_budget_cents: 10000,
     current_month_spent_cents: 200,
     status: 'online',
+    dot: 'yellow',
+    current_task: null,
+    activity: '',
     is_active: true,
     created_at: '2026-04-02T00:00:00Z',
     updated_at: '2026-04-05T08:00:00Z',
@@ -405,38 +470,45 @@ export const mockGlobalSettings = {
   default_executor_type: 'claude_api',
 }
 
-export const mockSessions = [
+export const mockProjectChannels = [
   {
-    id: 'session-001',
+    id: 'chan-001',
     project_id: 'proj-001',
-    name: 'BSNexus design session',
-    status: 'project_bound',
-    created_at: '2026-03-01T00:00:00Z',
-    updated_at: '2026-03-28T00:00:00Z',
-    messages: [
-      {
-        id: 'msg-001',
-        session_id: 'session-001',
-        role: 'user',
-        content: 'I want to build an AI-powered development management system',
-        created_at: '2026-03-01T00:00:00Z',
-      },
-      {
-        id: 'msg-002',
-        session_id: 'session-001',
-        role: 'assistant',
-        content: 'I will design a system with the following components: FastAPI backend, React frontend, Redis Streams for queuing, and distributed worker nodes.',
-        created_at: '2026-03-01T00:01:00Z',
-      },
-    ],
+    kind: 'slack',
+    external_channel_id: 'C0123456789',
+    display_name: '#bsvibe-tax',
+    is_active: true,
   },
+]
+
+export const mockDesignSystem = {
+  project_id: 'proj-001',
+  name: 'Default',
+  tokens: { color: { primary: '#0ea5e9' } },
+  components: {},
+  patterns: {},
+  brand_voice: null,
+  path: 'design/system.bsd',
+}
+
+export const mockDesignScreens = [
   {
-    id: 'session-002',
-    project_id: null,
-    name: 'Exploring new ideas',
-    status: 'active',
-    created_at: '2026-03-25T00:00:00Z',
-    updated_at: '2026-03-25T00:00:00Z',
-    messages: [],
+    project_id: 'proj-001',
+    slug: 'login',
+    path: 'design/screens/login.bsd',
+    name: 'Login',
+    route: '/login',
+  },
+]
+
+export const mockMemories = [
+  {
+    id: 'mem-001',
+    project_id: 'proj-001',
+    agent_id: 'agent-001',
+    category: 'decision',
+    title: 'Use Tailwind for styling',
+    content: 'The team standardized on Tailwind in week 1.',
+    metadata: null,
   },
 ]

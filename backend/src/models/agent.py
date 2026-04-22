@@ -32,7 +32,7 @@ class Agent(Base):
         Uuid, ForeignKey("executor_configs.id", ondelete="SET NULL"), nullable=True
     )
     executor_type: Mapped[str] = mapped_column(
-        String(50), nullable=False, default="claude_api", server_default="claude_api"
+        String(50), nullable=False, default="generic_llm", server_default="generic_llm"
     )
     executor_config: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict, server_default="{}")
     system_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)

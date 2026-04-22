@@ -77,12 +77,10 @@ class DepsHealthResponse(BaseModel):
 
 
 class TaskStatus(str, enum.Enum):
-    waiting = "waiting"
-    ready = "ready"
-    in_progress = "in_progress"
-    review = "review"
+    pending = "pending"
+    running = "running"
+    blocked = "blocked"
     done = "done"
-    redesign = "redesign"
 
 
 class TaskPriority(str, enum.Enum):
@@ -115,7 +113,7 @@ class TaskType(str, enum.Enum):
 
 
 class TaskSource(str, enum.Enum):
-    architect = "architect"
+    llm = "llm"
     auto_bug = "auto_bug"
     manual = "manual"
 
@@ -217,7 +215,7 @@ class TaskCreate(BaseModel):
     description: str = ""
     priority: TaskPriority = TaskPriority.medium
     task_type: TaskType = TaskType.feature
-    agent_id: Optional[uuid.UUID] = None
+    creator_agent_id: Optional[uuid.UUID] = None
     executor_type: str = "coding"
     executor_metadata: dict = Field(default_factory=dict)
     depends_on: list[uuid.UUID] = Field(default_factory=list)
@@ -229,7 +227,7 @@ class TaskUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     priority: Optional[TaskPriority] = None
-    agent_id: Optional[uuid.UUID] = None
+    creator_agent_id: Optional[uuid.UUID] = None
     executor_type: Optional[str] = None
     executor_metadata: Optional[dict] = None
     expected_version: Optional[int] = None
@@ -255,8 +253,8 @@ class TaskResponse(BaseModel):
     task_type: TaskType = TaskType.feature
     executor_type: str = "coding"
     executor_metadata: dict = Field(default_factory=dict)
-    source: TaskSource = TaskSource.architect
-    agent_id: Optional[uuid.UUID] = None
+    source: TaskSource = TaskSource.llm
+    creator_agent_id: Optional[uuid.UUID] = None
     parent_task_id: Optional[uuid.UUID] = None
     worker_prompt: Optional[dict] = None
     qa_prompt: Optional[dict] = None
@@ -353,27 +351,6 @@ class BriefingResponse(BaseModel):
     total_tasks_active: int
 
 
-# ── Board Schemas ─────────────────────────────────────────────────────
-
-
-class BoardColumn(BaseModel):
-    tasks: list[TaskResponse]
-
-
-class PhaseInfoResponse(BaseModel):
-    name: str
-    order: int
-    status: PhaseStatus
-
-
-class BoardResponse(BaseModel):
-    project_id: uuid.UUID
-    columns: dict[str, BoardColumn]
-    stats: dict[str, int]
-    phases: dict[str, PhaseInfoResponse] = Field(default_factory=dict)
-    redesign_tasks: list[TaskResponse] = Field(default_factory=list)
-
-
 # ── Common Schemas ────────────────────────────────────────────────────
 
 
@@ -389,117 +366,6 @@ class TransitionResponse(BaseModel):
     status: TaskStatus
     previous_status: TaskStatus
     transition: dict
-
-
-# ── Architect Schemas ────────────────────────────────────────────────
-
-
-class DesignSessionStatus(str, enum.Enum):
-    active = "active"
-    project_bound = "project_bound"
-    cancelled = "cancelled"
-
-
-class MessageRole(str, enum.Enum):
-    user = "user"
-    assistant = "assistant"
-
-
-class LLMConfigInput(BaseModel):
-    api_key: str
-    model: Optional[str] = None
-    base_url: Optional[str] = None
-
-    @field_validator("base_url")
-    @classmethod
-    def _validate_base_url(cls, v: str | None) -> str | None:
-        return _check_ssrf_url(v)
-
-
-class CreateSessionRequest(BaseModel):
-    name: Optional[str] = None
-
-
-class MessageRequest(BaseModel):
-    content: str
-
-
-class DesignMessageResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-    id: uuid.UUID
-    session_id: uuid.UUID
-    role: MessageRole
-    content: str
-    created_at: datetime
-    finalize_ready: bool = False
-    design_context: Optional[str] = None
-
-
-class DesignSessionResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-    id: uuid.UUID
-    project_id: Optional[uuid.UUID] = None
-    name: Optional[str] = None
-    status: DesignSessionStatus
-    created_at: datetime
-    updated_at: datetime
-    messages: list[DesignMessageResponse] = Field(default_factory=list)
-
-
-class FinalizeRequest(BaseModel):
-    repo_path: str
-    pm_llm_config: Optional[LLMConfigInput] = None
-
-    @field_validator("repo_path")
-    @classmethod
-    def _validate_repo_path(cls, v: str) -> str:
-        return _check_path_traversal(v)
-
-
-class MigrateRequest(BaseModel):
-    """Request to migrate an existing project folder into BSNexus."""
-
-    repo_path: str
-    name: Optional[str] = None
-    pm_llm_config: Optional[LLMConfigInput] = None
-
-    @field_validator("repo_path")
-    @classmethod
-    def _validate_repo_path(cls, v: str) -> str:
-        return _check_path_traversal(v)
-
-
-class PhaseRedesignRequest(BaseModel):
-    """Request to trigger manual phase-level redesign."""
-
-    llm_config: Optional[LLMConfigInput] = None
-
-
-class PhaseRedesignResponse(BaseModel):
-    """Response from phase-level redesign."""
-
-    phase_id: uuid.UUID
-    project_id: uuid.UUID
-    reasoning: str
-    tasks_kept: int
-    tasks_deleted: int
-    tasks_created: int
-
-
-class AddTaskRequest(BaseModel):
-    phase_id: uuid.UUID
-    request_text: str
-    llm_config: Optional[LLMConfigInput] = None
-
-
-class AddTaskResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-    id: uuid.UUID
-    title: str
-    description: Optional[str] = None
-    priority: TaskPriority
-    worker_prompt: Optional[dict] = None
-    qa_prompt: Optional[dict] = None
 
 
 # ── Dashboard Schemas ────────────────────────────────────────────────
@@ -525,7 +391,6 @@ class ProjectDashboardSummary(BaseModel):
     task_counts: dict[str, int]  # status → count
     bug_count: int = 0
     current_phase: Optional[str] = None
-    has_architect_session: bool = False
     last_activity: Optional[datetime] = None
 
 
@@ -536,7 +401,7 @@ class GlobalSettingsResponse(BaseModel):
     llm_api_key: Optional[str] = None
     llm_model: Optional[str] = None
     llm_base_url: Optional[str] = None
-    default_executor_type: str = "claude_api"
+    default_executor_type: str = "generic_llm"
 
 
 class GlobalSettingsUpdate(BaseModel):

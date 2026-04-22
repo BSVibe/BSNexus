@@ -1,5 +1,11 @@
 export type AgentStatus = 'online' | 'busy' | 'offline' | 'budget_exceeded'
-export type ExecutorType = 'claude_code' | 'claude_api' | 'bsgateway' | 'codex' | 'generic_llm' | 'worker'
+export type ExecutorType = 'claude_code' | 'generic_llm' | 'bsgateway' | 'codex' | 'worker'
+
+export interface CurrentTaskBrief {
+  id: string
+  title: string
+  status: string
+}
 
 export interface Agent {
   id: string
@@ -21,6 +27,12 @@ export interface Agent {
   monthly_budget_cents: number | null
   current_month_spent_cents: number
   status: AgentStatus
+  /** Plan-view compatible status dot (green/blue/yellow/red/gray). */
+  dot: string
+  /** The task this agent is currently working on, if any. */
+  current_task: CurrentTaskBrief | null
+  /** Short activity summary when mid-chat (e.g. "시장 조사 중..."). */
+  activity: string
   is_active: boolean
   created_at: string
   updated_at: string

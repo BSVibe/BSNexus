@@ -17,8 +17,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.src.api.settings import verify_install_token
-from backend.src.core.tenant_context import DEFAULT_TENANT_ID
+from backend.src.api.settings import resolve_install_token_tenant
+from backend.src.core.tenant_context import DEFAULT_TENANT_ID, get_tenant_id
 from backend.src.core.worker_dispatch import WorkerDispatcher
 from backend.src.models import Agent, ExecutorConfig, Task, TaskStatus
 from backend.src.models.worker import Worker
@@ -121,9 +121,11 @@ def _worker_description(capabilities: list[str]) -> str:
     return f"Self-hosted worker ({', '.join(capabilities)})"
 
 
-def _make_worker_executor_config(name: str, worker_id: uuid.UUID, capabilities: list[str]) -> ExecutorConfig:
+def _make_worker_executor_config(
+    name: str, worker_id: uuid.UUID, capabilities: list[str], tenant_id: uuid.UUID
+) -> ExecutorConfig:
     return ExecutorConfig(
-        tenant_id=DEFAULT_TENANT_ID,
+        tenant_id=tenant_id,
         name=f"Worker: {name}",
         executor_type="worker",
         config={"worker_id": str(worker_id)},
@@ -137,17 +139,41 @@ async def register_worker(
     x_install_token: str = Header("", alias="X-Install-Token"),
     db: AsyncSession = Depends(get_db),
 ) -> WorkerRegisterResponse:
-    """Register or re-register a worker. Same name = update existing."""
-    if not await verify_install_token(x_install_token, db):
-        raise HTTPException(status_code=401, detail="Invalid install token. Generate one in Settings.")
+    """Register or re-register a worker. Same name (within tenant) = update existing.
+
+    The install token determines the worker's tenant. Tokens are minted
+    via Settings → Install Token by an admin of the target tenant.
+    """
+    install_tenant_id: uuid.UUID | None = None
+    if x_install_token:
+        install_tenant_id = await resolve_install_token_tenant(x_install_token, db)
+        if install_tenant_id is None:
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid install token. Generate one in Settings → Install Token.",
+            )
+    else:
+        # Open-mode fallback: no token at all means single-tenant dev. We
+        # only allow this when the default tenant has not minted its own
+        # token yet (otherwise the admin clearly wants tokens enforced).
+        from backend.src.models import Tenant
+
+        result = await db.execute(select(Tenant).where(Tenant.id == DEFAULT_TENANT_ID))
+        default_tenant = result.scalar_one_or_none()
+        if default_tenant is None or default_tenant.worker_install_token_hash is not None:
+            raise HTTPException(
+                status_code=401,
+                detail="Install token required. Generate one in Settings → Install Token.",
+            )
+        install_tenant_id = DEFAULT_TENANT_ID
 
     token = secrets.token_urlsafe(32)
     now = datetime.now(timezone.utc)
 
-    # Check for existing workers with same name (keep most recently active)
+    # Check for existing workers with same name in the same tenant
     result = await db.execute(
         select(Worker).where(
-            Worker.tenant_id == DEFAULT_TENANT_ID,
+            Worker.tenant_id == install_tenant_id,
             Worker.name == body.name,
         ).order_by(Worker.last_heartbeat.desc().nulls_last())
     )
@@ -189,11 +215,15 @@ async def register_worker(
         if exec_config:
             exec_config.description = _worker_description(body.capabilities)
         else:
-            db.add(_make_worker_executor_config(body.name, worker.id, body.capabilities))
+            db.add(
+                _make_worker_executor_config(
+                    body.name, worker.id, body.capabilities, install_tenant_id
+                )
+            )
     else:
         # New registration
         worker = Worker(
-            tenant_id=DEFAULT_TENANT_ID,
+            tenant_id=install_tenant_id,
             name=body.name,
             labels=body.labels,
             capabilities=body.capabilities,
@@ -205,7 +235,11 @@ async def register_worker(
         await db.flush()
         await db.refresh(worker)
 
-        db.add(_make_worker_executor_config(body.name, worker.id, body.capabilities))
+        db.add(
+            _make_worker_executor_config(
+                body.name, worker.id, body.capabilities, install_tenant_id
+            )
+        )
 
     await db.commit()
     return WorkerRegisterResponse(id=worker.id, token=token)
@@ -338,11 +372,57 @@ async def submit_result(
     task_result = await db.execute(select(Task).where(Task.id == body.task_id))
     task = task_result.scalar_one_or_none()
     if task:
-        task.status = TaskStatus.review if body.success else TaskStatus.ready
+        task.status = TaskStatus.running if body.success else TaskStatus.pending
         if body.output_data:
             task.output_data = body.output_data
         if body.error_message:
             task.error_message = body.error_message
+
+        # Emit a milestone TaskActivity row so the Plan detail panel sees the result.
+        from backend.src.models import ActivityLevel as _ActivityLevel
+        from backend.src.models import TaskActivity as _TaskActivity
+        if body.success:
+            summary = "Worker reported success"
+        else:
+            summary = body.error_message or "Worker reported failure"
+        db.add(
+            _TaskActivity(
+                task_id=task.id,
+                project_id=task.project_id,
+                agent_id=task.creator_agent_id,
+                level=_ActivityLevel.milestone,
+                event_type="worker_result",
+                summary=summary[:2000],
+                detail={
+                    "success": body.success,
+                    "worker_id": str(worker.id),
+                    **({"output_data": body.output_data} if body.output_data else {}),
+                    **({"error_message": body.error_message} if body.error_message else {}),
+                },
+            )
+        )
+
+        # If the worker reported individual tool calls, store them as ``tool``
+        # activity rows so the detail panel can reveal them on demand.
+        tool_log = (body.output_data or {}).get("tool_log") if body.output_data else None
+        if isinstance(tool_log, list):
+            for entry in tool_log:
+                if not isinstance(entry, dict):
+                    continue
+                event_type = str(entry.get("type") or entry.get("tool") or "tool_call")[:64]
+                summary = str(entry.get("summary") or entry.get("description") or event_type)[:2000]
+                db.add(
+                    _TaskActivity(
+                        task_id=task.id,
+                        project_id=task.project_id,
+                        agent_id=task.creator_agent_id,
+                        level=_ActivityLevel.tool,
+                        event_type=event_type,
+                        summary=summary,
+                        detail=entry,
+                    )
+                )
+
         await db.commit()
 
     stream_manager = getattr(request.app.state, "stream_manager", None)
@@ -362,8 +442,8 @@ async def submit_result(
         redis = getattr(request.app.state, "redis", None)
         if redis is not None:
             agent_name = None
-            if task.agent_id:
-                agent_result = await db.execute(select(Agent).where(Agent.id == task.agent_id))
+            if task.creator_agent_id:
+                agent_result = await db.execute(select(Agent).where(Agent.id == task.creator_agent_id))
                 agent = agent_result.scalar_one_or_none()
                 if agent:
                     agent_name = agent.name
@@ -386,7 +466,7 @@ async def submit_result(
                 task.project_id,
                 role="assistant",
                 content=content,
-                agent_id=task.agent_id,
+                agent_id=task.creator_agent_id,
                 agent_name=agent_name,
             )
             await db.commit()
@@ -408,6 +488,10 @@ class WorkerChatResultRequest(BaseModel):
     success: bool
     output: str = ""
     error_message: str | None = None
+    # Tool audit trail from agentic loop execution.
+    tool_calls: list[dict] | None = None
+    tool_results: list[dict] | None = None
+    usage: dict | None = None
 
 
 @router.post("/chat-result", status_code=200)
@@ -435,7 +519,10 @@ async def submit_chat_result(
         "output": body.output,
         "error_message": body.error_message,
         "worker_id": str(worker.id),
-    }), ex=300)  # TTL 5 minutes
+        "tool_calls": body.tool_calls or [],
+        "tool_results": body.tool_results or [],
+        "usage": body.usage or {},
+    }), ex=3600)  # TTL 1 hour — must outlive WORKER_RESULT_TIMEOUT (30min)
 
     return {"status": "accepted"}
 
@@ -453,9 +540,12 @@ def _compute_status(worker: Worker) -> str:
 
 
 @router.get("", response_model=list[WorkerResponse])
-async def list_workers(db: AsyncSession = Depends(get_db)) -> list[WorkerResponse]:
+async def list_workers(
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+) -> list[WorkerResponse]:
     result = await db.execute(
-        select(Worker).where(Worker.tenant_id == DEFAULT_TENANT_ID, Worker.is_active.is_(True)).order_by(Worker.created_at)
+        select(Worker).where(Worker.tenant_id == tenant_id, Worker.is_active.is_(True)).order_by(Worker.created_at)
     )
     workers = result.scalars().all()
 

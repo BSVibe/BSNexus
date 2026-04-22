@@ -21,7 +21,7 @@ class AgentCreate(BaseModel):
     title: Optional[str] = None
     job_description: Optional[str] = None
     executor_config_id: Optional[uuid.UUID] = None
-    executor_type: str = "claude_api"
+    executor_type: str = "generic_llm"
     executor_config: dict = Field(default_factory=dict)
     system_prompt: Optional[str] = None
     skills: Optional[list[str]] = None
@@ -60,6 +60,14 @@ class AgentUpdate(BaseModel):
         return _normalize_agent_name(v) if v is not None else None
 
 
+class CurrentTaskBrief(BaseModel):
+    """Minimal info about the task an agent is currently working on."""
+
+    id: uuid.UUID
+    title: str
+    status: str
+
+
 class AgentResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -82,6 +90,15 @@ class AgentResponse(BaseModel):
     monthly_budget_cents: Optional[int] = None
     current_month_spent_cents: int = 0
     status: str = "offline"
+    # Plan-view compatible status dot (green/yellow/red/gray).
+    # Populated at read-time by the agents API so all consumers share
+    # a single source of truth — previously the Plan view and the
+    # Agents tab had separate resolvers that disagreed.
+    dot: str = "gray"
+    current_task: Optional[CurrentTaskBrief] = None
+    # Short human-readable activity summary when the agent is mid-chat
+    # (e.g. "시장 조사 중...", "코드 리뷰 진행 중..."). Empty when idle.
+    activity: str = ""
     is_active: bool = True
     created_at: datetime
     updated_at: datetime

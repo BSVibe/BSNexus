@@ -57,7 +57,7 @@ async def make_task(
     db_session,
     project_id: uuid.UUID,
     phase_id: uuid.UUID,
-    status: TaskStatus = TaskStatus.ready,
+    status: TaskStatus = TaskStatus.pending,
     priority: TaskPriority = TaskPriority.medium,
 ) -> Task:
     task = Task(
@@ -98,15 +98,15 @@ class TestTaskRepository:
         """list_by_project filters by status."""
         project = await make_project(db_session)
         phase = await make_phase(db_session, project.id)
-        await make_task(db_session, project.id, phase.id, status=TaskStatus.ready)
+        await make_task(db_session, project.id, phase.id, status=TaskStatus.pending)
         await make_task(db_session, project.id, phase.id, status=TaskStatus.done)
         await db_session.commit()
 
         repo = TaskRepository(db_session)
-        results = await repo.list_by_project(project.id, status=TaskStatus.ready)
+        results = await repo.list_by_project(project.id, status=TaskStatus.pending)
 
         assert len(results) == 1
-        assert results[0].status == TaskStatus.ready
+        assert results[0].status == TaskStatus.pending
 
     async def test_list_by_project_with_phase_filter(self, db_session):
         """list_by_project filters by phase_id."""
@@ -204,7 +204,7 @@ class TestTaskRepository:
         phase = await make_phase(db_session, project.id)
         task_main = await make_task(db_session, project.id, phase.id)
         dep_done = await make_task(db_session, project.id, phase.id, status=TaskStatus.done)
-        dep_pending = await make_task(db_session, project.id, phase.id, status=TaskStatus.ready)
+        dep_pending = await make_task(db_session, project.id, phase.id, status=TaskStatus.pending)
         await db_session.commit()
 
         repo = TaskRepository(db_session)
@@ -230,7 +230,7 @@ class TestTaskRepository:
         project = await make_project(db_session)
         phase = await make_phase(db_session, project.id)
         task_done = await make_task(db_session, project.id, phase.id, status=TaskStatus.done)
-        task_waiting = await make_task(db_session, project.id, phase.id, status=TaskStatus.waiting)
+        task_waiting = await make_task(db_session, project.id, phase.id, status=TaskStatus.pending)
         await db_session.commit()
 
         repo = TaskRepository(db_session)
@@ -245,15 +245,15 @@ class TestTaskRepository:
         """count_by_status returns task counts grouped by status."""
         project = await make_project(db_session)
         phase = await make_phase(db_session, project.id)
-        await make_task(db_session, project.id, phase.id, status=TaskStatus.ready)
-        await make_task(db_session, project.id, phase.id, status=TaskStatus.ready)
+        await make_task(db_session, project.id, phase.id, status=TaskStatus.pending)
+        await make_task(db_session, project.id, phase.id, status=TaskStatus.pending)
         await make_task(db_session, project.id, phase.id, status=TaskStatus.done)
         await db_session.commit()
 
         repo = TaskRepository(db_session)
         counts = await repo.count_by_status(project.id)
 
-        assert counts.get("ready") == 2
+        assert counts.get("pending") == 2
         assert counts.get("done") == 1
 
     async def test_list_ready_by_priority(self, db_session):
@@ -275,8 +275,8 @@ class TestTaskRepository:
         """count_active_tasks counts in_progress/review tasks."""
         project = await make_project(db_session)
         phase = await make_phase(db_session, project.id)
-        await make_task(db_session, project.id, phase.id, status=TaskStatus.in_progress)
-        await make_task(db_session, project.id, phase.id, status=TaskStatus.review)
+        await make_task(db_session, project.id, phase.id, status=TaskStatus.running)
+        await make_task(db_session, project.id, phase.id, status=TaskStatus.running)
         await make_task(db_session, project.id, phase.id, status=TaskStatus.done)
         await db_session.commit()
 
@@ -285,18 +285,18 @@ class TestTaskRepository:
         assert count == 2
 
     async def test_list_waiting_in_phase(self, db_session):
-        """list_waiting_in_phase returns only waiting tasks."""
+        """list_waiting_in_phase returns only pending tasks (not done)."""
         project = await make_project(db_session)
         phase = await make_phase(db_session, project.id)
-        await make_task(db_session, project.id, phase.id, status=TaskStatus.waiting)
-        await make_task(db_session, project.id, phase.id, status=TaskStatus.ready)
+        await make_task(db_session, project.id, phase.id, status=TaskStatus.pending)
+        await make_task(db_session, project.id, phase.id, status=TaskStatus.done)
         await db_session.commit()
 
         repo = TaskRepository(db_session)
         tasks = await repo.list_waiting_in_phase(phase.id)
 
         assert len(tasks) == 1
-        assert tasks[0].status == TaskStatus.waiting
+        assert tasks[0].status == TaskStatus.pending
 
     async def test_hard_delete(self, db_session):
         """hard_delete removes the task from the database."""
@@ -438,8 +438,8 @@ class TestPhaseRepository:
         """count_incomplete_tasks counts non-done tasks in a phase."""
         project = await make_project(db_session)
         phase = await make_phase(db_session, project.id)
-        await make_task(db_session, project.id, phase.id, status=TaskStatus.ready)
-        await make_task(db_session, project.id, phase.id, status=TaskStatus.in_progress)
+        await make_task(db_session, project.id, phase.id, status=TaskStatus.pending)
+        await make_task(db_session, project.id, phase.id, status=TaskStatus.running)
         await make_task(db_session, project.id, phase.id, status=TaskStatus.done)
         await db_session.commit()
 
@@ -573,14 +573,3 @@ class TestTaskRepositoryEdgeCases:
         assert is_circular is False
 
 
-# -- DesignSessionRepository additional coverage ------------------------------
-
-
-class TestDesignSessionRepository:
-    async def test_get_by_project_id_not_found(self, db_session):
-        """get_by_project_id returns None when no project-bound session exists."""
-        from backend.src.repositories.design_session_repository import DesignSessionRepository
-
-        repo = DesignSessionRepository(db_session)
-        result = await repo.get_by_project_id(uuid.uuid4())
-        assert result is None

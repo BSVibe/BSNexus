@@ -11,13 +11,13 @@ const INPUT_CLASS =
   'w-full px-3 py-2 bg-stitch-surface-low border border-stitch-outline-variant/20 rounded-md text-text-primary text-sm placeholder:text-text-tertiary focus:outline-none focus:border-stitch-primary focus:ring-1 focus:ring-stitch-primary'
 
 const EXECUTOR_TYPES = [
-  { value: 'claude_api', label: 'LLM API', description: 'Any LLM via LiteLLM (Claude, GPT, Gemini, open-source). For both coding and non-coding tasks.' },
+  { value: 'generic_llm', label: 'LLM API', description: 'Any LLM via LiteLLM (Claude, GPT, Gemini, open-source). For both coding and non-coding tasks.' },
   { value: 'bsgateway', label: 'BSGateway', description: 'BSGateway proxy with automatic cost-optimized model routing' },
   { value: '_worker', label: 'Self-Hosted Worker', description: 'Run coding tasks on your machine via Claude Code, Codex, or OpenCode.' },
 ] as const
 
 const TYPE_LABELS: Record<string, string> = {
-  claude_api: 'LLM API',
+  generic_llm: 'LLM API',
   bsgateway: 'BSGateway',
   worker: 'Worker',
 }
@@ -31,7 +31,7 @@ interface ConfigField {
 }
 
 const EXECUTOR_FIELDS: Record<string, ConfigField[]> = {
-  claude_api: [
+  generic_llm: [
     { key: 'api_key', label: 'API Key', type: 'password', placeholder: 'sk-ant-..., sk-..., etc.' },
     { key: 'model', label: 'Model (LiteLLM format)', type: 'text', placeholder: 'anthropic/claude-sonnet-4-20250514' },
     { key: 'base_url', label: 'Base URL (optional)', type: 'text', placeholder: 'https://api.anthropic.com' },
@@ -70,9 +70,11 @@ function ExecutorCard({
     <div className="bg-stitch-surface-low rounded-xl p-5 border border-stitch-outline-variant/10">
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
-          {isWorker && (
-            <div className={`w-2 h-2 rounded-full shrink-0 ${worker?.status === 'online' ? 'bg-green-500' : 'bg-gray-500'}`} />
-          )}
+          <div className={`w-2 h-2 rounded-full shrink-0 ${
+            isWorker
+              ? (worker?.status === 'online' ? 'bg-green-500' : 'bg-gray-500')
+              : 'bg-green-500'
+          }`} />
           <h4 className="text-sm font-bold text-text-primary truncate">{config.name}</h4>
           {config.is_default && (
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-stitch-primary/20 text-stitch-primary font-bold shrink-0">DEFAULT</span>
@@ -111,7 +113,7 @@ export default function SettingsPage() {
 
   // Form state
   const [formName, setFormName] = useState('')
-  const [formType, setFormType] = useState('claude_api')
+  const [formType, setFormType] = useState('generic_llm')
   const [formConfig, setFormConfig] = useState<Record<string, string>>({})
   const [formDescription, setFormDescription] = useState('')
   const [formDefault, setFormDefault] = useState(false)
@@ -190,7 +192,7 @@ export default function SettingsPage() {
   const openCreate = () => {
     setEditTarget(null)
     setFormName('')
-    setFormType('claude_api')
+    setFormType('generic_llm')
     setFormConfig({})
     setFormDescription('')
     setFormDefault(false)
@@ -395,8 +397,9 @@ export default function SettingsPage() {
               </div>
               <div>
                 <p className="text-[10px] uppercase tracking-widest text-text-tertiary font-bold mb-1">2. Register & run</p>
-                <code className="block text-xs text-stitch-primary bg-stitch-surface rounded px-3 py-2 font-mono select-all">
-                  bsnexus-worker register --server {window.location.origin} --token YOUR_TOKEN{'\n'}bsnexus-worker run
+                <code className="block text-xs text-stitch-primary bg-stitch-surface rounded px-3 py-2 font-mono select-all whitespace-pre">
+{`bsnexus-worker register --name "$(hostname)" --server ${window.location.origin} --token YOUR_TOKEN
+bsnexus-worker run`}
                 </code>
                 <p className="text-[10px] text-text-tertiary mt-1.5">
                   To use a specific executor:

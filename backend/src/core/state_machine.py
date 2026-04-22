@@ -9,7 +9,15 @@ from typing import TYPE_CHECKING, Any, Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.src.models import Phase, PhaseStatus, Task, TaskHistory, TaskStatus
+from backend.src.models import (
+    ActivityLevel,
+    Phase,
+    PhaseStatus,
+    Task,
+    TaskActivity,
+    TaskHistory,
+    TaskStatus,
+)
 from backend.src.queue.streams import RedisStreamManager
 from backend.src.repositories.task_repository import TaskRepository
 
@@ -23,12 +31,10 @@ class TaskStateMachine:
     """State machine for managing task status transitions."""
 
     TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
-        TaskStatus.waiting: {TaskStatus.ready},
-        TaskStatus.ready: {TaskStatus.in_progress},
-        TaskStatus.in_progress: {TaskStatus.review, TaskStatus.ready, TaskStatus.redesign},
-        TaskStatus.review: {TaskStatus.done, TaskStatus.ready, TaskStatus.in_progress, TaskStatus.redesign},
+        TaskStatus.pending: {TaskStatus.running, TaskStatus.blocked},
+        TaskStatus.running: {TaskStatus.done, TaskStatus.pending, TaskStatus.blocked},
+        TaskStatus.blocked: {TaskStatus.pending},
         TaskStatus.done: set(),
-        TaskStatus.redesign: {TaskStatus.waiting},
     }
 
     def __init__(
@@ -64,17 +70,34 @@ class TaskStateMachine:
             "Task %s: %s -> %s (actor=%s, reason=%s)", task.id, old_status.value, new_status.value, actor, reason
         )
 
-        # 2. Record history (requires db_session)
+        # 2. Record history + milestone activity (requires db_session)
         if db_session is not None:
             history = TaskHistory(
                 task_id=task.id,
-                from_status=old_status.value,
-                to_status=new_status.value,
+                from_status=old_status,
+                to_status=new_status,
                 actor=actor,
                 reason=reason,
                 extra_metadata=kwargs if kwargs else None,
             )
             db_session.add(history)
+
+            db_session.add(
+                TaskActivity(
+                    task_id=task.id,
+                    project_id=task.project_id,
+                    agent_id=task.creator_agent_id,
+                    level=ActivityLevel.milestone,
+                    event_type=_milestone_event_type(new_status),
+                    summary=_milestone_summary(new_status, actor, reason),
+                    detail={
+                        "from_status": old_status.value,
+                        "to_status": new_status.value,
+                        "actor": actor,
+                        **({"reason": reason} if reason else {}),
+                    },
+                )
+            )
 
         # 3. Update task status + version (optimistic locking)
         task.status = new_status
@@ -85,18 +108,25 @@ class TaskStateMachine:
             task, old_status, new_status, db_session, stream_manager, reason=reason, **kwargs
         )
 
-        # 5. Publish board event
+        # 5. Publish to BOTH plan and chat SSE streams so all frontends react.
         if stream_manager is not None:
-            await stream_manager.publish_board_event(
-                "task_transition",
-                {
-                    "task_id": str(task.id),
-                    "project_id": str(task.project_id),
-                    "from_status": old_status.value,
-                    "to_status": new_status.value,
-                    "actor": actor,
-                },
+            event_data = {
+                "task_id": str(task.id),
+                "from_status": old_status.value,
+                "to_status": new_status.value,
+                "actor": actor,
+                "agent_id": str(task.creator_agent_id) if task.creator_agent_id else None,
+            }
+            # Plan view stream (task_transition, phase_advanced)
+            await stream_manager.publish_project_event(
+                str(task.project_id), "task_transition", event_data,
             )
+            # Chat sidebar stream (so agent status dots update)
+            chat_stream = RedisStreamManager.chat_events_stream(str(task.project_id))
+            try:
+                await stream_manager.publish(chat_stream, {"event": "task_transition", "data": event_data})
+            except Exception:  # noqa: BLE001
+                pass  # best-effort — don't break state machine
 
         return task
 
@@ -110,19 +140,17 @@ class TaskStateMachine:
         **kwargs: Any,
     ) -> None:
         """Dispatch side effects based on the new status."""
-        # NOTE: TaskStatus.review intentionally has no side effect handler.
-        # The orchestrator manages the review workflow directly in _execute_and_review().
         side_effect_map = {
-            TaskStatus.ready: self._on_ready,
-            TaskStatus.in_progress: self._on_in_progress,
+            TaskStatus.pending: self._on_pending,
+            TaskStatus.running: self._on_running,
             TaskStatus.done: self._on_done,
-            TaskStatus.redesign: self._on_redesign,
+            TaskStatus.blocked: self._on_blocked,
         }
         handler = side_effect_map.get(new_status)
         if handler is not None:
             await handler(task, old_status=old_status, db_session=db_session, stream_manager=stream_manager, **kwargs)
 
-    async def _on_ready(
+    async def _on_pending(
         self,
         task: Task,
         *,
@@ -133,16 +161,16 @@ class TaskStateMachine:
     ) -> None:
         """Reset execution fields when retrying.
 
-        Note: qa_feedback_history is intentionally preserved — the orchestrator
-        appends failure context before this transition so the next attempt can
-        reference prior feedback.
+        Note: qa_feedback_history is intentionally preserved — callers
+        append failure context before this transition so the next attempt
+        can reference prior feedback.
         """
-        if old_status in (TaskStatus.in_progress, TaskStatus.review):
+        if old_status == TaskStatus.running:
             task.error_message = None
             task.qa_result = None
             task.started_at = None
 
-    async def _on_in_progress(
+    async def _on_running(
         self,
         task: Task,
         *,
@@ -169,7 +197,7 @@ class TaskStateMachine:
             repo = TaskRepository(db_session)
             await self._promote_dependents(task, repo, db_session)
 
-    async def _on_redesign(
+    async def _on_blocked(
         self,
         task: Task,
         *,
@@ -178,7 +206,7 @@ class TaskStateMachine:
         stream_manager: Optional[RedisStreamManager] = None,
         **kwargs: Any,
     ) -> None:
-        """Handle escalation to Architect: publish escalation event."""
+        """Handle escalation: publish event so a planning agent can react."""
         reason = kwargs.get("reason")
         if reason is not None:
             task.error_message = reason
@@ -213,13 +241,13 @@ class TaskStateMachine:
                 continue
             if await repo.check_dependencies_met(candidate.id):
                 old_status = candidate.status
-                candidate.status = TaskStatus.ready
+                candidate.status = TaskStatus.pending
                 candidate.version += 1
 
                 history = TaskHistory(
                     task_id=candidate.id,
                     from_status=old_status.value,
-                    to_status=TaskStatus.ready.value,
+                    to_status=TaskStatus.pending.value,
                     actor="system",
                     reason=f"All dependencies met (triggered by task {task.id})",
                 )
@@ -238,3 +266,30 @@ class TaskStateMachine:
         """Promote WAITING tasks that depend on the completed task to READY (public API)."""
         repo = TaskRepository(db_session)
         return await self._promote_dependents(task, repo, db_session)
+
+
+# -- Milestone helpers --------------------------------------------------------
+
+
+_MILESTONE_EVENT_TYPES: dict[TaskStatus, str] = {
+    TaskStatus.pending: "task_reset",
+    TaskStatus.running: "task_started",
+    TaskStatus.done: "task_completed",
+    TaskStatus.blocked: "task_blocked",
+}
+
+
+def _milestone_event_type(new_status: TaskStatus) -> str:
+    return _MILESTONE_EVENT_TYPES.get(new_status, "task_transition")
+
+
+def _milestone_summary(new_status: TaskStatus, actor: str, reason: Optional[str]) -> str:
+    label = {
+        TaskStatus.pending: "Reset to pending",
+        TaskStatus.running: "Started",
+        TaskStatus.done: "Completed",
+        TaskStatus.blocked: "Blocked",
+    }.get(new_status, f"Transitioned to {new_status.value}")
+    if reason:
+        return f"{label} by {actor}: {reason}"
+    return f"{label} by {actor}"

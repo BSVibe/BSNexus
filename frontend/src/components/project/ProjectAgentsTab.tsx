@@ -1,36 +1,13 @@
-import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { agentsApi } from '../../api/agents'
-import { useBoardStore } from '../../stores/boardStore'
-import type { Agent } from '../../types/agent'
-import type { Task } from '../../types/task'
-
-const STATUS_COLORS: Record<string, string> = {
-  online: '#22c55e',
-  busy: '#3b82f6',
-  offline: '#6b7280',
-  budget_exceeded: '#ef4444',
-}
-
-const STATUS_LABELS: Record<string, string> = {
-  online: 'idle',
-  busy: 'working',
-  offline: 'offline',
-  budget_exceeded: 'budget exceeded',
-}
-
-function getAgentCurrentTask(agent: Agent, allTasks: Task[]): Task | undefined {
-  return allTasks.find((t) => t.status === 'in_progress' && t.agent_id === agent.id)
-}
+import { AGENT_STATUS_COLORS, AGENT_STATUS_FALLBACK_COLOR, AGENT_STATUS_LABELS } from '../../constants/agentStatus'
 
 export default function ProjectAgentsTab() {
   const { data: agents = [] } = useQuery({
     queryKey: ['agents'],
     queryFn: () => agentsApi.list(),
+    refetchInterval: 5000,
   })
-
-  const columns = useBoardStore((s) => s.columns)
-  const allTasks = useMemo(() => Object.values(columns).flat(), [columns])
 
   if (agents.length === 0) {
     return (
@@ -46,7 +23,6 @@ export default function ProjectAgentsTab() {
     <div className="flex-1 overflow-y-auto p-6">
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {agents.map((agent) => {
-          const currentTask = getAgentCurrentTask(agent, allTasks)
           const budgetPct = agent.monthly_budget_cents && agent.monthly_budget_cents > 0
             ? Math.round((agent.current_month_spent_cents / agent.monthly_budget_cents) * 100)
             : null
@@ -60,7 +36,7 @@ export default function ProjectAgentsTab() {
               <div className="flex items-center gap-2 mb-2">
                 <div
                   className="w-2.5 h-2.5 rounded-full shrink-0"
-                  style={{ backgroundColor: STATUS_COLORS[currentTask ? 'busy' : agent.status] || '#6b7280' }}
+                  style={{ backgroundColor: AGENT_STATUS_COLORS[agent.dot] || AGENT_STATUS_COLORS[agent.status] || AGENT_STATUS_FALLBACK_COLOR }}
                 />
                 <span className="text-sm font-bold text-text-primary truncate">{agent.name}</span>
               </div>
@@ -68,17 +44,10 @@ export default function ProjectAgentsTab() {
               {/* Role */}
               <p className="text-xs text-text-tertiary mb-2">{agent.title || agent.role}</p>
 
-              {/* Current task */}
-              {currentTask ? (
-                <div className="bg-stitch-primary/10 rounded-lg px-3 py-2 mb-2">
-                  <p className="text-[10px] text-stitch-primary font-medium">Working on:</p>
-                  <p className="text-xs text-text-primary truncate">{currentTask.title}</p>
-                </div>
-              ) : (
-                <p className="text-xs text-text-tertiary mb-2">
-                  {STATUS_LABELS[agent.status] || agent.status}
-                </p>
-              )}
+              {/* Status — show activity summary if available, else label */}
+              <p className="text-xs text-text-tertiary mb-2 truncate" title={agent.activity || AGENT_STATUS_LABELS[agent.status] || agent.status}>
+                {agent.activity || AGENT_STATUS_LABELS[agent.status] || agent.status}
+              </p>
 
               {/* Budget bar */}
               {agent.monthly_budget_cents != null && (

@@ -2,21 +2,22 @@ from __future__ import annotations
 
 import hashlib
 import secrets
+import uuid
 
 from bsvibe_auth import BSVibeUser
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src import models, schemas
 from backend.src.core.auth import Permission, require_permission
+from backend.src.core.tenant_context import get_tenant_id
 from backend.src.storage.database import get_db
 
 router = APIRouter(prefix="/api/v1/settings", tags=["settings"])
 
 _LLM_SETTING_KEYS = ("llm_api_key", "llm_model", "llm_base_url", "default_executor_type")
-_INSTALL_TOKEN_KEY = "worker_install_token_hash"
 
 
 async def get_raw_llm_config(db: AsyncSession) -> dict[str, str]:
@@ -45,7 +46,7 @@ async def get_settings(
         llm_api_key=mask_api_key(settings_map.get("llm_api_key")),
         llm_model=settings_map.get("llm_model"),
         llm_base_url=settings_map.get("llm_base_url"),
-        default_executor_type=settings_map.get("default_executor_type", "claude_api"),
+        default_executor_type=settings_map.get("default_executor_type", "generic_llm"),
     )
 
 
@@ -82,34 +83,36 @@ class InstallTokenResponse(BaseModel):
     has_token: bool = False
 
 
+async def _get_tenant(db: AsyncSession, tenant_id: uuid.UUID) -> models.Tenant:
+    result = await db.execute(select(models.Tenant).where(models.Tenant.id == tenant_id))
+    tenant = result.scalar_one_or_none()
+    if tenant is None:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    return tenant
+
+
 @router.get("/install-token", response_model=InstallTokenResponse)
 async def get_install_token(
     _auth: BSVibeUser = Depends(require_permission(Permission.admin_settings)),
     db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
 ) -> InstallTokenResponse:
-    """Check if an install token exists (never returns plaintext)."""
-    result = await db.execute(select(models.Setting).where(models.Setting.key == _INSTALL_TOKEN_KEY))
-    setting = result.scalar_one_or_none()
-    return InstallTokenResponse(has_token=setting is not None)
+    """Check if an install token exists for the active tenant."""
+    tenant = await _get_tenant(db, tenant_id)
+    return InstallTokenResponse(has_token=tenant.worker_install_token_hash is not None)
 
 
 @router.post("/install-token", response_model=InstallTokenResponse)
 async def create_install_token(
     _auth: BSVibeUser = Depends(require_permission(Permission.admin_settings)),
     db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
 ) -> InstallTokenResponse:
-    """Generate a new install token (replaces existing). Returns plaintext once."""
+    """Generate a new install token for this tenant (replaces any existing)."""
+    tenant = await _get_tenant(db, tenant_id)
     token = f"bsn-{secrets.token_urlsafe(32)}"
-    token_hash = _hash_install_token(token)
-
-    result = await db.execute(select(models.Setting).where(models.Setting.key == _INSTALL_TOKEN_KEY))
-    setting = result.scalar_one_or_none()
-    if setting:
-        setting.value = token_hash
-    else:
-        db.add(models.Setting(key=_INSTALL_TOKEN_KEY, value=token_hash))
+    tenant.worker_install_token_hash = _hash_install_token(token)
     await db.commit()
-
     return InstallTokenResponse(token=token, has_token=True)
 
 
@@ -117,19 +120,30 @@ async def create_install_token(
 async def revoke_install_token(
     _auth: BSVibeUser = Depends(require_permission(Permission.admin_settings)),
     db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
 ) -> None:
-    """Revoke the install token."""
-    result = await db.execute(select(models.Setting).where(models.Setting.key == _INSTALL_TOKEN_KEY))
-    setting = result.scalar_one_or_none()
-    if setting:
-        await db.delete(setting)
-        await db.commit()
+    """Revoke this tenant's install token."""
+    tenant = await _get_tenant(db, tenant_id)
+    tenant.worker_install_token_hash = None
+    await db.commit()
+
+
+async def resolve_install_token_tenant(token: str, db: AsyncSession) -> uuid.UUID | None:
+    """Find the tenant a worker install token belongs to.
+
+    Returns ``None`` when no tenant has minted this token. The worker
+    register endpoint treats that as "invalid token" instead of falling
+    back to the default tenant — multi-tenant deployments must mint
+    explicit tokens.
+    """
+    token_hash = _hash_install_token(token)
+    result = await db.execute(
+        select(models.Tenant).where(models.Tenant.worker_install_token_hash == token_hash)
+    )
+    tenant = result.scalar_one_or_none()
+    return tenant.id if tenant else None
 
 
 async def verify_install_token(token: str, db: AsyncSession) -> bool:
-    """Verify an install token against the stored hash."""
-    result = await db.execute(select(models.Setting).where(models.Setting.key == _INSTALL_TOKEN_KEY))
-    setting = result.scalar_one_or_none()
-    if not setting:
-        return True  # No token configured = open registration (dev mode)
-    return setting.value == _hash_install_token(token)
+    """Backwards-compatible boolean check used by older callers."""
+    return await resolve_install_token_tenant(token, db) is not None

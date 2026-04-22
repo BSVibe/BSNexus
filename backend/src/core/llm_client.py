@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
+import os
 import structlog
 import re
+from dataclasses import dataclass
 from typing import Any, AsyncIterator, Optional, cast
 
 import litellm
@@ -11,7 +14,6 @@ from litellm.litellm_core_utils.streaming_handler import CustomStreamWrapper
 from litellm.types.utils import Choices, ModelResponse
 from pydantic import BaseModel
 
-from backend.src.config import settings
 
 logger = structlog.get_logger(__name__)
 
@@ -20,7 +22,7 @@ _JSON_BLOCK_RE = re.compile(r"```(?:json)?\s*\n(.*?)\n```", re.DOTALL)
 MAX_RETRIES = 3
 RETRY_BASE_DELAY = 1.0  # seconds
 RETRY_MAX_DELAY = 10.0  # seconds
-REQUEST_TIMEOUT = 120  # seconds — per acompletion call (connect + read)
+REQUEST_TIMEOUT = int(os.getenv("LLM_REQUEST_TIMEOUT", "600"))  # seconds
 
 _RETRYABLE_STRINGS = ("overloaded", "rate_limit", "timeout", "429", "503", "529")
 
@@ -57,11 +59,28 @@ class LLMError(Exception):
         super().__init__(message)
 
 
+@dataclass
+class LLMResponse:
+    """Wraps LLM content together with token usage and cost."""
+
+    content: str
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    model: str = ""
+    cost_usd: float = 0.0
+
+    @property
+    def cost_cents(self) -> int:
+        """Cost in integer cents (rounded up)."""
+        return math.ceil(self.cost_usd * 100)
+
+
 class LLMConfig(BaseModel):
     """LLM connection config (passed at runtime)."""
 
     api_key: str
-    model: str = settings.default_llm_model
+    model: str  # Required — no env-var fallback, must be set per-tenant
     base_url: Optional[str] = None
 
     def __repr__(self) -> str:
@@ -80,7 +99,7 @@ class LLMClient:
         messages: list[dict[str, Any]],
         temperature: float = 0.7,
         max_tokens: int = 4096,
-    ) -> str:
+    ) -> LLMResponse:
         """Non-streaming response with automatic retry on transient errors."""
         last_exc: Exception | None = None
         for attempt in range(MAX_RETRIES + 1):
@@ -101,7 +120,28 @@ class LLMClient:
                 content = choice.message.content
                 if content is None:
                     raise LLMError("LLM returned empty content")
-                return content
+
+                # Extract usage
+                usage = getattr(response, "usage", None)
+                prompt_tokens = getattr(usage, "prompt_tokens", 0) or 0
+                completion_tokens = getattr(usage, "completion_tokens", 0) or 0
+                total_tokens = getattr(usage, "total_tokens", 0) or 0
+                model_name = getattr(response, "model", self.config.model) or self.config.model
+
+                # Calculate cost via litellm
+                try:
+                    cost_usd = litellm.completion_cost(completion_response=response)
+                except Exception:
+                    cost_usd = 0.0
+
+                return LLMResponse(
+                    content=content,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    total_tokens=total_tokens,
+                    model=model_name,
+                    cost_usd=cost_usd,
+                )
             except Exception as e:
                 last_exc = e
                 if attempt < MAX_RETRIES and _is_retryable(e):
@@ -288,7 +328,7 @@ def create_llm_client_from_project(project: Any, role: str = "architect") -> LLM
 
     config = LLMConfig(
         api_key=role_config["api_key"],
-        model=role_config.get("model", settings.default_llm_model),
+        model=role_config.get("model", ""),
         base_url=role_config.get("base_url"),
     )
     return LLMClient(config)

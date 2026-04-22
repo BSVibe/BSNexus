@@ -5,10 +5,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from backend.src.config import settings
 from backend.src.core.llm_client import (
+    REQUEST_TIMEOUT,
     LLMClient,
     LLMConfig,
     LLMError,
+    LLMResponse,
     _is_retryable,
     create_llm_client,
     create_llm_client_from_project,
@@ -19,9 +22,9 @@ from backend.src.core.llm_client import (
 
 
 class TestLLMConfig:
-    def test_creation_with_defaults(self) -> None:
-        """LLMConfig should accept api_key and use defaults for model and base_url."""
-        config = LLMConfig(api_key="sk-test-key-1234")
+    def test_creation_requires_model(self) -> None:
+        """LLMConfig requires both api_key and model."""
+        config = LLMConfig(api_key="sk-test-key-1234", model="anthropic/claude-sonnet-4-20250514")
         assert config.api_key == "sk-test-key-1234"
         assert config.model == "anthropic/claude-sonnet-4-20250514"
         assert config.base_url is None
@@ -35,24 +38,41 @@ class TestLLMConfig:
 
     def test_repr_masks_api_key(self) -> None:
         """__repr__ should mask the API key, showing only last 4 chars."""
-        config = LLMConfig(api_key="sk-very-secret-key-abcd")
+        config = LLMConfig(api_key="sk-very-secret-key-abcd", model="gpt-4o")
         repr_str = repr(config)
         assert "sk-very-secret-key-abcd" not in repr_str
         assert "***abcd" in repr_str
-        assert "anthropic/claude-sonnet-4-20250514" in repr_str
+        assert "model=" in repr_str
 
     def test_repr_masks_short_api_key(self) -> None:
         """__repr__ should handle short API keys gracefully."""
-        config = LLMConfig(api_key="abc")
+        config = LLMConfig(api_key="abc", model="gpt-4o")
         repr_str = repr(config)
         assert "abc" not in repr_str
         assert "***" in repr_str
 
     def test_repr_includes_base_url(self) -> None:
         """__repr__ should include base_url when set."""
-        config = LLMConfig(api_key="sk-test1234", base_url="https://api.example.com")
+        config = LLMConfig(api_key="sk-test1234", model="gpt-4o", base_url="https://api.example.com")
         repr_str = repr(config)
         assert "https://api.example.com" in repr_str
+
+
+# -- LLMResponse --------------------------------------------------------------
+
+
+class TestLLMResponse:
+    def test_cost_cents_rounds_up(self) -> None:
+        resp = LLMResponse(content="hi", cost_usd=0.0015)
+        assert resp.cost_cents == 1  # ceil(0.15) = 1
+
+    def test_cost_cents_zero(self) -> None:
+        resp = LLMResponse(content="hi", cost_usd=0.0)
+        assert resp.cost_cents == 0
+
+    def test_cost_cents_exact(self) -> None:
+        resp = LLMResponse(content="hi", cost_usd=0.05)
+        assert resp.cost_cents == 5
 
 
 # -- LLMClient.chat -----------------------------------------------------------
@@ -68,17 +88,25 @@ class TestLLMClientChat:
         return LLMClient(config)
 
     async def test_chat_returns_content(self, client: LLMClient) -> None:
-        """chat() should return the message content from litellm response."""
+        """chat() should return LLMResponse with content and usage from litellm response."""
         mock_response = MagicMock()
         mock_choice = MagicMock()
         mock_choice.message.content = "Hello, world!"
         mock_response.choices = [mock_choice]
+        mock_response.usage = MagicMock(prompt_tokens=10, completion_tokens=5, total_tokens=15)
+        mock_response.model = "gpt-4o"
 
-        with patch("backend.src.core.llm_client.litellm.acompletion", new_callable=AsyncMock) as mock_acompletion:
+        with patch("backend.src.core.llm_client.litellm.acompletion", new_callable=AsyncMock) as mock_acompletion, \
+             patch("backend.src.core.llm_client.litellm.completion_cost", return_value=0.0015):
             mock_acompletion.return_value = mock_response
             result = await client.chat(messages=[{"role": "user", "content": "Hi"}])
 
-        assert result == "Hello, world!"
+        assert isinstance(result, LLMResponse)
+        assert result.content == "Hello, world!"
+        assert result.prompt_tokens == 10
+        assert result.completion_tokens == 5
+        assert result.total_tokens == 15
+        assert result.model == "gpt-4o"
         mock_acompletion.assert_called_once_with(
             model="gpt-4o",
             messages=[{"role": "user", "content": "Hi"}],
@@ -86,7 +114,7 @@ class TestLLMClientChat:
             api_base=None,
             temperature=0.7,
             max_tokens=4096,
-            timeout=120,
+            timeout=REQUEST_TIMEOUT,
         )
 
     async def test_chat_custom_params(self, client: LLMClient) -> None:
@@ -174,7 +202,7 @@ class TestLLMClientStreamChat:
             temperature=0.7,
             max_tokens=4096,
             stream=True,
-            timeout=120,
+            timeout=REQUEST_TIMEOUT,
         )
 
     async def test_stream_chat_skips_none_content(self, client: LLMClient) -> None:
@@ -374,8 +402,8 @@ class TestCreateLLMClientFromProject:
         assert client.config.api_key == "sk-pm-key"
         assert client.config.model == "gpt-4o"
 
-    def test_uses_default_model_when_not_specified(self) -> None:
-        """create_llm_client_from_project should use default model when role config has no model."""
+    def test_uses_empty_model_when_not_specified(self) -> None:
+        """create_llm_client_from_project should use empty model when role config has no model."""
         project = self._make_project(
             llm_config={
                 "architect": {
@@ -386,7 +414,7 @@ class TestCreateLLMClientFromProject:
 
         client = create_llm_client_from_project(project, role="architect")
 
-        assert client.config.model == "anthropic/claude-sonnet-4-20250514"
+        assert client.config.model == ""
 
     def test_defaults_to_architect_role(self) -> None:
         """create_llm_client_from_project should default to 'architect' role."""
@@ -519,15 +547,18 @@ class TestChatRetry:
         ok_response = MagicMock()
         ok_response.choices = [MagicMock()]
         ok_response.choices[0].message.content = "Success"
+        ok_response.usage = MagicMock(prompt_tokens=0, completion_tokens=0, total_tokens=0)
+        ok_response.model = "gpt-4o"
 
-        with patch("backend.src.core.llm_client.litellm.acompletion", new_callable=AsyncMock) as mock_ac:
+        with patch("backend.src.core.llm_client.litellm.acompletion", new_callable=AsyncMock) as mock_ac, \
+             patch("backend.src.core.llm_client.litellm.completion_cost", return_value=0.0):
             mock_ac.side_effect = [
                 Exception("AnthropicError - Overloaded"),
                 ok_response,
             ]
             result = await client.chat(messages=[{"role": "user", "content": "Hi"}])
 
-        assert result == "Success"
+        assert result.content == "Success"
         assert mock_ac.call_count == 2
         mock_sleep.assert_called_once()
 

@@ -29,21 +29,32 @@ function renderWithMentions(text: string) {
 }
 
 /**
- * Pre-process markdown to wrap @mentions in styled <span> tags.
- * ReactMarkdown will pass raw HTML through if we use rehype-raw,
- * but simpler to use a custom remark-like text transform.
- * We inject a zero-width wrapper that ReactMarkdown renders as inline code-like element.
+ * Pre-process markdown to wrap @mentions in a marker that the custom
+ * ReactMarkdown ``strong`` renderer can pick up and style blue.
+ * The pattern ``**@Name**`` is already markdown-safe bold, and the
+ * custom component override below checks whether the bold text starts
+ * with ``@`` and renders it as a ``text-stitch-primary`` span instead
+ * of a plain ``<strong>``.
  */
 function highlightMentionsInMarkdown(content: string): string {
-  // Wrap @Name (including multi-word like @Product Manager matched greedily)
-  // Use a markdown-safe format: **`@Name`** renders as bold code
   return content.replace(/@([A-Za-z가-힣][\w\s가-힣]*?)(?=[\s,.)：:;!?]|$)/g, '**@$1**')
+}
+
+function formatTime(iso: string | undefined): string {
+  if (!iso) return ''
+  try {
+    const d = new Date(iso)
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  } catch {
+    return ''
+  }
 }
 
 export default function ChatMessage({ message, typing }: { message: ChatMessageOut; typing?: boolean }) {
   const isUser = message.role === 'user'
   const agentColor = message.agent_name ? getAgentColor(message.agent_name) : '#6b7280'
   const initial = message.agent_name?.[0]?.toUpperCase() || '?'
+  const time = formatTime(message.created_at)
 
   const processedContent = useMemo(
     () => (isUser ? message.content : highlightMentionsInMarkdown(message.content)),
@@ -52,9 +63,15 @@ export default function ChatMessage({ message, typing }: { message: ChatMessageO
 
   if (isUser) {
     return (
-      <div className="flex justify-end">
-        <div className="max-w-[85%] rounded-2xl rounded-br-sm bg-stitch-primary/20 px-3 py-2 text-sm text-text-primary">
-          <div className="whitespace-pre-wrap break-words">{renderWithMentions(message.content)}</div>
+      <div className="flex items-start gap-2 justify-end">
+        <div className="max-w-[85%] min-w-0">
+          <div className="flex items-center gap-2 mb-1 mr-1 justify-end">
+            {time && <span className="text-[10px] text-text-tertiary">{time}</span>}
+            <p className="text-[10px] font-bold text-stitch-primary">You</p>
+          </div>
+          <div className="rounded-2xl rounded-tr-sm bg-stitch-primary/15 border border-stitch-primary/20 px-3 py-2 text-sm text-text-primary">
+            <div className="whitespace-pre-wrap break-words">{renderWithMentions(message.content)}</div>
+          </div>
         </div>
       </div>
     )
@@ -71,11 +88,14 @@ export default function ChatMessage({ message, typing }: { message: ChatMessageO
       </div>
 
       <div className="max-w-[85%] min-w-0">
-        {/* Agent name */}
+        {/* Agent name + timestamp */}
         {message.agent_name && (
-          <p className="text-[10px] font-bold mb-1 ml-1" style={{ color: agentColor }}>
-            {message.agent_name}
-          </p>
+          <div className="flex items-center gap-2 mb-1 ml-1">
+            <p className="text-[10px] font-bold" style={{ color: agentColor }}>
+              {message.agent_name}
+            </p>
+            {time && <span className="text-[10px] text-text-tertiary">{time}</span>}
+          </div>
         )}
 
         {/* Message bubble */}
@@ -114,6 +134,19 @@ export default function ChatMessage({ message, typing }: { message: ChatMessageO
                       </td>
                     )
                   },
+                  // @mentions are pre-processed into **@Name** (markdown
+                  // bold). This override checks whether the bold text
+                  // starts with @ and renders it as a blue span so
+                  // mentions look the same in user and assistant bubbles.
+                  strong({ children }) {
+                    const text = typeof children === 'string'
+                      ? children
+                      : Array.isArray(children) ? children.map(String).join('') : String(children ?? '')
+                    if (text.startsWith('@')) {
+                      return <span className="font-semibold text-stitch-primary">{text}</span>
+                    }
+                    return <strong>{children}</strong>
+                  },
                   code({ className, children, ...props }) {
                     const match = /language-(\w+)/.exec(className || '')
                     const codeStr = String(children).replace(/\n$/, '')
@@ -150,23 +183,6 @@ export default function ChatMessage({ message, typing }: { message: ChatMessageO
             </div>
           )}
 
-          {/* Action notifications */}
-          {!typing && message.actions.length > 0 && (
-            <div className="mt-2 pt-2 border-t border-stitch-outline-variant/10 space-y-1">
-              {message.actions.map((action, i) => (
-                <div key={i} className="flex items-center gap-1.5 text-[10px] text-stitch-primary">
-                  <span className="material-symbols-outlined" style={{ fontSize: '12px' }}>
-                    {action.type === 'task_created' ? 'add_task' : action.type === 'goal_created' || action.type === 'goal_updated' ? 'flag' : 'edit'}
-                  </span>
-                  <span>
-                    {action.type === 'task_created' && `Created task: ${action.title}`}
-                    {action.type === 'goal_created' && `Set goal: ${action.title}`}
-                    {action.type === 'goal_updated' && `Updated goal: ${action.title}`}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       </div>
     </div>

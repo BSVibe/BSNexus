@@ -1,28 +1,25 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { useBoard } from '../hooks/useBoard'
-import { useBoardStore } from '../stores/boardStore'
 import { projectsApi } from '../api/projects'
-import KanbanBoard from '../components/board/KanbanBoard'
-import BoardStats from '../components/board/BoardStats'
-import TaskDetail from '../components/board/TaskDetail'
 import FileBrowser from '../components/workspace/FileBrowser'
 import UnifiedChatSidebar from '../components/project/UnifiedChatSidebar'
-import AddTaskModal from '../components/project/AddTaskModal'
-import TimelineView from '../components/project/TimelineView'
 import DesignView from '../components/project/DesignView'
 import ProjectAgentsTab from '../components/project/ProjectAgentsTab'
+import ProjectChannelsModal from '../components/project/ProjectChannelsModal'
 import GoalSlogan from '../components/project/GoalSlogan'
 import Header from '../components/layout/Header'
-import type { Task } from '../types/task'
+import PlanView from '../components/plan/PlanView'
 
-type TabId = 'board' | 'files' | 'timeline' | 'design' | 'agents'
+// Timeline tab was a placeholder ("Gantt chart coming soon") and has been
+// removed. The Plan tab covers task progress; the Agents tab stays as a
+// detail view for the per-agent status / drill-down (the Plan view's
+// AgentStatusBar is the at-a-glance summary).
+type TabId = 'plan' | 'files' | 'design' | 'agents'
 
 const TABS: { id: TabId; label: string; icon: string }[] = [
-  { id: 'board', label: 'Board', icon: 'view_kanban' },
+  { id: 'plan', label: 'Plan', icon: 'account_tree' },
   { id: 'files', label: 'Files', icon: 'folder' },
-  { id: 'timeline', label: 'Timeline', icon: 'timeline' },
   { id: 'design', label: 'Design', icon: 'palette' },
   { id: 'agents', label: 'Agents', icon: 'groups' },
 ]
@@ -51,31 +48,23 @@ export default function ProjectPage() {
 }
 
 function ProjectContent({ projectId }: { projectId: string }) {
-  const [activeTab, setActiveTab] = useState<TabId>('board')
+  const [activeTab, setActiveTab] = useState<TabId>('plan')
   const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [addTaskOpen, setAddTaskOpen] = useState(false)
-
-  // Board state
-  const { isLoading: boardLoading } = useBoard(projectId)
-  const { columns, selectedTask, setSelectedTask } = useBoardStore()
+  const [channelsOpen, setChannelsOpen] = useState(false)
+  const navigate = useNavigate()
 
   // Project data
-  const { data: project } = useQuery({
+  const { data: project, isError } = useQuery({
     queryKey: ['project', projectId],
     queryFn: () => projectsApi.get(projectId),
     enabled: !!projectId,
+    retry: false,
   })
 
-  if (boardLoading) {
-    return (
-      <>
-        <Header title="Project" />
-        <div className="flex items-center justify-center h-64">
-          <div className="animate-spin rounded-full h-8 w-8 border-2 border-stitch-primary border-t-transparent" />
-        </div>
-      </>
-    )
-  }
+  // Redirect to dashboard if project was deleted or not found.
+  useEffect(() => {
+    if (isError) navigate('/dashboard')
+  }, [isError, navigate])
 
   return (
     <>
@@ -88,15 +77,30 @@ function ProjectContent({ projectId }: { projectId: string }) {
           </span>
         }
         action={
-          <button
-            type="button"
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="p-2 rounded-md hover:bg-stitch-surface-container text-text-secondary transition-colors"
-            title={sidebarOpen ? 'Hide chat' : 'Show chat'}
-          >
-            <span className="material-symbols-outlined">{sidebarOpen ? 'right_panel_close' : 'right_panel_open'}</span>
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setChannelsOpen(true)}
+              className="p-2 rounded-md hover:bg-stitch-surface-container text-text-secondary transition-colors"
+              title="Channels"
+            >
+              <span className="material-symbols-outlined">forum</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              className="p-2 rounded-md hover:bg-stitch-surface-container text-text-secondary transition-colors"
+              title={sidebarOpen ? 'Hide chat' : 'Show chat'}
+            >
+              <span className="material-symbols-outlined">{sidebarOpen ? 'right_panel_close' : 'right_panel_open'}</span>
+            </button>
+          </div>
         }
+      />
+      <ProjectChannelsModal
+        open={channelsOpen}
+        projectId={projectId}
+        onClose={() => setChannelsOpen(false)}
       />
 
       {/* Tabs */}
@@ -121,19 +125,10 @@ function ProjectContent({ projectId }: { projectId: string }) {
       <div className="flex h-[calc(100vh-112px)] overflow-hidden">
         {/* Center */}
         <div className="flex-1 flex flex-col overflow-hidden">
-          {activeTab === 'board' && (
-            <>
-              <div className="px-8 pt-4 pb-3">
-                <BoardStats projectStatus={project?.status} />
-              </div>
-              <div className="flex-1 overflow-auto px-8 pb-6">
-                <KanbanBoard
-                  columns={columns}
-                  onTaskClick={(task: Task) => setSelectedTask(task)}
-                  onAddTask={() => setAddTaskOpen(true)}
-                />
-              </div>
-            </>
+          {activeTab === 'plan' && (
+            <div className="flex-1 overflow-hidden">
+              <PlanView projectId={projectId} />
+            </div>
           )}
 
           {activeTab === 'files' && (
@@ -142,28 +137,13 @@ function ProjectContent({ projectId }: { projectId: string }) {
             </div>
           )}
 
-          {activeTab === 'timeline' && <TimelineView />}
-          {activeTab === 'design' && <DesignView />}
+          {activeTab === 'design' && <DesignView projectId={projectId} />}
           {activeTab === 'agents' && <ProjectAgentsTab />}
         </div>
 
         {/* Right sidebar: Unified Chat */}
         {sidebarOpen && <UnifiedChatSidebar projectId={projectId} />}
       </div>
-
-      {/* Task detail modal */}
-      {selectedTask && (
-        <TaskDetail task={selectedTask as Task} onClose={() => setSelectedTask(null)} />
-      )}
-
-      {/* Add task modal */}
-      {project && (
-        <AddTaskModal
-          open={addTaskOpen}
-          onClose={() => setAddTaskOpen(false)}
-          project={project}
-        />
-      )}
     </>
   )
 }

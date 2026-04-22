@@ -1,0 +1,438 @@
+"""Tests for the harness — workspace-based prompt module system."""
+
+from __future__ import annotations
+
+import uuid
+from pathlib import Path
+
+import pytest
+
+from backend.src.core.harness import (
+    HARNESS_DIR,
+    assemble_system_prompt,
+    refresh_context,
+    seed_harness,
+)
+from backend.src.models import Agent, Project, ProjectStatus
+
+
+def _agent(capabilities: list[str] | None = None) -> Agent:
+    return Agent(
+        id=uuid.uuid4(),
+        tenant_id=uuid.uuid4(),
+        name="TestAgent",
+        role="engineer",
+        title="Engineer",
+        job_description="Writes code",
+        executor_type="generic_llm",
+        executor_config={},
+        capabilities=capabilities or ["coding"],
+        is_active=True,
+    )
+
+
+def _project() -> Project:
+    return Project(
+        id=uuid.uuid4(),
+        name="TestProject",
+        description="A test project",
+        status=ProjectStatus.active,
+    )
+
+
+class TestSeedHarness:
+    def test_creates_directory_structure(self, tmp_path: Path) -> None:
+        seed_harness(tmp_path)
+        harness = tmp_path / HARNESS_DIR
+        assert (harness / "rules").is_dir()
+        assert (harness / "skills").is_dir()
+        assert (harness / "context").is_dir()
+
+    def test_creates_default_rule_files(self, tmp_path: Path) -> None:
+        seed_harness(tmp_path)
+        rules = tmp_path / HARNESS_DIR / "rules"
+        assert (rules / "response-format.md").is_file()
+        assert (rules / "conflict-check.md").is_file()
+        assert (rules / "communication.md").is_file()
+        # Content sanity — now tool-based instead of marker-based
+        content = (rules / "response-format.md").read_text()
+        assert "create_task" in content
+        assert "claim_task" in content
+
+    def test_creates_skill_files(self, tmp_path: Path) -> None:
+        seed_harness(tmp_path)
+        skills = tmp_path / HARNESS_DIR / "skills"
+        assert (skills / "design.md").is_file()
+        assert (skills / "analyze.md").is_file()
+        assert (skills / "plan.md").is_file()
+        assert (skills / "memory_keeping.md").is_file()
+
+    def test_does_not_overwrite_existing_files(self, tmp_path: Path) -> None:
+        seed_harness(tmp_path)
+        custom = tmp_path / HARNESS_DIR / "rules" / "response-format.md"
+        custom.write_text("USER CUSTOMISED")
+        seed_harness(tmp_path)
+        assert custom.read_text() == "USER CUSTOMISED"
+
+    def test_user_custom_rules_are_preserved(self, tmp_path: Path) -> None:
+        seed_harness(tmp_path)
+        custom = tmp_path / HARNESS_DIR / "rules" / "my-project-rule.md"
+        custom.write_text("Always use Korean variable names")
+        seed_harness(tmp_path)
+        assert custom.read_text() == "Always use Korean variable names"
+
+
+class TestAssembleSystemPrompt:
+    @pytest.mark.asyncio
+    async def test_includes_agent_identity(self, tmp_path: Path) -> None:
+        agent = _agent()
+        project = _project()
+        prompt = await assemble_system_prompt(agent, project, str(tmp_path))
+        assert "TestAgent" in prompt
+        assert "engineer" in prompt
+        assert "TestProject" in prompt
+        assert "Writes code" in prompt
+
+    @pytest.mark.asyncio
+    async def test_includes_active_decisions(self, tmp_path: Path) -> None:
+        prompt = await assemble_system_prompt(
+            _agent(), _project(), str(tmp_path),
+            active_decisions=["녹음 앱으로 방향 확정", "React + FastAPI 기술 스택 확정"],
+        )
+        assert "녹음 앱으로 방향 확정" in prompt
+        assert "React + FastAPI" in prompt
+        assert "Active decisions" in prompt
+
+    @pytest.mark.asyncio
+    async def test_reads_rules_from_workspace(self, tmp_path: Path) -> None:
+        seed_harness(tmp_path)
+        prompt = await assemble_system_prompt(
+            _agent(), _project(), str(tmp_path),
+        )
+        assert "CREATE_TASK" in prompt
+        assert "PLAN" in prompt and "DELEGATE" in prompt or "Active" in prompt
+
+    @pytest.mark.asyncio
+    async def test_reads_skills_for_capabilities(self, tmp_path: Path) -> None:
+        seed_harness(tmp_path)
+        agent = _agent(["plan", "analyze", "coding"])
+        prompt = await assemble_system_prompt(
+            agent, _project(), str(tmp_path),
+        )
+        assert "Planning" in prompt
+        assert "Analysis" in prompt
+        assert "Memory" in prompt
+        assert "Design" not in prompt or "Your Skills" in prompt
+
+    @pytest.mark.asyncio
+    async def test_workspace_rules_not_inlined(self, tmp_path: Path) -> None:
+        """Workspace rules are NOT inlined — too large for local models.
+        Agents read them via file_read from .bsnexus/rules/."""
+        seed_harness(tmp_path)
+        custom = tmp_path / HARNESS_DIR / "rules" / "custom.md"
+        custom.write_text("# Custom Rule\nAlways respond in Korean.")
+        prompt = await assemble_system_prompt(
+            _agent(), _project(), str(tmp_path),
+        )
+        # Custom rules stay in files, not in prompt
+        assert "Always respond in Korean" not in prompt
+        # But .bsnexus reference tells agents to read them
+        assert ".bsnexus" in prompt
+
+    @pytest.mark.asyncio
+    async def test_includes_team_roster(self, tmp_path: Path) -> None:
+        agent1 = _agent()
+        agent2 = _agent()
+        agent2.name = "Designer"
+        agent2.role = "designer"
+        agent2.id = uuid.uuid4()
+        prompt = await assemble_system_prompt(
+            agent1, _project(), str(tmp_path),
+            all_agents=[agent1, agent2],
+        )
+        assert "@Designer" in prompt
+
+    @pytest.mark.asyncio
+    async def test_active_mode_has_planning_rules(self, tmp_path: Path) -> None:
+        """Active mode includes planning + delegation rules."""
+        prompt = await assemble_system_prompt(
+            _agent(), _project(), str(tmp_path),
+        )
+        assert "CREATE_TASK" in prompt
+        assert "CREATE_PHASE" in prompt
+
+    @pytest.mark.asyncio
+    async def test_active_root_agent_keeps_create_phase_rules(self, tmp_path: Path) -> None:
+        """Root agents (no parent) get full ACTIVE_MODE_RULES with CREATE_PHASE."""
+        agent = _agent()
+        agent.parent_agent_id = None
+        prompt = await assemble_system_prompt(
+            agent, _project(), str(tmp_path),
+        )
+        # Root agents are told to create phases
+        assert "CREATE_PHASE" in prompt
+        # No subordinate-only guidance
+        assert "only the team lead" not in prompt
+
+    @pytest.mark.asyncio
+    async def test_active_mode_prompt_inlines_current_plan_state(
+        self, tmp_path: Path
+    ) -> None:
+        """Active agents must see the real DB plan state in their system
+        prompt so their chat narrative doesn't drift ('new phase starts!'
+        when the phase is already completed). Inline is more reliable than
+        relying on file_read — Qwen3 often skips tools."""
+        from datetime import datetime, timezone
+
+        from backend.src.models import Phase, PhaseStatus, Task, TaskStatus, TaskType
+
+        project = _project()
+        phase = Phase(
+            id=uuid.uuid4(),
+            project_id=project.id,
+            name="기획",
+            description="",
+            status=PhaseStatus.completed,
+            order=1,
+            branch_name="phase/plan",
+            created_at=datetime.now(timezone.utc),
+        )
+        task = Task(
+            id=uuid.uuid4(),
+            project_id=project.id,
+            phase_id=phase.id,
+            title="시장 조사",
+            status=TaskStatus.done,
+            task_type=TaskType.feature,
+            created_at=datetime.now(timezone.utc),
+        )
+        phase.tasks = [task]
+        project.phases = [phase]
+
+        prompt = await assemble_system_prompt(_agent(), project, str(tmp_path))
+
+        # Current plan is inlined under a distinctive header so the agent
+        # sees real DB state without needing a file_read tool call.
+        assert "Current Plan State" in prompt
+        header_idx = prompt.find("Current Plan State")
+        tail = prompt[header_idx:]
+        assert "기획" in tail
+        assert "completed" in tail
+        assert "시장 조사" in tail
+        assert "done" in tail
+
+    @pytest.mark.asyncio
+    async def test_active_subordinate_agent_gets_subordinate_rules(
+        self, tmp_path: Path
+    ) -> None:
+        """Subordinates (parent_agent_id set) are told NOT to create phases
+        once one exists, but MAY bootstrap the first phase on an empty project.
+        """
+        agent = _agent()
+        agent.parent_agent_id = uuid.uuid4()  # has a parent → subordinate
+        prompt = await assemble_system_prompt(
+            agent, _project(), str(tmp_path),
+        )
+        # Task creation still available
+        assert "CREATE_TASK" in prompt
+        # Subordinate guidance present (no extra phases, but bootstrap allowed)
+        assert "Do NOT create phases" in prompt
+        assert "BOOTSTRAP" in prompt
+
+    @pytest.mark.asyncio
+    async def test_passive_mode_has_execution_rules(self, tmp_path: Path) -> None:
+        """Passive mode includes execution rules + task context."""
+        prompt = await assemble_system_prompt(
+            _agent(), _project(), str(tmp_path),
+            mode="passive",
+            task_context="Task ID: abc\nTitle: Design UI",
+        )
+        assert "CLAIM_TASK" in prompt
+        assert "COMPLETE_TASK" in prompt
+        assert "Design UI" in prompt
+        assert "CREATE_TASK" not in prompt or "Do NOT create" in prompt
+
+    @pytest.mark.asyncio
+    async def test_passive_mode_has_cot_verification_structure(self, tmp_path: Path) -> None:
+        """Passive mode must embed a Q1/Q2/Q3 Chain-of-Thought that
+        forces the agent to pre-declare success criteria AND the
+        verification method BEFORE producing the deliverable.
+
+        The intent is to get the LLM to naturally reach for shell_exec
+        (or file_read) because it has committed to a specific check
+        upstream — not because the prompt nagged it into compliance."""
+        prompt = await assemble_system_prompt(
+            _agent(["coding"]), _project(), str(tmp_path),
+            mode="passive",
+            task_context="Task ID: abc\nTitle: Build API",
+        )
+        # The three reasoning stations must each be present and
+        # explicitly labelled so the model answers them in order.
+        assert "Q1" in prompt
+        assert "Q2" in prompt
+        assert "Q3" in prompt
+        # Q1 = success condition
+        assert "\uc131\uacf5 \uc870\uac74" in prompt or "success condition" in prompt.lower()
+        # Q2 = test method
+        assert "\ud14c\uc2a4\ud2b8 \ubc29\ubc95" in prompt or "test method" in prompt.lower()
+        # The available verification tool must be named inside the CoT
+        # so the LLM sees it while deciding Q2.
+        assert "shell_exec" in prompt
+        # Q2 must be framed as E2E / execution-based — reading the file
+        # you just wrote is NOT verification.
+        assert "E2E" in prompt or "end user" in prompt.lower() or "실행 기반" in prompt
+        # Must explicitly disallow file_read as primary verification for
+        # runnable deliverables (code / API / schema / bsd).
+        # Matches any wording that frames read-back as NOT verification.
+        assert "file_read" in prompt
+        assert (
+            "\uac80\uc99d\uc774 \uc544" in prompt       # 검증이 아(닙니다/니다)
+            or "not verification" in prompt.lower()
+            or "\uc2e4\ud589\uc774 \uc544" in prompt    # 실행이 아(닙니다/니다)
+            or "\ub2e4\uc2dc \uc77d\ub294 \uac83\uc740" in prompt  # 다시 읽는 것은
+        )
+
+    @pytest.mark.asyncio
+    async def test_fallback_when_no_workspace(self) -> None:
+        """No workspace_dir → mode rules + skill summaries still present."""
+        prompt = await assemble_system_prompt(
+            _agent(), _project(), None,
+        )
+        assert "CREATE_TASK" in prompt  # active mode default
+        # Skill summaries present
+        assert "Memory" in prompt
+
+    # ── Issue #8: Design prompt injection ──
+
+    @pytest.mark.asyncio
+    async def test_passive_design_agent_gets_design_rules(self, tmp_path: Path) -> None:
+        agent = _agent(["design"])
+        prompt = await assemble_system_prompt(
+            agent, _project(), str(tmp_path), mode="passive",
+        )
+        assert "MUST" in prompt and "create_screen" in prompt
+        assert "NEVER" in prompt and "file_write" in prompt
+
+    @pytest.mark.asyncio
+    async def test_passive_coding_agent_no_design_rules(self, tmp_path: Path) -> None:
+        agent = _agent(["coding"])
+        prompt = await assemble_system_prompt(
+            agent, _project(), str(tmp_path), mode="passive",
+        )
+        # Generic passive rules present, but DESIGN_TASK_RULES fragment not injected
+        assert "CLAIM_TASK" in prompt
+        assert "Design Deliverable Rules" not in prompt
+
+    @pytest.mark.asyncio
+    async def test_active_design_agent_no_design_rules(self, tmp_path: Path) -> None:
+        agent = _agent(["design"])
+        prompt = await assemble_system_prompt(
+            agent, _project(), str(tmp_path), mode="active",
+        )
+        # Active mode should not have the design deliverable rules
+        assert "Design Deliverable Rules" not in prompt
+
+
+    @pytest.mark.asyncio
+    async def test_language_rule_at_end_of_prompt(self, tmp_path: Path) -> None:
+        """LANGUAGE rule must be the last section for recency bias."""
+        prompt = await assemble_system_prompt(
+            _agent(), _project(), str(tmp_path),
+        )
+        assert "CRITICAL LANGUAGE RULE" in prompt
+        # Must be after all other content — last section
+        lang_pos = prompt.rfind("CRITICAL LANGUAGE RULE")
+        # No other section header after it
+        assert prompt[lang_pos:].count("\n\n") <= 1
+
+    @pytest.mark.asyncio
+    async def test_language_rule_not_in_identity_block(self, tmp_path: Path) -> None:
+        """LANGUAGE rule should not appear near the agent identity."""
+        prompt = await assemble_system_prompt(
+            _agent(), _project(), str(tmp_path),
+        )
+        identity_pos = prompt.find("You are **TestAgent**")
+        lang_pos = prompt.find("CRITICAL LANGUAGE RULE")
+        # Language rule should be far after identity (at the end)
+        assert lang_pos > identity_pos + 100
+
+
+class TestRefreshContext:
+    @pytest.mark.asyncio
+    async def test_writes_context_files(self, tmp_path: Path) -> None:
+        project = _project()
+        project.phases = []
+        agent = _agent()
+        await refresh_context(str(tmp_path), project, [agent], goals=[])
+        ctx = tmp_path / HARNESS_DIR / "context"
+        assert (ctx / "project.md").is_file()
+        assert (ctx / "team.md").is_file()
+        assert "@TestAgent" in (ctx / "team.md").read_text()
+
+    @pytest.mark.asyncio
+    async def test_does_not_overwrite_decisions_file(self, tmp_path: Path) -> None:
+        """refresh_context must NOT touch decisions.md — that file is
+        managed exclusively by _execute_decision_markers."""
+        project = _project()
+        project.phases = []
+        ctx = tmp_path / HARNESS_DIR / "context"
+        ctx.mkdir(parents=True, exist_ok=True)
+        (ctx / "decisions.md").write_text("# Active Decisions\n\n1. 녹음 앱")
+        await refresh_context(str(tmp_path), project, [], goals=[])
+        # decisions.md must still contain the original content
+        assert "녹음 앱" in (ctx / "decisions.md").read_text()
+
+
+class TestDecisionMarkers:
+    def test_strip_all_markers_removes_decision(self) -> None:
+        from backend.src.api.agent_chat import _strip_all_markers
+        text = "[STATUS] Working\n[DECISION] A confirmed [/DECISION]\nHello world"
+        stripped = _strip_all_markers(text)
+        assert "[DECISION]" not in stripped
+        assert "[STATUS]" not in stripped
+        assert "Hello world" in stripped
+
+    def test_load_decisions_from_workspace(self, tmp_path: Path) -> None:
+        from backend.src.api.agent_chat import _load_decisions_from_workspace
+        from backend.src.core.harness import HARNESS_DIR
+
+        # No file → empty
+        assert _load_decisions_from_workspace(str(tmp_path)) == []
+
+        # With file
+        ctx = tmp_path / HARNESS_DIR / "context"
+        ctx.mkdir(parents=True)
+        (ctx / "decisions.md").write_text(
+            "# Active Decisions\n\nThese are confirmed.\n\n1. 녹음 앱\n2. React 기술 스택"
+        )
+        result = _load_decisions_from_workspace(str(tmp_path))
+        assert len(result) == 2
+        assert "녹음 앱" in result[0]
+
+    def test_load_decisions_no_workspace(self) -> None:
+        from backend.src.api.agent_chat import _load_decisions_from_workspace
+        assert _load_decisions_from_workspace(None) == []
+
+    # Decision marker execution tests removed — now handled by RecordDecisionTool.
+    # See backend/tests/test_tools/ for tool-based decision tests.
+
+
+class TestCreatePhaseMarker:
+    def test_strip_all_markers_removes_create_phase(self) -> None:
+        from backend.src.api.agent_chat import _strip_all_markers
+        text = "[STATUS] Working\n[CREATE_PHASE]{\"name\": \"Phase 1\"}[/CREATE_PHASE]\nHello"
+        stripped = _strip_all_markers(text)
+        assert "[CREATE_PHASE]" not in stripped
+        assert "Hello" in stripped
+
+    def test_create_phase_re_parses_json(self) -> None:
+        from backend.src.core.task_markers import CREATE_PHASE_RE
+        text = '[CREATE_PHASE]{"name": "Research", "description": "Market research"}[/CREATE_PHASE]'
+        matches = CREATE_PHASE_RE.findall(text)
+        assert len(matches) == 1
+        import json
+        data = json.loads(matches[0])
+        assert data["name"] == "Research"
+
+    # Phase marker execution tests removed — now handled by CreatePhaseTool.
+    # See backend/tests/test_tools/ for tool-based phase creation tests.

@@ -8,10 +8,9 @@ class RedisStreamManager:
 
     # Stream name constants
     TASKS_ESCALATION = "tasks:escalation"
-    EVENTS_BOARD = "events:board"
 
     # Consumer group name constants
-    GROUP_ARCHITECT = "architect"
+    GROUP_ESCALATION = "escalation"
 
     def __init__(self, redis_client: redis.Redis) -> None:
         self.redis = redis_client
@@ -19,7 +18,7 @@ class RedisStreamManager:
     async def initialize_streams(self) -> None:
         """Initialize streams and consumer groups at server startup."""
         streams_groups = [
-            (self.TASKS_ESCALATION, self.GROUP_ARCHITECT),
+            (self.TASKS_ESCALATION, self.GROUP_ESCALATION),
         ]
 
         for stream, group in streams_groups:
@@ -73,15 +72,18 @@ class RedisStreamManager:
         """Acknowledge message processing completion."""
         await self.redis.xack(stream, group, message_id)
 
-    async def publish_board_event(self, event: str, data: dict) -> None:
-        """Publish a kanban board event."""
-        await self.publish(self.EVENTS_BOARD, {"event": event, **data})
+    async def publish_project_event(self, project_id: str, event: str, data: dict) -> None:
+        """Publish a project plan event (task transition, agent status, phase advance).
+
+        Wraps the payload in {event, data} so SSE consumers can dispatch on
+        event type without mixing fields with metadata.
+        """
+        await self.publish(self.project_events_stream(project_id), {"event": event, "data": data})
 
     async def trim_streams(self, maxlen: int = 1000) -> None:
         """Trim old messages from streams."""
         for stream in [self.TASKS_ESCALATION]:
             await self.redis.xtrim(stream, maxlen=maxlen, approximate=True)
-        await self.redis.xtrim(self.EVENTS_BOARD, maxlen=5000, approximate=True)
 
     async def tail(self, stream: str, last_id: str = "$", block: int = 15000) -> list[dict]:
         """Tail a stream from `last_id`. Returns parsed messages with `_message_id`.
@@ -109,3 +111,12 @@ class RedisStreamManager:
     def chat_events_stream(project_id: str) -> str:
         """Stream key for project chat events (one stream per project)."""
         return f"chat:events:{project_id}"
+
+    @staticmethod
+    def project_events_stream(project_id: str) -> str:
+        """Stream key for project plan events (one stream per project).
+
+        Carries task transitions, agent status changes, and phase advances —
+        anything the Plan view needs to update in real time.
+        """
+        return f"project:events:{project_id}"

@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.src.core.tenant_context import DEFAULT_TENANT_ID
+from backend.src.core.tenant_context import get_tenant_id
 from backend.src.models import Agent, ExecutorConfig
 from backend.src.repositories.agent_repository import AgentRepository
 from backend.src.schemas.agent import AgentResponse
@@ -24,7 +24,13 @@ class AgentTemplate(BaseModel):
     title: str
     job_description: str
     executor_type: str
+    # Capabilities double as the skill source: tokens like ``plan`` /
+    # ``analyze`` / ``design`` get resolved through CAPABILITY_TO_SKILLS
+    # in ``backend.src.prompts.skills`` at chat dispatch time, so any
+    # agent with the same capability list — template or custom — picks
+    # up the same skill prompt fragments.
     capabilities: list[str]
+    system_prompt: str | None = None
     monthly_budget_cents: int | None = None
     children: list["AgentTemplate"] = []
 
@@ -43,6 +49,16 @@ class OrgTemplate(BaseModel):
 # QA: moderate (review + test runs)                   → $30
 # PM / Marketer / Designer / Writer: text generation  → $15
 
+# ─── Capability tokens ──────────────────────────────────────────────
+# Tokens that map to skill prompt fragments via
+# ``backend.src.prompts.skills.CAPABILITY_TO_SKILLS``:
+#   - ``plan``    → planning skill (CEO, leads, PMs)
+#   - ``analyze`` → codebase analysis skill (CTO, engineers)
+#   - ``design``  → design system skill (Designer, CMO)
+# Existing free-form descriptors (writing, marketing, research, general,
+# coding, analysis) are preserved for filtering/UX. ``memory_keeping``
+# is appended automatically by the prompt builder for every agent.
+
 TEMPLATES: dict[str, OrgTemplate] = {
     "startup": OrgTemplate(
         id="startup",
@@ -55,8 +71,16 @@ TEMPLATES: dict[str, OrgTemplate] = {
                 role="ceo",
                 title="Chief Executive Officer",
                 job_description="Sets company vision, makes strategic decisions, coordinates all departments",
-                executor_type="claude_api",
-                capabilities=["analysis", "writing", "general"],
+                system_prompt=(
+                    "When you receive a message without a specific @mention, you are the entry point:\n"
+                    "1. Analyze the request to understand what product/feature is needed\n"
+                    "2. Use create_phase to define work areas (design, backend, frontend, etc.)\n"
+                    "3. Use create_task to break phases into concrete tasks, assigning to team members\n"
+                    "4. @mention team leads (CTO, PM, etc.) who need to plan further\n\n"
+                    "You are a coordinator — plan and delegate, don't execute yourself."
+                ),
+                executor_type="generic_llm",
+                capabilities=["plan", "analyze", "writing", "general"],
                 monthly_budget_cents=2000,
                 children=[
                     AgentTemplate(
@@ -64,8 +88,8 @@ TEMPLATES: dict[str, OrgTemplate] = {
                         role="cto",
                         title="Chief Technology Officer",
                         job_description="Leads technical architecture and engineering team",
-                        executor_type="claude_api",
-                        capabilities=["coding", "analysis"],
+                        executor_type="generic_llm",
+                        capabilities=["plan", "analyze", "architect", "coding"],
                         monthly_budget_cents=2000,
                         children=[
                             AgentTemplate(
@@ -74,7 +98,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                                 title="Full-Stack Engineer",
                                 job_description="Implements features, fixes bugs, writes tests, deploys code",
                                 executor_type="claude_code",
-                                capabilities=["coding"],
+                                capabilities=["analyze", "coding"],
                                 monthly_budget_cents=5000,
                             ),
                             AgentTemplate(
@@ -82,8 +106,8 @@ TEMPLATES: dict[str, OrgTemplate] = {
                                 role="qa_engineer",
                                 title="QA Engineer",
                                 job_description="Reviews code quality, runs tests, validates requirements, reports bugs",
-                                executor_type="claude_api",
-                                capabilities=["coding", "analysis"],
+                                executor_type="generic_llm",
+                                capabilities=["analyze", "coding"],
                                 monthly_budget_cents=3000,
                             ),
                         ],
@@ -94,7 +118,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                         title="Product Manager",
                         job_description="Defines product requirements, prioritizes backlog, manages roadmap",
                         executor_type="generic_llm",
-                        capabilities=["analysis", "writing", "general"],
+                        capabilities=["plan", "analyze", "writing", "general"],
                         monthly_budget_cents=1500,
                     ),
                     AgentTemplate(
@@ -103,7 +127,10 @@ TEMPLATES: dict[str, OrgTemplate] = {
                         title="Growth Marketer",
                         job_description="Creates marketing content, manages campaigns, analyzes metrics",
                         executor_type="generic_llm",
-                        capabilities=["marketing", "writing", "research"],
+                        # Marketers need design awareness for landing pages,
+                        # social posts, brand assets — give them the design
+                        # skill so they can touch the design system directly.
+                        capabilities=["analyze", "design", "marketing", "writing", "research"],
                         monthly_budget_cents=1500,
                     ),
                     AgentTemplate(
@@ -112,7 +139,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                         title="Product Designer",
                         job_description="Designs user interfaces, creates prototypes, maintains design system",
                         executor_type="generic_llm",
-                        capabilities=["writing", "analysis"],
+                        capabilities=["analyze", "design", "writing"],
                         monthly_budget_cents=1500,
                     ),
                 ],
@@ -130,8 +157,11 @@ TEMPLATES: dict[str, OrgTemplate] = {
                 role="lead",
                 title="Team Lead",
                 job_description="Leads the team, makes decisions, reviews work",
-                executor_type="claude_api",
-                capabilities=["coding", "analysis", "general"],
+                executor_type="generic_llm",
+                # Lead is the only senior in the room — give them every
+                # skill so a 2-person team can ship UI + plan + audit
+                # without adding a Designer.
+                capabilities=["plan", "analyze", "design", "coding", "general"],
                 monthly_budget_cents=2000,
                 children=[
                     AgentTemplate(
@@ -140,7 +170,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                         title="Developer",
                         job_description="Implements features and fixes bugs",
                         executor_type="claude_code",
-                        capabilities=["coding"],
+                        capabilities=["analyze", "coding"],
                         monthly_budget_cents=5000,
                     ),
                 ],
@@ -158,8 +188,16 @@ TEMPLATES: dict[str, OrgTemplate] = {
                 role="ceo",
                 title="Chief Executive Officer",
                 job_description="Sets company vision and strategy",
-                executor_type="claude_api",
-                capabilities=["analysis", "writing", "general"],
+                system_prompt=(
+                    "When you receive a message without a specific @mention, you are the entry point:\n"
+                    "1. Analyze the request to understand what product/feature is needed\n"
+                    "2. Use create_phase to define work areas (design, backend, frontend, etc.)\n"
+                    "3. Use create_task to break phases into concrete tasks, assigning to team members\n"
+                    "4. @mention team leads (CTO, PM, etc.) who need to plan further\n\n"
+                    "You are a coordinator — plan and delegate, don't execute yourself."
+                ),
+                executor_type="generic_llm",
+                capabilities=["plan", "analyze", "writing", "general"],
                 monthly_budget_cents=2000,
                 children=[
                     AgentTemplate(
@@ -167,8 +205,8 @@ TEMPLATES: dict[str, OrgTemplate] = {
                         role="cto",
                         title="Chief Technology Officer",
                         job_description="Technical architecture and engineering leadership",
-                        executor_type="claude_api",
-                        capabilities=["coding", "analysis"],
+                        executor_type="generic_llm",
+                        capabilities=["plan", "analyze", "architect", "coding"],
                         monthly_budget_cents=2000,
                         children=[
                             AgentTemplate(
@@ -177,7 +215,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                                 title="Senior Backend Engineer",
                                 job_description="Backend API development, database design, infrastructure",
                                 executor_type="claude_code",
-                                capabilities=["coding"],
+                                capabilities=["analyze", "coding"],
                                 monthly_budget_cents=5000,
                             ),
                             AgentTemplate(
@@ -186,7 +224,9 @@ TEMPLATES: dict[str, OrgTemplate] = {
                                 title="Senior Frontend Engineer",
                                 job_description="Frontend UI development, component design, performance",
                                 executor_type="claude_code",
-                                capabilities=["coding"],
+                                # Frontend touches the design system from
+                                # the implementation side too.
+                                capabilities=["analyze", "design", "coding"],
                                 monthly_budget_cents=5000,
                             ),
                             AgentTemplate(
@@ -195,7 +235,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                                 title="DevOps Engineer",
                                 job_description="CI/CD pipelines, infrastructure, monitoring, deployment",
                                 executor_type="claude_code",
-                                capabilities=["coding"],
+                                capabilities=["analyze", "coding"],
                                 monthly_budget_cents=3000,
                             ),
                             AgentTemplate(
@@ -203,8 +243,8 @@ TEMPLATES: dict[str, OrgTemplate] = {
                                 role="qa_lead",
                                 title="QA Lead",
                                 job_description="Test strategy, code review, quality standards, bug triage",
-                                executor_type="claude_api",
-                                capabilities=["coding", "analysis"],
+                                executor_type="generic_llm",
+                                capabilities=["plan", "analyze", "coding"],
                                 monthly_budget_cents=3000,
                             ),
                         ],
@@ -215,7 +255,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                         title="Chief Product Officer",
                         job_description="Product strategy, roadmap, user research",
                         executor_type="generic_llm",
-                        capabilities=["analysis", "writing", "research"],
+                        capabilities=["plan", "analyze", "writing", "research"],
                         monthly_budget_cents=2000,
                         children=[
                             AgentTemplate(
@@ -224,7 +264,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                                 title="Product Manager",
                                 job_description="Feature specs, backlog grooming, stakeholder communication",
                                 executor_type="generic_llm",
-                                capabilities=["analysis", "writing"],
+                                capabilities=["plan", "analyze", "writing"],
                                 monthly_budget_cents=1500,
                             ),
                             AgentTemplate(
@@ -233,7 +273,7 @@ TEMPLATES: dict[str, OrgTemplate] = {
                                 title="Product Designer",
                                 job_description="UI/UX design, prototyping, design system",
                                 executor_type="generic_llm",
-                                capabilities=["writing", "analysis"],
+                                capabilities=["analyze", "design", "writing"],
                                 monthly_budget_cents=1500,
                             ),
                         ],
@@ -244,7 +284,8 @@ TEMPLATES: dict[str, OrgTemplate] = {
                         title="Chief Marketing Officer",
                         job_description="Marketing strategy, brand, content, growth",
                         executor_type="generic_llm",
-                        capabilities=["marketing", "writing", "research"],
+                        # Marketing owns brand voice → design ownership too.
+                        capabilities=["plan", "design", "marketing", "writing", "research"],
                         monthly_budget_cents=2000,
                         children=[
                             AgentTemplate(
@@ -253,7 +294,10 @@ TEMPLATES: dict[str, OrgTemplate] = {
                                 title="Content Writer",
                                 job_description="Blog posts, documentation, copywriting",
                                 executor_type="generic_llm",
-                                capabilities=["writing", "marketing"],
+                                # Same reasoning as Marketer above — content
+                                # writers ship visual artifacts, so they own
+                                # the design skill too.
+                                capabilities=["analyze", "design", "writing", "marketing"],
                                 monthly_budget_cents=1500,
                             ),
                         ],
@@ -280,7 +324,11 @@ async def get_template(template_id: str) -> OrgTemplate:
 
 
 @router.post("/{template_id}/apply", response_model=list[AgentResponse])
-async def apply_template(template_id: str, db: AsyncSession = Depends(get_db)) -> list[AgentResponse]:
+async def apply_template(
+    template_id: str,
+    db: AsyncSession = Depends(get_db),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+) -> list[AgentResponse]:
     """Apply a template — creates agents with hierarchy.
 
     All agents use the tenant's default executor config.
@@ -293,12 +341,12 @@ async def apply_template(template_id: str, db: AsyncSession = Depends(get_db)) -
     # Resolve default executor type for display (executor_config_id stays NULL = "Use Default")
     result = await db.execute(
         select(ExecutorConfig).where(
-            ExecutorConfig.tenant_id == DEFAULT_TENANT_ID,
+            ExecutorConfig.tenant_id == tenant_id,
             ExecutorConfig.is_default.is_(True),
         ).limit(1)
     )
     default_exec = result.scalar_one_or_none()
-    default_executor_type = default_exec.executor_type if default_exec else "claude_api"
+    default_executor_type = default_exec.executor_type if default_exec else "generic_llm"
 
     repo = AgentRepository(db)
     created: list[Agent] = []
@@ -306,7 +354,7 @@ async def apply_template(template_id: str, db: AsyncSession = Depends(get_db)) -
     async def create_tree(templates: list[AgentTemplate], parent_id: uuid.UUID | None) -> None:
         for t in templates:
             agent = Agent(
-                tenant_id=DEFAULT_TENANT_ID,
+                tenant_id=tenant_id,
                 name=t.name,
                 role=t.role,
                 title=t.title,
@@ -314,6 +362,7 @@ async def apply_template(template_id: str, db: AsyncSession = Depends(get_db)) -
                 executor_config_id=None,  # Use Default
                 executor_type=default_executor_type,
                 capabilities=t.capabilities,
+                system_prompt=t.system_prompt,
                 monthly_budget_cents=t.monthly_budget_cents,
                 parent_agent_id=parent_id,
             )

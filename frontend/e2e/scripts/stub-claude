@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+#
+# Fake "claude" CLI for the isolated e2e stack.
+#
+# The real Claude Code CLI authenticates with Anthropic on every call,
+# which makes it impossible to use in a hermetic test. This shim
+# accepts the same flags (``--print``, ``--dangerously-skip-permissions``)
+# but reads the prompt from stdin and emits a deterministic, plain-text
+# response — that is exactly what the worker expects in
+# ``ClaudeCodeExecutor.execute``.
+#
+# The output also embeds a recognizable token so the e2e spec can
+# assert "yes, the chat actually round-tripped through a worker" rather
+# than just "the UI rendered something".
+set -euo pipefail
+
+# Drain stdin so the parent does not hang on a broken pipe; the prompt
+# itself is logged for debugging.
+PROMPT="$(cat || true)"
+echo "[stub-claude] received prompt of $(printf '%s' "$PROMPT" | wc -c) bytes" >&2
+
+cat <<'EOF'
+STUB-CLAUDE-RESPONSE: hi from the stubbed worker. The end-to-end chat path is wired up.
+EOF

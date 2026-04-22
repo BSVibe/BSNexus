@@ -41,20 +41,12 @@ function getHelpContent(pathname: string): HelpContent {
         'Executor별 상세 설정은 각 에이전트의 편집 모드에서 할 수 있습니다.',
     }
   }
-  if (pathname.startsWith('/architect')) {
-    return {
-      title: 'AI Architect',
-      description:
-        'AI Architect와 대화하며 프로젝트를 설계합니다. ' +
-        '요구사항을 설명하면 Phase와 Task로 분해하고, 코드 구조를 제안합니다.',
-    }
-  }
   if (pathname.startsWith('/project')) {
     return {
       title: 'Project',
       description:
-        '프로젝트의 태스크를 Kanban 보드와 Timeline으로 관리합니다. ' +
-        'Board 뷰에서 드래그 앤 드롭, Timeline 뷰에서 일정을 확인하세요.',
+        '프로젝트의 Plan, Files, Timeline, Design, Agents 탭으로 작업을 관리합니다. ' +
+        'Plan 뷰에서 에이전트의 진행 상황과 산출물을 확인하세요.',
     }
   }
   return {

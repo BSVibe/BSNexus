@@ -33,7 +33,7 @@ def _seed_agents(db_session):
                 name=f"Agent-{i}",
                 role=f"role-{i}",
                 title=f"Title {i}",
-                executor_type="claude_api",
+                executor_type="generic_llm",
                 executor_config={},
                 capabilities=["coding"],
                 status="online",
@@ -55,16 +55,16 @@ class TestAgentCreate:
             "name": "CTO Bot",
             "role": "cto",
             "title": "Chief Technology Officer",
-            "capabilities": ["coding", "analysis"],
+            "capabilities": ["plan", "analyze", "coding"],
         })
         assert resp.status_code == 201
         data = resp.json()
         assert data["name"] == "CTO_Bot"
         assert data["role"] == "cto"
-        # executor_type resolved from executor_config_id (null → tenant default → claude_api)
-        assert data["executor_type"] == "claude_api"
+        # executor_type resolved from executor_config_id (null → tenant default → generic_llm)
+        assert data["executor_type"] == "generic_llm"
         assert data["executor_config_id"] is None
-        assert data["capabilities"] == ["coding", "analysis"]
+        assert data["capabilities"] == ["plan", "analyze", "coding"]
         assert data["status"] == "offline"
         assert data["is_active"] is True
 
@@ -76,7 +76,7 @@ class TestAgentCreate:
         })
         assert resp.status_code == 201
         data = resp.json()
-        assert data["executor_type"] == "claude_api"
+        assert data["executor_type"] == "generic_llm"
         assert data["capabilities"] == ["general"]
 
     @pytest.mark.asyncio

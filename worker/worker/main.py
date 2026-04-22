@@ -171,6 +171,7 @@ async def poll_and_execute(executor_name: str) -> None:
             executor_name,
             timeout=settings.claude_timeout_seconds,
             skip_permissions=settings.skip_permissions,
+            model=settings.model,
         )
     except KeyError as e:
         print(f"Error: {e}")
@@ -183,6 +184,32 @@ async def poll_and_execute(executor_name: str) -> None:
         sys.exit(1)
 
     cwd = os.getcwd()
+
+    # Executor connectivity probe — runs ONCE at startup to surface
+    # broken / expired credentials immediately, instead of letting the
+    # first real chat task fail with a "401 from Anthropic" buried in
+    # the worker log. The probe is a tiny prompt with a short timeout;
+    # bandwidth + cost are negligible. Skipped via env var when the
+    # operator wants to bypass (e.g. air-gapped install).
+    if os.environ.get("BSNEXUS_SKIP_STARTUP_PROBE", "").lower() not in ("1", "true", "yes"):
+        probe = await executor.execute("ping", cwd)
+        if not probe.success:
+            stderr = (probe.stderr or "").strip()
+            stdout_preview = (probe.stdout or "")[:300].strip()
+            print(
+                f"Error: {executor.name} startup probe failed.\n"
+                f"  cli: {cmd_path}\n"
+                f"  cwd: {cwd}\n"
+                f"  error: {probe.error}\n"
+                f"  stderr: {stderr[:500]}\n"
+                f"  stdout: {stdout_preview}\n"
+                "Hint: re-authenticate the CLI ('claude /login' for Claude Code) or "
+                "set BSNEXUS_SKIP_STARTUP_PROBE=1 to bypass.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        logger.info("executor_probe_ok", executor=executor.name)
+
     logger.info(
         "worker_starting",
         name=settings.worker_name,
@@ -194,12 +221,41 @@ async def poll_and_execute(executor_name: str) -> None:
 
     headers = {"X-Worker-Token": settings.worker_token}
 
+    # Track in-flight tasks so we can run multiple CLI calls in parallel.
+    # Each task is dispatched as an asyncio.Task; the poll loop keeps
+    # feeding new work without waiting for the previous one to finish.
+    in_flight: set[asyncio.Task[None]] = set()
+    max_parallel = settings.max_parallel_tasks
+
+    async def _run_task(task: dict) -> None:
+        try:
+            action = task.get("action", "execute")
+            if action == "chat":
+                await _handle_chat(task, executor, client, headers)
+            else:
+                await _handle_task(task, executor, cwd, client, headers)
+        except Exception:
+            logger.exception("task_execution_error", task_id=task.get("task_id") or task.get("chat_id"))
+
     async with httpx.AsyncClient(base_url=settings.server_url, timeout=30) as client:
         while True:
             try:
+                # Clean up completed tasks.
+                done = {t for t in in_flight if t.done()}
+                in_flight -= done
+
                 await client.post("/api/v1/workers/heartbeat", headers=headers)
 
-                res = await client.post("/api/v1/workers/poll", headers=headers, params={"count": 1})
+                # Only poll if we have capacity.
+                if len(in_flight) >= max_parallel:
+                    await asyncio.sleep(1)
+                    continue
+
+                slots = max_parallel - len(in_flight)
+                res = await client.post(
+                    "/api/v1/workers/poll", headers=headers,
+                    params={"count": min(slots, 5)},
+                )
                 res.raise_for_status()
                 tasks = res.json()
 
@@ -208,12 +264,8 @@ async def poll_and_execute(executor_name: str) -> None:
                     continue
 
                 for task in tasks:
-                    action = task.get("action", "execute")
-
-                    if action == "chat":
-                        await _handle_chat(task, executor, client, headers)
-                    else:
-                        await _handle_task(task, executor, cwd, client, headers)
+                    t = asyncio.create_task(_run_task(task))
+                    in_flight.add(t)
 
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 401:
@@ -264,14 +316,19 @@ def main() -> None:
         print("  bsnexus-worker register  Register this machine")
         print("  bsnexus-worker run       Start polling for tasks")
         print("")
-        print("Options:")
+        print("Register options:")
         print("  --name NAME       Worker name (default: hostname)")
         print("  --server URL      BSNexus URL (default: nexus.bsvibe.dev)")
         print("  --token TOKEN     Install token (from Settings)")
         print("  --project ID      Bind to project")
-        print("  --executor NAME   CLI executor (default: auto-detect)")
         print("")
-        print(f"  Available executors on this machine: {', '.join(available) if available else '(none found)'}")
+        print("Run options:")
+        print("  --executor NAME   CLI executor (default: auto-detect)")
+        print("  --model MODEL     LLM model to use (e.g. claude-sonnet-4-20250514)")
+        print("                    Passed as --model flag to the CLI executor.")
+        print("                    If omitted, the CLI's own default model is used.")
+        print("")
+        print(f"  Available executors: {', '.join(available) if available else '(none found)'}")
         print("  Supported: claude_code, codex, opencode")
         sys.exit(0)
 
@@ -298,10 +355,13 @@ def main() -> None:
 
     elif cmd == "run":
         executor_name = ""
+        model = ""
         i = 1
         while i < len(args):
             if args[i] == "--executor" and i + 1 < len(args):
                 executor_name = args[i + 1]; i += 2
+            elif args[i] == "--model" and i + 1 < len(args):
+                model = args[i + 1]; i += 2
             else:
                 i += 1
 
@@ -317,6 +377,10 @@ def main() -> None:
                 logger.info("auto_detected_executor", selected=executor_name, available=available, hint="override with --executor")
             else:
                 logger.info("auto_detected_executor", selected=executor_name)
+
+        # Store model in settings so poll_and_execute can use it
+        if model:
+            settings.model = model
 
         asyncio.run(poll_and_execute(executor_name))
 

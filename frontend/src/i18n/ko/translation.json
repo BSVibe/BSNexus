@@ -31,11 +31,11 @@
     "send": "전송",
     "thinking": "생각 중..."
   },
-  "board": {
-    "title": "보드",
-    "backlog": "백로그",
-    "inProgress": "진행 중",
-    "review": "리뷰",
+  "plan": {
+    "title": "플랜",
+    "pending": "대기",
+    "running": "진행 중",
+    "blocked": "차단됨",
     "done": "완료"
   },
   "help": {

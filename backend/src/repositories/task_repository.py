@@ -127,7 +127,7 @@ class TaskRepository(BaseRepository):
         result = await self.db.execute(
             select(Task).where(
                 Task.id.in_(select(task_dependencies.c.task_id).where(task_dependencies.c.dependency_id == task_id)),
-                Task.status == TaskStatus.waiting,
+                Task.status == TaskStatus.pending,
             )
         )
         return list(result.scalars().all())
@@ -146,7 +146,7 @@ class TaskRepository(BaseRepository):
         """Get READY tasks sorted by priority (critical first) then creation time."""
         result = await self.db.execute(
             select(Task)
-            .where(Task.project_id == project_id, Task.status == TaskStatus.ready)
+            .where(Task.project_id == project_id, Task.status == TaskStatus.pending)
             .order_by(Task.created_at.asc())
         )
         tasks = list(result.scalars().all())
@@ -154,16 +154,15 @@ class TaskRepository(BaseRepository):
         return tasks
 
     async def count_active_tasks(self, project_id: uuid.UUID) -> int:
-        """Count tasks in in_progress or review status for a project."""
-        active_statuses = [TaskStatus.in_progress, TaskStatus.review]
+        """Count tasks currently being worked on (running) for a project."""
         result = await self.db.execute(
-            select(func.count(Task.id)).where(Task.project_id == project_id, Task.status.in_(active_statuses))
+            select(func.count(Task.id)).where(Task.project_id == project_id, Task.status == TaskStatus.running)
         )
         return result.scalar_one()
 
     async def list_waiting_in_phase(self, phase_id: uuid.UUID) -> list[Task]:
         """Get waiting tasks within a specific phase."""
-        result = await self.db.execute(select(Task).where(Task.phase_id == phase_id, Task.status == TaskStatus.waiting))
+        result = await self.db.execute(select(Task).where(Task.phase_id == phase_id, Task.status == TaskStatus.pending))
         return list(result.scalars().all())
 
     async def list_incomplete_in_phase(self, phase_id: uuid.UUID) -> list[Task]:

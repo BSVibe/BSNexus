@@ -4,15 +4,14 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.core.heartbeat import HeartbeatScheduler
-from backend.src.models import Agent, Task, Tenant
-from backend.src.models._legacy import TaskStatus
+from backend.src.models import Agent, Tenant
 
 _TENANT_ID = uuid.UUID("00000000-0000-0000-0000-000000000000")
 

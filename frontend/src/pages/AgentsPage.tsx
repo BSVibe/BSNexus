@@ -9,12 +9,28 @@ import type { ExecutorConfig } from '../types/executor'
 
 const EXECUTOR_LABELS: Record<string, string> = {
   claude_code: 'Claude Code',
-  claude_api: 'LLM API',
+  generic_llm: 'LLM API',
   bsgateway: 'BSGateway',
   codex: 'Codex',
-  generic_llm: 'LLM API',
   worker: 'Worker',
 }
+
+// Capability tokens that resolve to skill prompt fragments at chat
+// dispatch time. Keep in sync with backend ``CAPABILITY_TO_SKILLS``
+// (backend/src/prompts/skills.py). The order here is the order shown
+// in the Hire Agent form.
+const SKILL_CAPABILITIES: Array<{ id: string; label: string; description: string }> = [
+  { id: 'plan', label: 'Plan', description: 'Break goals into phases & tasks ([CREATE_TASK], [SET_GOAL])' },
+  { id: 'analyze', label: 'Analyze', description: 'Read codebases, audit imports, surface risks' },
+  { id: 'design', label: 'Design', description: "Own design/system.bsd and the .bsd screen specs" },
+]
+const FREEFORM_CAPABILITIES: Array<{ id: string; label: string }> = [
+  { id: 'coding', label: 'Coding' },
+  { id: 'writing', label: 'Writing' },
+  { id: 'marketing', label: 'Marketing' },
+  { id: 'research', label: 'Research' },
+  { id: 'general', label: 'General' },
+]
 
 // OrgChartNode rendering moved to components/agents/OrgChart.tsx (React Flow)
 
@@ -25,9 +41,24 @@ function HireAgentModal({ onClose, agents, executorConfigs }: { onClose: () => v
     role: '',
     title: '',
     executor_config_id: null, // null = use default
-    capabilities: ['general'],
+    // memory_keeping is universal (server-side); start every new agent
+    // with the planning skill so they can break down tasks out of the
+    // box. The user can toggle the rest before hiring.
+    capabilities: ['plan', 'general'],
     job_description: '',
   })
+
+  const toggleCapability = (id: string) => {
+    setForm((f) => {
+      const current = new Set(f.capabilities ?? [])
+      if (current.has(id)) {
+        current.delete(id)
+      } else {
+        current.add(id)
+      }
+      return { ...f, capabilities: Array.from(current) }
+    })
+  }
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -52,9 +83,9 @@ function HireAgentModal({ onClose, agents, executorConfigs }: { onClose: () => v
   }
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={onClose}>
       <div
-        className="bg-stitch-surface-low rounded-xl w-full max-w-lg p-6 border border-stitch-outline-variant/20"
+        className="bg-stitch-surface-low rounded-xl w-full max-w-lg p-6 border border-stitch-outline-variant/20 max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex justify-between items-center mb-6">
@@ -115,6 +146,70 @@ function HireAgentModal({ onClose, agents, executorConfigs }: { onClose: () => v
               rows={3}
               className="w-full px-3 py-2 bg-stitch-surface border border-stitch-outline-variant/30 rounded-lg text-sm text-text-primary focus:border-stitch-primary focus:outline-none resize-none"
             />
+          </div>
+
+          <div>
+            <label className="block text-xs uppercase tracking-widest text-text-secondary mb-2">Capabilities</label>
+            <p className="text-[11px] text-text-tertiary mb-2">
+              Skills determine what this agent can do. <strong>Plan</strong> lets the agent break down goals
+              and create <code>[DECISION]</code> markers. <strong>Analyze</strong> lets them read and audit codebases.
+              <strong>Design</strong> lets them manage the design system. Memory keeping is always on.
+            </p>
+            <p className="text-[10px] text-amber-400/80 mb-2">
+              💡 Tip: Every team should have at least one agent with <strong>Plan</strong> capability
+              to make project decisions. Without it, no agent can confirm directions.
+            </p>
+            <div className="space-y-1.5">
+              {SKILL_CAPABILITIES.map((cap) => {
+                const active = (form.capabilities ?? []).includes(cap.id)
+                return (
+                  <label
+                    key={cap.id}
+                    className={`flex items-start gap-2 cursor-pointer rounded-md px-2 py-1.5 border transition-colors ${
+                      active
+                        ? 'border-stitch-primary/60 bg-stitch-primary/5'
+                        : 'border-transparent hover:bg-stitch-surface-highest/50'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={active}
+                      onChange={() => toggleCapability(cap.id)}
+                      className="mt-0.5 accent-stitch-primary"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm text-text-primary font-medium">{cap.label}</div>
+                      <div className="text-[11px] text-text-tertiary">{cap.description}</div>
+                    </div>
+                  </label>
+                )
+              })}
+            </div>
+            <details className="mt-2 group">
+              <summary className="text-[11px] text-text-tertiary hover:text-text-secondary cursor-pointer list-none">
+                <span className="group-open:hidden">▸ Other tags</span>
+                <span className="hidden group-open:inline">▾ Other tags</span>
+              </summary>
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {FREEFORM_CAPABILITIES.map((cap) => {
+                  const active = (form.capabilities ?? []).includes(cap.id)
+                  return (
+                    <button
+                      key={cap.id}
+                      type="button"
+                      onClick={() => toggleCapability(cap.id)}
+                      className={`text-[11px] px-2 py-0.5 rounded-full border transition-colors ${
+                        active
+                          ? 'border-stitch-primary text-stitch-primary bg-stitch-primary/10'
+                          : 'border-stitch-outline-variant/30 text-text-tertiary hover:text-text-secondary'
+                      }`}
+                    >
+                      {cap.label}
+                    </button>
+                  )
+                })}
+              </div>
+            </details>
           </div>
 
           <button
@@ -379,6 +474,42 @@ function AgentDetailSidebar({ agent, onClose, onDelete, executorConfigs }: { age
   )
 }
 
+// ── Team capability coverage check ──────────────────────────────────
+
+const REQUIRED_CAPABILITIES: Array<{
+  id: string
+  label: string
+  why: string
+}> = [
+  { id: 'plan', label: 'Plan', why: 'No agent can make project decisions or create task plans.' },
+  { id: 'analyze', label: 'Analyze', why: 'No agent can audit codebases or run import analysis.' },
+  { id: 'design', label: 'Design', why: 'No agent can manage the design system (.bsd files).' },
+]
+
+function TeamCoverageWarnings({ agents }: { agents: Agent[] }) {
+  const allCaps = new Set(agents.flatMap((a) => a.capabilities ?? []).map((c) => c.toLowerCase()))
+  const missing = REQUIRED_CAPABILITIES.filter((r) => !allCaps.has(r.id))
+
+  if (missing.length === 0) return null
+
+  return (
+    <div className="mx-2 mb-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2">
+      <p className="text-[11px] font-bold text-amber-400 mb-1">
+        ⚠ Missing team capabilities
+      </p>
+      {missing.map((m) => (
+        <p key={m.id} className="text-[11px] text-text-secondary">
+          <span className="font-medium text-amber-400/80">{m.label}</span> — {m.why}
+        </p>
+      ))}
+      <p className="text-[10px] text-text-tertiary mt-1">
+        Add these capabilities to existing agents via edit, or hire a new agent.
+      </p>
+    </div>
+  )
+}
+
+
 function TemplateSelector({ onApplied }: { onApplied: () => void }) {
   const [templates, setTemplates] = useState<OrgTemplate[]>([])
   const [applying, setApplying] = useState<string | null>(null)
@@ -414,13 +545,18 @@ function TemplateSelector({ onApplied }: { onApplied: () => void }) {
   }
 
   return (
-    <div className="flex flex-col items-center justify-center py-12">
+    <div className="flex flex-col items-center py-8 flex-1 min-h-0 w-full">
       <span className="material-symbols-outlined text-4xl mb-3 text-text-tertiary">groups</span>
       <h3 className="text-lg font-bold text-text-primary mb-1">Build Your AI Team</h3>
-      <p className="text-sm text-text-secondary mb-8">Choose a template to get started, or hire agents individually</p>
+      <p className="text-sm text-text-secondary mb-6">Choose a template to get started, or hire agents individually</p>
       {error && <p className="text-sm text-stitch-error mb-4">{error}</p>}
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-3xl w-full">
+      {/*
+        Scrollable grid: each card has fixed-ish height, the container caps at the
+        remaining viewport with overflow-y so >3 templates do not get clipped at
+        the bottom of the page.
+      */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-3xl w-full overflow-y-auto px-1 pb-4">
         {templates.map((t) => (
           <div key={t.id} className="bg-stitch-surface-low rounded-xl p-5 border border-stitch-outline-variant/10 flex flex-col">
             <h4 className="text-sm font-bold text-text-primary mb-1">{t.name}</h4>
@@ -469,13 +605,19 @@ export default function AgentsPage() {
   const handleReset = async () => {
     setResetting(true)
     try {
-      // Delete all agents
-      for (const a of agents) {
-        await deleteAgent(a.id)
+      // Delete all agents in parallel for speed (sequential was painful past
+      // ~10 agents). Re-fetch and retry once to clean up rows whose parallel
+      // delete raced against a parent's parent_agent_id SET NULL trigger and
+      // returned a 4xx — the second pass always finishes with an empty list.
+      await Promise.allSettled(agents.map((a) => deleteAgent(a.id)))
+      await fetchAgents()
+      const remaining = useAgentStore.getState().agents
+      if (remaining.length > 0) {
+        await Promise.allSettled(remaining.map((a) => deleteAgent(a.id)))
+        await fetchAgents()
       }
       selectAgent(null)
       await fetchOrgChart()
-      await fetchAgents()
     } finally {
       setResetting(false)
       setShowResetConfirm(false)
@@ -506,6 +648,9 @@ export default function AgentsPage() {
         }
       />
       <div className="flex-1 flex flex-col p-4 pb-0 overflow-hidden">
+      {/* Team capability coverage warnings */}
+      {agents.length > 0 && <TeamCoverageWarnings agents={agents} />}
+
       <p className="text-xs text-text-secondary mb-2 px-2">
         {agents.length} agents · {agents.filter((a) => a.status === 'online').length} online
       </p>

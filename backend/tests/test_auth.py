@@ -12,9 +12,6 @@ from backend.src.core.auth import (
     require_permission,
 )
 
-pytestmark = pytest.mark.asyncio
-
-
 class TestRolePermissions:
     def test_admin_has_all_permissions(self):
         assert ROLE_PERMISSIONS[Role.admin] == set(Permission)
@@ -23,7 +20,7 @@ class TestRolePermissions:
         viewer_perms = ROLE_PERMISSIONS[Role.viewer]
         assert Permission.project_read in viewer_perms
         assert Permission.task_read in viewer_perms
-        assert Permission.board_read in viewer_perms
+        assert Permission.plan_read in viewer_perms
         assert Permission.project_create not in viewer_perms
         assert Permission.task_create not in viewer_perms
         assert Permission.admin_settings not in viewer_perms
@@ -47,6 +44,7 @@ class TestRolePermissions:
         assert "admin.tokens" not in permission_values
 
 
+@pytest.mark.asyncio
 class TestRequirePermission:
     async def test_admin_role_grants_any_permission(self):
         """Admin role in app_metadata should pass any permission check."""
@@ -129,3 +127,74 @@ class TestRequirePermission:
         with pytest.raises(HTTPException) as exc_info:
             await checker(user=mock_user)
         assert exc_info.value.status_code == 403
+
+
+@pytest.mark.asyncio
+class TestGetCurrentUserTokenSources:
+    """Token can come from a Bearer header OR from a ``?token=`` query string.
+
+    The query-string fallback is the only way the browser EventSource API
+    can authenticate against the SSE endpoints (it does not support
+    custom headers). Both paths must accept the e2e bypass token, and
+    both must reject missing-token requests with 401.
+    """
+
+    async def test_query_param_token_used_when_no_authorization_header(
+        self, monkeypatch
+    ):
+        from types import SimpleNamespace
+
+        from backend.src.config import settings as live_settings
+        from backend.src.core import auth as auth_mod
+
+        bypass = "test-bypass-token-only-for-this-test"
+        monkeypatch.setattr(live_settings, "e2e_test_token", bypass)
+        monkeypatch.setattr(live_settings, "e2e_test_user_tenant_id", "00000000-0000-0000-0000-000000000000")
+
+        request = SimpleNamespace(
+            headers={},
+            query_params={"token": bypass},
+            state=SimpleNamespace(),
+        )
+
+        db = AsyncMock()
+        user = await auth_mod.get_current_user(request=request, db=db)
+        assert user.id == live_settings.e2e_test_user_id
+
+    async def test_no_token_anywhere_returns_401(self):
+        from types import SimpleNamespace
+
+        from backend.src.core import auth as auth_mod
+
+        request = SimpleNamespace(
+            headers={},
+            query_params={},
+            state=SimpleNamespace(),
+        )
+        db = AsyncMock()
+        with pytest.raises(HTTPException) as exc:
+            await auth_mod.get_current_user(request=request, db=db)
+        assert exc.value.status_code == 401
+
+    async def test_authorization_header_takes_precedence_over_query_param(
+        self, monkeypatch
+    ):
+        """If both are set, the header wins — query string is fallback only."""
+        from types import SimpleNamespace
+
+        from backend.src.config import settings as live_settings
+        from backend.src.core import auth as auth_mod
+
+        bypass = "header-wins-token"
+        monkeypatch.setattr(live_settings, "e2e_test_token", bypass)
+        monkeypatch.setattr(live_settings, "e2e_test_user_tenant_id", "00000000-0000-0000-0000-000000000000")
+
+        request = SimpleNamespace(
+            headers={"authorization": f"Bearer {bypass}"},
+            query_params={"token": "wrong-token-should-be-ignored"},
+            state=SimpleNamespace(),
+        )
+
+        db = AsyncMock()
+        user = await auth_mod.get_current_user(request=request, db=db)
+        assert user.id == live_settings.e2e_test_user_id

@@ -53,6 +53,9 @@ class WorkspaceService:
     async def write_file(self, project_id: uuid.UUID, path: str, content: bytes) -> None:
         await self._storage.write_file(str(project_id), path, content)
 
+    async def delete_file(self, project_id: uuid.UUID, path: str) -> None:
+        await self._storage.delete_file(str(project_id), path)
+
     async def file_exists(self, project_id: uuid.UUID, path: str) -> bool:
         return await self._storage.exists(str(project_id), path)
 

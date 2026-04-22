@@ -49,7 +49,7 @@ async def _create_task(
     project: models.Project,
     phase: models.Phase,
     *,
-    status: models.TaskStatus = models.TaskStatus.waiting,
+    status: models.TaskStatus = models.TaskStatus.pending,
     title: str = "Test Task",
 ) -> models.Task:
     task = models.Task(
@@ -92,28 +92,6 @@ async def test_list_projects_returns_data(client: AsyncClient, db_session: Async
 # ── get_board_state ──────────────────────────────────────────────────
 
 
-async def test_get_board_state_empty(client: AsyncClient, db_session: AsyncSession) -> None:
-    project, _ = await _create_project_and_phase(db_session)
-    resp = await client.get(f"/api/v1/mcp/board/{project.id}")
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["project_id"] == str(project.id)
-    assert "columns" in data
-    assert "stats" in data
-
-
-async def test_get_board_state_with_tasks(client: AsyncClient, db_session: AsyncSession) -> None:
-    project, phase = await _create_project_and_phase(db_session)
-    await _create_task(db_session, project, phase, status=models.TaskStatus.ready, title="Ready Task")
-    await _create_task(db_session, project, phase, status=models.TaskStatus.done, title="Done Task")
-
-    resp = await client.get(f"/api/v1/mcp/board/{project.id}")
-    assert resp.status_code == 200
-    data = resp.json()
-    assert len(data["columns"]["ready"]) == 1
-    assert len(data["columns"]["done"]) == 1
-
-
 # ── create_task ──────────────────────────────────────────────────────
 
 
@@ -131,7 +109,7 @@ async def test_create_task_success(client: AsyncClient, db_session: AsyncSession
     assert resp.status_code == 201
     data = resp.json()
     assert data["title"] == "New MCP Task"
-    assert data["status"] == "ready"  # active phase -> ready
+    assert data["status"] == "pending"
 
 
 async def test_create_task_pending_phase(client: AsyncClient, db_session: AsyncSession) -> None:
@@ -145,7 +123,7 @@ async def test_create_task_pending_phase(client: AsyncClient, db_session: AsyncS
     )
     assert resp.status_code == 201
     data = resp.json()
-    assert data["status"] == "waiting"  # pending phase -> waiting
+    assert data["status"] == "pending"
 
 
 async def test_create_task_project_not_found(client: AsyncClient) -> None:
@@ -178,14 +156,14 @@ async def test_create_task_no_phase(client: AsyncClient, db_session: AsyncSessio
 
 async def test_update_task_status_success(client: AsyncClient, db_session: AsyncSession) -> None:
     project, phase = await _create_project_and_phase(db_session)
-    task = await _create_task(db_session, project, phase, status=models.TaskStatus.waiting)
+    task = await _create_task(db_session, project, phase, status=models.TaskStatus.pending)
 
     resp = await client.patch(
         f"/api/v1/mcp/tasks/{task.id}/status",
-        json={"status": "ready"},
+        json={"status": "running"},
     )
     assert resp.status_code == 200
-    assert resp.json()["status"] == "ready"
+    assert resp.json()["status"] == "running"
 
 
 async def test_update_task_status_invalid_transition(client: AsyncClient, db_session: AsyncSession) -> None:
@@ -194,7 +172,7 @@ async def test_update_task_status_invalid_transition(client: AsyncClient, db_ses
 
     resp = await client.patch(
         f"/api/v1/mcp/tasks/{task.id}/status",
-        json={"status": "ready"},
+        json={"status": "running"},
     )
     assert resp.status_code == 400
 
@@ -202,7 +180,7 @@ async def test_update_task_status_invalid_transition(client: AsyncClient, db_ses
 async def test_update_task_status_not_found(client: AsyncClient) -> None:
     resp = await client.patch(
         f"/api/v1/mcp/tasks/{uuid.uuid4()}/status",
-        json={"status": "ready"},
+        json={"status": "running"},
     )
     assert resp.status_code == 404
 
@@ -247,27 +225,26 @@ async def test_get_dependencies_not_found(client: AsyncClient) -> None:
 # ── trigger_executor ─────────────────────────────────────────────────
 
 
-async def test_trigger_executor_from_waiting(client: AsyncClient, db_session: AsyncSession) -> None:
+async def test_trigger_executor_unblock_blocked_task(client: AsyncClient, db_session: AsyncSession) -> None:
+    """blocked -> pending: the unblock action."""
     project, phase = await _create_project_and_phase(db_session)
-    task = await _create_task(db_session, project, phase, status=models.TaskStatus.waiting)
+    task = await _create_task(db_session, project, phase, status=models.TaskStatus.blocked)
 
     resp = await client.post(f"/api/v1/mcp/tasks/{task.id}/execute")
     assert resp.status_code == 200
-    assert resp.json()["status"] == "ready"
+    assert resp.json()["status"] == "pending"
 
 
-async def test_trigger_executor_from_redesign(client: AsyncClient, db_session: AsyncSession) -> None:
+async def test_trigger_executor_rejects_pending(client: AsyncClient, db_session: AsyncSession) -> None:
+    """Only blocked tasks can be unblocked via this endpoint."""
     project, phase = await _create_project_and_phase(db_session)
-    task = await _create_task(db_session, project, phase, status=models.TaskStatus.redesign)
+    task = await _create_task(db_session, project, phase, status=models.TaskStatus.pending)
 
     resp = await client.post(f"/api/v1/mcp/tasks/{task.id}/execute")
-    assert resp.status_code == 200
-    data = resp.json()
-    # redesign -> waiting -> ready (two-step transition)
-    assert data["status"] == "ready"
+    assert resp.status_code == 400
 
 
-async def test_trigger_executor_invalid_status(client: AsyncClient, db_session: AsyncSession) -> None:
+async def test_trigger_executor_rejects_done(client: AsyncClient, db_session: AsyncSession) -> None:
     project, phase = await _create_project_and_phase(db_session)
     task = await _create_task(db_session, project, phase, status=models.TaskStatus.done)
 

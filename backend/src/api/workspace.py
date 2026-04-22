@@ -24,7 +24,7 @@ _encryption = EncryptionManager(os.environ.get("ENCRYPTION_KEY", "dev-encryption
 router = APIRouter(prefix="/api/v1/projects", tags=["workspace"])
 
 _workspace_service = WorkspaceService(
-    LocalStorageBackend(os.environ.get("WORKSPACE_BASE_DIR", "/data/workspaces"))
+    LocalStorageBackend(os.environ.get("WORKSPACE_BASE_DIR", "data/workspaces"))
 )
 
 

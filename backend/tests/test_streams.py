@@ -38,7 +38,7 @@ async def test_initialize_streams_creates_group(manager: RedisStreamManager, moc
 
     mock_redis.xgroup_create.assert_called_once_with(
         RedisStreamManager.TASKS_ESCALATION,
-        RedisStreamManager.GROUP_ARCHITECT,
+        RedisStreamManager.GROUP_ESCALATION,
         id="0",
         mkstream=True,
     )
@@ -166,33 +166,38 @@ async def test_acknowledge_calls_xack(manager: RedisStreamManager, mock_redis: A
     mock_redis.xack.assert_awaited_once_with("my-stream", "my-group", "1-0")
 
 
-# ── publish_board_event ───────────────────────────────────────────────
+# ── publish_project_event ─────────────────────────────────────────────
 
 
-async def test_publish_board_event_formats_correctly(manager: RedisStreamManager, mock_redis: AsyncMock) -> None:
-    """Event name is included in the data dict published to EVENTS_BOARD."""
+async def test_publish_project_event_formats_correctly(
+    manager: RedisStreamManager, mock_redis: AsyncMock
+) -> None:
+    """Event name is included in the data dict published to the per-project stream."""
     mock_redis.xadd.return_value = b"1-0"
 
-    await manager.publish_board_event("task_moved", {"task_id": "abc"})
+    await manager.publish_project_event("proj-1", "task_transition", {"task_id": "abc"})
 
     call_args = mock_redis.xadd.call_args
     stream = call_args[0][0]
     flat_data = call_args[0][1]
 
-    assert stream == RedisStreamManager.EVENTS_BOARD
-    assert flat_data["event"] == "task_moved"
-    assert flat_data["task_id"] == "abc"
+    assert stream == "project:events:proj-1"
+    assert flat_data["event"] == "task_transition"
+    # data is JSON-encoded by publish() because it's a dict
+    import json as _json
+
+    assert _json.loads(flat_data["data"]) == {"task_id": "abc"}
 
 
 # ── trim_streams ──────────────────────────────────────────────────────
 
 
-async def test_trim_streams_calls_xtrim_with_correct_maxlen(manager: RedisStreamManager, mock_redis: AsyncMock) -> None:
-    """xtrim uses caller maxlen for escalation, hardcoded 5000 for board."""
+async def test_trim_streams_calls_xtrim_for_escalation(
+    manager: RedisStreamManager, mock_redis: AsyncMock
+) -> None:
+    """xtrim is called once for the escalation stream with the caller maxlen."""
     await manager.trim_streams(maxlen=500)
 
-    assert mock_redis.xtrim.call_count == 2
-
+    assert mock_redis.xtrim.call_count == 1
     calls = {c.args[0]: c.kwargs for c in mock_redis.xtrim.call_args_list}
     assert calls[RedisStreamManager.TASKS_ESCALATION]["maxlen"] == 500
-    assert calls[RedisStreamManager.EVENTS_BOARD]["maxlen"] == 5000

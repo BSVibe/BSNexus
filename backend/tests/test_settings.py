@@ -145,3 +145,76 @@ def test_mask_api_key_exactly_8() -> None:
     """8-char key is masked."""
     result = mask_api_key("12345678")
     assert result == "123****...5678"
+
+
+# ── Install token endpoints (tenant-scoped) ─────────────────────────
+
+
+@pytest.fixture
+async def _seed_default_tenant(db_session):
+    from backend.src.core.tenant_context import DEFAULT_TENANT_ID
+    from backend.src.models import Tenant
+
+    db_session.add(
+        Tenant(id=DEFAULT_TENANT_ID, name="Test", slug="test", owner_user_id="test-user")
+    )
+    await db_session.commit()
+    yield
+
+
+@pytest.mark.asyncio
+async def test_install_token_initially_absent(client: AsyncClient, _seed_default_tenant) -> None:
+    resp = await client.get("/api/v1/settings/install-token")
+    assert resp.status_code == 200
+    assert resp.json()["has_token"] is False
+
+
+@pytest.mark.asyncio
+async def test_install_token_create_returns_plaintext_once(
+    client: AsyncClient, _seed_default_tenant
+) -> None:
+    resp = await client.post("/api/v1/settings/install-token")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["has_token"] is True
+    assert body["token"] and body["token"].startswith("bsn-")
+
+    # Subsequent GET reports the existence but does not return the plaintext.
+    follow = await client.get("/api/v1/settings/install-token")
+    assert follow.json()["has_token"] is True
+    assert follow.json().get("token") in (None, "")
+
+
+@pytest.mark.asyncio
+async def test_install_token_revoke_clears_it(
+    client: AsyncClient, _seed_default_tenant
+) -> None:
+    await client.post("/api/v1/settings/install-token")
+    resp = await client.delete("/api/v1/settings/install-token")
+    assert resp.status_code == 204
+    follow = await client.get("/api/v1/settings/install-token")
+    assert follow.json()["has_token"] is False
+
+
+@pytest.mark.asyncio
+async def test_resolve_install_token_tenant_returns_owner(
+    client: AsyncClient, _seed_default_tenant, db_session
+) -> None:
+    from backend.src.api.settings import resolve_install_token_tenant
+    from backend.src.core.tenant_context import DEFAULT_TENANT_ID
+
+    create = await client.post("/api/v1/settings/install-token")
+    token = create.json()["token"]
+
+    tenant_id = await resolve_install_token_tenant(token, db_session)
+    assert tenant_id == DEFAULT_TENANT_ID
+
+
+@pytest.mark.asyncio
+async def test_resolve_install_token_unknown_returns_none(
+    client: AsyncClient, _seed_default_tenant, db_session
+) -> None:
+    from backend.src.api.settings import resolve_install_token_tenant
+
+    tenant_id = await resolve_install_token_tenant("not-a-real-token", db_session)
+    assert tenant_id is None

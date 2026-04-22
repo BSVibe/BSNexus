@@ -58,7 +58,9 @@ jobs:
           DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/test
           REDIS_URL: redis://localhost:6379/0
           PROMPT_SIGNING_KEY: test-signing-key
-        run: uv run pytest tests/ -v --cov=src --cov-fail-under=80
+        # fail_under is authoritative via backend/pyproject.toml ([tool.coverage.report])
+        # so the CI flag and the repo config do not drift.
+        run: uv run pytest tests/ -v --cov=src
 
   frontend-build:
     runs-on: ubuntu-latest

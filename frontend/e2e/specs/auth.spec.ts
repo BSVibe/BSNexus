@@ -13,12 +13,12 @@ test.describe('Auth — Landing Page & Protected Routes', () => {
   test('landing page displays three feature cards with Material Symbols', async ({ page }) => {
     await blockSSORedirect(page)
     await page.goto('/')
-    await expect(page.getByText('Project Architect')).toBeVisible()
-    await expect(page.getByText('Task Kanban')).toBeVisible()
+    await expect(page.getByText('Conversational Planning')).toBeVisible()
+    await expect(page.getByText('Live Plan View')).toBeVisible()
     await expect(page.getByText('Distributed Workers')).toBeVisible()
     // Material Symbols icons are present
     await expect(page.locator('span.material-symbols-outlined:has-text("psychology")')).toBeVisible()
-    await expect(page.locator('span.material-symbols-outlined:has-text("view_kanban")')).toBeVisible()
+    await expect(page.locator('span.material-symbols-outlined:has-text("account_tree")')).toBeVisible()
     await expect(page.locator('span.material-symbols-outlined:has-text("hub")')).toBeVisible()
   })
 

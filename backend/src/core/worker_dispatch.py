@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import structlog
 from sqlalchemy import select
@@ -78,11 +78,15 @@ class WorkerDispatcher:
         message: str,
         system_prompt: str,
         history: list[dict[str, str]],
+        *,
+        tool_definitions: list[dict] | None = None,
+        agent_tool_names: list[str] | None = None,
+        model: str | None = None,
     ) -> str:
-        """Dispatch a chat message to a worker for CLI-based LLM execution.
+        """Dispatch a chat message to a worker for LLM execution.
 
-        The worker processes the message through its CLI executor (e.g. claude --print)
-        and reports the result via POST /api/v1/workers/chat-result.
+        The worker processes the message through its executor (CLI or LiteLLM)
+        with tool_use support and reports the result via POST /api/v1/workers/chat-result.
         """
         data: dict[str, str] = {
             "chat_id": chat_id,
@@ -92,6 +96,12 @@ class WorkerDispatcher:
             "history": json.dumps(history),
             "dispatched_at": datetime.now(timezone.utc).isoformat(),
         }
+        if tool_definitions:
+            data["tool_definitions"] = json.dumps(tool_definitions)
+        if agent_tool_names:
+            data["agent_tool_names"] = json.dumps(agent_tool_names)
+        if model:
+            data["model"] = model
         msg_id = await self._stream.publish(self._worker_stream(worker_id), data)
         logger.info("chat_dispatched_to_worker", worker_id=str(worker_id), chat_id=chat_id, msg_id=msg_id)
         return msg_id
@@ -99,17 +109,24 @@ class WorkerDispatcher:
     async def find_available_worker(
         self,
         db: AsyncSession,
+        tenant_id: uuid.UUID | None = None,
     ) -> Worker | None:
-        """Find an online, active worker.
+        """Find an online, active worker scoped to the tenant.
 
         Returns the worker with the earliest last_heartbeat (least recently used).
+        When ``tenant_id`` is provided, only workers belonging to that
+        tenant are considered. Without it, falls back to all workers
+        (legacy compat for tests).
         """
-        result = await db.execute(
-            select(Worker).where(
-                Worker.is_active.is_(True),
-                Worker.status == "online",
-            ).order_by(Worker.last_heartbeat.asc())
+        heartbeat_cutoff = datetime.now(timezone.utc) - timedelta(seconds=120)
+        query = select(Worker).where(
+            Worker.is_active.is_(True),
+            Worker.status == "online",
+            Worker.last_heartbeat > heartbeat_cutoff,
         )
+        if tenant_id is not None:
+            query = query.where(Worker.tenant_id == tenant_id)
+        result = await db.execute(query.order_by(Worker.last_heartbeat.asc()))
         return result.scalars().first()
 
     async def report_result(
