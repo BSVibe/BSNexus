@@ -22,7 +22,6 @@ from bsvibe_auth import BSVibeUser
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
-from sqlalchemy import text as sa_text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sse_starlette.sse import EventSourceResponse
@@ -39,7 +38,11 @@ from backend.src.core.task_markers import (
 )
 from backend.src.core.auth import Permission, require_permission
 from backend.src.core.budget import BudgetService
-from backend.src.core.executor.litellm_executor import LiteLLMExecutor
+# LiteLLMExecutor is no longer constructed here — the factory picks the
+# right executor per agent (#39). Kept as a re-export so existing
+# tests that monkey-patch `backend.src.api.agent_chat.LiteLLMExecutor`
+# still find it.
+from backend.src.core.executor.litellm_executor import LiteLLMExecutor  # noqa: F401
 from backend.src.core.llm_client import LLMConfig
 from backend.src.core.tenant_context import get_tenant_id
 from backend.src.core.worker_dispatch import WorkerDispatcher

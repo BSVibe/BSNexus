@@ -157,7 +157,7 @@ test.describe('Long-term UI stability test', () => {
       const cycleStart = Date.now()
       console.log(`\n[longterm-ui] ═══ CYCLE ${cycle}/${MAX_CYCLES} START ═══`)
 
-      let result: CycleResult = {
+      const result: CycleResult = {
         cycle,
         status: 'FAIL',
         phases: 0,

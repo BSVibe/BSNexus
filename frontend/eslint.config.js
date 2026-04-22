@@ -20,4 +20,14 @@ export default defineConfig([
       globals: globals.browser,
     },
   },
+  // E2E / exploratory spec files — playwright scratchpads carry looser
+  // types (API response `any`, disposable locals) on purpose. Keep the
+  // rule strict for app code; relax it for the specs.
+  {
+    files: ['e2e/specs/**/*.ts'],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-unused-vars': 'off',
+    },
+  },
 ])
