@@ -25,6 +25,10 @@ from backend.src.models.project_channel import ProjectChannel
 from backend.src.models.request import Request, RequestStatus
 from backend.src.models.setting import Setting
 from backend.src.models.tenant import Tenant, TenantMember
+from backend.src.models.tenant_integration_config import (
+    IntegrationProvider,
+    TenantIntegrationConfig,
+)
 from backend.src.models.worker import Worker
 
 __all__ = [
@@ -33,6 +37,7 @@ __all__ = [
     "CompositionSource",
     "DeliverableStatus",
     "DeliverableType",
+    "IntegrationProvider",
     "ProjectStatus",
     "RequestStatus",
     "RunPriority",
@@ -55,6 +60,7 @@ __all__ = [
     "Request",
     "Setting",
     "Tenant",
+    "TenantIntegrationConfig",
     "TenantMember",
     "Worker",
     "execution_run_dependencies",
