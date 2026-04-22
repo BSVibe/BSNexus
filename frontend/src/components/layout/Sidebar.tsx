@@ -3,8 +3,6 @@ import { useAuthContext } from '../auth/AuthContext'
 
 const navItems = [
   { to: '/dashboard', label: 'Dashboard', icon: 'dashboard' },
-  { to: '/agents', label: 'Agents', icon: 'groups' },
-  { to: '/budget', label: 'Budget', icon: 'account_balance_wallet' },
   { to: '/settings', label: 'Settings', icon: 'settings' },
 ]
 
