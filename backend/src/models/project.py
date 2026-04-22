@@ -8,7 +8,7 @@ from datetime import datetime
 
 from sqlalchemy import DateTime, Enum, Integer, String, Text, Uuid, func
 from sqlalchemy.dialects.postgresql import JSON
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.src.storage.database import Base
 
@@ -45,14 +45,14 @@ class Project(Base):
     github_token_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     status: Mapped[ProjectStatus] = mapped_column(Enum(ProjectStatus), nullable=False, default=ProjectStatus.design)
-    max_concurrent_tasks: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    max_concurrent_runs: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     llm_config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+    # Optional references to company-OS siblings (resolved per tenant config).
+    bsage_workspace_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    bsupervisor_policy_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
-    )
-
-    # Relationships
-    phases: Mapped[list["Phase"]] = relationship(  # noqa: F821
-        "Phase", back_populates="project", cascade="all, delete-orphan"
     )
