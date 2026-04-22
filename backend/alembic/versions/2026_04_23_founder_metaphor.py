@@ -106,28 +106,40 @@ def upgrade() -> None:
     # 3. Create new tables
     # ─────────────────────────────────────────────────────────
 
-    request_status = sa.Enum("open", "running", "completed", "abandoned", name="requeststatus")
-    run_status = sa.Enum("pending", "running", "blocked", "done", name="runstatus")
-    run_priority = sa.Enum("low", "medium", "high", "critical", name="runpriority")
-    composition_source = sa.Enum("bsage", "local", name="compositionsource")
-    deliverable_type = sa.Enum("code", "doc", "design", "data", "url", name="deliverabletype")
-    deliverable_status = sa.Enum("draft", "ready", "delivered", name="deliverablestatus")
-    storage_backend_enum = sa.Enum("git", "object", "url", name="storagebackend")
-    activity_level = sa.Enum("milestone", "tool", name="activitylevel")
+    # Create PG enum types via raw DDL (not SQLAlchemy Enum) so we control
+    # creation timing. Column references use postgresql.ENUM(create_type=False)
+    # so SQLAlchemy doesn't try to create them again.
+    from sqlalchemy.dialects.postgresql import ENUM as PGEnum
 
-    # Create enums explicitly (PG); SQLite inlines them.
+    ENUM_DEFINITIONS = [
+        ("requeststatus", ("open", "running", "completed", "abandoned")),
+        ("runstatus", ("pending", "running", "blocked", "done")),
+        ("runpriority", ("low", "medium", "high", "critical")),
+        ("compositionsource", ("bsage", "local")),
+        ("deliverabletype", ("code", "doc", "design", "data", "url")),
+        ("deliverablestatus", ("draft", "ready", "delivered")),
+        ("storagebackend", ("git", "object", "url")),
+        ("activitylevel", ("milestone", "tool")),
+    ]
+
     if is_postgres:
-        for e in (
-            request_status,
-            run_status,
-            run_priority,
-            composition_source,
-            deliverable_type,
-            deliverable_status,
-            storage_backend_enum,
-            activity_level,
-        ):
-            e.create(bind, checkfirst=True)
+        for name, values in ENUM_DEFINITIONS:
+            values_sql = ", ".join(f"'{v}'" for v in values)
+            op.execute(sa.text(f"CREATE TYPE {name} AS ENUM ({values_sql})"))
+
+    def _enum(name: str, *values: str):
+        if is_postgres:
+            return PGEnum(*values, name=name, create_type=False)
+        return sa.Enum(*values, name=name)
+
+    request_status = _enum("requeststatus", "open", "running", "completed", "abandoned")
+    run_status = _enum("runstatus", "pending", "running", "blocked", "done")
+    run_priority = _enum("runpriority", "low", "medium", "high", "critical")
+    composition_source = _enum("compositionsource", "bsage", "local")
+    deliverable_type = _enum("deliverabletype", "code", "doc", "design", "data", "url")
+    deliverable_status = _enum("deliverablestatus", "draft", "ready", "delivered")
+    storage_backend_enum = _enum("storagebackend", "git", "object", "url")
+    activity_level = _enum("activitylevel", "milestone", "tool")
 
     # requests
     op.create_table(

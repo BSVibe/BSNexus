@@ -25,11 +25,25 @@ def upgrade() -> None:
     bind = op.get_bind()
     is_postgres = bind.dialect.name == "postgresql"
 
-    integration_provider = sa.Enum(
-        "bsage", "bsgateway", "bsupervisor", name="integrationprovider"
-    )
+    from sqlalchemy.dialects.postgresql import ENUM as PGEnum
+
     if is_postgres:
-        integration_provider.create(bind, checkfirst=True)
+        op.execute(
+            sa.text(
+                "CREATE TYPE integrationprovider AS ENUM ('bsage', 'bsgateway', 'bsupervisor')"
+            )
+        )
+        integration_provider = PGEnum(
+            "bsage",
+            "bsgateway",
+            "bsupervisor",
+            name="integrationprovider",
+            create_type=False,
+        )
+    else:
+        integration_provider = sa.Enum(
+            "bsage", "bsgateway", "bsupervisor", name="integrationprovider"
+        )
 
     op.create_table(
         "tenant_integration_configs",
