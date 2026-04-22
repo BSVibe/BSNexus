@@ -368,7 +368,24 @@
   - Prompt-layer 시도 4회 (direct / CoT / E2E / full-pipeline CoT+E2E) 실패 확정.
   - 세션 11: (1) claude-code executor cross-check → model vs prompt 본질 판별, (2) #37 backend enforcement (marker 처리 시 verify tool call 없으면 reject).
 
-### 38. Claude Code executor cross-check (세션 11 진단 필수)
+### 39. ★ CRITICAL / ARCHITECTURAL ★ 모든 LLM 호출은 executor factory 를 거쳐야 (현재 직접 instantiation 으로 config 무시)
+
+- **원칙 (user 명시)**: 애초에 모든 LLM 호출은 직접이 아니라 **executor 기반** 으로만 해야 함. Agent-chat, worker-dispatch, 어디든.
+- **증상**: [agent_chat.py:1232](backend/src/api/agent_chat.py) 에 `executor = LiteLLMExecutor()` 하드코딩.
+  `executor_configs.executor_type` 는 읽기만 하고 model/api_key/base_url 만 추출. `claude_code` 등 다른 executor 설정은 silently 무시됨.
+- **위험 (user 지적)**: 운영자가 UI/API 로 "agent X executor 를 claude_code" 로 설정해도 실제론 LiteLLM. **의도와 다른 동작 = 프로덕션 사고 위험**. 세션 10 cross-check 시도 중 발견.
+- **기술 부채 규모 및 수정 방향**:
+  - Interface 불일치: `LiteLLMExecutor.execute(messages, tools, tool_handler, ...)` vs `ClaudeCodeExecutor.execute(prompt, context)`.
+  - Fix plan:
+    1. Unified `Executor` base class / protocol 정의 (messages + tools + tool_handler 기반)
+    2. `ClaudeCodeExecutor` 를 unified interface 로 adapter / rewrite
+    3. `get_executor(tenant_id, agent, db) -> Executor` factory 함수 (config 에서 type 기반 분기)
+    4. agent_chat._call_via_worker, worker_dispatch, 모든 LLM caller 가 factory 경유 (직접 instantiation 금지)
+    5. CI lint rule: `LiteLLMExecutor(` / `ClaudeCodeExecutor(` 직접 호출 차단
+  - 세션 11 최우선. #38 cross-check 도 이 선행 작업 후에 가능.
+- **임시 방어 (세션 10 내)**: executor_configs UI 에서 generic_llm 이외 선택 시 warning 추가 또는 schema validator 에서 reject.
+
+### 38. Claude Code executor cross-check (세션 11 — #39 이후)
 - **목적**: v8-v12 의 shell_exec=0 원인이 GLM 모델 한계인지, prompt 본질적 결함인지 판별.
 - **방법**:
   - Claude Code CLI 이미 container 에 설치됨 (`/usr/local/share/npm-global/bin/claude`, v2.1.109)

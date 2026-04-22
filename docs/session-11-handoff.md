@@ -33,7 +33,22 @@
 
 ## 세션 11 최우선 과제
 
-### #38 — Claude Code executor cross-check (model vs prompt 본질 판별)
+### #39 — ★ ARCHITECTURAL ★ 모든 LLM 호출을 executor factory 로 (선행 필수)
+
+**발견 경위 (세션 10)**: claude_code cross-check 시도 중 `agent_chat._call_via_worker` 가 `LiteLLMExecutor` 를 **하드코딩**한 것 확인. `executor_configs.executor_type` 의 config 는 읽지만 LiteLLM 이외 타입은 silently 무시됨.
+
+**원칙 (user 명시)**: 모든 LLM 호출은 직접 instantiation 이 아니라 **executor factory 기반**으로만 이뤄져야 한다.
+
+**수정 계획**:
+1. Unified `Executor` protocol — `execute(messages, tools, tool_handler, model_cfg, project_id, on_event) -> ExecutionResult`
+2. `ClaudeCodeExecutor` 를 이 protocol 에 맞춰 adapter (CLI subprocess 가 MCP-like tool definitions 와 tool_handler 를 forward)
+3. `get_executor(agent, tenant_id, db) -> Executor` factory — executor_configs.executor_type 로 분기
+4. 모든 caller (agent_chat, worker_dispatch 등) factory 경유 로 전환
+5. CI lint rule — `LiteLLMExecutor(` / `ClaudeCodeExecutor(` 직접 호출 block
+
+**선행 이유**: #38 cross-check (model vs prompt 본질 판별) 가 #39 완료 후에야 meaningful 하게 수행 가능.
+
+### #38 — Claude Code executor cross-check (#39 이후)
 
 **V12 (3.7h full run) 결정적 데이터**:
 - 5 phases · 47 tasks done · 11 agents (CMO/CPO/PM/CEO/FE/QA_Lead/CTO/QA/Designer/Marketer/BE)
