@@ -5,6 +5,7 @@ from backend.src.core.audit.audit_sink import (
     AuditSink,
     BSupervisorAuditSink,
     NoopAuditSink,
+    emit_post_async,
     resolve_audit_sink,
 )
 
@@ -13,5 +14,6 @@ __all__ = [
     "AuditSink",
     "BSupervisorAuditSink",
     "NoopAuditSink",
+    "emit_post_async",
     "resolve_audit_sink",
 ]
