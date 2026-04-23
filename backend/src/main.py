@@ -89,9 +89,23 @@ async def lifespan(app: FastAPI):
     app.state.stream_manager = stream_manager
     await start_background_consumer(app)
 
-    yield
+    # Drain runs:results → orchestrator.on_run_completed. Closes the
+    # loop for worker-executed runs so they don't stay stuck in
+    # ``running`` forever.
+    from backend.src.queue.worker_result_consumer import WorkerResultConsumer
+    from backend.src.storage.database import async_session
 
-    await close_redis()
+    worker_result_consumer = WorkerResultConsumer(
+        stream_manager=stream_manager, session_maker=async_session
+    )
+    await worker_result_consumer.start()
+    app.state.worker_result_consumer = worker_result_consumer
+
+    try:
+        yield
+    finally:
+        await worker_result_consumer.stop()
+        await close_redis()
 
 
 _ROUTERS = [
