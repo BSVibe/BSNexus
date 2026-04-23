@@ -42,14 +42,16 @@ async def test_adapter_returns_orchestrator_shaped_dict():
         return_value=(0.001, 0.001),
     ):
         out = await adapter.execute(
-            "You are a helpful assistant. Task: greet.",
+            "You are a helpful assistant.",
+            "Task: greet.",
             tools_allowed=["read"],
         )
 
     mock_call.assert_awaited_once()
     kwargs = mock_call.await_args.kwargs
     assert kwargs["messages"] == [
-        {"role": "user", "content": "You are a helpful assistant. Task: greet."}
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": "Task: greet."},
     ]
     assert kwargs["model"] == "ollama/glm-4.7-flash:latest"
     assert kwargs["api_base"] == "http://localhost:11434"
@@ -77,7 +79,7 @@ async def test_adapter_does_not_send_num_ctx_for_non_ollama_model():
         "backend.src.core.orchestrator_adapter.litellm.cost_per_token",
         return_value=0.0,
     ):
-        await adapter.execute("hi", tools_allowed=[])
+        await adapter.execute("sys", "hi", tools_allowed=[])
 
     assert "num_ctx" not in mock_call.await_args.kwargs
 
@@ -96,7 +98,7 @@ async def test_adapter_swallows_cost_lookup_errors():
         "backend.src.core.orchestrator_adapter.litellm.cost_per_token",
         side_effect=_blow_up,
     ):
-        out = await adapter.execute("hi", tools_allowed=[])
+        out = await adapter.execute("sys", "hi", tools_allowed=[])
 
     # Cost fell back to 0 instead of raising — keeps the run from
     # blocking just because litellm's pricing table doesn't know a

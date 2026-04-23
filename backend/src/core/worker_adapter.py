@@ -56,6 +56,7 @@ class WorkerDispatchAdapter:
     async def execute(
         self,
         system_prompt: str,
+        user_prompt: str,
         *,
         tools_allowed: list[str],
     ) -> dict[str, Any]:
@@ -64,6 +65,7 @@ class WorkerDispatchAdapter:
             self._run_id,
             str(self._project_id),
             system_prompt=system_prompt,
+            user_prompt=user_prompt,
             tools_allowed=tools_allowed,
             workspace_dir=self._workspace_dir,
         )

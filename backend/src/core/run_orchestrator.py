@@ -130,6 +130,7 @@ class RunOrchestrator:
         try:
             result = await executor.execute(
                 composition.system_prompt,
+                request.intent_summary,
                 tools_allowed=composition.tools_allowed,
             )
         except Exception as exc:  # noqa: BLE001 — sink-all at the executor boundary

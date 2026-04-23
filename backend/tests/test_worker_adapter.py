@@ -27,7 +27,8 @@ async def test_execute_publishes_to_worker_stream_and_returns_dispatched():
     )
 
     out = await adapter.execute(
-        "You are a helpful coding assistant. Implement X.",
+        "You are a helpful coding assistant.",
+        "Implement a hello-world CLI in Python.",
         tools_allowed=["read", "write"],
     )
 
@@ -38,6 +39,7 @@ async def test_execute_publishes_to_worker_stream_and_returns_dispatched():
     assert payload["project_id"] == str(project_id)
     assert payload["action"] == "execute"
     assert payload["system_prompt"].startswith("You are a helpful")
+    assert payload["user_prompt"].startswith("Implement a hello-world")
     assert "tools_allowed" in payload
 
     assert out["status"] == "dispatched"
@@ -60,7 +62,7 @@ async def test_execute_omits_tools_allowed_when_empty():
         project_id=uuid.uuid4(),
     )
 
-    await adapter.execute("hi", tools_allowed=[])
+    await adapter.execute("sys", "hi", tools_allowed=[])
 
     _, payload = stream_manager.publish.await_args.args
     assert "tools_allowed" not in payload

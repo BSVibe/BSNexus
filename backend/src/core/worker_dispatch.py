@@ -42,6 +42,7 @@ class WorkerDispatcher:
         project_id: str,
         *,
         system_prompt: str,
+        user_prompt: str = "",
         tools_allowed: list[str] | None = None,
         workspace_dir: str | None = None,
     ) -> str:
@@ -60,6 +61,8 @@ class WorkerDispatcher:
             "system_prompt": system_prompt,
             "dispatched_at": datetime.now(timezone.utc).isoformat(),
         }
+        if user_prompt:
+            data["user_prompt"] = user_prompt
         if tools_allowed:
             data["tools_allowed"] = json.dumps(tools_allowed)
         if workspace_dir:

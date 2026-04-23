@@ -285,7 +285,11 @@ async def worker_poll(
                 "project_id": msg.get("project_id", ""),
                 "action": msg.get("action", "execute"),
                 "title": msg.get("intent_summary", ""),
-                "prompt": msg.get("system_prompt", ""),
+                # The worker binary passes `prompt` to its CLI as the
+                # concrete user direction; `system_prompt` is the
+                # persona wrapper that shapes it.
+                "prompt": msg.get("user_prompt") or msg.get("system_prompt", ""),
+                "user_prompt": msg.get("user_prompt", ""),
                 "system_prompt": msg.get("system_prompt", ""),
                 "tools_allowed": tools_allowed or [],
                 "workspace_dir": msg.get("workspace_dir"),

@@ -53,6 +53,7 @@ class LiteLLMOrchestratorAdapter:
     async def execute(
         self,
         system_prompt: str,
+        user_prompt: str,
         *,
         tools_allowed: list[str],  # noqa: ARG002 — reserved for tool-capable adapter
     ) -> dict[str, Any]:
@@ -62,7 +63,10 @@ class LiteLLMOrchestratorAdapter:
 
         response = await litellm.acompletion(
             model=self._model,
-            messages=[{"role": "user", "content": system_prompt}],
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
             api_key=self._api_key,
             api_base=self._base_url,
             max_tokens=self._max_tokens,
