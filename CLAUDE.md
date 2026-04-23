@@ -4,24 +4,34 @@ Project instructions for Claude Code when working on BSNexus.
 
 ## Project Overview
 
-BSNexus is an AI Company OS. Users hire AI agents (Designer, Analyzer,
-Planner, Engineer, QA, ...) into an org chart, give them goals, and the
-agents collaborate via a unified chat to plan and execute work. A
-distributed worker pool runs the heavy code-execution tasks; the
-backend orchestrates dispatch, dependency promotion, and phase
-advancement on a single global loop.
+BSNexus is the **shell for an AI company the user hires**. The user (as
+founder) directs the company in a single chat; the backend decomposes
+that direction into execution runs, composes prompts, optionally routes
+audits through BSupervisor and knowledge through BSage, and surfaces the
+results as deliverables plus any decisions that need founder approval.
 
-There is no separate "Architect" agent or "PM Orchestrator" — every
-agent is a normal `Agent` row with a tailored `system_prompt`, and
-every task flows through the same worker dispatch pipeline.
+Four user-facing surfaces per project:
+- **Direction** — single Chief-of-Staff conversation. User messages are
+  auto-classified (chit_chat / question / request / modification) and
+  Request rows are created/appended accordingly.
+- **Progress** — deliverable timeline + three trust cards showing whether
+  BSage / BSGateway / BSupervisor are connected.
+- **Decisions** — approval inbox, blocking items first.
+- **Inside** (opt-in) — execution-run tree + composition-snapshot viewer
+  for debugging.
+
+There is no org chart, no per-agent chat, no @mentions, no Kanban board.
+Those surfaces retired with the agent/task/phase tables in the
+founder-metaphor migration.
 
 ## Core Stack
 
 - **Python 3.11+** / **FastAPI** (async monolith)
 - **PostgreSQL 16** + SQLAlchemy 2.0 (async) + Alembic
 - **Redis Streams** (consumer groups, NOT Pub/Sub)
-- **LiteLLM** (provider-agnostic LLM integration)
-- **React 19** + TypeScript + Vite + Tailwind CSS
+- **LiteLLM** (provider-agnostic LLM integration — with BSGateway hook
+  when enabled)
+- **React 19** + TypeScript + Vite + Tailwind CSS + `@tanstack/react-query`
 - **Package managers**: `uv` (Python), `pnpm` (Node.js)
 - **Linting**: `ruff` (line-length 120)
 
@@ -30,68 +40,92 @@ every task flows through the same worker dispatch pipeline.
 ```
 backend/src/
   api/                   # Route handlers (one router per resource)
-  core/                  # Business logic
-    state_machine.py     # 4-state Task lifecycle + activity emission
-    global_dispatcher.py # Background loop: pending -> running, phase advance
-    channel_adapter.py   # Slack/Discord fan-out adapters
-    channel_supervisor.py# Lifespan task that runs one fanout per project
-    memory.py            # Local + BSage memory providers
-    tenant_context.py    # JWT-derived tenant id middleware
-    workspace/           # Per-project workspace storage
-    workspace_storage.py # Pluggable storage backends (local, git, ...)
-    import_sources.py    # Pluggable source providers (local, git, tarball)
-    task_markers.py      # CREATE_TASK / CREATE_PHASE / SET_GOAL marker parsers
-    harness.py           # Workspace-based prompt assembly (.bsnexus/)
-    agent_activity.py    # Redis-backed busy tracker + unified status resolver
-  prompts/
-    skills.py            # Capability-driven skill fragments (design/analyze/plan/...)
-    review.yaml          # QA review prompts
+    auth.py              # Supabase/BSVibe-auth bypass + token endpoints
+    projects.py          # tenant-scoped CRUD
+    conversation.py      # chat list + send (runs extractor)
+    requests_api.py      # list requests per project
+    deliverables.py      # list deliverables per project
+    decisions.py         # list/resolve decisions
+    inside.py            # read-only runs + composition snapshots
+    integrations.py      # per-tenant BSage/BSGateway/BSupervisor config
+  core/
+    state_machine.py     # RunStateMachine (4-state ExecutionRun)
+    run_orchestrator.py  # event-driven per-run dispatch (replaces GlobalDispatcher)
+    worker_watchdog.py   # opt-in polling reconciler for remote workers
+    worker_dispatch.py   # Redis Streams run dispatch
+    request_extractor.py # chit_chat|question|request|modification classifier
+    composer/
+      knowledge_client.py  # BSage thin wrapper / Noop fallback
+      prompt_assembler.py  # pure composer over templates + fragments
+    audit/
+      audit_sink.py        # BSupervisor sync preflight + fire-and-forget post
+    integrations/
+      config.py            # TenantIntegrationSnapshot + 60s cache
+    storage/
+      deliverable_storage.py  # Protocol + dispatch
+      git_storage.py          # wraps core/git_ops for code deliverables
+      s3_storage.py           # MinIO (dev) / R2 (prod) via aioboto3
+      local_storage.py        # filesystem dev fallback
+    encryption.py        # EncryptionManager (API keys)
+    tenant_context.py    # TenantMiddleware + get_tenant_id dep
+    auth.py              # get_current_user dep + RBAC
   models/                # SQLAlchemy models, one file per domain
   schemas/               # Pydantic request/response schemas
-  repositories/          # Data access layer
   alembic/versions/      # DB migrations
   storage/               # Database + Redis clients
   queue/streams.py       # Redis Streams abstraction
   main.py                # App entry point + lifespan
 
 frontend/src/
-  api/                   # Axios clients per resource
+  api/                   # Axios clients (projects, conversation,
+                         # integrations, founder)
   components/
-    plan/                # PlanTree, AgentStatusBar, DetailPanel, PlanView
-    project/             # Chat sidebar, channels modal, design view, ...
-    common/              # Modal, Button, etc.
-  hooks/                 # useChatEvents, usePlanEvents
-  pages/                 # ProjectPage, AgentsPage, DashboardPage, ...
-  stores/                # Zustand: planStore, agentStore, toastStore
-  types/                 # TypeScript types
+    direction/           # DirectionView
+    progress/            # ProgressView (timeline + trust cards)
+    decisions/           # DecisionsView (inbox + resolve)
+    inside/              # InsideView (runs tree + composition viewer)
+    settings/            # IntegrationsTab + IntegrationCard
+    common/              # Modal, Button, Badge, StatCard, Toast
+    layout/              # Layout, Sidebar, Header
+  hooks/useAuth.ts       # JWT resolver (+ VITE_DEV_BYPASS_TOKEN dev escape)
+  pages/                 # Dashboard, Project, Settings, Landing
+  types/founder.ts       # Snake-case mirrors of Pydantic schemas
+  design-tokens.ts       # Source of truth; synced to ~/Docs/design_system.md
+  index.css              # CSS vars derived from design_system.md
 
-worker/                  # Distributed worker agent (parallel execution)
-
-.bsnexus/                # Per-project workspace harness (auto-seeded)
-  rules/                 # response-format, conflict-check, communication
-  skills/                # design, analyze, plan, architect, marketing, memory
-  context/               # Auto-generated: project, team, decisions, goals
+.devcontainer/           # postgres, redis, minio
 ```
 
 ## Development Commands
 
 ```bash
 # Backend
-uvicorn backend.src.main:app --host 0.0.0.0 --port 8000 --reload
-uv run --project backend pytest backend/tests/ -v --cov=backend/src --cov-fail-under=80
-uv run --project backend ruff check backend/src/
+docker compose -p bsnexus-founder \
+  -f .devcontainer/docker-compose.yml \
+  -f .devcontainer/docker-compose.override.yml \
+  --env-file .devcontainer/.env \
+  up -d postgres redis minio
+
+DATABASE_URL="postgresql+asyncpg://bsnexus:bsnexus_dev@localhost:15434/bsnexus" \
+REDIS_URL="redis://localhost:16381" \
+E2E_TEST_TOKEN="dev-token" \
+uv run --project backend alembic upgrade head
+uv run --project backend uvicorn backend.src.main:app --host 0.0.0.0 --port 18100 --app-dir . --reload
+
+# Tests
+cd backend && uv run --project . pytest --no-header
+# Fresh-PG smoke
+cd backend && BSNEXUS_INTEGRATION_PG_URL="postgresql+asyncpg://bsnexus:bsnexus_dev@localhost:15434/bsnexus" \
+  uv run --project . pytest tests/test_alembic_fresh_migration.py
 
 # Frontend
-cd frontend && pnpm dev          # Dev server on port 3000
-cd frontend && pnpm lint         # ESLint
-cd frontend && pnpm exec tsc -b  # Type-check
-cd frontend && pnpm build        # Production build
+cd frontend && pnpm install
+VITE_API_URL=http://localhost:18100 \
+VITE_DEV_BYPASS_TOKEN=dev-token \
+pnpm dev --host 0.0.0.0 --port 13100
 
-# E2E
-cd frontend && pnpm test:e2e     # Playwright (mock-API mode)
-
-# Infrastructure
-docker compose -f .devcontainer/docker-compose.yml up -d postgres redis
+cd frontend && pnpm exec tsc -b         # Type-check
+cd frontend && pnpm tokens:verify       # Design-token drift guard
 ```
 
 ## MUST Rules
@@ -103,151 +137,120 @@ docker compose -f .devcontainer/docker-compose.yml up -d postgres redis
   `XACK`. Never use Redis Pub/Sub.
 - **LiteLLM only**: All LLM calls go through LiteLLM. No direct
   `openai`/`anthropic` SDK imports.
-- **Tenant scoping**: Routes that mutate data take
-  `tenant_id: uuid.UUID = Depends(get_tenant_id)` and pass it through
-  every closure. Don't fall back to `DEFAULT_TENANT_ID` outside of
-  install-token / unauthenticated worker paths.
+- **Tenant scoping**: Routes take `tenant_id: uuid.UUID = Depends(get_tenant_id)`
+  and filter every query by it. Cross-tenant rows 404, never leak.
 - **Dependency Injection**: Use FastAPI `Depends()` for DB sessions,
   Redis, tenant id, etc.
-- **Decimal for money**: Use `Decimal`, never `float`.
+- **Decimal for money**: Use `Decimal`, never `float`. Cost amounts live
+  in `cost_records.amount_cents` as `Integer`.
 - **Env vars for secrets**: Validate with Pydantic BaseSettings.
   Document in `.env.example`.
-- **Tests required**: All code must have tests. Minimum 80% coverage
-  enforced by CI.
+- **Integration API keys are encrypted at rest**: via `EncryptionManager`.
+  Never return raw keys — the API response only exposes `has_api_key`.
+- **Tests required**: All new routers and state transitions ship with
+  tests. Minimum 80% coverage is enforced by CI.
+- **Degradable providers**: When BSage / BSGateway / BSupervisor is
+  disabled for a tenant, the corresponding Noop provider is used and
+  everything keeps working. Never raise out of provider boundaries.
 
 ## NEVER Rules
 
-- Never use `sys.path.insert` or `sys.path.append`
-- Never use `requirements.txt` — use `pyproject.toml` + `uv`
-- Never hardcode secrets or API keys in code
-- Never use f-strings in raw SQL queries
-- Never include `Co-Authored-By` in commit messages
-- Never use `float` for monetary values
-- Never use synchronous blocking I/O
-- Never reintroduce a static "Architect" or "PM Orchestrator" — agents
-  do that work via `system_prompt` + worker dispatch
-- Never store project assets (designs, plans, screens) in DB tables
-  when a workspace file would do — `.bsd` files for designs are the
-  template
-- Never bypass `state_machine.transition()` for task status changes —
-  it writes both `TaskHistory` and `TaskActivity` rows and emits the
-  Plan SSE event
+- Never use `sys.path.insert` or `sys.path.append`.
+- Never use `requirements.txt` — use `pyproject.toml` + `uv`.
+- Never hardcode secrets or API keys in code.
+- Never use f-strings in raw SQL queries.
+- Never include `Co-Authored-By` in commit messages.
+- Never use `float` for monetary values.
+- Never use synchronous blocking I/O.
+- Never reintroduce an "Agent" / "Architect" / "Task" / "Phase" / "Goal"
+  row — the founder-metaphor migration retired them deliberately. Use
+  `Request`, `ExecutionRun`, `Deliverable`, `Decision`, and/or
+  composition snapshots instead.
+- Never bypass `RunStateMachine.transition()` for ExecutionRun status
+  changes — it writes both history and milestone activity rows and
+  publishes the run SSE event.
+- Never expose another tenant's rows. Default to a 404 when the lookup
+  finds no row in the active tenant's scope.
 
 ## API Endpoints
 
-| Prefix                                          | Description                                              |
-| ----------------------------------------------- | -------------------------------------------------------- |
-| `/api/v1/projects`                              | Project and phase CRUD                                   |
-| `/api/v1/projects/{id}/chat`                    | Unified project chat (DB-backed, fire-and-forget)        |
-| `/api/v1/projects/{id}/chat/events`             | SSE: real-time chat message stream                       |
-| `/api/v1/projects/{id}/plan-tree`               | Goal → Phase → Task tree for the Plan view               |
-| `/api/v1/projects/{id}/plan-tree/events`        | SSE: task transitions, phase advances, agent status      |
-| `/api/v1/projects/{id}/agent-status`            | Agent status cards (current task + dot color)            |
-| `/api/v1/projects/{id}/design/system`           | DesignSystem `.bsd` file (lazy-created)                  |
-| `/api/v1/projects/{id}/design/screens`          | Screen `.bsd` file CRUD                                  |
-| `/api/v1/projects/{id}/memories`                | Long-term memory (Local or BSage provider)               |
-| `/api/v1/projects/{id}/channels`                | External chat channel links (Slack, ...)                 |
-| `/api/v1/projects/import`                       | Import an existing codebase (local/git/tarball)          |
-| `/api/v1/tasks`                                 | Task CRUD and state transitions                          |
-| `/api/v1/tasks/{id}/activity`                   | Task activity feed (milestone + tool log)                |
-| `/api/v1/agents`                                | Agent CRUD + org chart                                   |
-| `/api/v1/agent-templates`                       | Predefined org chart templates (startup/minimal/enterprise) |
-| `/api/v1/workers`                               | Worker registration, heartbeat, poll, result             |
-| `/api/v1/goals`                                 | Goal CRUD (mission, department, project, task levels)   |
-| `/api/v1/budget`                                | Per-agent budgets and cost records                       |
-| `/api/v1/dashboard`                             | Project + task aggregates                                |
-| `/api/v1/settings`                              | Global LLM + per-tenant install token                    |
-| `/api/v1/executor-configs`                      | Executor backend registrations                           |
-| `/api/v1/mcp`                                   | MCP-style task/dependency endpoints                      |
+| Route                                          | Method        | Description |
+|------------------------------------------------|---------------|-------------|
+| `/health`, `/health/deps`                      | GET           | Liveness + PG/Redis connectivity |
+| `/api/v1/projects`                             | GET/POST      | List + create projects |
+| `/api/v1/projects/{id}`                        | GET/PATCH/DELETE | Project detail + update + delete |
+| `/api/v1/projects/{id}/messages`               | GET/POST      | Conversation list + send (POST runs extractor) |
+| `/api/v1/projects/{id}/requests`               | GET           | Requests for this project |
+| `/api/v1/projects/{id}/deliverables`           | GET           | Deliverables for this project |
+| `/api/v1/projects/{id}/decisions`              | GET           | Decisions inbox (blocking first) |
+| `/api/v1/decisions/{id}/resolve`               | POST          | Resolve a decision |
+| `/api/v1/requests/{id}/runs`                   | GET           | Inside panel — runs for a request |
+| `/api/v1/composition-snapshots/{id}`           | GET           | Inside panel — snapshot detail |
+| `/api/v1/integrations`                         | GET           | Redacted view of all three provider configs |
+| `/api/v1/integrations/{provider}`              | PATCH         | Upsert one provider's config (encrypts api_key) |
+| `/api/v1/integrations/{provider}/test`         | POST          | Probe reachable + auth |
 
-## Plan View Architecture
+All mutating endpoints require `Authorization: Bearer <jwt>`. Dev mode
+accepts the raw value of `E2E_TEST_TOKEN` as a bypass.
 
-The Plan view replaces the old Kanban board. It is the primary lens
-on what every agent is doing right now.
+## Request → Run Lifecycle
 
-- **Backend**: `plan_tree.py` returns a `Goal → Phases → Tasks` tree.
-  `state_machine.transition()` publishes a `task_transition` event
-  to `project:events:{project_id}` on every status change. The global
-  dispatcher publishes `phase_advanced` when an active phase
-  completes.
-- **Frontend**: `PlanView` lays out the agent status bar (top),
-  `PlanTree` (left, 35%), and `DetailPanel` (right). `usePlanEvents`
-  subscribes to the SSE stream and patches the React Query cache
-  directly.
-- **Status model**: 4 states only — `pending`, `running`, `blocked`,
-  `done`. The 6-state Kanban legacy was deleted.
+```
+user message ─┐
+              ├─► Conversation router persists message
+              │
+              └─► RequestExtractor
+                    ├─ chit_chat / question → no side effect
+                    ├─ request → new Request row, attach message.request_id
+                    └─ modification → append to latest open Request
 
-## Project Chat Architecture
+new Request ──► RunOrchestrator.dispatch_run(run)
+                  1. Load TenantIntegrationSnapshot (60s cache)
+                  2. resolve_knowledge_client(cfg)  ─► BSage REST or Noop
+                  3. resolve_audit_sink(cfg)        ─► BSupervisor or Noop
+                  4. PromptAssembler.compose(run, knowledge)
+                  5. Persist CompositionSnapshot
+                  6. audit.preflight (sync 200ms, fail-open)
+                  7. state: pending → running
+                  8. executor.execute(prompt, tools)
+                  9. emit_post_async(audit, run, result)
+                 10. state: running → done (or blocked)
+                 11. enqueue_children whose deps are met
+```
 
-The unified project chat is **source-agnostic** so it can fan out to
-web, Slack, or any other channel via `ChannelFanout` without changing
-the core flow.
+No polling loops. `RunOrchestrator` is event-driven. A single optional
+`WorkerWatchdog` (1-min poll) reclaims orphaned remote-worker runs when
+`REMOTE_WORKERS_ENABLED=true`.
 
-- **Persistence**: `conversation_messages` table. Fields `source`,
-  `external_id`, `thread_ref` let adapters round-trip with external
-  systems (Slack ts, Discord message id, etc.).
-- **Routing**: `@mentions` are parsed and matched against agent names.
-  With no mention, the org-chart root's worker chooses the right agent
-  via a one-shot LLM call. The static `routing_keywords` field is gone.
-- **Delegation chain**: Background `asyncio.Task` per agent — fresh DB
-  session per phase (setup, then release before long waits). No depth
-  limit — agents collaborate freely. Loop prevention is a prompt
-  responsibility via the harness conflict-check rule.
-- **Worker dispatch**: Parallel execution (`max_parallel_tasks=5`).
-  DB sessions are short-lived — released before the Redis poll so
-  30-minute worker turns don't exhaust the connection pool.
-- **Event bus**: Every persisted message is published to the Redis
-  Stream `chat:events:{project_id}`.
-- **Harness prompt system**: System prompts are assembled from
-  `.bsnexus/` files in the project workspace (rules, skills, context).
-  See `core/harness.py`. Users can add custom rules by dropping `.md`
-  files in `.bsnexus/rules/`.
-- **Markers**: Agents proactively create plan items via markers:
-  `[CREATE_PHASE]`, `[CREATE_TASK]`, `[SET_GOAL]`, `[DECISION]`,
-  `[STATUS]`. All are stripped from displayed text.
-- **ProjectDecision**: `[DECISION]` markers are saved to
-  `.bsnexus/context/decisions.md` (file-based, no DB table). Only
-  agents with `plan` capability can create decisions. Active decisions
-  are injected into every agent's prompt.
-- **Org-mission injection**: Every system prompt prepends the active
-  tenant's `Goal.level == "mission"` rows so cross-session context is
-  stable.
-- **Capability-driven skills**: Agent capabilities (`plan`, `analyze`,
-  `design`, `architect`, `marketing`) resolve to skill prompt fragments
-  at dispatch time via `CAPABILITY_TO_SKILLS`. `memory_keeping` is
-  universal.
-
-## Channel Fan-out
-
-- **Per-project rows**: `ProjectChannel` (kind, external_channel_id,
-  credentials_encrypted, is_active).
-- **Adapters**: `core/channel_adapter.py` defines `ChannelAdapter`
-  Protocol + `SlackChannelAdapter`. Adding Discord/Teams is a one-class
-  change plus a registry entry.
-- **Supervisor**: `ChannelSupervisor` runs in the FastAPI lifespan,
-  reconciles `ProjectChannel` rows every 30s, and starts/stops one
-  `ChannelFanout` task per project. Each fanout tails
-  `chat:events:{project_id}` and posts new messages to every active
-  channel.
-
-## Task State Machine
+## Run State Machine
 
 ```
 pending → running → done
    ↑        ↓
-   ╰────────┤
-            ↓
-         blocked → pending
+   └──── blocked
 ```
 
 - `pending`: not yet started or waiting on dependencies
-- `running`: actively being worked on (worker dispatched)
-- `blocked`: stuck — needs human intervention or replan
+- `running`: actively executing
+- `blocked`: stuck — needs intervention or audit denial
 - `done`: completed (terminal)
 
-State changes go through `state_machine.transition()`, which writes a
-`TaskHistory` row, a milestone `TaskActivity` row, and publishes a
-`task_transition` event to the per-project plan event stream.
+State changes go through `RunStateMachine.transition()`, which writes an
+`ExecutionRunHistory` row + milestone `ExecutionRunActivity` row and
+publishes a `run_transition` event to the per-project run event stream.
+
+## Integrations (optional, per-tenant)
+
+| Provider | Role | Connection |
+|----------|------|------------|
+| BSage | Graph-backed project memory. Composer pulls fragments. | `POST /api/knowledge/search` etc. |
+| BSGateway | Cost-aware model selection. | LiteLLM `async_pre_call_hook` (no new endpoint). |
+| BSupervisor | Pre-run safety audit. | `POST /api/events` (existing sync endpoint, sub-50ms). |
+
+Each has a `TenantIntegrationConfig` row (encrypted api_key). When
+disabled/unreachable, a Noop is used and BSNexus continues to work in
+degraded mode; the Inside panel surfaces `composition.source = "local"`
+and audit `degraded = true`.
 
 ## Tenant Model
 
@@ -255,33 +258,37 @@ State changes go through `state_machine.transition()`, which writes a
   gets a deterministic UUIDv5 personal tenant id derived from their
   user id. `ensure_personal_tenant` lazy-creates the row on first
   authenticated request.
-- **Middleware**: `TenantMiddleware` decodes the JWT (no signature
-  check — that happens in the auth dependency) and stamps
-  `request.state.tenant_id`. Routes consume it via
-  `Depends(get_tenant_id)`.
-- **Worker install tokens**: Per tenant, stored on
-  `Tenant.worker_install_token_hash`. Workers register with the token
-  and inherit the tenant. Open-mode (no token at all) only works when
-  the default tenant has not minted one — single-tenant dev preserved.
+- **Middleware**: `TenantMiddleware` stamps `request.state.tenant_id`.
+  Routes consume it via `Depends(get_tenant_id)`.
+- **Project scoping**: `Project.tenant_id` is a required FK
+  (ON DELETE CASCADE). All per-project resources (Requests,
+  ExecutionRuns, Deliverables, Decisions, CompositionSnapshots) are
+  also directly tenant-scoped.
 
 ## Testing Patterns
 
 - **Framework**: pytest + pytest-asyncio (`asyncio_mode = "auto"`)
 - **Test DB**: SQLite in-memory (via `aiosqlite`)
-- **Redis mock**: `AsyncMock` for stream operations. **Always set
+- **Redis mock**: `AsyncMock` for stream operations. Always set
   `tail.return_value = []` and yield with `asyncio.sleep(0)` in
-  polling loops** — busy AsyncMock loops hang otherwise.
-- **Fixtures**: `db_session`, `mock_stream_manager`, `client` (see
-  `backend/tests/conftest.py`)
-- **Fresh-PG integration tests**: `test_integration_fresh_db.py` — real
-  uvicorn subprocess + throwaway PG/Redis containers, e2e bypass token,
-  no mocks. Catches wiring bugs that SQLite + fixture overrides miss.
+  polling loops — busy AsyncMock loops hang otherwise.
+- **Fixtures** (`tests/conftest.py`): `db_session`, `mock_stream_manager`,
+  `mock_user`, `mock_tenant_id`, `seeded_tenant`, `client`.
+- **Per-router contract tests**: one test file per router, asserting
+  the 200/201/404/422/204 contracts, tenant isolation, and DB side
+  effects.
 - **Fresh-PG migration smoke**: `test_alembic_fresh_migration.py` —
-  `alembic upgrade head` against an empty PG container.
-- **Isolated e2e stack**: `frontend/e2e/scripts/run-isolated.mjs` —
-  orchestrates PG + Redis + uvicorn + vite + bsnexus-worker (stub
-  claude) for fully hermetic real e2e. Run: `pnpm test:e2e:isolated`.
-- **Coverage gate**: 80% (CI fails below).
+  `alembic upgrade head` via subprocess against a throwaway PG.
+  Skipped unless `BSNEXUS_INTEGRATION_PG_URL` is set.
+
+## Design Tokens
+
+- `frontend/src/design-tokens.ts` is the TS source of truth.
+- CSS variables in `frontend/src/index.css` mirror it (manually synced;
+  `pnpm tokens:verify` catches drift in CI).
+- Values come from `~/Docs/design_system.md` v0.1.0 verbatim.
+- BSNexus brand: `blue-500 #3b82f6`. Inside panel sibling badges:
+  BSage=emerald, BSGateway=amber, BSupervisor=rose.
 
 ## Commit Style
 

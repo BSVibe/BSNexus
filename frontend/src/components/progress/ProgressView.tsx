@@ -1,111 +1,134 @@
-/**
- * Progress — deliverable timeline + three trust cards.
- *
- * Left: vertical timeline of Deliverables (title, type, version count,
- * status). Right: three trust cards for BSage / BSGateway / BSupervisor
- * showing whether each is connected + degraded/healthy status.
- */
+import { useQuery } from '@tanstack/react-query'
+
+import { deliverablesApi } from '../../api/founder'
+import { integrationsApi } from '../../api/integrations'
+import type { Deliverable, IntegrationProvider } from '../../types/founder'
 
 interface ProgressViewProps {
   projectId?: string
 }
 
-type TrustStatus = 'healthy' | 'degraded' | 'not_configured'
-
 interface TrustCardData {
-  provider: 'bsage' | 'bsgateway' | 'bsupervisor'
+  provider: IntegrationProvider
   label: string
-  status: TrustStatus
   accentClass: string
-  detail: string
 }
 
 const TRUST_CARDS: TrustCardData[] = [
   {
     provider: 'bsage',
     label: 'BSage (knowledge)',
-    status: 'not_configured',
     accentClass: 'border-brand-emerald text-brand-emerald',
-    detail: 'Configure in Settings → Integrations to enrich runs with project knowledge.',
   },
   {
     provider: 'bsgateway',
     label: 'BSGateway (routing)',
-    status: 'not_configured',
     accentClass: 'border-brand-amber text-brand-amber',
-    detail: 'Cost-aware model routing. Uses default LiteLLM when unconfigured.',
   },
   {
     provider: 'bsupervisor',
     label: 'BSupervisor (audit)',
-    status: 'not_configured',
     accentClass: 'border-brand-rose text-brand-rose',
-    detail: 'Pre-run safety checks. Runs proceed without audit when unconfigured.',
   },
 ]
 
-export default function ProgressView({ projectId: _projectId }: ProgressViewProps) {
+export default function ProgressView({ projectId }: ProgressViewProps) {
+  if (!projectId) {
+    return (
+      <div className="flex h-full items-center justify-center bg-bg-primary text-sm text-text-tertiary">
+        Select a project first.
+      </div>
+    )
+  }
+
   return (
     <div className="flex h-full flex-col overflow-hidden bg-bg-primary">
       <header className="border-b border-border px-6 py-4">
         <h2 className="text-lg font-semibold text-text-primary">Progress</h2>
         <p className="text-sm text-text-secondary">
-          What the company has shipped, plus whether its three sibling services are healthy.
+          What the company has shipped, plus whether its three sibling services are connected.
         </p>
       </header>
 
       <div className="flex flex-1 overflow-hidden">
-        <DeliverableTimeline />
+        <DeliverableTimeline projectId={projectId} />
         <TrustPanel />
       </div>
     </div>
   )
 }
 
-function DeliverableTimeline() {
+function DeliverableTimeline({ projectId }: { projectId: string }) {
+  const { data: deliverables = [], isLoading } = useQuery<Deliverable[]>({
+    queryKey: ['deliverables', projectId],
+    queryFn: () => deliverablesApi.listForProject(projectId),
+  })
+
   return (
     <section className="flex-1 overflow-y-auto px-6 py-4">
       <div className="mx-auto max-w-3xl">
-        <div className="mt-8 text-center text-text-tertiary">
-          <p className="text-sm">No deliverables yet. Start a request in Direction.</p>
-        </div>
+        {isLoading ? (
+          <p className="text-sm text-text-tertiary">Loading…</p>
+        ) : deliverables.length === 0 ? (
+          <p className="mt-8 text-center text-sm text-text-tertiary">
+            No deliverables yet. Start a request in Direction.
+          </p>
+        ) : (
+          <ul className="space-y-2">
+            {deliverables.map((d) => (
+              <li key={d.id}>
+                <div className="rounded-lg border border-border bg-bg-card p-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-base font-semibold text-text-primary">{d.title}</span>
+                    <span className="rounded-full border border-border px-2 py-0.5 text-[10px] uppercase tracking-wider text-text-tertiary">
+                      {d.status}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs text-text-tertiary">type: {d.type}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </section>
   )
 }
 
 function TrustPanel() {
+  const { data } = useQuery({
+    queryKey: ['integrations'],
+    queryFn: integrationsApi.list,
+  })
+
   return (
     <aside className="w-80 border-l border-border bg-bg-surface p-4">
       <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-text-tertiary">
         Company services
       </h3>
       <div className="space-y-3">
-        {TRUST_CARDS.map((card) => (
-          <TrustCard key={card.provider} card={card} />
-        ))}
+        {TRUST_CARDS.map((card) => {
+          const cfg = data?.[card.provider]
+          const status: 'healthy' | 'degraded' | 'not_configured' = cfg?.enabled
+            ? 'healthy'
+            : 'not_configured'
+          return (
+            <div key={card.provider} className={`rounded-lg border bg-bg-card p-3 ${card.accentClass}`}>
+              <div className="mb-1 flex items-center justify-between">
+                <span className="text-sm font-semibold">{card.label}</span>
+                <span className="rounded-full border border-current px-2 py-0.5 text-[10px] uppercase tracking-wider">
+                  {status === 'healthy' ? 'On' : 'Off'}
+                </span>
+              </div>
+              <p className="text-xs text-text-tertiary">
+                {cfg?.enabled
+                  ? cfg.base_url ?? 'enabled but no base URL'
+                  : 'Configure in Settings → Integrations.'}
+              </p>
+            </div>
+          )
+        })}
       </div>
     </aside>
-  )
-}
-
-function TrustCard({ card }: { card: TrustCardData }) {
-  return (
-    <div className={`rounded-lg border bg-bg-card p-3 ${card.accentClass}`}>
-      <div className="mb-1 flex items-center justify-between">
-        <span className="text-sm font-semibold">{card.label}</span>
-        <StatusBadge status={card.status} />
-      </div>
-      <p className="text-xs text-text-tertiary">{card.detail}</p>
-    </div>
-  )
-}
-
-function StatusBadge({ status }: { status: TrustStatus }) {
-  const label = status === 'healthy' ? 'Healthy' : status === 'degraded' ? 'Degraded' : 'Off'
-  return (
-    <span className="rounded-full border border-current px-2 py-0.5 text-[10px] uppercase tracking-wider">
-      {label}
-    </span>
   )
 }

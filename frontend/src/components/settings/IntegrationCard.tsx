@@ -1,18 +1,23 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
-import type { IntegrationConfig, IntegrationProvider } from '../../types/founder'
+import type {
+  IntegrationConfigResponse,
+  IntegrationConfigUpdate,
+  IntegrationTestResult,
+} from '../../api/integrations'
+import type { IntegrationProvider } from '../../types/founder'
 
 interface IntegrationCardProps {
   provider: IntegrationProvider
   label: string
   description: string
   accentClass: string
-  config: IntegrationConfig | null
-  onSave: (next: Partial<IntegrationConfig> & { apiKey?: string }) => Promise<void>
-  onTest: () => Promise<{ ok: boolean; detail?: string }>
+  config: IntegrationConfigResponse | null
+  onSave: (next: IntegrationConfigUpdate) => Promise<void>
+  onTest: () => Promise<IntegrationTestResult>
 }
 
-type TestStatus = 'idle' | 'testing' | 'ok' | 'failed'
+type TestStatus = 'idle' | 'testing' | IntegrationTestResult['status']
 
 export default function IntegrationCard({
   provider,
@@ -24,22 +29,28 @@ export default function IntegrationCard({
   onTest,
 }: IntegrationCardProps) {
   const [enabled, setEnabled] = useState(config?.enabled ?? false)
-  const [baseUrl, setBaseUrl] = useState(config?.baseUrl ?? '')
+  const [baseUrl, setBaseUrl] = useState(config?.base_url ?? '')
   const [apiKey, setApiKey] = useState('')
   const [testStatus, setTestStatus] = useState<TestStatus>('idle')
-  const [testDetail, setTestDetail] = useState<string | undefined>()
+  const [testDetail, setTestDetail] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
-  const hasApiKey = config?.hasApiKey ?? false
+  useEffect(() => {
+    setEnabled(config?.enabled ?? false)
+    setBaseUrl(config?.base_url ?? '')
+  }, [config?.enabled, config?.base_url])
+
+  const hasApiKey = config?.has_api_key ?? false
 
   async function handleSave() {
     setSaving(true)
     try {
-      await onSave({
+      const body: IntegrationConfigUpdate = {
         enabled,
-        baseUrl: baseUrl || null,
-        ...(apiKey ? { apiKey } : {}),
-      })
+        base_url: baseUrl || null,
+      }
+      if (apiKey) body.api_key = apiKey
+      await onSave(body)
       setApiKey('')
     } finally {
       setSaving(false)
@@ -48,9 +59,9 @@ export default function IntegrationCard({
 
   async function handleTest() {
     setTestStatus('testing')
-    setTestDetail(undefined)
+    setTestDetail(null)
     const result = await onTest()
-    setTestStatus(result.ok ? 'ok' : 'failed')
+    setTestStatus(result.status)
     setTestDetail(result.detail)
   }
 
@@ -97,8 +108,8 @@ export default function IntegrationCard({
           />
         </label>
 
-        {provider === 'bsupervisor' && (
-          <BSupervisorExtras config={config} />
+        {provider === 'bsupervisor' && config && (
+          <BSupervisorExtras extraConfig={config.extra_config} />
         )}
       </div>
 
@@ -128,9 +139,9 @@ export default function IntegrationCard({
   )
 }
 
-function BSupervisorExtras({ config }: { config: IntegrationConfig | null }) {
-  const timeoutMs = (config?.extraConfig?.timeout_ms as number | undefined) ?? 200
-  const failMode = (config?.extraConfig?.fail_mode as string | undefined) ?? 'open'
+function BSupervisorExtras({ extraConfig }: { extraConfig: Record<string, unknown> }) {
+  const timeoutMs = typeof extraConfig.timeout_ms === 'number' ? extraConfig.timeout_ms : 200
+  const failMode = typeof extraConfig.fail_mode === 'string' ? extraConfig.fail_mode : 'open'
   return (
     <div className="grid grid-cols-2 gap-2 pt-1 text-xs text-text-tertiary">
       <div>
@@ -145,18 +156,26 @@ function BSupervisorExtras({ config }: { config: IntegrationConfig | null }) {
   )
 }
 
-function TestStatusBadge({ status, detail }: { status: TestStatus; detail?: string }) {
+function TestStatusBadge({ status, detail }: { status: TestStatus; detail: string | null }) {
   if (status === 'idle') return null
   const label =
-    status === 'testing' ? 'Testing…' : status === 'ok' ? 'Reachable' : 'Unreachable'
+    status === 'testing'
+      ? 'Testing…'
+      : status === 'healthy'
+      ? 'Reachable'
+      : status === 'unauthorized'
+      ? 'Unauthorized'
+      : status === 'disabled'
+      ? 'Not configured'
+      : 'Unreachable'
   const color =
-    status === 'ok'
+    status === 'healthy'
       ? 'text-success'
-      : status === 'failed'
+      : status === 'unreachable' || status === 'unauthorized'
       ? 'text-error'
       : 'text-text-tertiary'
   return (
-    <span className={`text-xs ${color}`} title={detail}>
+    <span className={`text-xs ${color}`} title={detail ?? undefined}>
       {label}
     </span>
   )

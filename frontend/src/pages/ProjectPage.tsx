@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { useParams } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 
 import Header from '../components/layout/Header'
 import DirectionView from '../components/direction/DirectionView'
 import ProgressView from '../components/progress/ProgressView'
 import DecisionsView from '../components/decisions/DecisionsView'
 import InsideView from '../components/inside/InsideView'
+import { projectsApi, type Project } from '../api/projects'
 
 type TabId = 'direction' | 'progress' | 'decisions' | 'inside'
 
@@ -21,12 +23,18 @@ export default function ProjectPage() {
   const [tab, setTab] = useState<TabId>('direction')
   const [insideEnabled, setInsideEnabled] = useState(false)
 
+  const { data: project } = useQuery<Project>({
+    queryKey: ['project', projectId],
+    queryFn: () => projectsApi.get(projectId!),
+    enabled: Boolean(projectId),
+  })
+
   const visibleTabs = TABS.filter((t) => !t.optIn || insideEnabled)
 
   return (
     <>
       <Header
-        title="Project"
+        title={project?.name ?? 'Project'}
         action={
           <label className="flex items-center gap-2 text-xs text-text-tertiary">
             <input

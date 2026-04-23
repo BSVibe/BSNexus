@@ -49,7 +49,19 @@ function consumeHashTokens(): string | null {
   return access
 }
 
+const DEV_BYPASS_TOKEN =
+  (import.meta.env.VITE_DEV_BYPASS_TOKEN as string | undefined) ??
+  (import.meta.env.VITE_E2E_TOKEN as string | undefined) ??
+  null
+
 export async function getAccessToken(): Promise<string | null> {
+  // 0. Dev bypass — lets the app work on bsserver:port / localhost during
+  //    development without going through auth.bsvibe.dev. Only ever used
+  //    when VITE_DEV_BYPASS_TOKEN (or VITE_E2E_TOKEN) is explicitly set.
+  if (DEV_BYPASS_TOKEN) {
+    return DEV_BYPASS_TOKEN
+  }
+
   if (cachedToken && Date.now() < cachedToken.expiresAt - 30_000) {
     return cachedToken.value
   }
@@ -103,22 +115,37 @@ export function useAuth() {
 
   useEffect(() => {
     ;(async () => {
+      // Dev bypass — synthesize a user without decoding a real JWT.
+      if (DEV_BYPASS_TOKEN) {
+        setUser({
+          id: 'dev-user',
+          email: 'dev@bsnexus.local',
+          tenantId: '',
+          role: 'admin',
+        })
+        setLoading(false)
+        return
+      }
       const token = await getAccessToken()
       if (!token) {
         setLoading(false)
         return
       }
-      const payload = decodeJwt(token) as {
-        sub: string
-        email: string
-        app_metadata?: { tenant_id?: string; role?: string }
+      try {
+        const payload = decodeJwt(token) as {
+          sub: string
+          email: string
+          app_metadata?: { tenant_id?: string; role?: string }
+        }
+        setUser({
+          id: payload.sub,
+          email: payload.email,
+          tenantId: payload.app_metadata?.tenant_id ?? '',
+          role: payload.app_metadata?.role ?? 'member',
+        })
+      } catch {
+        // Not a JWT — skip and stay unauthenticated.
       }
-      setUser({
-        id: payload.sub,
-        email: payload.email,
-        tenantId: payload.app_metadata?.tenant_id ?? '',
-        role: payload.app_metadata?.role ?? 'member',
-      })
       setLoading(false)
     })()
   }, [])
