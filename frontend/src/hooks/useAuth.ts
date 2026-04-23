@@ -10,6 +10,12 @@ interface User {
 const AUTH_URL = 'https://auth.bsvibe.dev'
 const STORED_TOKEN_KEY = 'bsnexus_access_token'
 const STORED_REFRESH_KEY = 'bsnexus_refresh_token'
+const DEV_LOGGED_OUT_KEY = 'bsnexus.dev_logged_out'
+
+function devLoggedOut(): boolean {
+  if (typeof window === 'undefined') return false
+  return localStorage.getItem(DEV_LOGGED_OUT_KEY) === '1'
+}
 
 interface SessionResponse {
   access_token: string
@@ -56,9 +62,9 @@ const DEV_BYPASS_TOKEN =
 
 export async function getAccessToken(): Promise<string | null> {
   // 0. Dev bypass — lets the app work on bsserver:port / localhost during
-  //    development without going through auth.bsvibe.dev. Only ever used
-  //    when VITE_DEV_BYPASS_TOKEN (or VITE_E2E_TOKEN) is explicitly set.
-  if (DEV_BYPASS_TOKEN) {
+  //    development without going through auth.bsvibe.dev. Skipped after an
+  //    explicit logout so users can see the signed-out experience.
+  if (DEV_BYPASS_TOKEN && !devLoggedOut()) {
     return DEV_BYPASS_TOKEN
   }
 
@@ -116,7 +122,9 @@ export function useAuth() {
   useEffect(() => {
     ;(async () => {
       // Dev bypass — synthesize a user without decoding a real JWT.
-      if (DEV_BYPASS_TOKEN) {
+      // Skipped after logout so the landing page is visible until the user
+      // clicks Sign in again.
+      if (DEV_BYPASS_TOKEN && !devLoggedOut()) {
         setUser({
           id: 'dev-user',
           email: 'dev@bsnexus.local',
@@ -151,6 +159,13 @@ export function useAuth() {
   }, [])
 
   function login() {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(DEV_LOGGED_OUT_KEY)
+    }
+    if (DEV_BYPASS_TOKEN) {
+      window.location.href = '/dashboard'
+      return
+    }
     const redirectUri = `${window.location.origin}/dashboard`
     window.location.href = `${AUTH_URL}/login?redirect_uri=${encodeURIComponent(redirectUri)}`
   }
@@ -162,8 +177,11 @@ export function useAuth() {
       /* cross-origin logout best-effort */
     }
     clearTokenCache()
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(DEV_LOGGED_OUT_KEY, '1')
+    }
     setUser(null)
-    window.location.href = 'https://bsvibe.dev/'
+    window.location.href = '/'
   }
 
   return { user, loading, login, logout }

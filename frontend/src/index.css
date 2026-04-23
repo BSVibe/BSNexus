@@ -95,17 +95,14 @@
   .app {
     display: grid;
     grid-template-columns: 232px 1fr var(--chat-w, 380px);
-    grid-template-rows: 48px 1fr;
-    grid-template-areas:
-      "sidebar topbar chat"
-      "sidebar main   chat";
+    grid-template-rows: 1fr;
+    grid-template-areas: "sidebar main chat";
     height: 100vh;
     width: 100vw;
   }
   .app.chat-collapsed { --chat-w: 48px; }
 
   .sb { grid-area: sidebar; border-right: 1px solid var(--border-subtle); background: var(--bg-base); display: flex; flex-direction: column; min-height: 0; }
-  .tb { grid-area: topbar; border-bottom: 1px solid var(--border-subtle); display: flex; align-items: center; padding: 0 16px; gap: 12px; background: var(--bg-base); }
   .mn { grid-area: main; overflow: auto; position: relative; background: var(--bg-base); }
   .cr { grid-area: chat; border-left: 1px solid var(--border-subtle); background: var(--bg-base); display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 

@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 
 import { I } from '../../lib/icons'
@@ -14,25 +13,23 @@ import type {
 } from '../../types/founder'
 
 interface InspectorProps {
-  focus: { requestId?: string } | null
-  onClose: () => void
+  projectId: string
+  focusRequestId?: string | null
 }
 
-export default function Inspector({ focus, onClose }: InspectorProps) {
-  const { projectId } = useParams<{ projectId?: string }>()
+export default function Inspector({ projectId, focusRequestId }: InspectorProps) {
   const [selectedRequest, setSelectedRequest] = useState<string | null>(
-    focus?.requestId ?? null,
+    focusRequestId ?? null,
   )
   const [selectedRun, setSelectedRun] = useState<ExecutionRun | null>(null)
 
   useEffect(() => {
-    if (focus?.requestId) setSelectedRequest(focus.requestId)
-  }, [focus?.requestId])
+    if (focusRequestId) setSelectedRequest(focusRequestId)
+  }, [focusRequestId])
 
   const { data: requests = [] } = useQuery<FounderRequest[]>({
     queryKey: ['requests', projectId],
-    queryFn: () => requestsApi.listForProject(projectId!),
-    enabled: Boolean(projectId),
+    queryFn: () => requestsApi.listForProject(projectId),
   })
 
   useEffect(() => {
@@ -42,30 +39,14 @@ export default function Inspector({ focus, onClose }: InspectorProps) {
   }, [requests, selectedRequest])
 
   return (
-    <>
-      <div className="insp-mask" onClick={onClose} />
-      <aside className="insp">
-        <div className="insp-hd">
-          <I.Eye size={14} />
-          <div style={{ fontSize: 13, fontWeight: 600 }}>Inspector</div>
-          <Badge tone="gray">opt-in</Badge>
-          <span className="faded" style={{ fontSize: 11, marginLeft: 8 }}>
-            audit / debug
-          </span>
-          <span style={{ flex: 1 }} />
-          <button type="button" className="btn btn-icon" onClick={onClose}>
-            <I.X size={14} />
-          </button>
-        </div>
-
-        <div
-          className="insp-bd"
-          style={{
-            display: 'grid',
-            gridTemplateColumns: '220px 1fr',
-            minHeight: 0,
-          }}
-        >
+    <div
+      style={{
+        height: '100%',
+        display: 'grid',
+        gridTemplateColumns: '240px 1fr',
+        minHeight: 0,
+      }}
+    >
           <div
             style={{
               borderRight: '1px solid var(--border-subtle)',
@@ -86,7 +67,7 @@ export default function Inspector({ focus, onClose }: InspectorProps) {
             </div>
             {requests.length === 0 && (
               <div className="faded" style={{ fontSize: 11, padding: '4px 8px' }}>
-                {projectId ? 'No requests yet.' : 'Open a project to inspect.'}
+                No requests yet.
               </div>
             )}
             {requests.map((r) => (
@@ -131,9 +112,7 @@ export default function Inspector({ focus, onClose }: InspectorProps) {
             )}
             {selectedRun && <RunDetail run={selectedRun} />}
           </div>
-        </div>
-      </aside>
-    </>
+    </div>
   )
 }
 

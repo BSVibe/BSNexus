@@ -36,7 +36,6 @@ export default function Sidebar({ projects, onOpenPalette }: SidebarProps) {
         <div className="sb-logo">BN</div>
         <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1 }}>
           <span className="sb-brand-name">BSNexus</span>
-          <span className="sb-brand-sub">v0.2.0 · nexus.bsvibe.dev</span>
         </div>
       </button>
 

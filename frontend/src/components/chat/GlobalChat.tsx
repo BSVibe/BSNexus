@@ -236,32 +236,10 @@ export default function GlobalChat({
 
   return (
     <aside className="cr">
-      <div className="chat-hd">
-        <div
-          style={{
-            width: 24,
-            height: 24,
-            borderRadius: 6,
-            background: 'linear-gradient(135deg,var(--blue-500),#1e40af)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: 10,
-            fontWeight: 700,
-            color: '#fff',
-          }}
-        >
-          BN
-        </div>
-        <div
-          className="chat-title"
-          style={{ display: 'flex', flexDirection: 'column', lineHeight: '14px' }}
-        >
-          <span>The company</span>
-          <span className="faded" style={{ fontSize: 10, fontFamily: 'var(--font-mono)' }}>
-            {scopeToCurrent && currentProject ? `scoped · ${currentProject.name}` : 'workspace'}
-          </span>
-        </div>
+      <div
+        className="chat-hd"
+        style={{ justifyContent: 'flex-end', padding: '8px 12px', minHeight: 40 }}
+      >
         <button
           type="button"
           className="btn btn-icon"

@@ -106,28 +106,7 @@ export default function DashboardPage() {
 
   return (
     <div className="page fade-in">
-      <div className="page-hd">
-        <div>
-          <div
-            style={{
-              fontSize: 11,
-              color: 'var(--text-tertiary)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.08em',
-              marginBottom: 4,
-            }}
-          >
-            Workspace
-          </div>
-          <h1 className="page-title">You hired a company.</h1>
-          <div className="page-sub">
-            {projects.filter((p) => p.status === 'active').length} project
-            {projects.filter((p) => p.status === 'active').length === 1 ? '' : 's'}{' '}
-            active · <span className="hl">{blocking.length}</span> blocking decision
-            {blocking.length === 1 ? '' : 's'} · <span className="hl">{shipped7d.length}</span>{' '}
-            delivered this week.
-          </div>
-        </div>
+      <div className="page-hd" style={{ justifyContent: 'flex-end' }}>
         <div style={{ display: 'flex', gap: 8 }}>
           <button
             type="button"

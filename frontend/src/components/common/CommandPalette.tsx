@@ -60,12 +60,6 @@ export default function CommandPalette({ projects, onClose }: CommandPaletteProp
         icon: <StatusDot tone={statusTone(p.status)} size={6} />,
         run: () => navigate(`/projects/${p.id}`),
       })),
-      {
-        kind: 'action',
-        label: 'Open Inspector',
-        icon: <I.Eye size={14} />,
-        run: () => document.dispatchEvent(new CustomEvent('bsn:open-inspector')),
-      },
     ]
     if (!q) return base
     const needle = q.toLowerCase()

@@ -1,20 +1,28 @@
-import { useMemo, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useEffect, useMemo } from 'react'
+import { useParams, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 
 import { I } from '../lib/icons'
 import FilesView from '../components/files/FilesView'
 import ProgressView from '../components/progress/ProgressView'
 import DecisionsView from '../components/decisions/DecisionsView'
+import Inspector from '../components/inside/Inspector'
 import { SAMPLE_FILES } from '../lib/bsd-sample'
 import { projectsApi, type Project } from '../api/projects'
 import { decisionsApi, deliverablesApi } from '../api/founder'
 
-type TabId = 'progress' | 'files' | 'decisions'
+type TabId = 'progress' | 'files' | 'decisions' | 'inspector'
+
+function parseTab(raw: string | null): TabId {
+  if (raw === 'files' || raw === 'decisions' || raw === 'inspector') return raw
+  return 'progress'
+}
 
 export default function ProjectPage() {
   const { projectId } = useParams<{ projectId: string }>()
-  const [tab, setTab] = useState<TabId>('progress')
+  const [search, setSearch] = useSearchParams()
+  const tab = parseTab(search.get('tab'))
+  const focusRequestId = search.get('focusRequest')
 
   const { data: project } = useQuery<Project>({
     queryKey: ['project', projectId],
@@ -38,6 +46,32 @@ export default function ProjectPage() {
     () => decisions.filter((d) => !d.resolved_at).length,
     [decisions],
   )
+
+  function setTab(id: TabId) {
+    const next = new URLSearchParams(search)
+    if (id === 'progress') next.delete('tab')
+    else next.set('tab', id)
+    if (id !== 'inspector') next.delete('focusRequest')
+    setSearch(next, { replace: true })
+  }
+
+  useEffect(() => {
+    function onOpenInspector(e: Event) {
+      const ce = e as CustomEvent<{ requestId?: string }>
+      const rid = ce.detail?.requestId
+      const next = new URLSearchParams(search)
+      next.set('tab', 'inspector')
+      if (rid) next.set('focusRequest', rid)
+      else next.delete('focusRequest')
+      setSearch(next, { replace: true })
+    }
+    document.addEventListener('bsn:open-inspector', onOpenInspector as EventListener)
+    return () =>
+      document.removeEventListener(
+        'bsn:open-inspector',
+        onOpenInspector as EventListener,
+      )
+  }, [search, setSearch])
 
   if (!projectId) {
     return (
@@ -63,36 +97,6 @@ export default function ProjectPage() {
       }}
     >
       <div className="tabs" style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
-        <div
-          className="tab"
-          style={{
-            pointerEvents: 'none',
-            padding: '10px 0',
-            marginRight: 16,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'flex-start',
-            borderBottom: 'none',
-          }}
-        >
-          <div
-            style={{
-              fontSize: 13,
-              fontWeight: 600,
-              color: 'var(--gray-50)',
-              lineHeight: '16px',
-            }}
-          >
-            {project?.name ?? 'Project'}
-          </div>
-          <div
-            className="mono faded"
-            style={{ fontSize: 10, marginTop: 2 }}
-            title={projectId}
-          >
-            {projectId.slice(0, 8)}
-          </div>
-        </div>
         <TabButton
           label="Progress"
           icon={<I.Timeline size={14} />}
@@ -115,12 +119,21 @@ export default function ProjectPage() {
           count={openDecisions || null}
           toneRose={openDecisions > 0}
         />
+        <TabButton
+          label="Inspector"
+          icon={<I.Eye size={14} />}
+          active={tab === 'inspector'}
+          onClick={() => setTab('inspector')}
+        />
       </div>
 
       <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
         {tab === 'progress' && <ProgressView projectId={projectId} />}
         {tab === 'files' && <FilesView projectName={project?.name ?? 'Project'} />}
         {tab === 'decisions' && <DecisionsView projectId={projectId} />}
+        {tab === 'inspector' && (
+          <Inspector projectId={projectId} focusRequestId={focusRequestId} />
+        )}
       </div>
     </div>
   )
