@@ -223,4 +223,9 @@ export const I = {
       <path d="M12 7v5M12 12H6v5M12 12h6v5" />
     </Icon>
   ),
+  Download: (p: P) => (
+    <Icon {...p}>
+      <path d="M12 3v12M6 11l6 6 6-6M4 21h16" />
+    </Icon>
+  ),
 }

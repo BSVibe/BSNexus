@@ -6,19 +6,15 @@ import { I } from '../../lib/icons'
 import { relTime, truncId } from '../../lib/fmt'
 import { statusTone, accentHex, type Tone } from '../../lib/tone'
 import { deliverablesApi } from '../../api/founder'
-import {
-  integrationsApi,
-  type IntegrationConfigList,
-} from '../../api/integrations'
-import type {
-  Deliverable,
-  DeliverableType,
-  IntegrationProvider,
-} from '../../types/founder'
+import type { Deliverable, DeliverableType } from '../../types/founder'
 
 const TYPE_FILTERS = ['all', 'code', 'doc', 'design', 'data', 'url'] as const
 type TypeFilter = (typeof TYPE_FILTERS)[number]
 
+/**
+ * Progress — single-column timeline. Sibling service status lives in
+ * the topbar pills already, so there are no "trust cards" here.
+ */
 export default function ProgressView({ projectId }: { projectId: string }) {
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
 
@@ -27,16 +23,10 @@ export default function ProgressView({ projectId }: { projectId: string }) {
     queryFn: () => deliverablesApi.listForProject(projectId),
   })
 
-  const { data: integrations } = useQuery<IntegrationConfigList>({
-    queryKey: ['integrations'],
-    queryFn: integrationsApi.list,
-  })
-
   const sorted = useMemo(
     () =>
       [...deliverables].sort(
-        (a, b) =>
-          new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
       ),
     [deliverables],
   )
@@ -46,29 +36,9 @@ export default function ProgressView({ projectId }: { projectId: string }) {
   }, [sorted, typeFilter])
 
   return (
-    <div
-      style={{
-        display: 'grid',
-        gridTemplateColumns: '1fr 360px',
-        height: '100%',
-        minHeight: 0,
-      }}
-    >
-      <div
-        style={{
-          overflow: 'auto',
-          padding: '24px 32px',
-          borderRight: '1px solid var(--border-subtle)',
-        }}
-      >
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            marginBottom: 20,
-          }}
-        >
+    <div style={{ overflow: 'auto', height: '100%', padding: '24px 32px' }}>
+      <div style={{ maxWidth: 900, margin: '0 auto' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
           <h2
             style={{
               fontSize: 16,
@@ -87,9 +57,7 @@ export default function ProgressView({ projectId }: { projectId: string }) {
             <button
               key={t}
               type="button"
-              className={`btn btn-sm ${
-                typeFilter === t ? 'btn-secondary' : 'btn-ghost'
-              }`}
+              className={`btn btn-sm ${typeFilter === t ? 'btn-secondary' : 'btn-ghost'}`}
               onClick={() => setTypeFilter(t)}
             >
               {t === 'all' ? 'All' : t}
@@ -103,7 +71,7 @@ export default function ProgressView({ projectId }: { projectId: string }) {
               No deliverables yet.
             </div>
             <div className="faded" style={{ fontSize: 12 }}>
-              Talk to the company on the right to kick something off.
+              Start a request in the chat.
             </div>
           </div>
         )}
@@ -124,53 +92,6 @@ export default function ProgressView({ projectId }: { projectId: string }) {
           ))}
         </div>
       </div>
-
-      <aside
-        style={{
-          overflow: 'auto',
-          padding: 16,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 12,
-        }}
-      >
-        <div
-          style={{
-            fontSize: 11,
-            color: 'var(--text-tertiary)',
-            textTransform: 'uppercase',
-            letterSpacing: '0.08em',
-            padding: '0 4px',
-          }}
-        >
-          Trust · sibling services
-        </div>
-        {(['bsage', 'bsgateway', 'bsupervisor'] as const).map((key) => (
-          <TrustCard
-            key={key}
-            provider={key}
-            enabled={integrations?.[key]?.enabled ?? false}
-            baseUrl={integrations?.[key]?.base_url ?? null}
-          />
-        ))}
-        <div
-          style={{
-            padding: '12px 12px',
-            border: '1px dashed var(--border-subtle)',
-            borderRadius: 'var(--r-md)',
-            fontSize: 12,
-            color: 'var(--text-tertiary)',
-          }}
-        >
-          Missing a service?{' '}
-          <a
-            href="/settings"
-            style={{ color: 'var(--accent)' }}
-          >
-            Configure in Settings → Integrations
-          </a>
-        </div>
-      </aside>
     </div>
   )
 }
@@ -239,71 +160,15 @@ function TimelineItem({ d }: { d: Deliverable }) {
             </>
           )}
           <span style={{ flex: 1 }} />
-          <button type="button" className="btn btn-ghost btn-sm">
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={() => navigator.clipboard.writeText(d.id)}
+            title="Copy deliverable id"
+          >
             <I.Copy size={12} />
           </button>
         </div>
-      </div>
-    </div>
-  )
-}
-
-function TrustCard({
-  provider,
-  enabled,
-  baseUrl,
-}: {
-  provider: IntegrationProvider
-  enabled: boolean
-  baseUrl: string | null
-}) {
-  const meta = {
-    bsage: { label: 'BSage', sub: 'knowledge', accent: accentHex.emerald, Icon: I.Brain },
-    bsgateway: {
-      label: 'BSGateway',
-      sub: 'routing',
-      accent: accentHex.amber,
-      Icon: I.Gateway,
-    },
-    bsupervisor: {
-      label: 'BSupervisor',
-      sub: 'audit',
-      accent: accentHex.rose,
-      Icon: I.Shield,
-    },
-  }[provider]
-  const tone: Tone = !enabled ? 'gray' : 'emerald'
-  return (
-    <div
-      className="card"
-      style={{ padding: 14, borderLeft: `3px solid ${meta.accent}` }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-        <div
-          style={{
-            width: 28,
-            height: 28,
-            borderRadius: 'var(--r-md)',
-            background: `${meta.accent}20`,
-            color: meta.accent,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <meta.Icon size={14} />
-        </div>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--gray-50)' }}>
-            {meta.label}
-          </div>
-          <div className="mono faded" style={{ fontSize: 10 }}>
-            {enabled && baseUrl ? baseUrl.replace(/^https?:\/\//, '') : meta.sub}
-          </div>
-        </div>
-        <Badge tone={tone} dot>
-          {enabled ? 'on' : 'off'}
-        </Badge>
       </div>
     </div>
   )

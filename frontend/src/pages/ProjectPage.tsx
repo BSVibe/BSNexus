@@ -3,23 +3,18 @@ import { useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 
 import { I } from '../lib/icons'
-import StreamView from '../components/project/StreamView'
+import FilesView from '../components/files/FilesView'
 import ProgressView from '../components/progress/ProgressView'
 import DecisionsView from '../components/decisions/DecisionsView'
+import { SAMPLE_FILES } from '../lib/bsd-sample'
 import { projectsApi, type Project } from '../api/projects'
 import { decisionsApi, deliverablesApi } from '../api/founder'
 
-type TabId = 'stream' | 'progress' | 'decisions'
+type TabId = 'progress' | 'files' | 'decisions'
 
 export default function ProjectPage() {
   const { projectId } = useParams<{ projectId: string }>()
-  const [tab, setTab] = useState<TabId>('stream')
-
-  useQuery<Project>({
-    queryKey: ['project', projectId],
-    queryFn: () => projectsApi.get(projectId!),
-    enabled: Boolean(projectId),
-  })
+  const [tab, setTab] = useState<TabId>('progress')
 
   const { data: project } = useQuery<Project>({
     queryKey: ['project', projectId],
@@ -99,17 +94,18 @@ export default function ProjectPage() {
           </div>
         </div>
         <TabButton
-          label="Stream"
-          icon={<I.Timeline size={14} />}
-          active={tab === 'stream'}
-          onClick={() => setTab('stream')}
-        />
-        <TabButton
           label="Progress"
           icon={<I.Timeline size={14} />}
           active={tab === 'progress'}
           onClick={() => setTab('progress')}
           count={deliverables.length || null}
+        />
+        <TabButton
+          label="Files"
+          icon={<I.Doc size={14} />}
+          active={tab === 'files'}
+          onClick={() => setTab('files')}
+          count={SAMPLE_FILES.length}
         />
         <TabButton
           label="Decisions"
@@ -122,8 +118,8 @@ export default function ProjectPage() {
       </div>
 
       <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
-        {tab === 'stream' && <StreamView projectId={projectId} />}
         {tab === 'progress' && <ProgressView projectId={projectId} />}
+        {tab === 'files' && <FilesView projectName={project?.name ?? 'Project'} />}
         {tab === 'decisions' && <DecisionsView projectId={projectId} />}
       </div>
     </div>
