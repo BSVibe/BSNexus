@@ -59,6 +59,7 @@ class WorkerDispatchAdapter:
         user_prompt: str,
         *,
         tools_allowed: list[str],
+        history: list[dict[str, str]] | None = None,
     ) -> dict[str, Any]:
         msg_id = await self._dispatcher.dispatch_run(
             self._worker_id,
@@ -68,6 +69,7 @@ class WorkerDispatchAdapter:
             user_prompt=user_prompt,
             tools_allowed=tools_allowed,
             workspace_dir=self._workspace_dir,
+            history=history,
         )
         logger.info(
             "run_dispatched_to_worker_adapter",

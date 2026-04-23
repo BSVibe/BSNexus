@@ -279,6 +279,12 @@ async def worker_poll(
                 tools_allowed = json.loads(tools_allowed)
             except (json.JSONDecodeError, TypeError):
                 tools_allowed = []
+        history = msg.get("history")
+        if isinstance(history, str):
+            try:
+                history = json.loads(history)
+            except (json.JSONDecodeError, TypeError):
+                history = []
         tasks.append(
             {
                 "task_id": msg.get("run_id"),
@@ -291,6 +297,7 @@ async def worker_poll(
                 "prompt": msg.get("user_prompt") or msg.get("system_prompt", ""),
                 "user_prompt": msg.get("user_prompt", ""),
                 "system_prompt": msg.get("system_prompt", ""),
+                "history": history or [],
                 "tools_allowed": tools_allowed or [],
                 "workspace_dir": msg.get("workspace_dir"),
                 "_message_id": msg.get("_message_id"),

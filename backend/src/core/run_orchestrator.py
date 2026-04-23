@@ -44,6 +44,7 @@ from backend.src.core.state_machine import RunStateMachine
 from backend.src.models import (
     CompositionSnapshot,
     CompositionSource,
+    ConversationMessage,
     ExecutionRun,
     Request,
     RunStatus,
@@ -127,11 +128,16 @@ class RunOrchestrator:
             emit_post_async(audit, run, {"status": "running", "stage": "ready"})
             return run
 
+        history = await _load_chat_history(
+            db, project_id=run.project_id, origin_message_id=request.origin_message_id
+        )
+
         try:
             result = await executor.execute(
                 composition.system_prompt,
                 request.intent_summary,
                 tools_allowed=composition.tools_allowed,
+                history=history,
             )
         except Exception as exc:  # noqa: BLE001 — sink-all at the executor boundary
             logger.exception("run_executor_failed", run_id=str(run.id))
@@ -227,6 +233,39 @@ async def _load_request(db: AsyncSession, request_id: uuid.UUID) -> Request:
     if req is None:
         raise LookupError(f"Request {request_id} not found")
     return req
+
+
+async def _load_chat_history(
+    db: AsyncSession,
+    *,
+    project_id: uuid.UUID,
+    origin_message_id: uuid.UUID | None,
+    limit: int = 20,
+) -> list[dict[str, str]]:
+    """Return prior chat exchanges so multi-turn directions ("now do X
+    to what you just produced") can reference earlier work.
+
+    Excludes the message that originated the current request — that
+    message content is already the ``user_prompt`` we pass to the
+    executor, so including it here would double-send it.
+    """
+    stmt = (
+        select(ConversationMessage)
+        .where(ConversationMessage.project_id == project_id)
+        .order_by(ConversationMessage.created_at.asc())
+    )
+    rows = list((await db.execute(stmt)).scalars())
+    history: list[dict[str, str]] = []
+    for m in rows:
+        if origin_message_id is not None and m.id == origin_message_id:
+            break
+        if m.role not in ("user", "assistant"):
+            continue
+        history.append({"role": m.role, "content": m.content})
+    # Keep the tail — recent context matters most.
+    if len(history) > limit:
+        history = history[-limit:]
+    return history
 
 
 async def _persist_snapshot(

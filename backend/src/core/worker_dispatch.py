@@ -45,6 +45,7 @@ class WorkerDispatcher:
         user_prompt: str = "",
         tools_allowed: list[str] | None = None,
         workspace_dir: str | None = None,
+        history: list[dict[str, str]] | None = None,
     ) -> str:
         """Publish a run to a worker's dedicated stream.
 
@@ -67,6 +68,8 @@ class WorkerDispatcher:
             data["tools_allowed"] = json.dumps(tools_allowed)
         if workspace_dir:
             data["workspace_dir"] = workspace_dir
+        if history:
+            data["history"] = json.dumps(history)
 
         msg_id = await self._stream.publish(self._worker_stream(worker_id), data)
         logger.info(

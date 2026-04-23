@@ -56,17 +56,23 @@ class LiteLLMOrchestratorAdapter:
         user_prompt: str,
         *,
         tools_allowed: list[str],  # noqa: ARG002 — reserved for tool-capable adapter
+        history: list[dict[str, str]] | None = None,
     ) -> dict[str, Any]:
         extra_kwargs: dict[str, Any] = {}
         if self._model.startswith(("ollama/", "ollama_chat/")):
             extra_kwargs["num_ctx"] = int(os.getenv("OLLAMA_NUM_CTX", "40960"))
 
+        messages: list[dict[str, Any]] = [
+            {"role": "system", "content": system_prompt}
+        ]
+        for turn in history or []:
+            if turn.get("role") in ("user", "assistant") and turn.get("content"):
+                messages.append({"role": turn["role"], "content": turn["content"]})
+        messages.append({"role": "user", "content": user_prompt})
+
         response = await litellm.acompletion(
             model=self._model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
+            messages=messages,
             api_key=self._api_key,
             api_base=self._base_url,
             max_tokens=self._max_tokens,
