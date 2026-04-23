@@ -44,8 +44,15 @@ class WorkerDispatcher:
         system_prompt: str,
         tools_allowed: list[str] | None = None,
         workspace_dir: str | None = None,
+        executor: str | None = None,
     ) -> str:
-        """Publish a run to a worker's dedicated stream."""
+        """Publish a run to a worker's dedicated stream.
+
+        ``executor`` is an optional per-task CLI hint (``claude_code`` /
+        ``codex`` / ``opencode``). When set, the worker uses that CLI for
+        this run regardless of which CLI it auto-detected or was started
+        with. When omitted, the worker's startup default is used.
+        """
         data: dict[str, str] = {
             "run_id": str(run_id),
             "project_id": project_id,
@@ -57,6 +64,8 @@ class WorkerDispatcher:
             data["tools_allowed"] = json.dumps(tools_allowed)
         if workspace_dir:
             data["workspace_dir"] = workspace_dir
+        if executor:
+            data["executor"] = executor
 
         msg_id = await self._stream.publish(self._worker_stream(worker_id), data)
         logger.info(
@@ -64,6 +73,7 @@ class WorkerDispatcher:
             worker_id=str(worker_id),
             run_id=str(run_id),
             msg_id=msg_id,
+            executor=executor,
         )
         return msg_id
 

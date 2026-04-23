@@ -74,6 +74,60 @@ async def register(
     print("\n  Run: bsnexus-worker run\n")
 
 
+def _pick_executor(
+    requested: str | None,
+    default: CLIExecutor,
+    cache: dict[str, CLIExecutor],
+) -> CLIExecutor:
+    """Resolve which CLI executor to use for a single task.
+
+    Priority:
+      1. The task's per-run ``executor`` hint from the backend (e.g.
+         ``"codex"``) — lets the backend route individual runs to a
+         specific CLI even though the worker might have auto-detected a
+         different default.
+      2. The worker's startup default (``bsnexus-worker run --executor …``
+         or auto-detect).
+
+    Falls back to the default with a warning when the requested CLI is
+    unknown or not installed on this host.
+    """
+    if not requested or requested == default.name:
+        return default
+    cached = cache.get(requested)
+    if cached is not None:
+        return cached
+    try:
+        ex = get_executor(
+            requested,
+            timeout=settings.claude_timeout_seconds,
+            skip_permissions=settings.skip_permissions,
+            model=settings.model,
+        )
+    except KeyError:
+        logger.warning(
+            "unknown_executor_override_using_default",
+            requested=requested,
+            default=default.name,
+        )
+        return default
+    if not ex.resolve_cmd():
+        logger.warning(
+            "executor_cli_not_installed_using_default",
+            requested=requested,
+            install_hint=ex.install_hint,
+            default=default.name,
+        )
+        return default
+    cache[requested] = ex
+    logger.info(
+        "executor_override_resolved",
+        requested=requested,
+        cli=ex.resolve_cmd(),
+    )
+    return ex
+
+
 def _build_chat_prompt(system_prompt: str, history: list[dict[str, str]], message: str) -> str:
     """Build a single prompt string from system prompt + history + user message for CLI execution."""
     parts: list[str] = []
@@ -101,7 +155,12 @@ async def _handle_task(
         logger.debug("skipping_wrong_project", task_id=task_id)
         return
 
-    logger.info("task_received", task_id=task_id, title=title)
+    logger.info(
+        "task_received",
+        task_id=task_id,
+        title=title,
+        executor=executor.name,
+    )
     result = await executor.execute(prompt, cwd)
     await client.post(
         "/api/v1/workers/result",
@@ -227,13 +286,21 @@ async def poll_and_execute(executor_name: str) -> None:
     in_flight: set[asyncio.Task[None]] = set()
     max_parallel = settings.max_parallel_tasks
 
+    # Cache of executors resolved via per-task overrides. Built lazily on
+    # first sighting of each CLI name so we don't re-probe PATH on every
+    # task.
+    executor_cache: dict[str, CLIExecutor] = {executor.name: executor}
+
     async def _run_task(task: dict) -> None:
         try:
             action = task.get("action", "execute")
+            task_executor = _pick_executor(
+                task.get("executor"), executor, executor_cache
+            )
             if action == "chat":
-                await _handle_chat(task, executor, client, headers)
+                await _handle_chat(task, task_executor, client, headers)
             else:
-                await _handle_task(task, executor, cwd, client, headers)
+                await _handle_task(task, task_executor, cwd, client, headers)
         except Exception:
             logger.exception("task_execution_error", task_id=task.get("task_id") or task.get("chat_id"))
 
