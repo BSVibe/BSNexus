@@ -79,9 +79,9 @@ export default function ExecutorsSection() {
       queryClient.invalidateQueries({ queryKey: ['executor-configs'] }),
   })
 
-  const setDefaultMutation = useMutation({
+  const selectMutation = useMutation({
     mutationFn: (id: string) =>
-      executorConfigsApi.update(id, { is_default: true }),
+      executorConfigsApi.update(id, { is_selected: true }),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ['executor-configs'] }),
   })
@@ -90,7 +90,7 @@ export default function ExecutorsSection() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span className="faded" style={{ fontSize: 12 }}>
-          {configs.length} registered · one can be set as default
+          {configs.length} registered · exactly one is in use
         </span>
         <span style={{ flex: 1 }} />
         <button
@@ -118,8 +118,8 @@ export default function ExecutorsSection() {
             color: 'var(--text-tertiary)',
           }}
         >
-          No executors registered yet. Every LLM run falls back to the hard-coded
-          default until you add one here.
+          No executors registered yet. Runs stay queued until one is added
+          here and selected.
         </div>
       )}
 
@@ -128,7 +128,7 @@ export default function ExecutorsSection() {
           key={cfg.id}
           config={cfg}
           onDelete={() => deleteMutation.mutate(cfg.id)}
-          onSetDefault={() => setDefaultMutation.mutate(cfg.id)}
+          onSelect={() => selectMutation.mutate(cfg.id)}
           onEdit={() => setEditing(cfg)}
         />
       ))}
@@ -176,84 +176,143 @@ export default function ExecutorsSection() {
 function ExecutorCard({
   config,
   onDelete,
-  onSetDefault,
+  onSelect,
   onEdit,
 }: {
   config: ExecutorConfig
   onDelete: () => void
-  onSetDefault: () => void
+  onSelect: () => void
   onEdit: () => void
 }) {
   const meta = EXEC_TYPES.find((t) => t.value === config.executor_type)
   return (
-    <div className="card" style={{ padding: 14 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-        <I.Brain size={14} />
-        <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--gray-50)' }}>
-          {config.name}
-        </span>
-        {config.is_default && (
-          <Badge tone="blue" dot>
-            default
-          </Badge>
-        )}
-        <span className="mono faded" style={{ fontSize: 11 }}>
-          {truncId(config.id)}
-        </span>
-        <span style={{ flex: 1 }} />
-        <span className="faded" style={{ fontSize: 11 }}>
-          {relTime(config.updated_at)}
-        </span>
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-        <Badge tone="gray" square>
-          {config.executor_type}
-        </Badge>
-        {meta && (
-          <span className="faded" style={{ fontSize: 12 }}>
-            {meta.description}
+    <div
+      className="card"
+      style={{
+        padding: 14,
+        display: 'grid',
+        gridTemplateColumns: '20px 1fr',
+        gap: 12,
+        alignItems: 'start',
+        borderColor: config.is_selected
+          ? 'var(--blue-500)'
+          : 'var(--border-subtle)',
+      }}
+    >
+      <SelectDot
+        selected={config.is_selected}
+        onSelect={onSelect}
+        label={config.name}
+      />
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+          <I.Brain size={14} />
+          <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--gray-50)' }}>
+            {config.name}
           </span>
+          {config.is_selected && (
+            <Badge tone="blue" dot>
+              in use
+            </Badge>
+          )}
+          <span className="mono faded" style={{ fontSize: 11 }}>
+            {truncId(config.id)}
+          </span>
+          <span style={{ flex: 1 }} />
+          <span className="faded" style={{ fontSize: 11 }}>
+            {relTime(config.updated_at)}
+          </span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+          <Badge tone="gray" square>
+            {config.executor_type}
+          </Badge>
+          {meta && (
+            <span className="faded" style={{ fontSize: 12 }}>
+              {meta.description}
+            </span>
+          )}
+        </div>
+        {config.description && (
+          <p style={{ margin: 0, fontSize: 12, color: 'var(--text-secondary)' }}>
+            {config.description}
+          </p>
         )}
-      </div>
-      {config.description && (
-        <p style={{ margin: 0, fontSize: 12, color: 'var(--text-secondary)' }}>
-          {config.description}
-        </p>
-      )}
-      <div
-        style={{
-          marginTop: 10,
-          paddingTop: 10,
-          borderTop: '1px solid var(--border-subtle)',
-          display: 'flex',
-          gap: 6,
-        }}
-      >
-        {!config.is_default && (
+        <div
+          style={{
+            marginTop: 10,
+            paddingTop: 10,
+            borderTop: '1px solid var(--border-subtle)',
+            display: 'flex',
+            gap: 6,
+          }}
+        >
+          <button type="button" className="btn btn-ghost btn-sm" onClick={onEdit}>
+            <I.Settings size={12} /> Edit
+          </button>
+          <span style={{ flex: 1 }} />
           <button
             type="button"
             className="btn btn-ghost btn-sm"
-            onClick={onSetDefault}
+            onClick={() => {
+              if (confirm(`Delete executor "${config.name}"?`)) onDelete()
+            }}
+            style={{ color: 'var(--brand-rose, #f43f5e)' }}
           >
-            Make default
+            <I.X size={12} /> Delete
           </button>
-        )}
-        <button type="button" className="btn btn-ghost btn-sm" onClick={onEdit}>
-          <I.Settings size={12} /> Edit
-        </button>
-        <span style={{ flex: 1 }} />
-        <button
-          type="button"
-          className="btn btn-ghost btn-sm"
-          onClick={() => {
-            if (confirm(`Delete executor "${config.name}"?`)) onDelete()
-          }}
-          style={{ color: 'var(--brand-rose, #f43f5e)' }}
-        >
-          <I.X size={12} /> Delete
-        </button>
+        </div>
       </div>
     </div>
+  )
+}
+
+function SelectDot({
+  selected,
+  onSelect,
+  label,
+}: {
+  selected: boolean
+  onSelect: () => void
+  label: string
+}) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={selected}
+      aria-label={selected ? `${label} is in use` : `Use ${label}`}
+      title={selected ? 'In use' : 'Click to use this executor'}
+      onClick={() => {
+        if (!selected) onSelect()
+      }}
+      style={{
+        width: 16,
+        height: 16,
+        marginTop: 2,
+        padding: 0,
+        borderRadius: '50%',
+        border: `2px solid ${
+          selected ? 'var(--blue-500)' : 'var(--border-strong, #3f3f46)'
+        }`,
+        background: 'transparent',
+        cursor: selected ? 'default' : 'pointer',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      {selected && (
+        <span
+          style={{
+            width: 8,
+            height: 8,
+            borderRadius: '50%',
+            background: 'var(--blue-500)',
+          }}
+        />
+      )}
+    </button>
   )
 }
 
@@ -275,7 +334,7 @@ function ExecutorModal({
   )
   const [name, setName] = useState(existing?.name ?? '')
   const [description, setDescription] = useState(existing?.description ?? '')
-  const [isDefault, setIsDefault] = useState(existing?.is_default ?? false)
+  const [useThis, setUseThis] = useState(existing?.is_selected ?? false)
   const [cfg, setCfg] = useState<Record<string, string>>(() => {
     const initial: Record<string, string> = {}
     if (existing) {
@@ -299,7 +358,7 @@ function ExecutorModal({
       executor_type: type,
       config: cleanConfig,
       description: description.trim() || null,
-      is_default: isDefault,
+      is_selected: useThis,
     })
   }
 
@@ -413,10 +472,10 @@ function ExecutorModal({
           >
             <input
               type="checkbox"
-              checked={isDefault}
-              onChange={(e) => setIsDefault(e.target.checked)}
+              checked={useThis}
+              onChange={(e) => setUseThis(e.target.checked)}
             />
-            Set as default executor
+            Use this one (replaces whichever is currently in use)
           </label>
 
           {error && (

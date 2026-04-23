@@ -47,7 +47,7 @@ async def seed() -> None:
         if exec_count == 0:
             await db.execute(
                 text("""
-                    INSERT INTO executor_configs (id, tenant_id, name, executor_type, config, description, is_default)
+                    INSERT INTO executor_configs (id, tenant_id, name, executor_type, config, description, is_selected)
                     VALUES (:id, :tid, :name, :exec_type, CAST(:config AS jsonb), :desc, true)
                 """),
                 {

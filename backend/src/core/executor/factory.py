@@ -32,7 +32,7 @@ async def _resolve_tenant_default(
         select(ExecutorConfig)
         .where(
             ExecutorConfig.tenant_id == tenant_id,
-            ExecutorConfig.is_default.is_(True),
+            ExecutorConfig.is_selected.is_(True),
         )
         .limit(1)
     )

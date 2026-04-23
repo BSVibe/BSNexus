@@ -33,14 +33,14 @@ async def _make_cfg(
     *,
     executor_type: str,
     config: dict,
-    is_default: bool = True,
+    is_selected: bool = True,
 ) -> ExecutorConfig:
     row = ExecutorConfig(
         tenant_id=tenant_id,
         name=f"{executor_type}-default",
         executor_type=executor_type,
         config=config,
-        is_default=is_default,
+        is_selected=is_selected,
     )
     db_session.add(row)
     await db_session.commit()
@@ -383,7 +383,7 @@ async def test_codex_default_picks_worker_with_codex_capability(
 @pytest.mark.asyncio
 async def test_only_default_is_consulted(db_session, mock_tenant_id, seeded_tenant):
     """A second, non-default generic_llm row must not influence dispatch
-    — only ``is_default=True`` decides which executor handles runs.
+    — only ``is_selected=True`` decides which executor handles runs.
 
     Guarantees: a worker-default tenant with a non-default generic_llm
     config does NOT get its runs silently routed through LiteLLM.
@@ -394,7 +394,7 @@ async def test_only_default_is_consulted(db_session, mock_tenant_id, seeded_tena
         mock_tenant_id,
         executor_type="worker",
         config={},
-        is_default=True,
+        is_selected=True,
     )
     # Extra generic_llm config, but NOT default
     extra = ExecutorConfig(
@@ -402,7 +402,7 @@ async def test_only_default_is_consulted(db_session, mock_tenant_id, seeded_tena
         name="extra",
         executor_type="generic_llm",
         config={"model": "openai/gpt-4o", "api_key": "sk-x"},
-        is_default=False,
+        is_selected=False,
     )
     db_session.add(extra)
     await db_session.commit()

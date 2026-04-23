@@ -207,7 +207,7 @@ async def _build_adapter(
         await session.execute(
             select(ExecutorConfig).where(
                 ExecutorConfig.tenant_id == tenant_id,
-                ExecutorConfig.is_default.is_(True),
+                ExecutorConfig.is_selected.is_(True),
             )
         )
     ).scalar_one_or_none()

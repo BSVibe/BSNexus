@@ -26,7 +26,7 @@ async def test_create_returns_201_and_scopes_to_tenant(client, mock_tenant_id):
             "executor_type": "generic_llm",
             "config": {"model": "openai/gpt-4o", "api_key": "sk-test"},
             "description": "Default LLM",
-            "is_default": True,
+            "is_selected": True,
         },
         headers=AUTH,
     )
@@ -34,7 +34,7 @@ async def test_create_returns_201_and_scopes_to_tenant(client, mock_tenant_id):
     body = resp.json()
     assert body["name"] == "GPT-4o"
     assert body["executor_type"] == "generic_llm"
-    assert body["is_default"] is True
+    assert body["is_selected"] is True
     assert body["tenant_id"] == str(mock_tenant_id)
     assert body["config"]["model"] == "openai/gpt-4o"
 
@@ -60,14 +60,14 @@ async def test_create_rejects_empty_name(client):
 
 
 @pytest.mark.asyncio
-async def test_default_is_unique_per_tenant(client):
+async def test_selected_is_unique_per_tenant(client):
     first = await client.post(
         "/api/v1/executor-configs",
         json={
             "name": "A",
             "executor_type": "generic_llm",
             "config": {},
-            "is_default": True,
+            "is_selected": True,
         },
         headers=AUTH,
     )
@@ -79,17 +79,17 @@ async def test_default_is_unique_per_tenant(client):
             "name": "B",
             "executor_type": "bsgateway",
             "config": {},
-            "is_default": True,
+            "is_selected": True,
         },
         headers=AUTH,
     )
     assert second.status_code == 201
 
     rows = (await client.get("/api/v1/executor-configs", headers=AUTH)).json()
-    defaults = [r for r in rows if r["is_default"]]
-    # Only the most recent one stays default.
-    assert len(defaults) == 1
-    assert defaults[0]["name"] == "B"
+    selected = [r for r in rows if r["is_selected"]]
+    # Only the most recent one stays selected.
+    assert len(selected) == 1
+    assert selected[0]["name"] == "B"
 
 
 @pytest.mark.asyncio
@@ -138,7 +138,7 @@ async def test_get_404_for_foreign_tenant(client, db_session):
 
 
 @pytest.mark.asyncio
-async def test_patch_updates_and_unsets_others_when_making_default(client):
+async def test_patch_updates_and_unsets_others_when_making_selected(client):
     a = (
         await client.post(
             "/api/v1/executor-configs",
@@ -146,7 +146,7 @@ async def test_patch_updates_and_unsets_others_when_making_default(client):
                 "name": "A",
                 "executor_type": "generic_llm",
                 "config": {},
-                "is_default": True,
+                "is_selected": True,
             },
             headers=AUTH,
         )
@@ -158,7 +158,7 @@ async def test_patch_updates_and_unsets_others_when_making_default(client):
                 "name": "B",
                 "executor_type": "bsgateway",
                 "config": {},
-                "is_default": False,
+                "is_selected": False,
             },
             headers=AUTH,
         )
@@ -166,16 +166,16 @@ async def test_patch_updates_and_unsets_others_when_making_default(client):
 
     patched = await client.patch(
         f"/api/v1/executor-configs/{b['id']}",
-        json={"is_default": True, "description": "now default"},
+        json={"is_selected": True, "description": "now selected"},
         headers=AUTH,
     )
     assert patched.status_code == 200
-    assert patched.json()["is_default"] is True
+    assert patched.json()["is_selected"] is True
 
     a_refetched = (
         await client.get(f"/api/v1/executor-configs/{a['id']}", headers=AUTH)
     ).json()
-    assert a_refetched["is_default"] is False
+    assert a_refetched["is_selected"] is False
 
 
 @pytest.mark.asyncio

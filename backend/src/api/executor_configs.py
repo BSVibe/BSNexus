@@ -2,10 +2,10 @@
 
 An ``ExecutorConfig`` is a registered executor that runs LLM calls for
 the tenant: a LiteLLM-direct config (``generic_llm``), a BSGateway
-proxy config (``bsgateway``), or a Claude Code adapter
-(``claude_code``). The ``is_default`` row (at most one per tenant) is
-the fallback used by ``core.executor.factory.get_executor`` when a run
-doesn't pin a specific executor.
+proxy config (``bsgateway``), a worker adapter (``worker`` /
+``claude_code`` / ``codex``), etc. Tenants can register many configs
+but exactly one carries ``is_selected = true`` — that's the one the
+orchestrator consults when dispatching runs.
 """
 
 from __future__ import annotations
@@ -42,16 +42,16 @@ def _validate_executor_type(executor_type: str) -> None:
         )
 
 
-async def _unset_other_defaults(
+async def _unset_other_selected(
     db: AsyncSession, tenant_id: uuid.UUID, keep_id: uuid.UUID | None
 ) -> None:
     stmt = (
         update(ExecutorConfig)
         .where(
             ExecutorConfig.tenant_id == tenant_id,
-            ExecutorConfig.is_default.is_(True),
+            ExecutorConfig.is_selected.is_(True),
         )
-        .values(is_default=False)
+        .values(is_selected=False)
     )
     if keep_id is not None:
         stmt = stmt.where(ExecutorConfig.id != keep_id)
@@ -104,10 +104,10 @@ async def create_config(
         executor_type=payload.executor_type,
         config=payload.config or {},
         description=payload.description,
-        is_default=payload.is_default,
+        is_selected=payload.is_selected,
     )
-    if payload.is_default:
-        await _unset_other_defaults(db, tenant_id, keep_id=None)
+    if payload.is_selected:
+        await _unset_other_selected(db, tenant_id, keep_id=None)
 
     db.add(row)
     await db.commit()
@@ -143,8 +143,8 @@ async def update_config(
 
     data = payload.model_dump(exclude_unset=True)
 
-    if data.get("is_default") is True:
-        await _unset_other_defaults(db, tenant_id, keep_id=row.id)
+    if data.get("is_selected") is True:
+        await _unset_other_selected(db, tenant_id, keep_id=row.id)
 
     for key, value in data.items():
         setattr(row, key, value)

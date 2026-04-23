@@ -9,7 +9,7 @@ export interface ExecutorConfig {
   executor_type: ExecutorType
   config: Record<string, unknown>
   description: string | null
-  is_default: boolean
+  is_selected: boolean
   created_at: string
   updated_at: string
 }
@@ -19,14 +19,14 @@ export interface ExecutorConfigCreate {
   executor_type: ExecutorType
   config?: Record<string, unknown>
   description?: string | null
-  is_default?: boolean
+  is_selected?: boolean
 }
 
 export interface ExecutorConfigUpdate {
   name?: string
   config?: Record<string, unknown>
   description?: string | null
-  is_default?: boolean
+  is_selected?: boolean
 }
 
 export const executorConfigsApi = {
