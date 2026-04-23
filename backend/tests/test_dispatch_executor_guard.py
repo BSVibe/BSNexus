@@ -152,29 +152,34 @@ async def test_bsgateway_without_url_returns_none(
 
 @pytest.mark.parametrize(
     "exec_type",
-    ["claude_code", "codex"],
+    ["worker", "claude_code", "codex"],
 )
 @pytest.mark.asyncio
-async def test_local_cli_executor_types_return_none(
+async def test_worker_family_without_online_worker_returns_none(
     db_session, mock_tenant_id, seeded_tenant, exec_type
 ):
-    """``claude_code``/``codex`` would require a local CLI on the backend
-    host; a multi-tenant backend doesn't invoke those. Returning None
-    keeps the backend from surprise-billing the tenant via a direct LLM
-    fallback.
+    """``worker`` and its capability-specialized siblings
+    (``claude_code``, ``codex``) all dispatch through the worker
+    pipeline. Without an online matching worker, the run waits — never
+    falls through to a direct LLM call.
     """
+    from unittest.mock import MagicMock
+
     await _make_cfg(
         db_session,
         mock_tenant_id,
         executor_type=exec_type,
         config={},
     )
+    stream = MagicMock()
+    stream.publish = AsyncMock()
     assert (
         await _build_adapter(
             db_session,
             mock_tenant_id,
             run_id=uuid.uuid4(),
             project_id=uuid.uuid4(),
+            stream_manager=stream,
         )
         is None
     )
@@ -229,6 +234,28 @@ async def test_worker_default_without_online_worker_returns_none(
     )
 
 
+async def _register_worker(db_session, tenant_id, *, capabilities: list[str]):
+    import hashlib
+    from datetime import datetime, timezone
+
+    from backend.src.models import Worker
+
+    worker = Worker(
+        tenant_id=tenant_id,
+        name=f"host-{uuid.uuid4().hex[:6]}",
+        labels=[],
+        capabilities=capabilities,
+        status="online",
+        last_heartbeat=datetime.now(timezone.utc),
+        token_hash=hashlib.sha256(uuid.uuid4().bytes).hexdigest(),
+        is_active=True,
+    )
+    db_session.add(worker)
+    await db_session.commit()
+    await db_session.refresh(worker)
+    return worker
+
+
 @pytest.mark.asyncio
 async def test_worker_default_with_online_worker_returns_worker_adapter(
     db_session, mock_tenant_id, seeded_tenant
@@ -236,30 +263,15 @@ async def test_worker_default_with_online_worker_returns_worker_adapter(
     """Happy path: worker-only tenant + an online worker exists →
     dispatch runs to the worker (no backend-side LLM call).
     """
-    import hashlib
-    from datetime import datetime, timezone
-
-    from backend.src.models import Worker
-
     await _make_cfg(
         db_session,
         mock_tenant_id,
         executor_type="worker",
         config={},
     )
-    worker = Worker(
-        tenant_id=mock_tenant_id,
-        name="dev-host",
-        labels=[],
-        capabilities=["claude_code"],
-        status="online",
-        last_heartbeat=datetime.now(timezone.utc),
-        token_hash=hashlib.sha256(b"fake").hexdigest(),
-        is_active=True,
+    worker = await _register_worker(
+        db_session, mock_tenant_id, capabilities=["claude_code"]
     )
-    db_session.add(worker)
-    await db_session.commit()
-    await db_session.refresh(worker)
 
     stream_manager = MagicMock()
     stream_manager.publish = AsyncMock()
@@ -273,6 +285,99 @@ async def test_worker_default_with_online_worker_returns_worker_adapter(
     )
     assert isinstance(adapter, WorkerDispatchAdapter)
     assert adapter._worker_id == worker.id
+
+
+@pytest.mark.asyncio
+async def test_claude_code_default_picks_worker_with_claude_code_capability(
+    db_session, mock_tenant_id, seeded_tenant
+):
+    """``claude_code`` executor specializes the worker search by
+    capability — only workers that advertise ``claude_code`` are
+    eligible."""
+    await _make_cfg(
+        db_session,
+        mock_tenant_id,
+        executor_type="claude_code",
+        config={},
+    )
+    # Worker without claude_code — should be skipped.
+    await _register_worker(db_session, mock_tenant_id, capabilities=["codex"])
+    # Worker with claude_code — should be chosen.
+    matching = await _register_worker(
+        db_session, mock_tenant_id, capabilities=["claude_code", "opencode"]
+    )
+
+    stream_manager = MagicMock()
+    stream_manager.publish = AsyncMock()
+
+    adapter = await _build_adapter(
+        db_session,
+        mock_tenant_id,
+        run_id=uuid.uuid4(),
+        project_id=uuid.uuid4(),
+        stream_manager=stream_manager,
+    )
+    assert isinstance(adapter, WorkerDispatchAdapter)
+    assert adapter._worker_id == matching.id
+
+
+@pytest.mark.asyncio
+async def test_claude_code_default_returns_none_when_no_capable_worker(
+    db_session, mock_tenant_id, seeded_tenant
+):
+    """If no online worker advertises the required capability, we wait —
+    we don't silently downgrade to a backend-side LLM call."""
+    await _make_cfg(
+        db_session,
+        mock_tenant_id,
+        executor_type="claude_code",
+        config={},
+    )
+    # Only a codex-capable worker online.
+    await _register_worker(db_session, mock_tenant_id, capabilities=["codex"])
+
+    stream_manager = MagicMock()
+    stream_manager.publish = AsyncMock()
+
+    assert (
+        await _build_adapter(
+            db_session,
+            mock_tenant_id,
+            run_id=uuid.uuid4(),
+            project_id=uuid.uuid4(),
+            stream_manager=stream_manager,
+        )
+        is None
+    )
+
+
+@pytest.mark.asyncio
+async def test_codex_default_picks_worker_with_codex_capability(
+    db_session, mock_tenant_id, seeded_tenant
+):
+    await _make_cfg(
+        db_session,
+        mock_tenant_id,
+        executor_type="codex",
+        config={},
+    )
+    await _register_worker(db_session, mock_tenant_id, capabilities=["claude_code"])
+    matching = await _register_worker(
+        db_session, mock_tenant_id, capabilities=["codex"]
+    )
+
+    stream_manager = MagicMock()
+    stream_manager.publish = AsyncMock()
+
+    adapter = await _build_adapter(
+        db_session,
+        mock_tenant_id,
+        run_id=uuid.uuid4(),
+        project_id=uuid.uuid4(),
+        stream_manager=stream_manager,
+    )
+    assert isinstance(adapter, WorkerDispatchAdapter)
+    assert adapter._worker_id == matching.id
 
 
 @pytest.mark.asyncio

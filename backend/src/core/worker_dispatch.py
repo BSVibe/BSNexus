@@ -71,8 +71,16 @@ class WorkerDispatcher:
         self,
         db: AsyncSession,
         tenant_id: uuid.UUID | None = None,
+        required_capabilities: list[str] | None = None,
     ) -> Worker | None:
-        """Find an online, active worker scoped to the tenant (LRU)."""
+        """Find an online, active worker scoped to the tenant (LRU).
+
+        When ``required_capabilities`` is non-empty, the returned worker
+        must expose *every* listed capability in its ``capabilities``
+        JSON array. Capability filtering runs in Python (portable across
+        PostgreSQL + SQLite in tests); the candidate pool is small, so
+        the cost is negligible.
+        """
         heartbeat_cutoff = datetime.now(timezone.utc) - timedelta(seconds=120)
         query = select(Worker).where(
             Worker.is_active.is_(True),
@@ -82,7 +90,13 @@ class WorkerDispatcher:
         if tenant_id is not None:
             query = query.where(Worker.tenant_id == tenant_id)
         result = await db.execute(query.order_by(Worker.last_heartbeat.asc()))
-        return result.scalars().first()
+        candidates = list(result.scalars())
+        if required_capabilities:
+            required = set(required_capabilities)
+            candidates = [
+                w for w in candidates if required.issubset(set(w.capabilities or []))
+            ]
+        return candidates[0] if candidates else None
 
     async def report_result(
         self,

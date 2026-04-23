@@ -248,23 +248,34 @@ async def _build_adapter(
             base_url=gateway_url,
         )
 
-    if exec_type == "worker":
+    # "worker" is the generic remote-execution case; "claude_code" and
+    # "codex" are specializations that require the worker to advertise
+    # that specific CLI capability. All three paths dispatch through
+    # WorkerDispatchAdapter — the only difference is the capability
+    # filter applied when picking a worker.
+    if exec_type in {"worker", "claude_code", "codex"}:
         if stream_manager is None:
             logger.warning(
                 "dispatch_worker_missing_stream_manager",
                 tenant_id=str(tenant_id),
+                executor_type=exec_type,
             )
             return None
+        required_capabilities: list[str] | None = (
+            None if exec_type == "worker" else [exec_type]
+        )
         dispatcher = WorkerDispatcher(stream_manager)
-        worker = await dispatcher.find_available_worker(session, tenant_id=tenant_id)
+        worker = await dispatcher.find_available_worker(
+            session,
+            tenant_id=tenant_id,
+            required_capabilities=required_capabilities,
+        )
         if worker is None:
-            # No online worker → leave the run in ``running`` so it picks
-            # up automatically once a worker comes online (the orchestrator
-            # will retry on next dispatch). Until that wiring lands, the
-            # run just waits; no LLM call is made.
             logger.info(
-                "dispatch_worker_none_online",
+                "dispatch_worker_no_match",
                 tenant_id=str(tenant_id),
+                executor_type=exec_type,
+                required_capabilities=required_capabilities,
             )
             return None
         return WorkerDispatchAdapter(
@@ -274,12 +285,8 @@ async def _build_adapter(
             project_id=project_id,
         )
 
-    # claude_code / codex — not wired through the backend at all; those
-    # would require a local CLI on this host, which we don't invoke from
-    # a multi-tenant backend. Returning None keeps the backend from
-    # falling through to a direct LLM call.
     logger.info(
-        "dispatch_executor_type_not_wired",
+        "dispatch_executor_type_unknown",
         executor_type=exec_type,
         config_id=str(row.id),
         tenant_id=str(tenant_id),

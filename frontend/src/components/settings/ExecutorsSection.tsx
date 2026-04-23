@@ -41,14 +41,16 @@ const EXEC_TYPES: ExecTypeMeta[] = [
   },
   {
     value: 'claude_code',
-    label: 'Claude Code (local)',
-    description: 'Run coding tasks through the claude-code CLI on a self-hosted worker.',
+    label: 'Claude Code worker',
+    description:
+      'Route runs to any online worker that advertises the claude_code capability.',
     fields: [],
   },
   {
     value: 'codex',
-    label: 'Codex CLI',
-    description: 'Run coding tasks through a codex worker (future).',
+    label: 'Codex worker',
+    description:
+      'Route runs to any online worker that advertises the codex capability.',
     fields: [],
   },
 ]
