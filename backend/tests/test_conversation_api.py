@@ -2,7 +2,27 @@
 
 from __future__ import annotations
 
+import asyncio
+import uuid
+
 import pytest
+import pytest_asyncio
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _stub_background_dispatch(monkeypatch):
+    """Replace the orchestrator dispatcher so tests don't fire real LLMs."""
+    calls: list[tuple[uuid.UUID, uuid.UUID]] = []
+
+    async def _noop(run_id, tenant_id):
+        calls.append((run_id, tenant_id))
+        await asyncio.sleep(0)
+
+    monkeypatch.setattr(
+        "backend.src.api.conversation._BACKGROUND_DISPATCH",
+        _noop,
+    )
+    return calls
 
 
 @pytest.mark.asyncio
@@ -60,6 +80,76 @@ async def test_send_request_creates_request_and_links_message(client):
     assert body["request_created"] is True
     assert body["request_id"] is not None
     assert body["message"]["request_id"] == body["request_id"]
+
+
+@pytest.mark.asyncio
+async def test_send_request_seeds_top_level_run_and_dispatches(
+    client, db_session, _stub_background_dispatch
+):
+    from backend.src.models import ExecutionRun
+
+    project_id = await _make_project(client)
+
+    resp = await client.post(
+        f"/api/v1/projects/{project_id}/messages",
+        json={"content": "Please implement the login screen"},
+        headers={"Authorization": "Bearer fake"},
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    request_id = uuid.UUID(body["request_id"])
+
+    # background dispatcher was invoked exactly once with this run
+    assert len(_stub_background_dispatch) == 1
+    run_id, _tenant = _stub_background_dispatch[0]
+
+    # and the run row actually exists, pending, linked to the new request
+    from sqlalchemy import select
+
+    row = (
+        await db_session.execute(
+            select(ExecutionRun).where(ExecutionRun.id == run_id)
+        )
+    ).scalar_one()
+    assert row.request_id == request_id
+    assert row.status.value == "pending"
+    assert row.project_id == uuid.UUID(project_id)
+
+
+@pytest.mark.asyncio
+async def test_send_modification_does_not_seed_new_run(
+    client, _stub_background_dispatch
+):
+    project_id = await _make_project(client)
+
+    await client.post(
+        f"/api/v1/projects/{project_id}/messages",
+        json={"content": "Please implement the login screen"},
+        headers={"Authorization": "Bearer fake"},
+    )
+    await client.post(
+        f"/api/v1/projects/{project_id}/messages",
+        json={"content": "change it to use magic links"},
+        headers={"Authorization": "Bearer fake"},
+    )
+
+    # Only the first (new-request) message seeds a run; the second
+    # (modification) appends to the existing request without dispatch.
+    assert len(_stub_background_dispatch) == 1
+
+
+@pytest.mark.asyncio
+async def test_send_chit_chat_does_not_seed_run(
+    client, _stub_background_dispatch
+):
+    project_id = await _make_project(client)
+
+    await client.post(
+        f"/api/v1/projects/{project_id}/messages",
+        json={"content": "hey"},
+        headers={"Authorization": "Bearer fake"},
+    )
+    assert _stub_background_dispatch == []
 
 
 @pytest.mark.asyncio

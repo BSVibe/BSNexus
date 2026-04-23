@@ -13,6 +13,7 @@ Response exposes the classification so the frontend can render a
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 
 import structlog
@@ -21,11 +22,20 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.core.auth import get_current_user
-from backend.src.core.request_extractor import MessageIntent, RequestExtractor
+from backend.src.core.orchestrator_adapter import LiteLLMOrchestratorAdapter
+from backend.src.core.request_extractor import RequestExtractor
+from backend.src.core.run_orchestrator import get_run_orchestrator
 from backend.src.core.tenant_context import get_tenant_id
-from backend.src.models import ConversationMessage, Project
+from backend.src.models import (
+    ConversationMessage,
+    ExecutionRun,
+    ExecutorConfig,
+    Project,
+    RunPriority,
+    RunStatus,
+)
 from backend.src.schemas import MessageCreate, MessageResponse, SendMessageResponse
-from backend.src.storage.database import get_db
+from backend.src.storage.database import async_session, get_db
 
 logger = structlog.get_logger(__name__)
 
@@ -90,6 +100,19 @@ async def send_message(
         message, tenant_id=tenant_id, db=db
     )
 
+    run_to_dispatch: uuid.UUID | None = None
+    if outcome.request is not None and outcome.created_new:
+        seeded_run = ExecutionRun(
+            tenant_id=tenant_id,
+            project_id=project_id,
+            request_id=outcome.request.id,
+            status=RunStatus.pending,
+            priority=RunPriority.medium,
+        )
+        db.add(seeded_run)
+        await db.flush()
+        run_to_dispatch = seeded_run.id
+
     await db.commit()
     await db.refresh(message)
     if outcome.request is not None:
@@ -101,7 +124,11 @@ async def send_message(
         message_id=str(message.id),
         intent=outcome.intent.value,
         request_created=outcome.created_new,
+        run_dispatched=bool(run_to_dispatch),
     )
+
+    if run_to_dispatch is not None:
+        asyncio.create_task(_BACKGROUND_DISPATCH(run_to_dispatch, tenant_id))
 
     return SendMessageResponse(
         message=MessageResponse.model_validate(message, from_attributes=True),
@@ -112,3 +139,103 @@ async def send_message(
             outcome.request.intent_summary if outcome.request else None
         ),
     )
+
+
+# Module-level hook so tests can swap the background dispatcher with a
+# no-op that doesn't touch the real DB / LLM.
+async def _dispatch_new_run(run_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
+    """Kick off RunOrchestrator in the background.
+
+    Runs on its own session so the HTTP request returns immediately.
+    Errors are logged but never raised out — orchestration failures land
+    the run in ``blocked`` state via the state machine, not as API
+    errors.
+    """
+    try:
+        async with async_session() as session:
+            adapter = await _build_adapter(session, tenant_id)
+            await get_run_orchestrator().dispatch_run(
+                run_id,
+                db=session,
+                executor=adapter,
+            )
+            await session.commit()
+    except Exception:
+        logger.exception("background_dispatch_failed", run_id=str(run_id))
+
+
+async def _build_adapter(
+    session: AsyncSession, tenant_id: uuid.UUID
+) -> LiteLLMOrchestratorAdapter | None:
+    """Pick an executor for the tenant's default ``ExecutorConfig``.
+
+    Every LLM call that BSNexus initiates on behalf of a tenant must be
+    gated by the tenant's own ``ExecutorConfig``. A tenant that opts
+    into remote-worker execution (``executor_type="worker"``) — or any
+    non-LLM backend — must never trigger an API call from the
+    backend: the API bill would be on us, not them. So this function
+    only returns a live LLM adapter for ``generic_llm`` and
+    ``bsgateway`` configs (where the tenant supplied their own credentials);
+    everything else returns ``None`` and the run pauses at ``running``
+    state for an out-of-band executor to pick up.
+    """
+    row = (
+        await session.execute(
+            select(ExecutorConfig).where(
+                ExecutorConfig.tenant_id == tenant_id,
+                ExecutorConfig.is_default.is_(True),
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        logger.info("dispatch_no_default_executor", tenant_id=str(tenant_id))
+        return None
+
+    exec_type = (row.executor_type or "").lower()
+    cfg = row.config or {}
+
+    if exec_type == "generic_llm":
+        model = cfg.get("model")
+        if not model:
+            logger.warning(
+                "dispatch_generic_llm_missing_model",
+                config_id=str(row.id),
+                tenant_id=str(tenant_id),
+            )
+            return None
+        return LiteLLMOrchestratorAdapter(
+            model=model,
+            api_key=cfg.get("api_key") or "unused",
+            base_url=cfg.get("base_url"),
+        )
+
+    if exec_type == "bsgateway":
+        gateway_url = cfg.get("bsgateway_url")
+        if not gateway_url:
+            logger.warning(
+                "dispatch_bsgateway_missing_url",
+                config_id=str(row.id),
+                tenant_id=str(tenant_id),
+            )
+            return None
+        return LiteLLMOrchestratorAdapter(
+            model=cfg.get("model") or "openai/gpt-4o-mini",
+            api_key=cfg.get("bsgateway_api_key") or "unused",
+            base_url=gateway_url,
+        )
+
+    # worker / claude_code / codex — the orchestrator hands off to a
+    # non-LLM pipeline (remote worker via Redis Streams, local CLI, …).
+    # Those paths aren't wired through this function: returning None
+    # keeps the backend from making an unpaid LLM call on the tenant's
+    # behalf.
+    logger.info(
+        "dispatch_executor_type_not_wired",
+        executor_type=exec_type,
+        config_id=str(row.id),
+        tenant_id=str(tenant_id),
+    )
+    return None
+
+
+_BACKGROUND_DISPATCH = _dispatch_new_run
