@@ -88,7 +88,11 @@ class BSupervisorAuditSink:
         self._base_url = base_url.rstrip("/")
         self._timeout_s = timeout_ms / 1000.0
         self._fail_mode = fail_mode
-        self._headers: dict[str, str] = {}
+        # Named service UA — Cloudflare's Bot Fight Mode on the
+        # *.bsvibe.dev frontends 403s httpx's default python-httpx UA.
+        self._headers: dict[str, str] = {
+            "User-Agent": "BSNexus/0.2 (+https://nexus.bsvibe.dev)",
+        }
         if api_key:
             self._headers["Authorization"] = f"Bearer {api_key}"
 

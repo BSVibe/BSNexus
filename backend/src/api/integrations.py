@@ -150,7 +150,11 @@ async def test_integration(
         )
 
     probe_path = _probe_path_for(prov)
-    headers: dict[str, str] = {}
+    # Explicit service UA to clear Cloudflare Bot Fight Mode on the
+    # *.bsvibe.dev frontends (httpx's default python-httpx UA gets 403'd).
+    headers: dict[str, str] = {
+        "User-Agent": "BSNexus/0.2 (+https://nexus.bsvibe.dev)",
+    }
     if row.api_key_encrypted:
         try:
             token = _encryption().decrypt_value(row.api_key_encrypted)

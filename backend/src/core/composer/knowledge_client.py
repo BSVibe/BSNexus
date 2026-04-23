@@ -97,7 +97,13 @@ class BSageKnowledgeClient:
     def __init__(self, base_url: str, api_key: str | None, *, timeout_s: float = 3.0):
         self._base_url = base_url.rstrip("/")
         self._timeout_s = timeout_s
-        self._headers: dict[str, str] = {}
+        # Explicit service UA — Cloudflare's Bot Fight Mode on the
+        # *.bsvibe.dev frontends 403s httpx's default ``python-httpx/x.y``
+        # as a bot. A named service identifier is treated as a normal
+        # backend-to-backend call.
+        self._headers: dict[str, str] = {
+            "User-Agent": "BSNexus/0.2 (+https://nexus.bsvibe.dev)",
+        }
         if api_key:
             self._headers["Authorization"] = f"Bearer {api_key}"
 
