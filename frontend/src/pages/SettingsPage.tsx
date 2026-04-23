@@ -1,6 +1,8 @@
 import { useSearchParams } from 'react-router-dom'
 
+import ExecutorsSection from '../components/settings/ExecutorsSection'
 import IntegrationsTab from '../components/settings/IntegrationsTab'
+import WorkerTokensSection from '../components/settings/WorkerTokensSection'
 import { I } from '../lib/icons'
 
 type SectionId = 'integrations' | 'executors' | 'worker-tokens'
@@ -9,7 +11,6 @@ interface Section {
   id: SectionId
   label: string
   icon: (p: { size?: number }) => React.ReactElement
-  available: boolean
   summary: string
 }
 
@@ -18,7 +19,6 @@ const SECTIONS: Section[] = [
     id: 'integrations',
     label: 'Integrations',
     icon: I.Zap,
-    available: true,
     summary:
       'Connect BSNexus to sibling services. Keys are stored tenant-scoped and encrypted at rest; only whether a key is present is ever returned.',
   },
@@ -26,17 +26,15 @@ const SECTIONS: Section[] = [
     id: 'executors',
     label: 'Executors',
     icon: I.Brain,
-    available: false,
     summary:
-      'Choose which LLM / local-agent executor runs each kind of request. Ships in v0.2 once BSGateway routing and local claude-code workers are wired end-to-end.',
+      "Register LLM backends (LiteLLM direct, BSGateway proxy, claude-code, codex). One is marked default and used when a run doesn't pin a specific executor.",
   },
   {
     id: 'worker-tokens',
     label: 'Worker tokens',
     icon: I.GitBranch,
-    available: false,
     summary:
-      'Issue install tokens for remote worker pools (self-hosted claude-code / codex runners). Ships in v0.2 alongside WorkerWatchdog re-enablement.',
+      'Mint the install token remote workers need to register against this tenant. Manage registered workers (status, capabilities, heartbeat) here.',
   },
 ]
 
@@ -92,11 +90,6 @@ export default function SettingsPage() {
           >
             <s.icon size={14} />
             <span className="label">{s.label}</span>
-            {!s.available && (
-              <span className="mono faded" style={{ fontSize: 10 }}>
-                v0.2
-              </span>
-            )}
           </button>
         ))}
       </nav>
@@ -108,60 +101,10 @@ export default function SettingsPage() {
             <div className="page-sub">{activeSection.summary}</div>
           </div>
           {active === 'integrations' && <IntegrationsTab />}
-          {active !== 'integrations' && <ComingSoon label={activeSection.label} />}
+          {active === 'executors' && <ExecutorsSection />}
+          {active === 'worker-tokens' && <WorkerTokensSection />}
         </div>
       </div>
-    </div>
-  )
-}
-
-function ComingSoon({ label }: { label: string }) {
-  return (
-    <div
-      className="card"
-      style={{
-        padding: 32,
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'flex-start',
-        gap: 12,
-        border: '1px dashed var(--border-default)',
-      }}
-    >
-      <div
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 8,
-          padding: '4px 10px',
-          background: 'var(--bg-elevated)',
-          border: '1px solid var(--border-subtle)',
-          borderRadius: 'var(--r-full)',
-          fontSize: 11,
-          color: 'var(--text-tertiary)',
-          textTransform: 'uppercase',
-          letterSpacing: '0.08em',
-        }}
-      >
-        <I.Sparkle size={12} /> v0.2
-      </div>
-      <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--gray-100)' }}>
-        {label} ships in v0.2.
-      </div>
-      <p
-        style={{
-          margin: 0,
-          fontSize: 13,
-          color: 'var(--text-secondary)',
-          lineHeight: '20px',
-        }}
-      >
-        This section is intentionally not interactive yet — see{' '}
-        <a href="/dashboard" style={{ color: 'var(--accent)' }}>
-          Dashboard
-        </a>{' '}
-        for what's live today.
-      </p>
     </div>
   )
 }

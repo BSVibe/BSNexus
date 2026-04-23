@@ -12,10 +12,12 @@ from backend.src.api import (
     conversation,
     decisions as decisions_api,
     deliverables,
+    executor_configs,
     inside,
     integrations,
     projects,
     requests_api,
+    workers as workers_api,
 )
 from backend.src.config import Settings, settings as app_settings
 from backend.src.core.rate_limiter import RateLimitMiddleware
@@ -103,6 +105,8 @@ _ROUTERS = [
     inside.runs_router,
     inside.snapshot_router,
     integrations.router,
+    executor_configs.router,
+    workers_api.router,
 ]
 
 
