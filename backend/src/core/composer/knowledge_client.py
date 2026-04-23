@@ -3,7 +3,7 @@
 Per BSage boundary ("지식 저장/검색/연결만"), BSNexus only consumes
 existing endpoints here:
 
-- ``POST /api/knowledge/search``
+- ``GET /api/knowledge/search?q=…&limit=…``
 - ``GET /api/vault/file?path=...``
 - ``GET /api/vault/backlinks?path=...``
 
@@ -106,9 +106,9 @@ class BSageKnowledgeClient:
     ) -> list[KnowledgeFragment]:
         try:
             async with httpx.AsyncClient(timeout=self._timeout_s) as client:
-                resp = await client.post(
+                resp = await client.get(
                     f"{self._base_url}/api/knowledge/search",
-                    json={"query": intent, "limit": top_k},
+                    params={"q": intent, "limit": top_k},
                     headers=self._headers,
                 )
                 resp.raise_for_status()
@@ -117,13 +117,18 @@ class BSageKnowledgeClient:
             logger.warning("bsage_search_failed", error=str(exc))
             return []
 
+        # BSage's SearchResult fields: title, path, preview, score, tags.
+        # Earlier/alternate payloads may use content/excerpt instead of preview.
+        known_keys = {"path", "title", "preview", "excerpt", "content", "score"}
         return [
             KnowledgeFragment(
                 path=hit.get("path", ""),
                 title=hit.get("title", hit.get("path", "")),
-                excerpt=hit.get("excerpt", hit.get("content", "")),
+                excerpt=hit.get("preview")
+                or hit.get("excerpt")
+                or hit.get("content", ""),
                 score=float(hit.get("score", 0.0)),
-                extra={k: v for k, v in hit.items() if k not in {"path", "title", "excerpt", "content", "score"}},
+                extra={k: v for k, v in hit.items() if k not in known_keys},
             )
             for hit in payload.get("results", [])
         ]
