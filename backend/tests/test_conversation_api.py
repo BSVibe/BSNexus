@@ -12,10 +12,10 @@ import pytest_asyncio
 @pytest_asyncio.fixture(autouse=True)
 async def _stub_background_dispatch(monkeypatch):
     """Replace the orchestrator dispatcher so tests don't fire real LLMs."""
-    calls: list[tuple[uuid.UUID, uuid.UUID]] = []
+    calls: list[tuple[uuid.UUID, uuid.UUID, uuid.UUID, object]] = []
 
-    async def _noop(run_id, tenant_id):
-        calls.append((run_id, tenant_id))
+    async def _noop(run_id, tenant_id, project_id, stream_manager):
+        calls.append((run_id, tenant_id, project_id, stream_manager))
         await asyncio.sleep(0)
 
     monkeypatch.setattr(
@@ -101,7 +101,8 @@ async def test_send_request_seeds_top_level_run_and_dispatches(
 
     # background dispatcher was invoked exactly once with this run
     assert len(_stub_background_dispatch) == 1
-    run_id, _tenant = _stub_background_dispatch[0]
+    run_id, _tenant, called_project_id, _stream = _stub_background_dispatch[0]
+    assert called_project_id == uuid.UUID(project_id)
 
     # and the run row actually exists, pending, linked to the new request
     from sqlalchemy import select

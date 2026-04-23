@@ -15,9 +15,10 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from typing import Any
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,6 +27,8 @@ from backend.src.core.orchestrator_adapter import LiteLLMOrchestratorAdapter
 from backend.src.core.request_extractor import RequestExtractor
 from backend.src.core.run_orchestrator import get_run_orchestrator
 from backend.src.core.tenant_context import get_tenant_id
+from backend.src.core.worker_adapter import WorkerDispatchAdapter
+from backend.src.core.worker_dispatch import WorkerDispatcher
 from backend.src.models import (
     ConversationMessage,
     ExecutionRun,
@@ -81,6 +84,7 @@ async def list_messages(
 async def send_message(
     project_id: uuid.UUID,
     payload: MessageCreate,
+    request: Request,
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),
     _user=Depends(get_current_user),
@@ -128,7 +132,10 @@ async def send_message(
     )
 
     if run_to_dispatch is not None:
-        asyncio.create_task(_BACKGROUND_DISPATCH(run_to_dispatch, tenant_id))
+        stream_manager = getattr(request.app.state, "stream_manager", None)
+        asyncio.create_task(
+            _BACKGROUND_DISPATCH(run_to_dispatch, tenant_id, project_id, stream_manager)
+        )
 
     return SendMessageResponse(
         message=MessageResponse.model_validate(message, from_attributes=True),
@@ -142,8 +149,13 @@ async def send_message(
 
 
 # Module-level hook so tests can swap the background dispatcher with a
-# no-op that doesn't touch the real DB / LLM.
-async def _dispatch_new_run(run_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
+# no-op that doesn't touch the real DB / LLM / Redis.
+async def _dispatch_new_run(
+    run_id: uuid.UUID,
+    tenant_id: uuid.UUID,
+    project_id: uuid.UUID,
+    stream_manager: Any | None,
+) -> None:
     """Kick off RunOrchestrator in the background.
 
     Runs on its own session so the HTTP request returns immediately.
@@ -153,11 +165,18 @@ async def _dispatch_new_run(run_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
     """
     try:
         async with async_session() as session:
-            adapter = await _build_adapter(session, tenant_id)
+            adapter = await _build_adapter(
+                session,
+                tenant_id,
+                run_id=run_id,
+                project_id=project_id,
+                stream_manager=stream_manager,
+            )
             await get_run_orchestrator().dispatch_run(
                 run_id,
                 db=session,
                 executor=adapter,
+                stream_manager=stream_manager,
             )
             await session.commit()
     except Exception:
@@ -165,8 +184,13 @@ async def _dispatch_new_run(run_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
 
 
 async def _build_adapter(
-    session: AsyncSession, tenant_id: uuid.UUID
-) -> LiteLLMOrchestratorAdapter | None:
+    session: AsyncSession,
+    tenant_id: uuid.UUID,
+    *,
+    run_id: uuid.UUID,
+    project_id: uuid.UUID,
+    stream_manager: Any | None = None,
+) -> Any | None:
     """Pick an executor for the tenant's default ``ExecutorConfig``.
 
     Every LLM call that BSNexus initiates on behalf of a tenant must be
@@ -224,11 +248,36 @@ async def _build_adapter(
             base_url=gateway_url,
         )
 
-    # worker / claude_code / codex — the orchestrator hands off to a
-    # non-LLM pipeline (remote worker via Redis Streams, local CLI, …).
-    # Those paths aren't wired through this function: returning None
-    # keeps the backend from making an unpaid LLM call on the tenant's
-    # behalf.
+    if exec_type == "worker":
+        if stream_manager is None:
+            logger.warning(
+                "dispatch_worker_missing_stream_manager",
+                tenant_id=str(tenant_id),
+            )
+            return None
+        dispatcher = WorkerDispatcher(stream_manager)
+        worker = await dispatcher.find_available_worker(session, tenant_id=tenant_id)
+        if worker is None:
+            # No online worker → leave the run in ``running`` so it picks
+            # up automatically once a worker comes online (the orchestrator
+            # will retry on next dispatch). Until that wiring lands, the
+            # run just waits; no LLM call is made.
+            logger.info(
+                "dispatch_worker_none_online",
+                tenant_id=str(tenant_id),
+            )
+            return None
+        return WorkerDispatchAdapter(
+            stream_manager=stream_manager,
+            worker_id=worker.id,
+            run_id=run_id,
+            project_id=project_id,
+        )
+
+    # claude_code / codex — not wired through the backend at all; those
+    # would require a local CLI on this host, which we don't invoke from
+    # a multi-tenant backend. Returning None keeps the backend from
+    # falling through to a direct LLM call.
     logger.info(
         "dispatch_executor_type_not_wired",
         executor_type=exec_type,

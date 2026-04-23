@@ -144,6 +144,20 @@ class RunOrchestrator:
                 stream_manager=stream_manager,
             )
 
+        # Async executors (e.g. remote workers) return a "dispatched"
+        # sentinel — the run stays in ``running`` state and a separate
+        # result-consumer finalises it once the worker reports back. Do
+        # not call on_run_completed here or we'd mark it done prematurely.
+        if isinstance(result, dict) and result.get("status") == "dispatched":
+            emit_post_async(audit, run, result)
+            logger.info(
+                "run_dispatched_awaiting_worker",
+                run_id=str(run.id),
+                stream_msg_id=result.get("stream_msg_id"),
+                worker_id=result.get("worker_id"),
+            )
+            return run
+
         await self.on_run_completed(
             run,
             result=result,
