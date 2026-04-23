@@ -1,5 +1,5 @@
 import { Fragment } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 
 import { I } from '../../lib/icons'
@@ -30,6 +30,7 @@ export default function Topbar({
 }: TopbarProps) {
   const location = useLocation()
   const navigate = useNavigate()
+  const [search] = useSearchParams()
 
   const { data: integrations } = useQuery<IntegrationConfigList>({
     queryKey: ['integrations'],
@@ -47,8 +48,15 @@ export default function Topbar({
       active: true,
     })
   } else if (location.pathname.startsWith('/settings')) {
+    const section = search.get('section')
+    const label =
+      section === 'executors'
+        ? 'Executors'
+        : section === 'worker-tokens'
+        ? 'Worker tokens'
+        : 'Integrations'
     crumbs.push({ label: 'Settings' })
-    crumbs.push({ label: 'Integrations', active: true })
+    crumbs.push({ label, active: true })
   }
 
   const onProject = location.pathname.startsWith('/projects/')

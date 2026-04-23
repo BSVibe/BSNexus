@@ -82,6 +82,23 @@ export default function IntegrationCard({
     )
   }, [config])
 
+  async function handleToggle(next: boolean) {
+    // Auto-save the toggle — flipping a switch should persist immediately.
+    // URL / API key still require the Save button since they need input.
+    setEnabled(next)
+    setSaving(true)
+    setSaved(false)
+    try {
+      await onSave({ enabled: next })
+      setSaved(true)
+      setTimeout(() => setSaved(false), 1800)
+    } catch {
+      setEnabled(!next) // revert optimistic UI
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const hasApiKey = config?.has_api_key ?? false
   const tone: Tone = !enabled
     ? 'gray'
@@ -159,7 +176,7 @@ export default function IntegrationCard({
                 : 'enabled'
               : 'disabled'}
           </Badge>
-          <Toggle checked={enabled} onChange={setEnabled} />
+          <Toggle checked={enabled} onChange={handleToggle} disabled={saving} />
         </div>
       </div>
       <div
@@ -344,13 +361,16 @@ export default function IntegrationCard({
 function Toggle({
   checked,
   onChange,
+  disabled,
 }: {
   checked: boolean
   onChange: (v: boolean) => void
+  disabled?: boolean
 }) {
   return (
     <button
       type="button"
+      disabled={disabled}
       onClick={() => onChange(!checked)}
       style={{
         width: 32,
@@ -359,8 +379,9 @@ function Toggle({
         background: checked ? 'var(--blue-500)' : 'var(--gray-700)',
         position: 'relative',
         border: 'none',
-        cursor: 'pointer',
+        cursor: disabled ? 'wait' : 'pointer',
         transition: 'background var(--t-fast) var(--ease)',
+        opacity: disabled ? 0.7 : 1,
       }}
       aria-pressed={checked}
     >

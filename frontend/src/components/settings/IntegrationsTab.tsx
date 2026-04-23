@@ -27,11 +27,9 @@ export default function IntegrationsTab() {
       provider: IntegrationProvider
       body: IntegrationConfigUpdate
     }) => integrationsApi.update(provider, body),
-    onSuccess: (updated, { provider }) => {
-      queryClient.setQueryData<IntegrationConfigList | undefined>(
-        ['integrations'],
-        (prev) => (prev ? { ...prev, [provider]: updated } : prev),
-      )
+    onSuccess: () => {
+      // Force all subscribers (topbar pills, per-card state) to refetch.
+      queryClient.invalidateQueries({ queryKey: ['integrations'] })
     },
   })
 
