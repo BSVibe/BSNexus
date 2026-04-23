@@ -2,10 +2,9 @@ import { useSearchParams } from 'react-router-dom'
 
 import ExecutorsSection from '../components/settings/ExecutorsSection'
 import IntegrationsTab from '../components/settings/IntegrationsTab'
-import WorkerTokensSection from '../components/settings/WorkerTokensSection'
 import { I } from '../lib/icons'
 
-type SectionId = 'integrations' | 'executors' | 'worker-tokens'
+type SectionId = 'integrations' | 'executors'
 
 interface Section {
   id: SectionId
@@ -27,19 +26,12 @@ const SECTIONS: Section[] = [
     label: 'Executors',
     icon: I.Brain,
     summary:
-      "Register LLM backends (LiteLLM direct, BSGateway proxy, claude-code, codex). One is marked default and used when a run doesn't pin a specific executor.",
-  },
-  {
-    id: 'worker-tokens',
-    label: 'Worker tokens',
-    icon: I.GitBranch,
-    summary:
-      'Mint the install token remote workers need to register against this tenant. Manage registered workers (status, capabilities, heartbeat) here.',
+      'Register LLM backends and remote workers. LLM executors (LiteLLM / BSGateway / claude-code / codex) handle composition runs; remote workers register with an install token and execute coding tasks with their local CLI.',
   },
 ]
 
 function parseSection(raw: string | null): SectionId {
-  if (raw === 'executors' || raw === 'worker-tokens') return raw
+  if (raw === 'executors') return raw
   return 'integrations'
 }
 
@@ -102,7 +94,6 @@ export default function SettingsPage() {
           </div>
           {active === 'integrations' && <IntegrationsTab />}
           {active === 'executors' && <ExecutorsSection />}
-          {active === 'worker-tokens' && <WorkerTokensSection />}
         </div>
       </div>
     </div>

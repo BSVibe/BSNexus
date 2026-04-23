@@ -10,6 +10,7 @@ import {
   type ExecutorConfigCreate,
   type ExecutorType,
 } from '../../api/executorConfigs'
+import RemoteWorkersSection from './RemoteWorkersSection'
 
 type ExecTypeMeta = {
   value: ExecutorType
@@ -129,6 +130,16 @@ export default function ExecutorsSection() {
           onEdit={() => setEditing(cfg)}
         />
       ))}
+
+      <div
+        style={{
+          marginTop: 16,
+          paddingTop: 20,
+          borderTop: '1px solid var(--border-subtle)',
+        }}
+      >
+        <RemoteWorkersSection />
+      </div>
 
       {createOpen && (
         <ExecutorModal
