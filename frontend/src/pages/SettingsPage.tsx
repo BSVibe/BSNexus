@@ -1,52 +1,71 @@
-import { useState } from 'react'
-
 import IntegrationsTab from '../components/settings/IntegrationsTab'
-import Header from '../components/layout/Header'
-
-type Tab = 'integrations' | 'executors'
-
-const TABS: Array<{ key: Tab; label: string }> = [
-  { key: 'integrations', label: 'Integrations' },
-  { key: 'executors', label: 'Executors' },
-]
+import { I } from '../lib/icons'
 
 export default function SettingsPage() {
-  const [tab, setTab] = useState<Tab>('integrations')
-
   return (
-    <>
-      <Header title="Settings" />
-      <div className="p-6">
-        <nav className="mb-6 flex gap-1 border-b border-border">
-          {TABS.map((t) => (
-            <button
-              key={t.key}
-              type="button"
-              onClick={() => setTab(t.key)}
-              className={`px-4 py-2 text-sm transition-colors ${
-                tab === t.key
-                  ? 'border-b-2 border-accent text-text-primary'
-                  : 'text-text-secondary hover:text-text-primary'
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
-        </nav>
-
-        <div className="mx-auto max-w-3xl">
-          {tab === 'integrations' && <IntegrationsTab />}
-          {tab === 'executors' && (
-            <div className="rounded-lg border border-border bg-bg-card p-6 text-sm text-text-tertiary">
-              <p>Executor configuration returns in a follow-up PR.</p>
-              <p className="mt-2">
-                v1 focuses on the three sibling integrations; BSGateway covers
-                model selection when enabled.
-              </p>
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: '220px 1fr',
+        height: '100%',
+        minHeight: 0,
+      }}
+    >
+      <nav
+        style={{
+          borderRight: '1px solid var(--border-subtle)',
+          padding: '24px 16px',
+        }}
+      >
+        <div
+          style={{
+            fontSize: 11,
+            color: 'var(--text-tertiary)',
+            textTransform: 'uppercase',
+            letterSpacing: '0.08em',
+            padding: '0 8px 8px',
+          }}
+        >
+          Settings
+        </div>
+        <button type="button" className="sb-item active">
+          <I.Zap size={14} />
+          <span className="label">Integrations</span>
+        </button>
+        <button type="button" className="sb-item" style={{ opacity: 0.5 }} disabled>
+          <I.Brain size={14} />
+          <span className="label">Executors</span>
+          <span className="mono faded" style={{ fontSize: 10 }}>
+            v0.2
+          </span>
+        </button>
+        <button type="button" className="sb-item" style={{ opacity: 0.5 }} disabled>
+          <I.GitBranch size={14} />
+          <span className="label">Worker tokens</span>
+          <span className="mono faded" style={{ fontSize: 10 }}>
+            v0.2
+          </span>
+        </button>
+        <button type="button" className="sb-item" style={{ opacity: 0.5 }} disabled>
+          <I.Data size={14} />
+          <span className="label">Billing</span>
+          <span className="mono faded" style={{ fontSize: 10 }}>
+            v0.3
+          </span>
+        </button>
+      </nav>
+      <div style={{ overflow: 'auto', padding: 32 }}>
+        <div style={{ maxWidth: 820 }}>
+          <div style={{ marginBottom: 24 }}>
+            <h1 className="page-title">Integrations</h1>
+            <div className="page-sub">
+              Connect BSNexus to sibling services. Keys are stored tenant-scoped and
+              encrypted at rest; only whether a key is present is ever returned.
             </div>
-          )}
+          </div>
+          <IntegrationsTab />
         </div>
       </div>
-    </>
+    </div>
   )
 }

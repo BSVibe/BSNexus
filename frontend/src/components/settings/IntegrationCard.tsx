@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react'
 
+import { Badge } from '../common/Badge'
+import { I } from '../../lib/icons'
+import { accentHex, type Tone } from '../../lib/tone'
 import type {
   IntegrationConfigResponse,
   IntegrationConfigUpdate,
@@ -7,51 +10,103 @@ import type {
 } from '../../api/integrations'
 import type { IntegrationProvider } from '../../types/founder'
 
+type TestStatus = 'idle' | 'testing' | IntegrationTestResult['status']
+
 interface IntegrationCardProps {
   provider: IntegrationProvider
-  label: string
-  description: string
-  accentClass: string
   config: IntegrationConfigResponse | null
   onSave: (next: IntegrationConfigUpdate) => Promise<void>
   onTest: () => Promise<IntegrationTestResult>
 }
 
-type TestStatus = 'idle' | 'testing' | IntegrationTestResult['status']
+const META: Record<
+  IntegrationProvider,
+  {
+    label: string
+    accent: string
+    Icon: (p: { size?: number }) => React.ReactElement
+    blurb: string
+  }
+> = {
+  bsage: {
+    label: 'BSage',
+    accent: accentHex.emerald,
+    Icon: I.Brain,
+    blurb: 'Graph-backed project memory. When enabled, runs pull relevant notes into their composition.',
+  },
+  bsgateway: {
+    label: 'BSGateway',
+    accent: accentHex.amber,
+    Icon: I.Gateway,
+    blurb: 'Cost-aware model selection via LiteLLM hook. Default LiteLLM is used when disabled.',
+  },
+  bsupervisor: {
+    label: 'BSupervisor',
+    accent: accentHex.rose,
+    Icon: I.Shield,
+    blurb: 'Sync pre-run rule evaluation (<50ms target). Fail-open by default; configurable.',
+  },
+}
 
 export default function IntegrationCard({
   provider,
-  label,
-  description,
-  accentClass,
   config,
   onSave,
   onTest,
 }: IntegrationCardProps) {
+  const meta = META[provider]
   const [enabled, setEnabled] = useState(config?.enabled ?? false)
   const [baseUrl, setBaseUrl] = useState(config?.base_url ?? '')
   const [apiKey, setApiKey] = useState('')
+  const [timeoutMs, setTimeoutMs] = useState<number>(
+    (config?.extra_config?.timeout_ms as number | undefined) ?? 200,
+  )
+  const [failMode, setFailMode] = useState<'open' | 'closed'>(
+    ((config?.extra_config?.fail_mode as string | undefined) === 'closed'
+      ? 'closed'
+      : 'open') as 'open' | 'closed',
+  )
   const [testStatus, setTestStatus] = useState<TestStatus>('idle')
   const [testDetail, setTestDetail] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
 
   useEffect(() => {
     setEnabled(config?.enabled ?? false)
     setBaseUrl(config?.base_url ?? '')
-  }, [config?.enabled, config?.base_url])
+    setTimeoutMs(((config?.extra_config?.timeout_ms as number | undefined) ?? 200))
+    setFailMode(
+      ((config?.extra_config?.fail_mode as string | undefined) === 'closed'
+        ? 'closed'
+        : 'open') as 'open' | 'closed',
+    )
+  }, [config])
 
   const hasApiKey = config?.has_api_key ?? false
+  const tone: Tone = !enabled
+    ? 'gray'
+    : testStatus === 'healthy'
+    ? 'emerald'
+    : testStatus === 'unreachable' || testStatus === 'unauthorized'
+    ? 'rose'
+    : 'emerald'
 
   async function handleSave() {
     setSaving(true)
+    setSaved(false)
     try {
       const body: IntegrationConfigUpdate = {
         enabled,
         base_url: baseUrl || null,
       }
       if (apiKey) body.api_key = apiKey
+      if (provider === 'bsupervisor') {
+        body.extra_config = { timeout_ms: timeoutMs, fail_mode: failMode }
+      }
       await onSave(body)
+      setSaved(true)
       setApiKey('')
+      setTimeout(() => setSaved(false), 1800)
     } finally {
       setSaving(false)
     }
@@ -66,128 +121,296 @@ export default function IntegrationCard({
   }
 
   return (
-    <section className={`rounded-lg border bg-bg-card p-4 ${accentClass}`}>
-      <header className="mb-3 flex items-start justify-between">
-        <div>
-          <h3 className="text-base font-semibold text-text-primary">{label}</h3>
-          <p className="text-xs text-text-tertiary">{description}</p>
+    <div className="card" style={{ borderLeft: `3px solid ${meta.accent}` }}>
+      <div className="card-hd">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div
+            style={{
+              width: 32,
+              height: 32,
+              borderRadius: 'var(--r-md)',
+              background: `${meta.accent}20`,
+              color: meta.accent,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <meta.Icon size={16} />
+          </div>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--gray-50)' }}>
+              {meta.label}
+            </div>
+            <div className="faded mono" style={{ fontSize: 11 }}>
+              {provider}
+            </div>
+          </div>
         </div>
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={enabled}
-            onChange={(e) => setEnabled(e.target.checked)}
-            className="h-4 w-4"
-          />
-          <span className="text-text-secondary">Enable</span>
-        </label>
-      </header>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <Badge tone={tone} dot>
+            {enabled
+              ? testStatus === 'healthy'
+                ? 'healthy'
+                : testStatus === 'unreachable'
+                ? 'unreachable'
+                : testStatus === 'unauthorized'
+                ? 'unauthorized'
+                : 'enabled'
+              : 'disabled'}
+          </Badge>
+          <Toggle checked={enabled} onChange={setEnabled} />
+        </div>
+      </div>
+      <div
+        className="card-bd"
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 12,
+          opacity: enabled ? 1 : 0.5,
+        }}
+      >
+        <p className="faded" style={{ fontSize: 12, margin: 0 }}>
+          {meta.blurb}
+        </p>
 
-      <div className="space-y-2">
-        <label className="block">
-          <span className="mb-1 block text-xs text-text-tertiary">Base URL</span>
+        <Field label="Base URL">
           <input
-            type="text"
+            className="input"
             value={baseUrl}
             onChange={(e) => setBaseUrl(e.target.value)}
-            placeholder={placeholderFor(provider)}
-            className="w-full rounded border border-border bg-bg-input px-3 py-1.5 text-sm text-text-primary"
+            disabled={!enabled}
+            placeholder={`https://${provider === 'bsage' ? 'sage' : provider === 'bsgateway' ? 'gateway' : 'supervisor'}.bsvibe.dev`}
           />
-        </label>
+        </Field>
 
-        <label className="block">
-          <span className="mb-1 block text-xs text-text-tertiary">
-            API key {hasApiKey && <span className="text-text-secondary">(stored)</span>}
-          </span>
-          <input
-            type="password"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            placeholder={hasApiKey ? '••••••••' : 'paste to set'}
-            className="w-full rounded border border-border bg-bg-input px-3 py-1.5 text-sm text-text-primary"
-          />
-        </label>
+        <Field label={`API key ${hasApiKey ? '(stored)' : ''}`}>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input
+              className="input mono"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              disabled={!enabled}
+              placeholder={hasApiKey ? '••••••••' : 'bsk_...'}
+              type="password"
+              style={{ fontSize: 12 }}
+            />
+            {hasApiKey && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                disabled={!enabled}
+                onClick={() => setApiKey('')}
+                title="Clear stored key"
+              >
+                Rotate
+              </button>
+            )}
+          </div>
+        </Field>
 
-        {provider === 'bsupervisor' && config && (
-          <BSupervisorExtras extraConfig={config.extra_config} />
+        {provider === 'bsupervisor' && (
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: 12,
+            }}
+          >
+            <Field label="Timeout (ms)" hint="Default 200ms">
+              <input
+                className="input mono"
+                type="number"
+                value={timeoutMs}
+                onChange={(e) => setTimeoutMs(Number(e.target.value))}
+                disabled={!enabled}
+              />
+            </Field>
+            <Field label="Fail mode" hint="open = allow on error · closed = deny">
+              <div
+                style={{
+                  display: 'flex',
+                  gap: 4,
+                  background: 'var(--bg-elevated)',
+                  border: '1px solid var(--border-default)',
+                  borderRadius: 'var(--r-md)',
+                  padding: 2,
+                }}
+              >
+                {(['open', 'closed'] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    className="btn btn-sm"
+                    style={{
+                      flex: 1,
+                      justifyContent: 'center',
+                      background:
+                        failMode === m ? 'var(--bg-hover)' : 'transparent',
+                      color:
+                        failMode === m ? 'var(--gray-50)' : 'var(--gray-400)',
+                    }}
+                    onClick={() => setFailMode(m)}
+                    disabled={!enabled}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
+            </Field>
+          </div>
         )}
-      </div>
 
-      <div className="mt-3 flex items-center justify-between">
-        <button
-          type="button"
-          onClick={handleTest}
-          disabled={!enabled || !baseUrl}
-          className="rounded border border-border px-3 py-1 text-xs text-text-secondary disabled:opacity-40"
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            paddingTop: 8,
+            borderTop: '1px solid var(--border-subtle)',
+          }}
         >
-          {testStatus === 'testing' ? 'Testing…' : 'Test connection'}
-        </button>
-
-        <div className="flex items-center gap-2">
-          <TestStatusBadge status={testStatus} detail={testDetail} />
           <button
             type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={handleTest}
+            disabled={!enabled || !baseUrl || testStatus === 'testing'}
+          >
+            {testStatus === 'testing' ? (
+              <>
+                <span
+                  style={{
+                    width: 6,
+                    height: 6,
+                    background: 'var(--gray-400)',
+                    borderRadius: 99,
+                    animation: 'pulse 1s infinite',
+                  }}
+                />
+                Testing…
+              </>
+            ) : (
+              <>
+                <I.Zap size={12} /> Test connection
+              </>
+            )}
+          </button>
+          {testStatus !== 'idle' && testStatus !== 'testing' && (
+            <span
+              className="faded"
+              style={{
+                fontSize: 11,
+                color:
+                  testStatus === 'healthy'
+                    ? '#6ee7b7'
+                    : testStatus === 'unauthorized' || testStatus === 'unreachable'
+                    ? '#fda4af'
+                    : undefined,
+              }}
+              title={testDetail ?? undefined}
+            >
+              {testStatus}
+            </span>
+          )}
+          <span style={{ flex: 1 }} />
+          {saved && (
+            <span
+              style={{
+                fontSize: 12,
+                color: '#6ee7b7',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+              }}
+            >
+              <I.Check size={12} /> Saved
+            </span>
+          )}
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
             onClick={handleSave}
             disabled={saving}
-            className="rounded bg-accent px-3 py-1 text-xs font-semibold text-bg-primary disabled:opacity-40"
           >
             {saving ? 'Saving…' : 'Save'}
           </button>
         </div>
       </div>
-    </section>
-  )
-}
-
-function BSupervisorExtras({ extraConfig }: { extraConfig: Record<string, unknown> }) {
-  const timeoutMs = typeof extraConfig.timeout_ms === 'number' ? extraConfig.timeout_ms : 200
-  const failMode = typeof extraConfig.fail_mode === 'string' ? extraConfig.fail_mode : 'open'
-  return (
-    <div className="grid grid-cols-2 gap-2 pt-1 text-xs text-text-tertiary">
-      <div>
-        <span className="mb-1 block">Timeout</span>
-        <span className="font-mono text-text-secondary">{timeoutMs} ms</span>
-      </div>
-      <div>
-        <span className="mb-1 block">On timeout</span>
-        <span className="font-mono text-text-secondary">fail-{failMode}</span>
-      </div>
     </div>
   )
 }
 
-function TestStatusBadge({ status, detail }: { status: TestStatus; detail: string | null }) {
-  if (status === 'idle') return null
-  const label =
-    status === 'testing'
-      ? 'Testing…'
-      : status === 'healthy'
-      ? 'Reachable'
-      : status === 'unauthorized'
-      ? 'Unauthorized'
-      : status === 'disabled'
-      ? 'Not configured'
-      : 'Unreachable'
-  const color =
-    status === 'healthy'
-      ? 'text-success'
-      : status === 'unreachable' || status === 'unauthorized'
-      ? 'text-error'
-      : 'text-text-tertiary'
+function Toggle({
+  checked,
+  onChange,
+}: {
+  checked: boolean
+  onChange: (v: boolean) => void
+}) {
   return (
-    <span className={`text-xs ${color}`} title={detail ?? undefined}>
-      {label}
-    </span>
+    <button
+      type="button"
+      onClick={() => onChange(!checked)}
+      style={{
+        width: 32,
+        height: 18,
+        borderRadius: 99,
+        background: checked ? 'var(--blue-500)' : 'var(--gray-700)',
+        position: 'relative',
+        border: 'none',
+        cursor: 'pointer',
+        transition: 'background var(--t-fast) var(--ease)',
+      }}
+      aria-pressed={checked}
+    >
+      <span
+        style={{
+          position: 'absolute',
+          top: 2,
+          left: checked ? 16 : 2,
+          width: 14,
+          height: 14,
+          borderRadius: 99,
+          background: '#fff',
+          transition: 'left var(--t-fast) var(--ease)',
+        }}
+      />
+    </button>
   )
 }
 
-function placeholderFor(provider: IntegrationProvider): string {
-  switch (provider) {
-    case 'bsage':
-      return 'https://sage.bsvibe.dev'
-    case 'bsgateway':
-      return 'https://gateway.bsvibe.dev'
-    case 'bsupervisor':
-      return 'https://supervisor.bsvibe.dev'
-  }
+function Field({
+  label,
+  hint,
+  children,
+}: {
+  label: string
+  hint?: string
+  children: React.ReactNode
+}) {
+  return (
+    <div>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          marginBottom: 4,
+        }}
+      >
+        <label
+          style={{ fontSize: 12, color: 'var(--text-secondary)' }}
+        >
+          {label}
+        </label>
+        {hint && (
+          <span className="faded" style={{ fontSize: 11 }}>
+            {hint}
+          </span>
+        )}
+      </div>
+      {children}
+    </div>
+  )
 }

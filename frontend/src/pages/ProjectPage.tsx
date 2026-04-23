@@ -1,27 +1,25 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 
-import Header from '../components/layout/Header'
-import DirectionView from '../components/direction/DirectionView'
+import { I } from '../lib/icons'
+import StreamView from '../components/project/StreamView'
 import ProgressView from '../components/progress/ProgressView'
 import DecisionsView from '../components/decisions/DecisionsView'
-import InsideView from '../components/inside/InsideView'
 import { projectsApi, type Project } from '../api/projects'
+import { decisionsApi, deliverablesApi } from '../api/founder'
 
-type TabId = 'direction' | 'progress' | 'decisions' | 'inside'
-
-const TABS: Array<{ id: TabId; label: string; optIn?: boolean }> = [
-  { id: 'direction', label: 'Direction' },
-  { id: 'progress', label: 'Progress' },
-  { id: 'decisions', label: 'Decisions' },
-  { id: 'inside', label: 'Inside', optIn: true },
-]
+type TabId = 'stream' | 'progress' | 'decisions'
 
 export default function ProjectPage() {
   const { projectId } = useParams<{ projectId: string }>()
-  const [tab, setTab] = useState<TabId>('direction')
-  const [insideEnabled, setInsideEnabled] = useState(false)
+  const [tab, setTab] = useState<TabId>('stream')
+
+  useQuery<Project>({
+    queryKey: ['project', projectId],
+    queryFn: () => projectsApi.get(projectId!),
+    enabled: Boolean(projectId),
+  })
 
   const { data: project } = useQuery<Project>({
     queryKey: ['project', projectId],
@@ -29,50 +27,137 @@ export default function ProjectPage() {
     enabled: Boolean(projectId),
   })
 
-  const visibleTabs = TABS.filter((t) => !t.optIn || insideEnabled)
+  const { data: deliverables = [] } = useQuery({
+    queryKey: ['deliverables', projectId],
+    queryFn: () => deliverablesApi.listForProject(projectId!),
+    enabled: Boolean(projectId),
+  })
+
+  const { data: decisions = [] } = useQuery({
+    queryKey: ['decisions', projectId],
+    queryFn: () => decisionsApi.listForProject(projectId!),
+    enabled: Boolean(projectId),
+  })
+
+  const openDecisions = useMemo(
+    () => decisions.filter((d) => !d.resolved_at).length,
+    [decisions],
+  )
+
+  if (!projectId) {
+    return (
+      <div
+        style={{
+          padding: 48,
+          textAlign: 'center',
+          color: 'var(--text-tertiary)',
+        }}
+      >
+        No project selected.
+      </div>
+    )
+  }
 
   return (
-    <>
-      <Header
-        title={project?.name ?? 'Project'}
-        action={
-          <label className="flex items-center gap-2 text-xs text-text-tertiary">
-            <input
-              type="checkbox"
-              checked={insideEnabled}
-              onChange={(e) => {
-                setInsideEnabled(e.target.checked)
-                if (!e.target.checked && tab === 'inside') setTab('direction')
-              }}
-            />
-            Show Inside panel
-          </label>
-        }
-      />
-
-      <nav className="flex gap-1 border-b border-border px-4">
-        {visibleTabs.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => setTab(t.id)}
-            className={`px-4 py-2 text-sm transition-colors ${
-              tab === t.id
-                ? 'border-b-2 border-accent text-text-primary'
-                : 'text-text-secondary hover:text-text-primary'
-            }`}
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
+        minHeight: 0,
+      }}
+    >
+      <div className="tabs" style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+        <div
+          className="tab"
+          style={{
+            pointerEvents: 'none',
+            padding: '10px 0',
+            marginRight: 16,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'flex-start',
+            borderBottom: 'none',
+          }}
+        >
+          <div
+            style={{
+              fontSize: 13,
+              fontWeight: 600,
+              color: 'var(--gray-50)',
+              lineHeight: '16px',
+            }}
           >
-            {t.label}
-          </button>
-        ))}
-      </nav>
+            {project?.name ?? 'Project'}
+          </div>
+          <div
+            className="mono faded"
+            style={{ fontSize: 10, marginTop: 2 }}
+            title={projectId}
+          >
+            {projectId.slice(0, 8)}
+          </div>
+        </div>
+        <TabButton
+          label="Stream"
+          icon={<I.Timeline size={14} />}
+          active={tab === 'stream'}
+          onClick={() => setTab('stream')}
+        />
+        <TabButton
+          label="Progress"
+          icon={<I.Timeline size={14} />}
+          active={tab === 'progress'}
+          onClick={() => setTab('progress')}
+          count={deliverables.length || null}
+        />
+        <TabButton
+          label="Decisions"
+          icon={<I.Inbox size={14} />}
+          active={tab === 'decisions'}
+          onClick={() => setTab('decisions')}
+          count={openDecisions || null}
+          toneRose={openDecisions > 0}
+        />
+      </div>
 
-      <div className="h-[calc(100vh-8rem)]">
-        {tab === 'direction' && <DirectionView projectId={projectId} />}
+      <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+        {tab === 'stream' && <StreamView projectId={projectId} />}
         {tab === 'progress' && <ProgressView projectId={projectId} />}
         {tab === 'decisions' && <DecisionsView projectId={projectId} />}
-        {tab === 'inside' && insideEnabled && <InsideView projectId={projectId} />}
       </div>
-    </>
+    </div>
+  )
+}
+
+function TabButton({
+  label,
+  icon,
+  active,
+  onClick,
+  count,
+  toneRose,
+}: {
+  label: string
+  icon: React.ReactNode
+  active: boolean
+  onClick: () => void
+  count?: number | null
+  toneRose?: boolean
+}) {
+  return (
+    <button
+      type="button"
+      className={`tab ${active ? 'active' : ''}`}
+      onClick={onClick}
+    >
+      {icon}
+      {label}
+      {count != null && (
+        <span className={`tab-count ${toneRose ? 'tab-count-rose' : ''}`}>
+          {count}
+        </span>
+      )}
+    </button>
   )
 }

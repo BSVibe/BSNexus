@@ -1,14 +1,11 @@
 /** @type {import('tailwindcss').Config} */
 export default {
-  content: [
-    "./index.html",
-    "./src/**/*.{js,ts,jsx,tsx}",
-  ],
+  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
     extend: {
       fontFamily: {
-        sans: ['"Plus Jakarta Sans"', 'ui-sans-serif', 'system-ui', '-apple-system', 'sans-serif'],
-        mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'Consolas', 'monospace'],
+        sans: ['"Plus Jakarta Sans"', 'system-ui', 'sans-serif'],
+        mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
       },
       colors: {
         gray: {
@@ -40,123 +37,43 @@ export default {
           bsage: '#10b981',
         },
         bg: {
-          primary: 'var(--bg-primary)',
+          base: 'var(--bg-base)',
           surface: 'var(--bg-surface)',
-          card: 'var(--bg-card)',
           elevated: 'var(--bg-elevated)',
           hover: 'var(--bg-hover)',
-          input: 'var(--bg-input)',
-        },
-        accent: {
-          DEFAULT: 'var(--accent)',
-          light: 'var(--accent-light)',
-          hover: 'var(--accent-hover)',
-          text: 'var(--accent-text)',
         },
         text: {
           primary: 'var(--text-primary)',
           secondary: 'var(--text-secondary)',
           tertiary: 'var(--text-tertiary)',
-          muted: 'var(--text-muted)',
+          disabled: 'var(--text-disabled)',
         },
         border: {
-          DEFAULT: 'var(--border)',
+          DEFAULT: 'var(--border-default)',
           subtle: 'var(--border-subtle)',
+          strong: 'var(--border-strong)',
         },
-        // Stitch Material Design 3 tokens
-        stitch: {
-          surface: 'var(--stitch-surface)',
-          'surface-low': 'var(--stitch-surface-container-low)',
-          'surface-container': 'var(--stitch-surface-container)',
-          'surface-high': 'var(--stitch-surface-container-high)',
-          'surface-highest': 'var(--stitch-surface-container-highest)',
-          'surface-lowest': 'var(--stitch-surface-container-lowest)',
-          primary: 'var(--stitch-primary)',
-          'primary-container': 'var(--stitch-primary-container)',
-          'on-primary': 'var(--stitch-on-primary)',
-          'on-primary-container': 'var(--stitch-on-primary-container)',
-          'on-surface': 'var(--stitch-on-surface)',
-          'on-surface-variant': 'var(--stitch-on-surface-variant)',
-          outline: 'var(--stitch-outline)',
-          'outline-variant': 'var(--stitch-outline-variant)',
-          secondary: 'var(--stitch-secondary)',
-          'secondary-container': 'var(--stitch-secondary-container)',
-          'on-secondary-container': 'var(--stitch-on-secondary-container)',
-          tertiary: 'var(--stitch-tertiary)',
-          'tertiary-container': 'var(--stitch-tertiary-container)',
-          error: 'var(--stitch-error)',
-          'error-container': 'var(--stitch-error-container)',
-        },
-        status: {
-          waiting: 'var(--status-waiting)',
-          ready: 'var(--status-ready)',
-          queued: 'var(--status-queued)',
-          'in-progress': 'var(--status-in-progress)',
-          review: 'var(--status-review)',
-          done: 'var(--status-done)',
-          rejected: 'var(--status-rejected)',
-          blocked: 'var(--status-blocked)',
-        },
-        error: {
-          DEFAULT: 'var(--color-error)',
-          muted: 'var(--color-error-muted)',
-        },
-        success: {
-          DEFAULT: 'var(--color-success)',
-          muted: 'var(--color-success-muted)',
-        },
-        warning: {
-          DEFAULT: 'var(--color-warning)',
-          muted: 'var(--color-warning-muted)',
-        },
-        info: {
-          DEFAULT: 'var(--color-info)',
+        accent: {
+          DEFAULT: 'var(--accent)',
+          glow: 'var(--accent-glow)',
         },
       },
       borderRadius: {
-        sm: 'var(--radius-sm)',
-        md: 'var(--radius-md)',
-        lg: 'var(--radius-lg)',
-        xl: 'var(--radius-xl)',
-        full: 'var(--radius-full)',
+        sm: 'var(--r-sm)',
+        md: 'var(--r-md)',
+        lg: 'var(--r-lg)',
+        xl: 'var(--r-xl)',
+        full: 'var(--r-full)',
       },
-      keyframes: {
-        'slide-in-right': {
-          '0%': { transform: 'translateX(100%)', opacity: '0' },
-          '100%': { transform: 'translateX(0)', opacity: '1' },
-        },
-        'cursor-blink': {
-          '50%': { opacity: '0' },
-        },
+      boxShadow: {
+        sm: 'var(--sh-sm)',
+        md: 'var(--sh-md)',
+        lg: 'var(--sh-lg)',
       },
-      animation: {
-        'slide-in-right': 'slide-in-right 0.2s ease-out',
-        'cursor-blink': 'cursor-blink 1s step-end infinite',
-      },
-      typography: {
-        DEFAULT: {
-          css: {
-            '--tw-prose-body': 'var(--text-primary)',
-            '--tw-prose-headings': 'var(--text-primary)',
-            '--tw-prose-lead': 'var(--text-secondary)',
-            '--tw-prose-links': 'var(--accent-text)',
-            '--tw-prose-bold': 'var(--text-primary)',
-            '--tw-prose-counters': 'var(--text-secondary)',
-            '--tw-prose-bullets': 'var(--text-tertiary)',
-            '--tw-prose-hr': 'var(--border)',
-            '--tw-prose-quotes': 'var(--text-secondary)',
-            '--tw-prose-quote-borders': 'var(--border)',
-            '--tw-prose-code': 'var(--text-primary)',
-            '--tw-prose-pre-code': 'var(--text-primary)',
-            '--tw-prose-pre-bg': 'var(--bg-elevated)',
-            '--tw-prose-th-borders': 'var(--border)',
-            '--tw-prose-td-borders': 'var(--border-subtle)',
-          },
-        },
+      transitionTimingFunction: {
+        ease: 'cubic-bezier(0.4, 0, 0.2, 1)',
       },
     },
   },
-  plugins: [
-    require('@tailwindcss/typography'),
-  ],
+  plugins: [require('@tailwindcss/typography')],
 }

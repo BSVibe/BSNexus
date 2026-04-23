@@ -1,43 +1,37 @@
-const statusColorMap: Record<string, string> = {
-  waiting: 'var(--status-waiting)',
-  ready: 'var(--status-ready)',
-  in_progress: 'var(--status-in-progress)',
-  review: 'var(--status-review)',
-  done: 'var(--status-done)',
-  redesign: 'var(--status-redesign)',
-  // Priority colors
-  critical: 'var(--color-error)',
-  high: 'var(--status-waiting)',
-  medium: 'var(--status-ready)',
-  low: 'var(--status-blocked)',
-  // Worker status
-  idle: 'var(--color-success)',
-  busy: 'var(--color-warning)',
-  offline: 'var(--status-blocked)',
-}
+import type { ReactNode } from 'react'
+
+import { accentHex, type Tone } from '../../lib/tone'
 
 interface BadgeProps {
-  color: string
-  label: string
-  size?: 'sm' | 'md'
+  children: ReactNode
+  tone?: Tone
+  dot?: boolean
+  square?: boolean
+  title?: string
 }
 
-export function Badge({ color, label, size = 'sm' }: BadgeProps) {
-  const resolvedColor = statusColorMap[color] || color
-  const isSm = size === 'sm'
+export function Badge({ children, tone = 'gray', dot = false, square = false, title }: BadgeProps) {
+  return (
+    <span className={`badge badge-${tone} ${square ? 'badge-sq' : ''}`} title={title}>
+      {dot && <span className="dot" style={{ background: accentHex[tone] }} />}
+      {children}
+    </span>
+  )
+}
 
+export function StatusDot({ tone, size = 8 }: { tone: Tone; size?: number }) {
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full font-bold ${
-        isSm ? 'px-2 py-0.5 text-[10px]' : 'px-2.5 py-1 text-xs'
-      }`}
+      className="dot"
       style={{
-        backgroundColor: `color-mix(in srgb, ${resolvedColor} 15%, transparent)`,
-        color: resolvedColor,
+        background: accentHex[tone],
+        width: size,
+        height: size,
+        borderRadius: 99,
+        display: 'inline-block',
+        flex: 'none',
       }}
-    >
-      {label}
-    </span>
+    />
   )
 }
 
