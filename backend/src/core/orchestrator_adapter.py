@@ -41,7 +41,7 @@ class LiteLLMOrchestratorAdapter:
         model: str,
         api_key: str = "unused",
         base_url: str | None = None,
-        max_tokens: int = 1024,
+        max_tokens: int = 4096,
         temperature: float = 0.7,
     ):
         self._model = model

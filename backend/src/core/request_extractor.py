@@ -65,9 +65,12 @@ class StaticKeywordClassifier:
         "write", "design", "update", "change", "remove", "delete",
         "ship", "please",
         # Korean — matched as substrings so ``만들어줘`` / ``만들어주세요``
-        # / ``작성해 줘`` all hit.
+        # / ``작성해 줘`` all hit. ``주세요`` is the canonical polite
+        # imperative suffix — covers most directive Korean messages that
+        # don't contain a more specific verb.
         "만들", "작성", "디자인", "구현", "개발", "설계", "고쳐",
-        "추가해", "리팩토", "부탁", "제작",
+        "추가해", "리팩토", "부탁", "제작", "주세요", "해줘",
+        "분리", "출력", "생성",
     }
 
     MODIFICATION_CUES = {
