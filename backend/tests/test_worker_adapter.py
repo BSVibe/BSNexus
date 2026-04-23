@@ -50,39 +50,6 @@ async def test_execute_publishes_to_worker_stream_and_returns_dispatched():
 
 
 @pytest.mark.asyncio
-async def test_execute_forwards_executor_hint_in_payload():
-    stream_manager = MagicMock()
-    stream_manager.publish = AsyncMock(return_value="m")
-    adapter = WorkerDispatchAdapter(
-        stream_manager=stream_manager,
-        worker_id=uuid.uuid4(),
-        run_id=uuid.uuid4(),
-        project_id=uuid.uuid4(),
-        executor="codex",
-    )
-
-    out = await adapter.execute("hi", tools_allowed=["read"])
-    _, payload = stream_manager.publish.await_args.args
-    assert payload["executor"] == "codex"
-    assert out["executor"] == "codex"
-
-
-@pytest.mark.asyncio
-async def test_execute_omits_executor_when_unset():
-    stream_manager = MagicMock()
-    stream_manager.publish = AsyncMock(return_value="m")
-    adapter = WorkerDispatchAdapter(
-        stream_manager=stream_manager,
-        worker_id=uuid.uuid4(),
-        run_id=uuid.uuid4(),
-        project_id=uuid.uuid4(),
-    )
-    await adapter.execute("hi", tools_allowed=["read"])
-    _, payload = stream_manager.publish.await_args.args
-    assert "executor" not in payload
-
-
-@pytest.mark.asyncio
 async def test_execute_omits_tools_allowed_when_empty():
     stream_manager = MagicMock()
     stream_manager.publish = AsyncMock(return_value="m")

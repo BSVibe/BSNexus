@@ -251,9 +251,9 @@ async def _build_adapter(
     # "worker" is the generic remote-execution case; "claude_code" and
     # "codex" are specializations that require the worker to advertise
     # that specific CLI capability. All three paths dispatch through
-    # WorkerDispatchAdapter — the differences are (1) the capability
-    # filter when picking a worker and (2) the per-task CLI hint sent
-    # to the worker.
+    # WorkerDispatchAdapter; the only difference is the capability
+    # filter used to pick a matching worker. The CLI itself is fixed
+    # at worker registration/startup — not negotiated per task.
     if exec_type in {"worker", "claude_code", "codex"}:
         if stream_manager is None:
             logger.warning(
@@ -262,18 +262,9 @@ async def _build_adapter(
                 executor_type=exec_type,
             )
             return None
-        required_capabilities: list[str] | None
-        cli_hint: str | None
-        if exec_type == "worker":
-            # Plain "worker" honors an optional ``executor`` field in
-            # the config JSON (e.g. {"executor": "opencode"}) so a
-            # tenant can pin the CLI without using the specialized
-            # executor_type values. Missing → worker's startup default.
-            cli_hint = cfg.get("executor") or None
-            required_capabilities = [cli_hint] if cli_hint else None
-        else:
-            cli_hint = exec_type
-            required_capabilities = [exec_type]
+        required_capabilities: list[str] | None = (
+            None if exec_type == "worker" else [exec_type]
+        )
         dispatcher = WorkerDispatcher(stream_manager)
         worker = await dispatcher.find_available_worker(
             session,
@@ -293,7 +284,6 @@ async def _build_adapter(
             worker_id=worker.id,
             run_id=run_id,
             project_id=project_id,
-            executor=cli_hint,
         )
 
     logger.info(

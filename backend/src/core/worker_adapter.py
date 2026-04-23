@@ -45,14 +45,12 @@ class WorkerDispatchAdapter:
         run_id: uuid.UUID,
         project_id: uuid.UUID,
         workspace_dir: str | None = None,
-        executor: str | None = None,
     ):
         self._stream = stream_manager
         self._worker_id = worker_id
         self._run_id = run_id
         self._project_id = project_id
         self._workspace_dir = workspace_dir
-        self._executor = executor
         self._dispatcher = WorkerDispatcher(stream_manager)
 
     async def execute(
@@ -68,14 +66,12 @@ class WorkerDispatchAdapter:
             system_prompt=system_prompt,
             tools_allowed=tools_allowed,
             workspace_dir=self._workspace_dir,
-            executor=self._executor,
         )
         logger.info(
             "run_dispatched_to_worker_adapter",
             run_id=str(self._run_id),
             worker_id=str(self._worker_id),
             msg_id=msg_id,
-            executor=self._executor,
         )
         # Sentinel: orchestrator keeps the run in ``running`` state until
         # the worker posts a final result on ``runs:results``.
@@ -86,5 +82,4 @@ class WorkerDispatchAdapter:
             "actual_cost_cents": 0,
             "worker_id": str(self._worker_id),
             "stream_msg_id": msg_id,
-            "executor": self._executor,
         }
