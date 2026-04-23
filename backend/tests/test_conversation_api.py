@@ -118,9 +118,11 @@ async def test_send_request_seeds_top_level_run_and_dispatches(
 
 
 @pytest.mark.asyncio
-async def test_send_modification_does_not_seed_new_run(
+async def test_send_modification_also_seeds_a_run(
     client, _stub_background_dispatch
 ):
+    """Both new requests and modifications seed a run — the founder is
+    giving the company more direction either way."""
     project_id = await _make_project(client)
 
     await client.post(
@@ -134,9 +136,8 @@ async def test_send_modification_does_not_seed_new_run(
         headers={"Authorization": "Bearer fake"},
     )
 
-    # Only the first (new-request) message seeds a run; the second
-    # (modification) appends to the existing request without dispatch.
-    assert len(_stub_background_dispatch) == 1
+    # Each user direction — new or modification — seeds a run.
+    assert len(_stub_background_dispatch) == 2
 
 
 @pytest.mark.asyncio

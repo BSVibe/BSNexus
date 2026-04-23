@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.src.core.auth import get_current_user
 from backend.src.core.orchestrator_adapter import LiteLLMOrchestratorAdapter
 from backend.src.core.request_extractor import RequestExtractor
+from backend.src.core.run_artifacts import publish_run_output
 from backend.src.core.run_orchestrator import get_run_orchestrator
 from backend.src.core.tenant_context import get_tenant_id
 from backend.src.core.worker_adapter import WorkerDispatchAdapter
@@ -104,8 +105,12 @@ async def send_message(
         message, tenant_id=tenant_id, db=db
     )
 
+    # Both brand-new requests and modifications to an existing open
+    # request create work; the founder is giving more direction either
+    # way. Chit-chat / question intents (``outcome.request is None``)
+    # still don't seed a run.
     run_to_dispatch: uuid.UUID | None = None
-    if outcome.request is not None and outcome.created_new:
+    if outcome.request is not None:
         seeded_run = ExecutionRun(
             tenant_id=tenant_id,
             project_id=project_id,
@@ -172,12 +177,18 @@ async def _dispatch_new_run(
                 project_id=project_id,
                 stream_manager=stream_manager,
             )
-            await get_run_orchestrator().dispatch_run(
+            run = await get_run_orchestrator().dispatch_run(
                 run_id,
                 db=session,
                 executor=adapter,
                 stream_manager=stream_manager,
             )
+            # Sync executor paths (generic_llm / bsgateway) land the run
+            # in ``done`` right here; worker paths return ``running`` and
+            # WorkerResultConsumer publishes artifacts later. Calling the
+            # helper is idempotent so the sync path runs it now.
+            if run is not None and run.status == RunStatus.done:
+                await publish_run_output(run, session)
             await session.commit()
     except Exception:
         logger.exception("background_dispatch_failed", run_id=str(run_id))

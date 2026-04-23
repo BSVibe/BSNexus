@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from backend.src.core.audit import resolve_audit_sink
 from backend.src.core.integrations import get_tenant_integration_snapshot
+from backend.src.core.run_artifacts import publish_run_output
 from backend.src.core.run_orchestrator import get_run_orchestrator
 from backend.src.core.state_machine import RunStateMachine
 from backend.src.models import ExecutionRun, RunStatus
@@ -191,4 +192,8 @@ class WorkerResultConsumer:
                 db=session,
                 stream_manager=self._stream,
             )
+            # Surface the worker's output on the founder-facing UI —
+            # assistant-role chat reply + Deliverable row. Idempotent
+            # so a duplicate stream delivery is a no-op.
+            await publish_run_output(run, session)
             await session.commit()

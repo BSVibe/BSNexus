@@ -34,12 +34,14 @@ export default function ProjectPage() {
     queryKey: ['deliverables', projectId],
     queryFn: () => deliverablesApi.listForProject(projectId!),
     enabled: Boolean(projectId),
+    refetchInterval: 3000,
   })
 
   const { data: decisions = [] } = useQuery({
     queryKey: ['decisions', projectId],
     queryFn: () => decisionsApi.listForProject(projectId!),
     enabled: Boolean(projectId),
+    refetchInterval: 3000,
   })
 
   const openDecisions = useMemo(

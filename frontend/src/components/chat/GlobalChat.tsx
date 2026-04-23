@@ -46,6 +46,9 @@ export default function GlobalChat({
     queries: projects.map((p) => ({
       queryKey: ['messages', p.id],
       queryFn: () => conversationApi.list(p.id),
+      // Orchestrator writes assistant replies asynchronously — keep the
+      // chat rail in sync without a manual refresh.
+      refetchInterval: 3000,
     })),
   })
 

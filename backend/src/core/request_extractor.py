@@ -64,11 +64,17 @@ class StaticKeywordClassifier:
         "implement", "build", "add", "create", "fix", "refactor",
         "write", "design", "update", "change", "remove", "delete",
         "ship", "please",
+        # Korean — matched as substrings so ``만들어줘`` / ``만들어주세요``
+        # / ``작성해 줘`` all hit.
+        "만들", "작성", "디자인", "구현", "개발", "설계", "고쳐",
+        "추가해", "리팩토", "부탁", "제작",
     }
 
     MODIFICATION_CUES = {
         "change", "update", "also", "instead", "actually",
         "but ", "rather", "revise", "reword", "reconsider",
+        # Korean
+        "바꿔", "수정", "변경", "대신", "다시", "또한",
     }
 
     async def classify(

@@ -21,6 +21,7 @@ export default function ProgressView({ projectId }: { projectId: string }) {
   const { data: deliverables = [] } = useQuery<Deliverable[]>({
     queryKey: ['deliverables', projectId],
     queryFn: () => deliverablesApi.listForProject(projectId),
+    refetchInterval: 3000,
   })
 
   const sorted = useMemo(

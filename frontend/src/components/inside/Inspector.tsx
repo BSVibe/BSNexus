@@ -30,6 +30,7 @@ export default function Inspector({ projectId, focusRequestId }: InspectorProps)
   const { data: requests = [] } = useQuery<FounderRequest[]>({
     queryKey: ['requests', projectId],
     queryFn: () => requestsApi.listForProject(projectId),
+    refetchInterval: 3000,
   })
 
   useEffect(() => {
@@ -128,6 +129,7 @@ function RunList({
   const { data: runs = [], isLoading } = useQuery<ExecutionRun[]>({
     queryKey: ['runs', requestId],
     queryFn: () => requestsApi.listRuns(requestId),
+    refetchInterval: 3000,
   })
 
   useEffect(() => {
@@ -209,6 +211,7 @@ function RunDetail({ run }: { run: ExecutionRun }) {
   const inline = (snapshot.system_prompt_ref as Record<string, unknown>)?.inline as
     | string
     | undefined
+  const output = extractInline(run.output_ref)
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -298,6 +301,44 @@ function RunDetail({ run }: { run: ExecutionRun }) {
         </pre>
       </DetailRow>
 
+      {output && (
+        <DetailRow
+          label="Output"
+          actions={
+            <>
+              <Badge tone={run.status === 'done' ? 'emerald' : 'gray'}>
+                {run.status}
+              </Badge>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => navigator.clipboard.writeText(output)}
+              >
+                <I.Copy size={12} /> Copy
+              </button>
+            </>
+          }
+        >
+          <pre
+            style={{
+              margin: 0,
+              padding: 12,
+              background: 'var(--bg-base)',
+              border: '1px solid var(--border-subtle)',
+              borderRadius: 'var(--r-md)',
+              fontSize: 12,
+              lineHeight: '18px',
+              color: 'var(--gray-100)',
+              whiteSpace: 'pre-wrap',
+              maxHeight: 360,
+              overflow: 'auto',
+            }}
+          >
+            {output}
+          </pre>
+        </DetailRow>
+      )}
+
       {snapshot.context_doc_refs.length > 0 && (
         <DetailRow
           label="Context docs"
@@ -344,6 +385,13 @@ function RunDetail({ run }: { run: ExecutionRun }) {
       )}
     </div>
   )
+}
+
+function extractInline(ref: Record<string, unknown> | null): string | null {
+  if (!ref) return null
+  const v = ref.inline
+  if (typeof v === 'string' && v.trim().length > 0) return v
+  return null
 }
 
 function DetailRow({
