@@ -11,7 +11,6 @@ export interface IntegrationConfigResponse {
 
 export interface IntegrationConfigList {
   bsage: IntegrationConfigResponse
-  bsgateway: IntegrationConfigResponse
   bsupervisor: IntegrationConfigResponse
 }
 

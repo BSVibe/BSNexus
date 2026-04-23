@@ -104,5 +104,5 @@ export interface CompositionSnapshot {
   created_at: string
 }
 
-export type IntegrationProvider = 'bsage' | 'bsgateway' | 'bsupervisor'
+export type IntegrationProvider = 'bsage' | 'bsupervisor'
 export type AuditFailMode = 'open' | 'closed'

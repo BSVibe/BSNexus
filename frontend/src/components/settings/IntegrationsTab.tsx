@@ -9,7 +9,7 @@ import {
 } from '../../api/integrations'
 import type { IntegrationProvider } from '../../types/founder'
 
-const PROVIDERS: IntegrationProvider[] = ['bsage', 'bsgateway', 'bsupervisor']
+const PROVIDERS: IntegrationProvider[] = ['bsage', 'bsupervisor']
 
 export default function IntegrationsTab() {
   const queryClient = useQueryClient()

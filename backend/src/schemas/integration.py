@@ -23,7 +23,6 @@ class IntegrationConfigResponse(BaseModel):
 
 class IntegrationConfigList(BaseModel):
     bsage: IntegrationConfigResponse
-    bsgateway: IntegrationConfigResponse
     bsupervisor: IntegrationConfigResponse
 
 

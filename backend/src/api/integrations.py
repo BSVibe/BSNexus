@@ -1,4 +1,7 @@
-"""Integrations API — per-tenant BSage/BSGateway/BSupervisor config.
+"""Integrations API — per-tenant BSage + BSupervisor config.
+
+BSGateway isn't an integration anymore — it's an executor kind.
+Register it via the Executors tab (``executor_type="bsgateway"``).
 
 Endpoints:
 - GET    /api/v1/integrations                 — list all three as safe view
@@ -82,9 +85,6 @@ async def list_integrations(
     }
     return IntegrationConfigList(
         bsage=redacted(IntegrationProvider.bsage, rows.get(IntegrationProvider.bsage)),
-        bsgateway=redacted(
-            IntegrationProvider.bsgateway, rows.get(IntegrationProvider.bsgateway)
-        ),
         bsupervisor=redacted(
             IntegrationProvider.bsupervisor, rows.get(IntegrationProvider.bsupervisor)
         ),
@@ -187,6 +187,5 @@ async def test_integration(
 def _probe_path_for(provider: IntegrationProvider) -> str:
     return {
         IntegrationProvider.bsage: "/api/health",
-        IntegrationProvider.bsgateway: "/health",
         IntegrationProvider.bsupervisor: "/api/health",
     }[provider]

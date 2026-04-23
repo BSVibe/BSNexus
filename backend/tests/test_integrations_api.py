@@ -13,7 +13,7 @@ async def test_list_returns_defaults_when_unset(client):
     resp = await client.get("/api/v1/integrations", headers={"Authorization": "Bearer fake"})
     assert resp.status_code == 200
     data = resp.json()
-    assert set(data.keys()) == {"bsage", "bsgateway", "bsupervisor"}
+    assert set(data.keys()) == {"bsage", "bsupervisor"}
     for cfg in data.values():
         assert cfg["enabled"] is False
         assert cfg["base_url"] is None
@@ -40,7 +40,7 @@ async def test_update_persists_enabled_and_base_url(client):
 @pytest.mark.asyncio
 async def test_update_encrypts_api_key_and_never_returns_it(client):
     resp = await client.patch(
-        "/api/v1/integrations/bsgateway",
+        "/api/v1/integrations/bsupervisor",
         json={"enabled": True, "base_url": "http://gw", "api_key": "secret-123"},
         headers={"Authorization": "Bearer fake"},
     )
@@ -100,7 +100,7 @@ async def test_test_connection_ok_when_http_200(client):
 @pytest.mark.asyncio
 async def test_test_connection_unreachable_on_timeout(client):
     await client.patch(
-        "/api/v1/integrations/bsgateway",
+        "/api/v1/integrations/bsupervisor",
         json={"enabled": True, "base_url": "http://gw"},
         headers={"Authorization": "Bearer fake"},
     )
@@ -112,7 +112,7 @@ async def test_test_connection_unreachable_on_timeout(client):
 
     with patch("httpx.AsyncClient", return_value=async_client):
         resp = await client.post(
-            "/api/v1/integrations/bsgateway/test",
+            "/api/v1/integrations/bsupervisor/test",
             headers={"Authorization": "Bearer fake"},
         )
     assert resp.json()["ok"] is False

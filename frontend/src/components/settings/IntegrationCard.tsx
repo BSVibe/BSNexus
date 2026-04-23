@@ -34,12 +34,6 @@ const META: Record<
     Icon: I.Brain,
     blurb: 'Graph-backed project memory. When enabled, runs pull relevant notes into their composition.',
   },
-  bsgateway: {
-    label: 'BSGateway',
-    accent: accentHex.amber,
-    Icon: I.Gateway,
-    blurb: 'Cost-aware model selection via LiteLLM hook. Default LiteLLM is used when disabled.',
-  },
   bsupervisor: {
     label: 'BSupervisor',
     accent: accentHex.rose,
@@ -198,7 +192,7 @@ export default function IntegrationCard({
             value={baseUrl}
             onChange={(e) => setBaseUrl(e.target.value)}
             disabled={!enabled}
-            placeholder={`https://${provider === 'bsage' ? 'sage' : provider === 'bsgateway' ? 'gateway' : 'supervisor'}.bsvibe.dev`}
+            placeholder={`https://${provider === 'bsage' ? 'sage' : 'supervisor'}.bsvibe.dev`}
           />
         </Field>
 

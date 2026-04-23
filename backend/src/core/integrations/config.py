@@ -59,7 +59,7 @@ class AuditProviderConfig(ProviderConfig):
 
 @dataclass(frozen=True)
 class TenantIntegrationSnapshot:
-    """All three integration configs resolved for one tenant.
+    """Integration configs resolved for one tenant.
 
     Disabled or missing providers are represented as None so callers
     fall back to Noop implementations.
@@ -67,7 +67,6 @@ class TenantIntegrationSnapshot:
 
     tenant_id: uuid.UUID
     bsage: ProviderConfig | None
-    bsgateway: ProviderConfig | None
     bsupervisor: AuditProviderConfig | None
 
 
@@ -128,7 +127,6 @@ async def get_tenant_integration_snapshot(
     snapshot = TenantIntegrationSnapshot(
         tenant_id=tenant_id,
         bsage=_row_to_provider(rows.get(IntegrationProvider.bsage)),
-        bsgateway=_row_to_provider(rows.get(IntegrationProvider.bsgateway)),
         bsupervisor=_row_to_provider(rows.get(IntegrationProvider.bsupervisor)),
     )
     _cache[tenant_id] = (now, snapshot)

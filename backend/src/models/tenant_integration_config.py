@@ -1,7 +1,14 @@
 """Per-tenant integration settings.
 
-Each row configures one sibling service (BSage / BSGateway / BSupervisor)
-for one tenant. Encrypted api_key at rest; never log raw.
+Each row configures one sibling-service hook (BSage knowledge,
+BSupervisor audit) for one tenant. Encrypted api_key at rest; never log
+raw.
+
+BSGateway is NOT modeled as an integration here — it's an executor
+kind. A tenant points runs through BSGateway by registering an
+``ExecutorConfig`` with ``executor_type="bsgateway"`` and marking it
+``is_selected``. That keeps the "who runs the LLM call" decision in one
+place (Executors tab) and leaves Integrations for non-executor hooks.
 """
 
 from __future__ import annotations
@@ -30,7 +37,6 @@ from backend.src.storage.database import Base
 
 class IntegrationProvider(str, enum.Enum):
     bsage = "bsage"
-    bsgateway = "bsgateway"
     bsupervisor = "bsupervisor"
 
 
