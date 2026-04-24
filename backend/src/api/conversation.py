@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from typing import Any
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -23,24 +22,19 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.core.auth import get_current_user
-from backend.src.core.orchestrator_adapter import LiteLLMOrchestratorAdapter
+from backend.src.core.dispatcher import _dispatch_background, build_adapter
 from backend.src.core.planner import maybe_plan_phases, seed_phase_chain
 from backend.src.core.request_extractor import RequestExtractor
-from backend.src.core.run_artifacts import publish_run_output
-from backend.src.core.run_orchestrator import get_run_orchestrator
 from backend.src.core.tenant_context import get_tenant_id
-from backend.src.core.worker_adapter import WorkerDispatchAdapter
-from backend.src.core.worker_dispatch import WorkerDispatcher
 from backend.src.models import (
     ConversationMessage,
     ExecutionRun,
-    ExecutorConfig,
     Project,
     RunPriority,
     RunStatus,
 )
 from backend.src.schemas import MessageCreate, MessageResponse, SendMessageResponse
-from backend.src.storage.database import async_session, get_db
+from backend.src.storage.database import get_db
 
 logger = structlog.get_logger(__name__)
 
@@ -165,159 +159,6 @@ async def send_message(
     )
 
 
-# Module-level hook so tests can swap the background dispatcher with a
-# no-op that doesn't touch the real DB / LLM / Redis.
-async def _dispatch_new_run(
-    run_id: uuid.UUID,
-    tenant_id: uuid.UUID,
-    project_id: uuid.UUID,
-    stream_manager: Any | None,
-) -> None:
-    """Kick off RunOrchestrator in the background.
-
-    Runs on its own session so the HTTP request returns immediately.
-    Errors are logged but never raised out — orchestration failures land
-    the run in ``blocked`` state via the state machine, not as API
-    errors.
-    """
-    try:
-        async with async_session() as session:
-            adapter = await _build_adapter(
-                session,
-                tenant_id,
-                run_id=run_id,
-                project_id=project_id,
-                stream_manager=stream_manager,
-            )
-            run = await get_run_orchestrator().dispatch_run(
-                run_id,
-                db=session,
-                executor=adapter,
-                stream_manager=stream_manager,
-            )
-            # Sync executor paths (generic_llm / bsgateway) land the run
-            # in ``done`` right here; worker paths return ``running`` and
-            # WorkerResultConsumer publishes artifacts later. Calling the
-            # helper is idempotent so the sync path runs it now.
-            if run is not None and run.status == RunStatus.done:
-                await publish_run_output(run, session)
-            await session.commit()
-    except Exception:
-        logger.exception("background_dispatch_failed", run_id=str(run_id))
-
-
-async def _build_adapter(
-    session: AsyncSession,
-    tenant_id: uuid.UUID,
-    *,
-    run_id: uuid.UUID,
-    project_id: uuid.UUID,
-    stream_manager: Any | None = None,
-) -> Any | None:
-    """Pick an executor for the tenant's default ``ExecutorConfig``.
-
-    Every LLM call that BSNexus initiates on behalf of a tenant must be
-    gated by the tenant's own ``ExecutorConfig``. A tenant that opts
-    into remote-worker execution (``executor_type="worker"``) — or any
-    non-LLM backend — must never trigger an API call from the
-    backend: the API bill would be on us, not them. So this function
-    only returns a live LLM adapter for ``generic_llm`` and
-    ``bsgateway`` configs (where the tenant supplied their own credentials);
-    everything else returns ``None`` and the run pauses at ``running``
-    state for an out-of-band executor to pick up.
-    """
-    row = (
-        await session.execute(
-            select(ExecutorConfig).where(
-                ExecutorConfig.tenant_id == tenant_id,
-                ExecutorConfig.is_selected.is_(True),
-            )
-        )
-    ).scalar_one_or_none()
-    if row is None:
-        logger.info("dispatch_no_default_executor", tenant_id=str(tenant_id))
-        return None
-
-    exec_type = (row.executor_type or "").lower()
-    cfg = row.config or {}
-
-    if exec_type == "generic_llm":
-        model = cfg.get("model")
-        if not model:
-            logger.warning(
-                "dispatch_generic_llm_missing_model",
-                config_id=str(row.id),
-                tenant_id=str(tenant_id),
-            )
-            return None
-        return LiteLLMOrchestratorAdapter(
-            model=model,
-            project_id=project_id,
-            api_key=cfg.get("api_key") or "unused",
-            base_url=cfg.get("base_url"),
-        )
-
-    if exec_type == "bsgateway":
-        gateway_url = cfg.get("bsgateway_url")
-        if not gateway_url:
-            logger.warning(
-                "dispatch_bsgateway_missing_url",
-                config_id=str(row.id),
-                tenant_id=str(tenant_id),
-            )
-            return None
-        return LiteLLMOrchestratorAdapter(
-            model=cfg.get("model") or "openai/gpt-4o-mini",
-            project_id=project_id,
-            api_key=cfg.get("bsgateway_api_key") or "unused",
-            base_url=gateway_url,
-        )
-
-    # "worker" is the generic remote-execution case; "claude_code" and
-    # "codex" are specializations that require the worker to advertise
-    # that specific CLI capability. All three paths dispatch through
-    # WorkerDispatchAdapter; the only difference is the capability
-    # filter used to pick a matching worker. The CLI itself is fixed
-    # at worker registration/startup — not negotiated per task.
-    if exec_type in {"worker", "claude_code", "codex"}:
-        if stream_manager is None:
-            logger.warning(
-                "dispatch_worker_missing_stream_manager",
-                tenant_id=str(tenant_id),
-                executor_type=exec_type,
-            )
-            return None
-        required_capabilities: list[str] | None = (
-            None if exec_type == "worker" else [exec_type]
-        )
-        dispatcher = WorkerDispatcher(stream_manager)
-        worker = await dispatcher.find_available_worker(
-            session,
-            tenant_id=tenant_id,
-            required_capabilities=required_capabilities,
-        )
-        if worker is None:
-            logger.info(
-                "dispatch_worker_no_match",
-                tenant_id=str(tenant_id),
-                executor_type=exec_type,
-                required_capabilities=required_capabilities,
-            )
-            return None
-        return WorkerDispatchAdapter(
-            stream_manager=stream_manager,
-            worker_id=worker.id,
-            run_id=run_id,
-            project_id=project_id,
-        )
-
-    logger.info(
-        "dispatch_executor_type_unknown",
-        executor_type=exec_type,
-        config_id=str(row.id),
-        tenant_id=str(tenant_id),
-    )
-    return None
-
-
+_dispatch_new_run = _dispatch_background
+_build_adapter = build_adapter
 _BACKGROUND_DISPATCH = _dispatch_new_run
