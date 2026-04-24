@@ -36,25 +36,29 @@ def _mock_httpx_post(*, status: int = 201, json_payload: dict | None = None):
 
 @pytest.mark.asyncio
 async def test_noop_index_returns_none():
-    out = await NoopKnowledgeClient().index(title="x", content="y")
+    out = await NoopKnowledgeClient().index(payload={"reply_text": "y"})
     assert out is None
 
 
 @pytest.mark.asyncio
 async def test_noop_decision_returns_none():
-    out = await NoopKnowledgeClient().record_decision(
-        title="x", decision="y", reasoning="z"
-    )
+    out = await NoopKnowledgeClient().record_decision(title="x", decision="y", reasoning="z")
     assert out is None
 
 
 @pytest.mark.asyncio
-async def test_bsage_index_posts_entries_endpoint():
+async def test_bsage_index_posts_bsnexus_input_webhook():
+    """index() forwards the raw run payload to BSage's bsnexus-input webhook.
+
+    BSage's AgentLoop seed-refiner owns title derivation — sending a
+    pre-computed title from BSNexus produces long, noisy note names like
+    'Wrote 6 file(s): package.json, ...'. Forward the raw output and let
+    BSage refine.
+    """
     cm = _mock_httpx_post(
         json_payload={
-            "id": "note-123",
-            "path": "garden/idea/note-123.md",
-            "created_at": "2026-04-24T00:00:00Z",
+            "plugin": "bsnexus-input",
+            "results": [{"collected": 1}],
         }
     )
     with patch(
@@ -63,25 +67,28 @@ async def test_bsage_index_posts_entries_endpoint():
     ):
         client = BSageKnowledgeClient("https://bsage.test", "key")
         ref = await client.index(
-            title="Shipped TODO app",
-            content="Stack: Next.js + Prisma",
-            tags=["project:todo", "bsnexus-deliverable"],
-            source="bsnexus:todo",
-            metadata={"bsnexus_run_id": "abc"},
+            payload={
+                "reply_text": "Shipped TODO app",
+                "files": [{"path": "src/main.py", "size": 100}],
+                "project": "todo",
+                "run_id": "abc",
+                "tags": ["project:todo", "bsnexus-deliverable"],
+            },
         )
 
+    # Webhook response doesn't include a note id/path (refiner runs after
+    # plugin execute), so a successful post returns an anonymous ref.
     assert isinstance(ref, KnowledgeEntryRef)
-    assert ref.id == "note-123"
-    assert ref.path == "garden/idea/note-123.md"
 
     cm.post.assert_awaited_once()
     url, kwargs = cm.post.await_args.args, cm.post.await_args.kwargs
-    assert url[0].endswith("/api/knowledge/entries")
+    assert url[0].endswith("/api/webhooks/bsnexus-input")
     body = kwargs["json"]
-    assert body["title"] == "Shipped TODO app"
+    # The body is forwarded verbatim — no title/content derivation.
+    assert body["reply_text"] == "Shipped TODO app"
+    assert body["files"] == [{"path": "src/main.py", "size": 100}]
+    assert body["run_id"] == "abc"
     assert "bsnexus-deliverable" in body["tags"]
-    assert body["source"] == "bsnexus:todo"
-    assert body["metadata"]["bsnexus_run_id"] == "abc"
 
 
 @pytest.mark.asyncio
@@ -92,7 +99,7 @@ async def test_bsage_index_fails_soft_on_500():
         return_value=cm,
     ):
         client = BSageKnowledgeClient("https://bsage.test", "key")
-        ref = await client.index(title="x", content="y")
+        ref = await client.index(payload={"reply_text": "x"})
     assert ref is None
 
 
@@ -135,16 +142,12 @@ def test_resolve_knowledge_client_returns_noop_when_disabled():
 
 
 def test_resolve_knowledge_client_returns_bsage_when_enabled():
-    cfg = ProviderConfig(
-        enabled=True, base_url="https://bsage.test", api_key="k"
-    )
+    cfg = ProviderConfig(enabled=True, base_url="https://bsage.test", api_key="k")
     assert isinstance(resolve_knowledge_client(cfg), BSageKnowledgeClient)
 
 
 def test_bsage_client_auth_token_overrides_api_key():
-    client = BSageKnowledgeClient(
-        "https://bsage.test", "static-api-key", auth_token="user-jwt"
-    )
+    client = BSageKnowledgeClient("https://bsage.test", "static-api-key", auth_token="user-jwt")
     assert client._headers["Authorization"] == "Bearer user-jwt"
 
 
@@ -214,15 +217,13 @@ async def test_bsage_search_returns_empty_on_500():
 
 @pytest.mark.asyncio
 async def test_bsage_index_uses_per_call_auth_token():
-    cm = _mock_httpx_post(
-        json_payload={"id": "n1", "path": "p", "created_at": "now"}
-    )
+    cm = _mock_httpx_post(json_payload={"plugin": "bsnexus-input", "results": [{"collected": 1}]})
     with patch(
         "backend.src.core.composer.knowledge_client.httpx.AsyncClient",
         return_value=cm,
     ):
         client = BSageKnowledgeClient("https://bsage.test", "static")
-        await client.index(title="x", content="y", auth_token="founder-jwt")
+        await client.index(payload={"reply_text": "x"}, auth_token="founder-jwt")
 
     sent_headers = cm.post.await_args.kwargs["headers"]
     assert sent_headers["Authorization"] == "Bearer founder-jwt"
