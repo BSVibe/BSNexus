@@ -107,6 +107,7 @@ async def build_adapter(
             return None
         return LiteLLMOrchestratorAdapter(
             model=model,
+            project_id=project_id,
             api_key=cfg.get("api_key") or "unused",
             base_url=cfg.get("base_url"),
         )
@@ -117,6 +118,7 @@ async def build_adapter(
             return None
         return LiteLLMOrchestratorAdapter(
             model=cfg.get("model") or "openai/gpt-4o-mini",
+            project_id=project_id,
             api_key=cfg.get("bsgateway_api_key") or "unused",
             base_url=gateway_url,
         )

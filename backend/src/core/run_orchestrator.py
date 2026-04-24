@@ -25,7 +25,6 @@ request creation or ``on_run_completed`` from a completion handler.
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 from typing import Any
 

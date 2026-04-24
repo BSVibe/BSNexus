@@ -63,36 +63,59 @@ def is_macro_direction(text: str) -> bool:
 _PLANNER_SYSTEM = (
     "You are the chief-of-staff for an AI company the founder hired. The "
     "founder gives short, aspirational directions; you expand them into a "
-    "PRODUCTION-READY plan. The founder never asks for the boring parts "
-    "(tests, README, error handling, CI, deployment, auth, logging, config) "
-    "but expects them anyway. Include them.\n\n"
-    "Respond with STRICT JSON only (no prose, no markdown fences), matching "
-    "exactly:\n"
+    "complete plan of phases that ship a production-ready result. The "
+    "founder never asks for the unglamorous parts (tests, docs, error "
+    "handling, deployment, config, auth, logging) but expects them "
+    "anyway. Include them when they make sense for the domain.\n\n"
+    "Respond with STRICT JSON only (no prose, no markdown fences), "
+    "matching exactly:\n"
     '{"phases": [{"name": "string, ≤24 chars", "direction": "string, a '
-    "self-contained production-ready prompt for that phase\"}, …]}\n\n"
-    "Phase-count guidance:\n"
-    "- Trivial rename / copy edit: 1 phase (planner should skip).\n"
-    "- Scripts / one-off utilities: 2–3 phases.\n"
-    "- Apps / services / sites / products: 5–10 phases. A production web "
-    "app typically needs: architecture spec, backend (models + API + "
-    "validation + auth), frontend (routing + state + API client + UI), "
-    "integration tests, containerization/deploy, README with runbook. "
-    "Add more if the domain needs (seeds/fixtures, migrations, admin UI, "
-    "monitoring hooks).\n\n"
-    "Rules for ``direction`` strings:\n"
-    "- Each direction is self-contained: restate the cross-phase contract "
-    "(API shapes, file names, port numbers, env vars). Never say \"above\" "
-    "or \"previously\" — the execution engine may run phases in isolation.\n"
-    "- Demand concrete, runnable output. Phrases like \"include complete, "
-    "ready-to-run code for every listed file\" make the worker emit actual "
-    "files instead of pseudocode.\n"
-    "- Bake in production defaults without asking: structured logging, "
-    "type-hinted Python, TypeScript for frontend, async SQLAlchemy, "
-    "Pydantic v2, env-var config, CORS, error responses.\n"
-    "- No phase waits on humans outside the company (don't say \"ask user "
-    "for logo\"). Pick sensible defaults and ship.\n"
-    "- Match the language of the original direction for the ``direction`` "
-    "field; the ``name`` field may stay English for brevity."
+    "self-contained prompt for that phase\"}, …]}\n\n"
+    "Phase-count guidance — scale to the request, don't pad:\n"
+    "- Trivial edits / rename / single-question: 1 phase (the caller "
+    "skips the planner for these, but still: if you see one, return "
+    "a single phase).\n"
+    "- Scripts / tiny utilities: 2–3 phases.\n"
+    "- Non-trivial products (apps, services, sites, games, research "
+    "reports, design systems, data pipelines): 4–10 phases, sized so "
+    "each phase is a self-contained unit of work with a clear "
+    "deliverable.\n\n"
+    "Rules for ``direction`` strings — MANDATORY and tech/domain "
+    "agnostic:\n\n"
+    "1. Language: write ``direction`` in the SAME natural language the "
+    "founder used (don't translate). Each direction must tell the "
+    "worker to reply in that same language. ``name`` may stay short "
+    "English.\n\n"
+    "2. Self-containment: restate the cross-phase contract inside each "
+    "direction (file names, API shapes, ports, env vars, conventions). "
+    'Never reference "above" or "the previous phase" — phases may run '
+    "in isolation.\n\n"
+    "3. Tool use for persistence: the workers have ``file_write`` / "
+    "``file_read`` / ``file_list`` tools that write into the project "
+    "workspace. Directions MUST tell the worker to persist any "
+    "artifacts via ``file_write`` — not paste them into chat. Reading "
+    "existing files first (``file_list`` → ``file_read``) before "
+    "overwriting is expected when the phase builds on earlier work.\n\n"
+    "4. Completeness over scaffolding: when a phase would be tempted "
+    "to emit a scaffold command (``npx create-next-app``, ``django-"
+    "admin startproject``, ``cargo new``, ``rails new``, etc.) in lieu "
+    "of files, the direction MUST forbid that and require the worker "
+    "to write each file the scaffold would have created. A one-line "
+    "setup command in a runbook is fine; a setup command INSTEAD OF "
+    "files is not.\n\n"
+    "5. Domain adaptation: output matches the domain. Research → a "
+    "finished written report (not a rough outline). Design → actual "
+    "HTML/CSS/tokens or a design spec with concrete values. Code → "
+    "runnable files. Data pipeline → actual scripts + schema + sample "
+    "output. Never stop at a description of what could be produced.\n\n"
+    "6. No external dependency on humans: don't say \"ask the user for "
+    "a logo\" or \"wait for feedback\" — pick sensible defaults and "
+    "ship. The founder will review the result, not each phase.\n\n"
+    "7. Sensible production defaults: include the boring basics "
+    "appropriate to the tech stack the worker chooses — structured "
+    "errors, input validation, config via env vars, a README or "
+    "runbook, at least one test or usage example. Don't over-specify "
+    "the stack if the founder didn't — workers can choose."
 )
 
 
@@ -125,7 +148,12 @@ async def maybe_plan_phases(
         return None
     phases = _parse_plan(raw)
     if not phases or len(phases) < 2:
-        logger.info("planner_no_phases_or_trivial", phases=len(phases or []))
+        logger.info(
+            "planner_no_phases_or_trivial",
+            phases=len(phases or []),
+            raw_preview=raw[:400],
+            raw_len=len(raw),
+        )
         return None
     return phases
 
@@ -178,7 +206,7 @@ async def _run_planner_llm(
         ],
         api_key=api_key,
         api_base=base_url,
-        max_tokens=4096,  # local reasoning models burn most of this on thinking
+        max_tokens=8192,  # local reasoning models burn most of this on thinking + large plans
         temperature=0.2,
         timeout=600,
         **extra,
