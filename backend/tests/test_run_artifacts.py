@@ -265,6 +265,31 @@ async def test_publishes_indexes_deliverable_to_knowledge_when_provided(
 
 
 @pytest.mark.asyncio
+async def test_publishes_forwards_originator_jwt_from_request(
+    db_session, mock_tenant_id, seeded_tenant
+):
+    run = await _seed_completed_run(
+        db_session,
+        mock_tenant_id,
+        inline="Shipped.",
+        files=[{"path": "a.py", "size": 1}],
+    )
+    req = (
+        await db_session.execute(
+            select(Request).where(Request.id == run.request_id)
+        )
+    ).scalar_one()
+    req.originator_auth = "founder-jwt-xyz"
+    await db_session.flush()
+
+    client = _RecordingKnowledgeClient()
+    await publish_run_output(run, db_session, knowledge=client)
+
+    assert len(client.entries) == 1
+    assert client.entries[0]["auth_token"] == "founder-jwt-xyz"
+
+
+@pytest.mark.asyncio
 async def test_publishes_skips_index_when_no_knowledge_client(
     db_session, mock_tenant_id, seeded_tenant
 ):

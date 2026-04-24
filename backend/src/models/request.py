@@ -76,6 +76,13 @@ class Request(Base):
         nullable=True,
     )
 
+    # Raw Bearer token from the founder's originating HTTP request. Used
+    # when BSNexus calls sibling services (BSage knowledge writes) on
+    # their behalf — forwarding the same JWT makes those calls look like
+    # the founder's own, satisfying BSage's per-user auth without needing
+    # a separate service API key.
+    originator_auth: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

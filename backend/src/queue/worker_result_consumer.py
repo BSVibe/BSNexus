@@ -197,7 +197,19 @@ class WorkerResultConsumer:
             # the result into BSage when configured. Idempotent so a
             # duplicate stream delivery is a no-op.
             from backend.src.core.composer import resolve_knowledge_client
+            from backend.src.models import Request as _Request
 
-            knowledge = resolve_knowledge_client(snapshot.bsage)
+            originator_token: str | None = None
+            if run.request_id is not None:
+                req_row = (
+                    await session.execute(
+                        select(_Request).where(_Request.id == run.request_id)
+                    )
+                ).scalar_one_or_none()
+                if req_row is not None:
+                    originator_token = req_row.originator_auth
+            knowledge = resolve_knowledge_client(
+                snapshot.bsage, auth_token=originator_token
+            )
             await publish_run_output(run, session, knowledge=knowledge)
             await session.commit()

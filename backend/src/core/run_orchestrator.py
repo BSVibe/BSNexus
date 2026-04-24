@@ -89,7 +89,9 @@ class RunOrchestrator:
         snapshot_data = get_tenant_integration_snapshot
         integrations = await snapshot_data(db, run.tenant_id)
 
-        knowledge = resolve_knowledge_client(integrations.bsage)
+        knowledge = resolve_knowledge_client(
+            integrations.bsage, auth_token=request.originator_auth
+        )
         audit = resolve_audit_sink(integrations.bsupervisor)
 
         # Refresh .bsnexus/context/*.md so the composer's pointer to

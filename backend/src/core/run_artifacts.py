@@ -208,6 +208,17 @@ async def _index_deliverable(
     ).scalar_one_or_none()
     project_name = project.name if project is not None else "unknown-project"
 
+    # Forward the founder's own JWT so BSage records the write under
+    # their identity (same-account SSO). Falls back to the configured
+    # api_key when no originator token is available.
+    originator_token: str | None = None
+    if run.request_id is not None:
+        req = (
+            await session.execute(select(Request).where(Request.id == run.request_id))
+        ).scalar_one_or_none()
+        if req is not None:
+            originator_token = req.originator_auth
+
     content_lines = [reply_text] if reply_text else []
     if files:
         content_lines.append("")
@@ -233,6 +244,7 @@ async def _index_deliverable(
         tags=tags,
         source=f"bsnexus:{project_name}",
         metadata=metadata,
+        auth_token=originator_token,
     )
     if ref is not None:
         logger.info(

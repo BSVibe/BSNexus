@@ -70,7 +70,20 @@ async def _dispatch_background(
             )
             if run is not None and run.status == RunStatus.done:
                 integrations = await get_tenant_integration_snapshot(session, tenant_id)
-                knowledge = resolve_knowledge_client(integrations.bsage)
+                originator_token: str | None = None
+                if run.request_id is not None:
+                    from backend.src.models import Request as _Request  # noqa: PLC0415
+
+                    req_row = (
+                        await session.execute(
+                            select(_Request).where(_Request.id == run.request_id)
+                        )
+                    ).scalar_one_or_none()
+                    if req_row is not None:
+                        originator_token = req_row.originator_auth
+                knowledge = resolve_knowledge_client(
+                    integrations.bsage, auth_token=originator_token
+                )
                 await publish_run_output(run, session, knowledge=knowledge)
             await session.commit()
     except Exception:

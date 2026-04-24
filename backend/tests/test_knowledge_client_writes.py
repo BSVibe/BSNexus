@@ -139,3 +139,90 @@ def test_resolve_knowledge_client_returns_bsage_when_enabled():
         enabled=True, base_url="https://bsage.test", api_key="k"
     )
     assert isinstance(resolve_knowledge_client(cfg), BSageKnowledgeClient)
+
+
+def test_bsage_client_auth_token_overrides_api_key():
+    client = BSageKnowledgeClient(
+        "https://bsage.test", "static-api-key", auth_token="user-jwt"
+    )
+    assert client._headers["Authorization"] == "Bearer user-jwt"
+
+
+def test_bsage_client_falls_back_to_api_key_without_token():
+    client = BSageKnowledgeClient("https://bsage.test", "static-api-key")
+    assert client._headers["Authorization"] == "Bearer static-api-key"
+
+
+def test_bsage_client_no_auth_when_neither_set():
+    client = BSageKnowledgeClient("https://bsage.test", None)
+    assert "Authorization" not in client._headers
+
+
+def test_headers_with_token_overrides_instance_default():
+    client = BSageKnowledgeClient("https://bsage.test", "static")
+    headers = client._headers_with_token("per-call")
+    assert headers["Authorization"] == "Bearer per-call"
+    assert client._headers["Authorization"] == "Bearer static"
+
+
+def test_resolve_knowledge_client_threads_auth_token():
+    cfg = ProviderConfig(enabled=True, base_url="https://bsage.test", api_key=None)
+    client = resolve_knowledge_client(cfg, auth_token="jwt-xyz")
+    assert isinstance(client, BSageKnowledgeClient)
+    assert client._headers["Authorization"] == "Bearer jwt-xyz"
+
+
+@pytest.mark.asyncio
+async def test_bsage_record_decision_fails_soft_on_500():
+    cm = _mock_httpx_post(status=500, json_payload={"detail": "boom"})
+    with patch(
+        "backend.src.core.composer.knowledge_client.httpx.AsyncClient",
+        return_value=cm,
+    ):
+        client = BSageKnowledgeClient("https://bsage.test", "key")
+        ref = await client.record_decision(title="x", decision="y", reasoning="z")
+    assert ref is None
+
+
+@pytest.mark.asyncio
+async def test_bsage_search_returns_empty_on_500():
+    from backend.src.core.composer import BSageKnowledgeClient as _C
+
+    class _GetCM:
+        def __init__(self):
+            self.get = AsyncMock()
+            resp = MagicMock()
+            resp.raise_for_status = MagicMock(side_effect=RuntimeError("boom"))
+            resp.json = MagicMock(return_value={})
+            self.get.return_value = resp
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return None
+
+    cm = _GetCM()
+    with patch(
+        "backend.src.core.composer.knowledge_client.httpx.AsyncClient",
+        return_value=cm,
+    ):
+        client = _C("https://bsage.test", "key")
+        fragments = await client.search("q")
+    assert fragments == []
+
+
+@pytest.mark.asyncio
+async def test_bsage_index_uses_per_call_auth_token():
+    cm = _mock_httpx_post(
+        json_payload={"id": "n1", "path": "p", "created_at": "now"}
+    )
+    with patch(
+        "backend.src.core.composer.knowledge_client.httpx.AsyncClient",
+        return_value=cm,
+    ):
+        client = BSageKnowledgeClient("https://bsage.test", "static")
+        await client.index(title="x", content="y", auth_token="founder-jwt")
+
+    sent_headers = cm.post.await_args.kwargs["headers"]
+    assert sent_headers["Authorization"] == "Bearer founder-jwt"

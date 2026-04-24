@@ -100,6 +100,16 @@ async def send_message(
         message, tenant_id=tenant_id, db=db
     )
 
+    # Capture the founder's Bearer token so post-run sibling-service
+    # calls (BSage index) can forward the same identity. Auto same-
+    # account SSO without a separate service key.
+    auth_header = request.headers.get("authorization", "") or request.headers.get("Authorization", "")
+    originator_token: str | None = None
+    if auth_header.lower().startswith("bearer "):
+        originator_token = auth_header.split(" ", 1)[1].strip() or None
+    if outcome.request is not None and originator_token:
+        outcome.request.originator_auth = originator_token
+
     # Chit-chat skips the orchestrator; question / request / modification
     # all seed a run. For macro directions ("앱 만들어줘"), the planner
     # asks the tenant's LLM for a phase plan and seeds a linear chain

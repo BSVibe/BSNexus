@@ -93,6 +93,7 @@ class KnowledgeClient(Protocol):
         links: list[str] | None = None,
         source: str = "bsnexus",
         metadata: dict | None = None,
+        auth_token: str | None = None,
     ) -> KnowledgeEntryRef | None: ...
 
     async def record_decision(
@@ -105,6 +106,7 @@ class KnowledgeClient(Protocol):
         context: str = "",
         tags: list[str] | None = None,
         source: str = "bsnexus",
+        auth_token: str | None = None,
     ) -> KnowledgeEntryRef | None: ...
 
 
@@ -136,6 +138,7 @@ class NoopKnowledgeClient:
         links: list[str] | None = None,
         source: str = "bsnexus",
         metadata: dict | None = None,
+        auth_token: str | None = None,
     ) -> KnowledgeEntryRef | None:
         return None
 
@@ -149,6 +152,7 @@ class NoopKnowledgeClient:
         context: str = "",
         tags: list[str] | None = None,
         source: str = "bsnexus",
+        auth_token: str | None = None,
     ) -> KnowledgeEntryRef | None:
         return None
 
@@ -160,7 +164,14 @@ class BSageKnowledgeClient:
     empty results. Never raise out of the Protocol contract.
     """
 
-    def __init__(self, base_url: str, api_key: str | None, *, timeout_s: float = 3.0):
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str | None,
+        *,
+        auth_token: str | None = None,
+        timeout_s: float = 3.0,
+    ):
         self._base_url = base_url.rstrip("/")
         self._timeout_s = timeout_s
         # Explicit service UA — Cloudflare's Bot Fight Mode on the
@@ -170,8 +181,24 @@ class BSageKnowledgeClient:
         self._headers: dict[str, str] = {
             "User-Agent": "BSNexus/0.2 (+https://nexus.bsvibe.dev)",
         }
-        if api_key:
+        # Per-instance auth_token (the founder's JWT forwarded for
+        # same-account SSO) takes precedence over the static api_key.
+        # If neither is set, BSage falls back to anonymous which its
+        # @protected routes reject with 401.
+        if auth_token:
+            self._headers["Authorization"] = f"Bearer {auth_token}"
+        elif api_key:
             self._headers["Authorization"] = f"Bearer {api_key}"
+
+    def _headers_with_token(self, auth_token: str | None) -> dict[str, str]:
+        """Return request headers, preferring a caller-supplied Bearer
+        token over the instance default. Useful when a single client
+        instance serves multiple founders and the token varies per
+        call.
+        """
+        if not auth_token:
+            return self._headers
+        return {**self._headers, "Authorization": f"Bearer {auth_token}"}
 
     async def search(
         self, intent: str, *, top_k: int = 10
@@ -245,6 +272,7 @@ class BSageKnowledgeClient:
         links: list[str] | None = None,
         source: str = "bsnexus",
         metadata: dict | None = None,
+        auth_token: str | None = None,
     ) -> KnowledgeEntryRef | None:
         body = {
             "title": title,
@@ -260,7 +288,7 @@ class BSageKnowledgeClient:
                 resp = await client.post(
                     f"{self._base_url}/api/knowledge/entries",
                     json=body,
-                    headers=self._headers,
+                    headers=self._headers_with_token(auth_token),
                 )
                 resp.raise_for_status()
                 payload = resp.json()
@@ -282,6 +310,7 @@ class BSageKnowledgeClient:
         context: str = "",
         tags: list[str] | None = None,
         source: str = "bsnexus",
+        auth_token: str | None = None,
     ) -> KnowledgeEntryRef | None:
         body = {
             "title": title,
@@ -297,7 +326,7 @@ class BSageKnowledgeClient:
                 resp = await client.post(
                     f"{self._base_url}/api/knowledge/decisions",
                     json=body,
-                    headers=self._headers,
+                    headers=self._headers_with_token(auth_token),
                 )
                 resp.raise_for_status()
                 payload = resp.json()
@@ -310,8 +339,17 @@ class BSageKnowledgeClient:
         )
 
 
-def resolve_knowledge_client(cfg: ProviderConfig | None) -> KnowledgeClient:
-    """Factory: return BSage client when configured, Noop otherwise."""
+def resolve_knowledge_client(
+    cfg: ProviderConfig | None,
+    *,
+    auth_token: str | None = None,
+) -> KnowledgeClient:
+    """Factory: return BSage client when configured, Noop otherwise.
+
+    ``auth_token`` forwards the founder's own Bearer JWT so BSage
+    records per-user attribution (same-account SSO). When omitted, the
+    client falls back to the tenant's configured api_key.
+    """
     if cfg is not None and cfg.enabled and cfg.base_url:
-        return BSageKnowledgeClient(cfg.base_url, cfg.api_key)
+        return BSageKnowledgeClient(cfg.base_url, cfg.api_key, auth_token=auth_token)
     return NoopKnowledgeClient()

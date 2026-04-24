@@ -118,6 +118,29 @@ async def test_send_request_seeds_top_level_run_and_dispatches(
 
 
 @pytest.mark.asyncio
+async def test_send_request_captures_originator_auth(client, db_session):
+    from sqlalchemy import select
+
+    from backend.src.models import Request as FounderRequest
+
+    project_id = await _make_project(client)
+    resp = await client.post(
+        f"/api/v1/projects/{project_id}/messages",
+        json={"content": "Please build the dashboard"},
+        headers={"Authorization": "Bearer user-jwt-abc"},
+    )
+    assert resp.status_code == 201
+    request_id = uuid.UUID(resp.json()["request_id"])
+
+    row = (
+        await db_session.execute(
+            select(FounderRequest).where(FounderRequest.id == request_id)
+        )
+    ).scalar_one()
+    assert row.originator_auth == "user-jwt-abc"
+
+
+@pytest.mark.asyncio
 async def test_send_modification_also_seeds_a_run(
     client, _stub_background_dispatch
 ):

@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -65,6 +65,7 @@ async def list_decisions(
 async def resolve_decision(
     decision_id: uuid.UUID,
     payload: DecisionResolve,
+    request: Request,
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),
     _user=Depends(get_current_user),
@@ -88,6 +89,12 @@ async def resolve_decision(
         await db.execute(select(Project).where(Project.id == decision.project_id))
     ).scalar_one_or_none()
     project_name = project.name if project is not None else "project"
+
+    auth_header = request.headers.get("authorization") or request.headers.get("Authorization", "")
+    auth_token: str | None = None
+    if auth_header.lower().startswith("bearer "):
+        auth_token = auth_header.split(" ", 1)[1].strip() or None
+
     await knowledge.record_decision(
         title=decision.question[:200] or f"Decision {decision.id}",
         decision=payload.resolution,
@@ -100,6 +107,7 @@ async def resolve_decision(
             "blocking" if decision.blocking else "non-blocking",
         ],
         source=f"bsnexus:{project_name}",
+        auth_token=auth_token,
     )
 
     return decision
