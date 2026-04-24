@@ -25,7 +25,7 @@ async def test_create_project_returns_201_and_scopes_to_tenant(client, mock_tena
     data = resp.json()
     assert data["name"] == "Demo"
     assert data["description"] == "Test run"
-    assert data["status"] == "design"
+    assert data["status"] == "active"
     assert data["tenant_id"] == str(mock_tenant_id)
     assert uuid.UUID(data["id"])
 
@@ -61,14 +61,10 @@ async def test_list_projects_shows_only_own_tenant(client, db_session, mock_tena
     )
     db_session.add(other_tenant)
     await db_session.commit()
-    db_session.add(
-        Project(tenant_id=other_tenant.id, name="Not Mine", description="")
-    )
+    db_session.add(Project(tenant_id=other_tenant.id, name="Not Mine", description=""))
     await db_session.commit()
 
-    resp = await client.get(
-        "/api/v1/projects", headers={"Authorization": "Bearer fake"}
-    )
+    resp = await client.get("/api/v1/projects", headers={"Authorization": "Bearer fake"})
     assert resp.status_code == 200
     rows = resp.json()
     assert len(rows) == 1
@@ -111,9 +107,7 @@ async def test_get_project_404_for_other_tenant(client, db_session):
     await db_session.commit()
     await db_session.refresh(p)
 
-    resp = await client.get(
-        f"/api/v1/projects/{p.id}", headers={"Authorization": "Bearer fake"}
-    )
+    resp = await client.get(f"/api/v1/projects/{p.id}", headers={"Authorization": "Bearer fake"})
     assert resp.status_code == 404
 
 

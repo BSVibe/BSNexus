@@ -20,9 +20,7 @@ export const accentHex: Record<Tone, string> = {
 const STATUS_TONE: Record<string, Tone> = {
   // project
   active: 'emerald',
-  design: 'blue',
-  paused: 'amber',
-  completed: 'gray',
+  archived: 'gray',
   // run / request
   running: 'blue',
   open: 'emerald',

@@ -20,22 +20,19 @@ class WorkspaceType(str, enum.Enum):
 
 
 class ProjectStatus(str, enum.Enum):
-    design = "design"
+    # Single operational state today — no code transitions projects out
+    # of ``active``. ``archived`` is reserved for a future user-initiated
+    # "hide from dashboard" action (delete is the hard-remove path).
     active = "active"
-    paused = "paused"
-    completed = "completed"
+    archived = "archived"
 
 
 class Project(Base):
     __tablename__ = "projects"
-    __table_args__ = (
-        Index("ix_projects_tenant", "tenant_id"),
-    )
+    __table_args__ = (Index("ix_projects_tenant", "tenant_id"),)
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    tenant_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
-    )
+    tenant_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     design_doc_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
@@ -50,7 +47,9 @@ class Project(Base):
     github_branch: Mapped[str | None] = mapped_column(String(255), nullable=True)
     github_token_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    status: Mapped[ProjectStatus] = mapped_column(Enum(ProjectStatus), nullable=False, default=ProjectStatus.design)
+    status: Mapped[ProjectStatus] = mapped_column(
+        Enum(ProjectStatus), nullable=False, default=ProjectStatus.active, server_default="active"
+    )
     max_concurrent_runs: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     llm_config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 

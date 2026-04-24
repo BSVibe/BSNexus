@@ -10,7 +10,7 @@ import { projectsApi, type Project } from '../api/projects'
 import { requestsApi, deliverablesApi, decisionsApi } from '../api/founder'
 import type { Decision, Deliverable, Request as FounderRequest } from '../types/founder'
 
-const STATUS_FILTERS = ['all', 'active', 'design', 'paused', 'completed'] as const
+const STATUS_FILTERS = ['all', 'active', 'archived'] as const
 type StatusFilter = (typeof STATUS_FILTERS)[number]
 
 export default function DashboardPage() {
