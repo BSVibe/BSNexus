@@ -103,23 +103,27 @@ def _default_summary(files: list[dict[str, Any]]) -> str:
     return f"Wrote {len(files)} file(s): {names}{suffix}"
 
 
-async def _ensure_assistant_message(
-    run: "ExecutionRun", reply_text: str, session: AsyncSession
-) -> None:
+async def _ensure_assistant_message(run: "ExecutionRun", reply_text: str, session: AsyncSession) -> None:
     if run.request_id is None or not reply_text:
         return
-    stmt = select(ConversationMessage.id).where(
+    # Dedupe the *result* reply. An immediate "ack" message is inserted
+    # from the HTTP handler when a run is dispatched so the chat doesn't
+    # appear frozen — skip those when deciding if we've already landed a
+    # result. JSON-in-SQL matchers differ across SQLite and PG, so do
+    # the filter in Python.
+    stmt = select(ConversationMessage).where(
         ConversationMessage.request_id == run.request_id,
         ConversationMessage.role == "assistant",
     )
-    existing = (await session.execute(stmt)).scalar_one_or_none()
-    if existing is not None:
+    existing_results = [row for row in (await session.execute(stmt)).scalars().all() if not _is_ack(row)]
+    if existing_results:
         return
     msg = ConversationMessage(
         project_id=run.project_id,
         role="assistant",
         content=reply_text,
         request_id=run.request_id,
+        actions=[{"kind": "result", "run_id": str(run.id)}],
     )
     session.add(msg)
     await session.flush()
@@ -129,6 +133,11 @@ async def _ensure_assistant_message(
         request_id=str(run.request_id),
         message_id=str(msg.id),
     )
+
+
+def _is_ack(msg: ConversationMessage) -> bool:
+    actions = msg.actions or []
+    return any(isinstance(a, dict) and a.get("kind") == "ack" for a in actions)
 
 
 async def _ensure_deliverable(
@@ -166,9 +175,9 @@ async def _ensure_deliverable(
     if files:
         content_ref["files"] = files
 
-    payload_for_hash = (reply_text + "\n" + "\n".join(
-        f"{f.get('path')}:{f.get('size')}" for f in files
-    )).encode("utf-8")
+    payload_for_hash = (reply_text + "\n" + "\n".join(f"{f.get('path')}:{f.get('size')}" for f in files)).encode(
+        "utf-8"
+    )
 
     version = DeliverableVersion(
         deliverable_id=deliverable.id,
@@ -203,9 +212,7 @@ async def _index_deliverable(
     session: AsyncSession,
 ) -> None:
     """Post the deliverable to BSage so it's searchable across projects."""
-    project = (
-        await session.execute(select(Project).where(Project.id == run.project_id))
-    ).scalar_one_or_none()
+    project = (await session.execute(select(Project).where(Project.id == run.project_id))).scalar_one_or_none()
     project_name = project.name if project is not None else "unknown-project"
 
     # Forward the founder's own JWT so BSage records the write under
@@ -213,9 +220,7 @@ async def _index_deliverable(
     # api_key when no originator token is available.
     originator_token: str | None = None
     if run.request_id is not None:
-        req = (
-            await session.execute(select(Request).where(Request.id == run.request_id))
-        ).scalar_one_or_none()
+        req = (await session.execute(select(Request).where(Request.id == run.request_id))).scalar_one_or_none()
         if req is not None:
             originator_token = req.originator_auth
 
@@ -322,14 +327,36 @@ def _infer_type(files: list[dict[str, Any]]) -> DeliverableType:
     if any(p.endswith((".html", ".htm")) for p in paths):
         return DeliverableType.design
     code_ext = (
-        ".py", ".ts", ".tsx", ".jsx", ".js", ".mjs", ".go", ".rs",
-        ".java", ".kt", ".swift", ".rb", ".php", ".cs", ".cpp", ".c",
+        ".py",
+        ".ts",
+        ".tsx",
+        ".jsx",
+        ".js",
+        ".mjs",
+        ".go",
+        ".rs",
+        ".java",
+        ".kt",
+        ".swift",
+        ".rb",
+        ".php",
+        ".cs",
+        ".cpp",
+        ".c",
     )
     if any(p.endswith(code_ext) for p in paths):
         return DeliverableType.code
     code_langs = {
-        "python", "typescript", "javascript", "go", "rust",
-        "java", "kotlin", "swift", "ruby", "php",
+        "python",
+        "typescript",
+        "javascript",
+        "go",
+        "rust",
+        "java",
+        "kotlin",
+        "swift",
+        "ruby",
+        "php",
     }
     if any(lang in code_langs for lang in langs):
         return DeliverableType.code

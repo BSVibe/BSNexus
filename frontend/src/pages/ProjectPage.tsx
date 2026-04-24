@@ -1,8 +1,9 @@
-import { useEffect, useMemo } from 'react'
-import { useParams, useSearchParams } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useEffect, useMemo, useState } from 'react'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { I } from '../lib/icons'
+import { Modal } from '../components/common/Modal'
 import FilesView from '../components/files/FilesView'
 import ProgressView from '../components/progress/ProgressView'
 import DecisionsView from '../components/decisions/DecisionsView'
@@ -23,11 +24,23 @@ export default function ProjectPage() {
   const [search, setSearch] = useSearchParams()
   const tab = parseTab(search.get('tab'))
   const focusRequestId = search.get('focusRequest')
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
 
   const { data: project } = useQuery<Project>({
     queryKey: ['project', projectId],
     queryFn: () => projectsApi.get(projectId!),
     enabled: Boolean(projectId),
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: () => projectsApi.delete(projectId!),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['projects'] })
+      setConfirmDelete(false)
+      navigate('/')
+    },
   })
 
   const { data: deliverables = [] } = useQuery({
@@ -134,7 +147,55 @@ export default function ProjectPage() {
           active={tab === 'inspector'}
           onClick={() => setTab('inspector')}
         />
+        <span style={{ flex: 1 }} />
+        <button
+          type="button"
+          className="btn btn-icon"
+          title="Delete project"
+          style={{ color: 'var(--color-rose)', marginRight: 8 }}
+          onClick={() => setConfirmDelete(true)}
+        >
+          <I.Trash size={14} />
+        </button>
       </div>
+
+      <Modal
+        open={confirmDelete}
+        onClose={() => setConfirmDelete(false)}
+        title="Delete this project?"
+        footer={
+          <>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => setConfirmDelete(false)}
+              disabled={deleteMutation.isPending}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              style={{ background: 'var(--color-rose)', borderColor: 'var(--color-rose)' }}
+              onClick={() => deleteMutation.mutate()}
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? 'Deleting…' : 'Delete'}
+            </button>
+          </>
+        }
+      >
+        <p style={{ color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+          <strong style={{ color: 'var(--gray-50)' }}>{project?.name ?? 'This project'}</strong>{' '}
+          and all of its conversations, requests, deliverables, and decisions
+          will be permanently deleted. This cannot be undone.
+        </p>
+        {deleteMutation.isError && (
+          <p style={{ color: 'var(--color-rose)', marginTop: 12, fontSize: 13 }}>
+            Failed to delete. {(deleteMutation.error as Error)?.message}
+          </p>
+        )}
+      </Modal>
 
       <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
         {tab === 'progress' && <ProgressView projectId={projectId} />}

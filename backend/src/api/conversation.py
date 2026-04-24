@@ -41,12 +41,23 @@ logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v1/projects", tags=["conversation"])
 
 
-async def _require_project(
-    db: AsyncSession, project_id: uuid.UUID, tenant_id: uuid.UUID
-) -> Project:
-    stmt = select(Project).where(
-        Project.id == project_id, Project.tenant_id == tenant_id
-    )
+def _build_ack_content(intent_summary: str) -> str:
+    """Short, language-neutral acknowledgment for the founder chat.
+
+    Shown immediately when a run is dispatched. The final result reply
+    (via publish_run_output) replaces this as the "authoritative"
+    assistant turn — this message is the equivalent of "Got it, on it".
+    """
+    snippet = (intent_summary or "").strip()
+    if len(snippet) > 160:
+        snippet = snippet[:157] + "…"
+    if snippet:
+        return f"⚡ Starting work on: **{snippet}**"
+    return "⚡ On it."
+
+
+async def _require_project(db: AsyncSession, project_id: uuid.UUID, tenant_id: uuid.UUID) -> Project:
+    stmt = select(Project).where(Project.id == project_id, Project.tenant_id == tenant_id)
     project = (await db.execute(stmt)).scalar_one_or_none()
     if project is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
@@ -96,9 +107,7 @@ async def send_message(
     await db.flush()
 
     extractor = RequestExtractor()  # static classifier by default
-    outcome = await extractor.process_message(
-        message, tenant_id=tenant_id, db=db
-    )
+    outcome = await extractor.process_message(message, tenant_id=tenant_id, db=db)
 
     # Capture the founder's Bearer token so post-run sibling-service
     # calls (BSage index) can forward the same identity. Auto same-
@@ -134,9 +143,21 @@ async def send_message(
             session=db,
         )
         if plan is not None:
-            await seed_phase_chain(
-                session=db, root_run=seeded_run, plan=plan
-            )
+            await seed_phase_chain(session=db, root_run=seeded_run, plan=plan)
+
+        # Immediate assistant acknowledgment so the founder doesn't see a
+        # frozen chat while the background run executes (runs can take
+        # minutes). The final result reply lands via publish_run_output
+        # when the run completes; _ensure_assistant_message skips acks
+        # during dedupe so both messages coexist.
+        ack_msg = ConversationMessage(
+            project_id=project_id,
+            role="assistant",
+            content=_build_ack_content(outcome.request.intent_summary),
+            request_id=outcome.request.id,
+            actions=[{"kind": "ack", "run_id": str(seeded_run.id)}],
+        )
+        db.add(ack_msg)
 
     await db.commit()
     await db.refresh(message)
@@ -154,18 +175,14 @@ async def send_message(
 
     if run_to_dispatch is not None:
         stream_manager = getattr(request.app.state, "stream_manager", None)
-        asyncio.create_task(
-            _BACKGROUND_DISPATCH(run_to_dispatch, tenant_id, project_id, stream_manager)
-        )
+        asyncio.create_task(_BACKGROUND_DISPATCH(run_to_dispatch, tenant_id, project_id, stream_manager))
 
     return SendMessageResponse(
         message=MessageResponse.model_validate(message, from_attributes=True),
         intent=outcome.intent.value,
         request_id=outcome.request.id if outcome.request else None,
         request_created=outcome.created_new,
-        intent_summary=(
-            outcome.request.intent_summary if outcome.request else None
-        ),
+        intent_summary=(outcome.request.intent_summary if outcome.request else None),
     )
 
 
