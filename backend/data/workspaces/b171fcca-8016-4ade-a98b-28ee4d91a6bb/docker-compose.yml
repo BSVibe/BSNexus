@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./backend
+    container_name: fastapi_backend
+    ports:
+      - "8000:8000"
+    environment:
+      # 백엔드 환경 변수 (필요시 추가)
+      - DATABASE_URL=sqlite:///./db.sqlite3
+    networks:
+      - app_network
+
+  frontend:
+    build: ./frontend
+    container_name: react_frontend
+    ports:
+      - "3000:80" # 컨테이너 내부의 80포트를 호스트의 3000포트로 매핑
+    depends_on:
+      - backend # 백엔드가 시작된 후 프론트엔드 시작
+    networks:
+      - app_network
+
+networks:
+  app_network:
+    driver: bridge

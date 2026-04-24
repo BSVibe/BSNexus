@@ -113,6 +113,7 @@ class ExecutionRunResponse(BaseModel):
     composition_snapshot_id: uuid.UUID | None
     status: RunStatus
     priority: RunPriority
+    directive: str | None = None
     output_type: str | None
     output_ref: dict[str, Any] | None
     estimated_cost_cents: int

@@ -161,7 +161,7 @@ async def _run_planner_llm(
         ],
         api_key=api_key,
         api_base=base_url,
-        max_tokens=1024,
+        max_tokens=4096,  # local reasoning models burn most of this on thinking
         temperature=0.2,
         timeout=600,
         **extra,

@@ -25,7 +25,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.core.code_extractor import ExtractedFile, extract_files
-from backend.src.core import workspace as workspace_store
+from backend.src.core import project_workspace as workspace_store
 from backend.src.models import (
     ConversationMessage,
     Deliverable,
