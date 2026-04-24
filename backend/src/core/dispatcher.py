@@ -68,8 +68,37 @@ async def _dispatch_background(
     finalize via ``on_run_completed`` → ``publish_run_output``.
     """
     from backend.src.core.audit import resolve_audit_sink  # noqa: PLC0415 — avoid cycle
+    from backend.src.core.planner import maybe_plan_phases, seed_phase_chain  # noqa: PLC0415
 
     try:
+        # Phase 0: if this is a top-level (not-yet-started) run for a
+        # macro direction, decompose into phases first. Runs here because
+        # the planner LLM call takes up to 10 min and must not block the
+        # /messages HTTP handler.
+        async with async_session() as session:
+            from backend.src.models import ExecutionRun as _ExecutionRun  # noqa: PLC0415
+            from backend.src.models import Request as _Request  # noqa: PLC0415
+
+            run_row = (
+                await session.execute(select(_ExecutionRun).where(_ExecutionRun.id == run_id))
+            ).scalar_one_or_none()
+            if run_row is None:
+                return
+            # Only plan for root runs that haven't spawned a chain yet.
+            if run_row.parent_run_id is None and run_row.request_id is not None:
+                req_row = (
+                    await session.execute(select(_Request).where(_Request.id == run_row.request_id))
+                ).scalar_one_or_none()
+                if req_row is not None:
+                    plan = await maybe_plan_phases(
+                        direction=req_row.intent_summary,
+                        tenant_id=tenant_id,
+                        session=session,
+                    )
+                    if plan is not None:
+                        await seed_phase_chain(session=session, root_run=run_row, plan=plan)
+                        await session.commit()
+
         # Phase 1: prepare + transition to running, commit, release.
         prepared: dict[str, Any] | None = None
         async with async_session() as session:

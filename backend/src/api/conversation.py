@@ -23,7 +23,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.core.auth import get_current_user
 from backend.src.core.dispatcher import _dispatch_background, build_adapter
-from backend.src.core.planner import maybe_plan_phases, seed_phase_chain
 from backend.src.core.request_extractor import RequestExtractor
 from backend.src.core.tenant_context import get_tenant_id
 from backend.src.models import (
@@ -120,10 +119,10 @@ async def send_message(
         outcome.request.originator_auth = originator_token
 
     # Chit-chat skips the orchestrator; question / request / modification
-    # all seed a run. For macro directions ("앱 만들어줘"), the planner
-    # asks the tenant's LLM for a phase plan and seeds a linear chain
-    # BEFORE we dispatch so the orchestrator runs phase 1 first and its
-    # completion hook fires phase 2, etc.
+    # all seed a run. Planner decomposition ("앱 만들어줘" → N phases)
+    # runs inside the background task, NOT here — a planner LLM call
+    # with a 10-minute timeout would stall this HTTP handler and leave
+    # the chat stuck on "routing · composing…" for the duration.
     run_to_dispatch: uuid.UUID | None = None
     if outcome.request is not None:
         seeded_run = ExecutionRun(
@@ -136,14 +135,6 @@ async def send_message(
         db.add(seeded_run)
         await db.flush()
         run_to_dispatch = seeded_run.id
-
-        plan = await maybe_plan_phases(
-            direction=outcome.request.intent_summary,
-            tenant_id=tenant_id,
-            session=db,
-        )
-        if plan is not None:
-            await seed_phase_chain(session=db, root_run=seeded_run, plan=plan)
 
         # Immediate assistant acknowledgment so the founder doesn't see a
         # frozen chat while the background run executes (runs can take

@@ -1,6 +1,6 @@
 """consolidate project status to active / archived
 
-Revision ID: a1b2c3d4e5f6
+Revision ID: g9a8b7c6d5e4
 Revises: f8a9b0c1d2e3
 Create Date: 2026-04-25 00:30:00.000000
 
@@ -25,7 +25,7 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "a1b2c3d4e5f6"
+revision: str = "g9a8b7c6d5e4"
 down_revision: str | Sequence[str] | None = "f8a9b0c1d2e3"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
@@ -35,26 +35,33 @@ def upgrade() -> None:
     bind = op.get_bind()
     dialect = bind.dialect.name
 
-    # Retire unused values first so the enum swap can complete.
-    op.execute("UPDATE projects SET status = 'active' WHERE status IN ('design', 'completed')")
-    op.execute("UPDATE projects SET status = 'archived' WHERE status = 'paused'")
-
     if dialect == "postgresql":
-        # PG can't drop enum values — recreate the type.
-        op.execute("ALTER TYPE projectstatus RENAME TO projectstatus_old")
-        op.execute("CREATE TYPE projectstatus AS ENUM ('active', 'archived')")
+        # Swap the enum type in a single USING conversion. Doing it in
+        # one pass avoids the "value not in enum" error you get when
+        # you try to UPDATE the column to 'archived' before that value
+        # has been added to the current type.
+        op.execute("CREATE TYPE projectstatus_new AS ENUM ('active', 'archived')")
         op.execute(
             "ALTER TABLE projects "
             "ALTER COLUMN status DROP DEFAULT, "
-            "ALTER COLUMN status TYPE projectstatus "
-            "USING status::text::projectstatus, "
-            "ALTER COLUMN status SET DEFAULT 'active'"
+            "ALTER COLUMN status TYPE projectstatus_new USING ("
+            "  CASE "
+            "    WHEN status::text = 'paused' THEN 'archived'::projectstatus_new "
+            "    ELSE 'active'::projectstatus_new "
+            "  END"
+            "), "
+            "ALTER COLUMN status SET DEFAULT 'active'::projectstatus_new"
         )
-        op.execute("DROP TYPE projectstatus_old")
+        op.execute("DROP TYPE projectstatus")
+        op.execute("ALTER TYPE projectstatus_new RENAME TO projectstatus")
     else:
-        # SQLite (dev / tests) stores enums as strings — no type swap
-        # needed, the UPDATEs above are sufficient.
-        pass
+        # SQLite (dev / tests) stores enums as strings — just remap the
+        # retired values to the new ones.
+        op.execute("UPDATE projects SET status = 'archived' WHERE status = 'paused'")
+        op.execute(
+            "UPDATE projects SET status = 'active' "
+            "WHERE status IN ('design', 'completed')"
+        )
 
 
 def downgrade() -> None:
