@@ -186,6 +186,8 @@ export default function GlobalChat({
       if (context?.prev) {
         queryClient.setQueryData(['messages', vars.projectId], context.prev)
       }
+      // Put the message back in the input so it isn't lost.
+      setDraft(vars.content)
     },
     onSuccess: (_, vars) => {
       queryClient.invalidateQueries({ queryKey: ['messages', vars.projectId] })
@@ -201,6 +203,23 @@ export default function GlobalChat({
     mutationFn: async (text: string) => {
       const title = deriveProjectTitle(text)
       const project = await projectsApi.create({ name: title, description: '' })
+      // Seed the messages cache for the new project with the founder's
+      // turn BEFORE firing the send. The project page the user is about
+      // to navigate to reads from this cache, so the message is visible
+      // the instant the route changes — not after the next refetch.
+      const optimistic: Message = {
+        id: `optimistic-${Date.now()}`,
+        project_id: project.id,
+        role: 'user',
+        content: text,
+        request_id: null,
+        actions: [],
+        source: 'web',
+        external_id: null,
+        thread_ref: null,
+        created_at: new Date().toISOString(),
+      }
+      queryClient.setQueryData<Message[]>(['messages', project.id], [optimistic])
       const resp = await conversationApi.send(project.id, text)
       return { project, resp }
     },
@@ -209,6 +228,14 @@ export default function GlobalChat({
       queryClient.invalidateQueries({ queryKey: ['messages', project.id] })
       queryClient.invalidateQueries({ queryKey: ['requests', project.id] })
       navigate(`/projects/${project.id}`)
+      setDraft('')
+      setMentions([])
+      setUnrouted(null)
+    },
+    onError: (_err, text) => {
+      // Restore the draft so the founder can retry — losing a message
+      // to a network blip is the worst-case of this flow.
+      setDraft(text)
     },
   })
 
@@ -223,13 +250,20 @@ export default function GlobalChat({
     const { projectId } = resolveRouting(text)
     if (!projectId) {
       autoCreateAndSendMutation.mutate(text)
-    } else {
-      sendMutation.mutate({ content: text, projectId })
+      // Clear input optimistically; onError restores it.
+      setDraft('')
+      setMentions([])
+      setUnrouted(null)
+      return
     }
+    sendMutation.mutate({ content: text, projectId })
     setDraft('')
     setMentions([])
     setUnrouted(null)
   }
+
+  const sendError =
+    (sendMutation.error as Error | null) ?? (autoCreateAndSendMutation.error as Error | null)
 
   const onKey: React.KeyboardEventHandler<HTMLTextAreaElement> = (e) => {
     if (menuOpen) {
@@ -386,7 +420,7 @@ export default function GlobalChat({
             projects={projects}
           />
         )}
-        {sendMutation.isPending && (
+        {(sendMutation.isPending || autoCreateAndSendMutation.isPending) && (
           <div
             style={{
               display: 'flex',
@@ -441,6 +475,18 @@ export default function GlobalChat({
                   </span>
                 </div>
               ))}
+            </div>
+          )}
+          {sendError && (
+            <div
+              style={{
+                fontSize: 11,
+                color: 'var(--color-rose)',
+                padding: '4px 6px',
+                marginBottom: 4,
+              }}
+            >
+              Send failed: {sendError.message}. The message is back in the box — try again.
             </div>
           )}
           <textarea
@@ -503,7 +549,11 @@ export default function GlobalChat({
             <button
               type="button"
               className="btn btn-primary btn-sm"
-              disabled={!draft.trim() || sendMutation.isPending}
+              disabled={
+                !draft.trim() ||
+                sendMutation.isPending ||
+                autoCreateAndSendMutation.isPending
+              }
               onClick={send}
             >
               <I.Send size={12} />
