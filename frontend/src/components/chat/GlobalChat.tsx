@@ -9,18 +9,7 @@ import { relTime, truncId } from '../../lib/fmt'
 import { statusTone } from '../../lib/tone'
 import { StatusDot } from '../common/Badge'
 import { conversationApi, type Message, type SendMessageResponse } from '../../api/conversation'
-import { projectsApi, type Project } from '../../api/projects'
-
-/**
- * First meaningful chunk of the founder's message → project name. Keeps
- * the label short (60 chars), single-line, and trimmed of trailing
- * punctuation so the sidebar doesn't show a wall of text.
- */
-function deriveProjectTitle(text: string): string {
-  const firstLine = text.split(/\r?\n/)[0].trim()
-  const clipped = firstLine.slice(0, 60).replace(/[.!?。！？,;:—–]+$/, '').trim()
-  return clipped || 'New project'
-}
+import type { Project } from '../../api/projects'
 
 interface GlobalChatProps {
   projects: Project[]
@@ -195,50 +184,6 @@ export default function GlobalChat({
     },
   })
 
-  // Auto-create a new project when the user types a direction with no
-  // target — the founder shouldn't have to "create project" before
-  // talking. Title is derived from the first line of the message so
-  // the project label is sensible from the start.
-  const autoCreateAndSendMutation = useMutation({
-    mutationFn: async (text: string) => {
-      const title = deriveProjectTitle(text)
-      const project = await projectsApi.create({ name: title, description: '' })
-      // Seed the messages cache for the new project with the founder's
-      // turn BEFORE firing the send. The project page the user is about
-      // to navigate to reads from this cache, so the message is visible
-      // the instant the route changes — not after the next refetch.
-      const optimistic: Message = {
-        id: `optimistic-${Date.now()}`,
-        project_id: project.id,
-        role: 'user',
-        content: text,
-        request_id: null,
-        actions: [],
-        source: 'web',
-        external_id: null,
-        thread_ref: null,
-        created_at: new Date().toISOString(),
-      }
-      queryClient.setQueryData<Message[]>(['messages', project.id], [optimistic])
-      const resp = await conversationApi.send(project.id, text)
-      return { project, resp }
-    },
-    onSuccess: ({ project }) => {
-      queryClient.invalidateQueries({ queryKey: ['projects'] })
-      queryClient.invalidateQueries({ queryKey: ['messages', project.id] })
-      queryClient.invalidateQueries({ queryKey: ['requests', project.id] })
-      navigate(`/projects/${project.id}`)
-      setDraft('')
-      setMentions([])
-      setUnrouted(null)
-    },
-    onError: (_err, text) => {
-      // Restore the draft so the founder can retry — losing a message
-      // to a network blip is the worst-case of this flow.
-      setDraft(text)
-    },
-  })
-
   const [unrouted, setUnrouted] = useState<
     | { content: string; at: string }
     | null
@@ -249,11 +194,12 @@ export default function GlobalChat({
     if (!text) return
     const { projectId } = resolveRouting(text)
     if (!projectId) {
-      autoCreateAndSendMutation.mutate(text)
-      // Clear input optimistically; onError restores it.
-      setDraft('')
-      setMentions([])
-      setUnrouted(null)
+      // Can't guess a target — ask the founder to pick one. Auto-
+      // creating a project on every unrouted message is wrong because
+      // chit-chat ("hi", "how's it going") would pile up empty project
+      // rows. The founder explicitly picks a target via the routing
+      // chip below.
+      setUnrouted({ content: text, at: new Date().toISOString() })
       return
     }
     sendMutation.mutate({ content: text, projectId })
@@ -262,8 +208,7 @@ export default function GlobalChat({
     setUnrouted(null)
   }
 
-  const sendError =
-    (sendMutation.error as Error | null) ?? (autoCreateAndSendMutation.error as Error | null)
+  const sendError = sendMutation.error as Error | null
 
   const onKey: React.KeyboardEventHandler<HTMLTextAreaElement> = (e) => {
     if (menuOpen) {
@@ -420,7 +365,7 @@ export default function GlobalChat({
             projects={projects}
           />
         )}
-        {(sendMutation.isPending || autoCreateAndSendMutation.isPending) && (
+        {sendMutation.isPending && (
           <div
             style={{
               display: 'flex',
@@ -549,11 +494,7 @@ export default function GlobalChat({
             <button
               type="button"
               className="btn btn-primary btn-sm"
-              disabled={
-                !draft.trim() ||
-                sendMutation.isPending ||
-                autoCreateAndSendMutation.isPending
-              }
+              disabled={!draft.trim() || sendMutation.isPending}
               onClick={send}
             >
               <I.Send size={12} />
