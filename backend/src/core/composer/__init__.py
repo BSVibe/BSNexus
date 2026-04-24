@@ -13,6 +13,7 @@ from the ExecutionRun.
 from backend.src.core.composer.knowledge_client import (
     BSageKnowledgeClient,
     KnowledgeClient,
+    KnowledgeEntryRef,
     KnowledgeFragment,
     NoopKnowledgeClient,
     resolve_knowledge_client,
@@ -29,6 +30,7 @@ __all__ = [
     "BSageKnowledgeClient",
     "Composition",
     "KnowledgeClient",
+    "KnowledgeEntryRef",
     "KnowledgeFragment",
     "NoopKnowledgeClient",
     "PersonaTemplate",

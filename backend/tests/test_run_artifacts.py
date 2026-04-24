@@ -212,3 +212,74 @@ async def test_skips_for_runs_that_are_not_done(
         )
     ).scalars().all()
     assert no_deliverables == []
+
+
+class _RecordingKnowledgeClient:
+    def __init__(self):
+        self.entries: list[dict] = []
+        self.decisions: list[dict] = []
+
+    async def search(self, intent, *, top_k=10):
+        return []
+
+    async def fetch(self, path):
+        return None
+
+    async def backlinks(self, path):
+        return []
+
+    async def index(self, **kwargs):
+        self.entries.append(kwargs)
+        from backend.src.core.composer import KnowledgeEntryRef
+
+        return KnowledgeEntryRef(id="note-1", path="garden/idea/note-1.md")
+
+    async def record_decision(self, **kwargs):
+        self.decisions.append(kwargs)
+        return None
+
+
+@pytest.mark.asyncio
+async def test_publishes_indexes_deliverable_to_knowledge_when_provided(
+    db_session, mock_tenant_id, seeded_tenant
+):
+    run = await _seed_completed_run(
+        db_session,
+        mock_tenant_id,
+        inline="Built the TODO backend.",
+        files=[{"path": "src/main.py", "size": 100, "language": "python"}],
+    )
+    client = _RecordingKnowledgeClient()
+
+    await publish_run_output(run, db_session, knowledge=client)
+    await db_session.flush()
+
+    assert len(client.entries) == 1
+    entry = client.entries[0]
+    assert entry["title"].startswith("Built the TODO backend")
+    assert "Built the TODO backend" in entry["content"]
+    assert "src/main.py" in entry["content"]
+    assert any(t.startswith("project:") for t in entry["tags"])
+    assert "bsnexus-deliverable" in entry["tags"]
+    assert entry["metadata"]["bsnexus_run_id"] == str(run.id)
+
+
+@pytest.mark.asyncio
+async def test_publishes_skips_index_when_no_knowledge_client(
+    db_session, mock_tenant_id, seeded_tenant
+):
+    run = await _seed_completed_run(
+        db_session,
+        mock_tenant_id,
+        inline="Built the thing.",
+        files=[{"path": "a.py", "size": 1}],
+    )
+    # No knowledge kwarg → no index call. Deliverable still written.
+    await publish_run_output(run, db_session)
+    await db_session.flush()
+    deliverable = (
+        await db_session.execute(
+            select(Deliverable).where(Deliverable.request_id == run.request_id)
+        )
+    ).scalar_one()
+    assert deliverable.title.startswith("Built the thing")

@@ -18,6 +18,8 @@ import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.src.core.composer import resolve_knowledge_client
+from backend.src.core.integrations import get_tenant_integration_snapshot
 from backend.src.core.orchestrator_adapter import LiteLLMOrchestratorAdapter
 from backend.src.core.run_artifacts import publish_run_output
 from backend.src.core.run_orchestrator import get_run_orchestrator
@@ -67,7 +69,9 @@ async def _dispatch_background(
                 stream_manager=stream_manager,
             )
             if run is not None and run.status == RunStatus.done:
-                await publish_run_output(run, session)
+                integrations = await get_tenant_integration_snapshot(session, tenant_id)
+                knowledge = resolve_knowledge_client(integrations.bsage)
+                await publish_run_output(run, session, knowledge=knowledge)
             await session.commit()
     except Exception:
         logger.exception("background_dispatch_failed", run_id=str(run_id))

@@ -29,25 +29,31 @@ from backend.src.models import (
     DeliverableStatus,
     DeliverableType,
     DeliverableVersion,
+    Project,
     Request,
     RunStatus,
     StorageBackend,
 )
 
 if TYPE_CHECKING:
+    from backend.src.core.composer import KnowledgeClient
     from backend.src.models import ExecutionRun
 
 logger = structlog.get_logger(__name__)
 
 
 async def publish_run_output(
-    run: "ExecutionRun", session: AsyncSession
+    run: "ExecutionRun",
+    session: AsyncSession,
+    *,
+    knowledge: "KnowledgeClient | None" = None,
 ) -> None:
     """Materialise a completed run's chat reply + deliverable in the UI.
 
-    Pre-conditions: ``run`` is attached to ``session`` and its
-    ``status`` is ``done``. Callers usually load the run fresh before
-    invoking this; we guard anyway.
+    When ``knowledge`` is provided, the deliverable is also indexed back
+    into BSage so future projects can find it via search. Indexing
+    failures are logged but never raised — deliverable creation always
+    succeeds regardless of BSage health.
     """
     if run.status != RunStatus.done:
         return
@@ -60,7 +66,10 @@ async def publish_run_output(
 
     reply_text = inline or _default_summary(files)
     await _ensure_assistant_message(run, reply_text, session)
-    await _ensure_deliverable(run, reply_text, files, session)
+    deliverable = await _ensure_deliverable(run, reply_text, files, session)
+
+    if knowledge is not None and deliverable is not None:
+        await _index_deliverable(knowledge, run, deliverable, reply_text, files, session)
 
 
 def _extract_inline(output_ref: object) -> str:
@@ -127,16 +136,16 @@ async def _ensure_deliverable(
     reply_text: str,
     files: list[dict[str, Any]],
     session: AsyncSession,
-) -> None:
+) -> Deliverable | None:
     if run.request_id is None:
-        return
+        return None
     # Dedupe per-run (planner-seeded phases share a request_id, so one
     # deliverable per phase is what the timeline needs).
     existing_stmt = select(DeliverableVersion.deliverable_id).where(
         DeliverableVersion.created_by_run_id == run.id,
     )
     if (await session.execute(existing_stmt)).scalar_one_or_none() is not None:
-        return
+        return None
 
     request_stmt = select(Request).where(Request.id == run.request_id)
     request = (await session.execute(request_stmt)).scalar_one_or_none()
@@ -182,6 +191,64 @@ async def _ensure_deliverable(
         type=deliverable.type.value,
         files=len(files),
     )
+    return deliverable
+
+
+async def _index_deliverable(
+    knowledge: "KnowledgeClient",
+    run: "ExecutionRun",
+    deliverable: Deliverable,
+    reply_text: str,
+    files: list[dict[str, Any]],
+    session: AsyncSession,
+) -> None:
+    """Post the deliverable to BSage so it's searchable across projects."""
+    project = (
+        await session.execute(select(Project).where(Project.id == run.project_id))
+    ).scalar_one_or_none()
+    project_name = project.name if project is not None else "unknown-project"
+
+    content_lines = [reply_text] if reply_text else []
+    if files:
+        content_lines.append("")
+        content_lines.append("## Files")
+        content_lines.extend(f"- `{f.get('path')}` ({f.get('size', 0)} B)" for f in files)
+    content = "\n".join(content_lines).strip() or "(empty deliverable)"
+
+    tags = [
+        f"project:{_slug(project_name)}",
+        f"type:{deliverable.type.value}",
+        "bsnexus-deliverable",
+    ]
+    metadata = {
+        "bsnexus_project_id": str(run.project_id),
+        "bsnexus_run_id": str(run.id),
+        "bsnexus_request_id": str(run.request_id) if run.request_id else "",
+        "bsnexus_deliverable_id": str(deliverable.id),
+    }
+    ref = await knowledge.index(
+        title=deliverable.title[:240] or f"Deliverable {deliverable.id}",
+        content=content,
+        note_type="idea",
+        tags=tags,
+        source=f"bsnexus:{project_name}",
+        metadata=metadata,
+    )
+    if ref is not None:
+        logger.info(
+            "deliverable_indexed_in_bsage",
+            run_id=str(run.id),
+            deliverable_id=str(deliverable.id),
+            bsage_id=ref.id,
+            bsage_path=ref.path,
+        )
+
+
+def _slug(text: str) -> str:
+    import re as _re
+
+    cleaned = _re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+    return cleaned or "project"
 
 
 def _derive_title(

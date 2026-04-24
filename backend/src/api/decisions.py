@@ -10,6 +10,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.core.auth import get_current_user
+from backend.src.core.composer import resolve_knowledge_client
+from backend.src.core.integrations import get_tenant_integration_snapshot
 from backend.src.core.tenant_context import get_tenant_id
 from backend.src.models import Decision, Project
 from backend.src.schemas import DecisionResolve, DecisionResponse
@@ -79,4 +81,25 @@ async def resolve_decision(
     decision.resolved_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(decision)
+
+    integrations = await get_tenant_integration_snapshot(db, tenant_id)
+    knowledge = resolve_knowledge_client(integrations.bsage)
+    project = (
+        await db.execute(select(Project).where(Project.id == decision.project_id))
+    ).scalar_one_or_none()
+    project_name = project.name if project is not None else "project"
+    await knowledge.record_decision(
+        title=decision.question[:200] or f"Decision {decision.id}",
+        decision=payload.resolution,
+        reasoning=f"Resolved by {payload.resolved_by or 'founder'}",
+        alternatives=list(decision.options or []),
+        context=f"Project: {project_name}",
+        tags=[
+            f"project:{project_name.lower().replace(' ', '-')}",
+            "bsnexus-decision",
+            "blocking" if decision.blocking else "non-blocking",
+        ],
+        source=f"bsnexus:{project_name}",
+    )
+
     return decision

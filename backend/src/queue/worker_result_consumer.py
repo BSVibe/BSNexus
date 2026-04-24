@@ -193,7 +193,11 @@ class WorkerResultConsumer:
                 stream_manager=self._stream,
             )
             # Surface the worker's output on the founder-facing UI —
-            # assistant-role chat reply + Deliverable row. Idempotent
-            # so a duplicate stream delivery is a no-op.
-            await publish_run_output(run, session)
+            # assistant-role chat reply + Deliverable row — and index
+            # the result into BSage when configured. Idempotent so a
+            # duplicate stream delivery is a no-op.
+            from backend.src.core.composer import resolve_knowledge_client
+
+            knowledge = resolve_knowledge_client(snapshot.bsage)
+            await publish_run_output(run, session, knowledge=knowledge)
             await session.commit()

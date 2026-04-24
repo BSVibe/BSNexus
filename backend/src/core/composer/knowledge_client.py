@@ -1,15 +1,22 @@
-"""KnowledgeClient — thin wrapper around BSage search/vault primitives.
+"""KnowledgeClient — wrapper around BSage knowledge primitives.
 
-Per BSage boundary ("지식 저장/검색/연결만"), BSNexus only consumes
-existing endpoints here:
+BSage is the project's long-term knowledge graph. BSNexus both reads
+from it (to enrich prompts with prior context) and writes back to it
+(to index run outputs so future projects can find them).
 
-- ``GET /api/knowledge/search?q=…&limit=…``
-- ``GET /api/vault/file?path=...``
-- ``GET /api/vault/backlinks?path=...``
+Read endpoints:
+- ``GET  /api/knowledge/search?q=…&limit=…``
+- ``GET  /api/vault/file?path=...``
+- ``GET  /api/vault/backlinks?path=...``
 
-``NoopKnowledgeClient`` is the fallback when BSage is disabled for the
-tenant or unreachable — returns empty results so ``PromptAssembler``
-still produces a valid (template-only) composition.
+Write endpoints:
+- ``POST /api/knowledge/entries``   — generic knowledge note
+- ``POST /api/knowledge/decisions`` — structured decision record
+
+``NoopKnowledgeClient`` is the fallback when BSage is disabled or
+unreachable for the tenant — search/fetch/backlinks return empty,
+writes return None. PromptAssembler and publish_run_output still
+produce a valid (degraded) result.
 """
 
 from __future__ import annotations
@@ -51,12 +58,21 @@ def _hash_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
+@dataclass(frozen=True)
+class KnowledgeEntryRef:
+    """Reference to a knowledge entry that was indexed in BSage."""
+
+    id: str
+    path: str
+
+
 class KnowledgeClient(Protocol):
-    """Protocol for knowledge retrieval backends.
+    """Protocol for knowledge retrieval + indexing backends.
 
     Implementations must NOT raise on transient failures — return empty
-    or partial results so the calling PromptAssembler can always produce
-    a composition.
+    or None so the calling code can always complete its main job
+    (composition / deliverable creation / decision resolution) even if
+    BSage is down.
     """
 
     async def search(
@@ -67,11 +83,35 @@ class KnowledgeClient(Protocol):
 
     async def backlinks(self, path: str) -> list[str]: ...
 
+    async def index(
+        self,
+        *,
+        title: str,
+        content: str,
+        note_type: str = "idea",
+        tags: list[str] | None = None,
+        links: list[str] | None = None,
+        source: str = "bsnexus",
+        metadata: dict | None = None,
+    ) -> KnowledgeEntryRef | None: ...
+
+    async def record_decision(
+        self,
+        *,
+        title: str,
+        decision: str,
+        reasoning: str,
+        alternatives: list[str] | None = None,
+        context: str = "",
+        tags: list[str] | None = None,
+        source: str = "bsnexus",
+    ) -> KnowledgeEntryRef | None: ...
+
 
 class NoopKnowledgeClient:
     """Fallback when BSage is disabled or unreachable.
 
-    All methods return empty. The resulting composition gets
+    All methods are no-ops. The resulting composition gets
     ``source="local"`` so the Inside panel can surface degraded mode.
     """
 
@@ -85,6 +125,32 @@ class NoopKnowledgeClient:
 
     async def backlinks(self, path: str) -> list[str]:
         return []
+
+    async def index(
+        self,
+        *,
+        title: str,
+        content: str,
+        note_type: str = "idea",
+        tags: list[str] | None = None,
+        links: list[str] | None = None,
+        source: str = "bsnexus",
+        metadata: dict | None = None,
+    ) -> KnowledgeEntryRef | None:
+        return None
+
+    async def record_decision(
+        self,
+        *,
+        title: str,
+        decision: str,
+        reasoning: str,
+        alternatives: list[str] | None = None,
+        context: str = "",
+        tags: list[str] | None = None,
+        source: str = "bsnexus",
+    ) -> KnowledgeEntryRef | None:
+        return None
 
 
 class BSageKnowledgeClient:
@@ -168,6 +234,80 @@ class BSageKnowledgeClient:
         except Exception as exc:
             logger.warning("bsage_backlinks_failed", path=path, error=str(exc))
             return []
+
+    async def index(
+        self,
+        *,
+        title: str,
+        content: str,
+        note_type: str = "idea",
+        tags: list[str] | None = None,
+        links: list[str] | None = None,
+        source: str = "bsnexus",
+        metadata: dict | None = None,
+    ) -> KnowledgeEntryRef | None:
+        body = {
+            "title": title,
+            "content": content,
+            "note_type": note_type,
+            "tags": list(tags or []),
+            "links": list(links or []),
+            "source": source,
+            "metadata": dict(metadata or {}),
+        }
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout_s) as client:
+                resp = await client.post(
+                    f"{self._base_url}/api/knowledge/entries",
+                    json=body,
+                    headers=self._headers,
+                )
+                resp.raise_for_status()
+                payload = resp.json()
+        except Exception as exc:
+            logger.warning("bsage_index_failed", title=title[:60], error=str(exc))
+            return None
+        return KnowledgeEntryRef(
+            id=str(payload.get("id", "")),
+            path=str(payload.get("path", "")),
+        )
+
+    async def record_decision(
+        self,
+        *,
+        title: str,
+        decision: str,
+        reasoning: str,
+        alternatives: list[str] | None = None,
+        context: str = "",
+        tags: list[str] | None = None,
+        source: str = "bsnexus",
+    ) -> KnowledgeEntryRef | None:
+        body = {
+            "title": title,
+            "decision": decision,
+            "reasoning": reasoning,
+            "alternatives": list(alternatives or []),
+            "context": context,
+            "tags": list(tags or []),
+            "source": source,
+        }
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout_s) as client:
+                resp = await client.post(
+                    f"{self._base_url}/api/knowledge/decisions",
+                    json=body,
+                    headers=self._headers,
+                )
+                resp.raise_for_status()
+                payload = resp.json()
+        except Exception as exc:
+            logger.warning("bsage_decision_failed", title=title[:60], error=str(exc))
+            return None
+        return KnowledgeEntryRef(
+            id=str(payload.get("id", "")),
+            path=str(payload.get("path", "")),
+        )
 
 
 def resolve_knowledge_client(cfg: ProviderConfig | None) -> KnowledgeClient:
