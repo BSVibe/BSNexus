@@ -1,31 +1,58 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 import { Badge } from '../common/Badge'
 import { I } from '../../lib/icons'
-import { SAMPLE_FILES } from '../../lib/bsd-sample'
-import type { BsdDocument, FileType, ProjectFile } from '../../lib/bsd-types'
-import BsdViewer from './BsdViewer'
-import CodeView from './CodeView'
-import MdView from './MdView'
-import UrlView from './UrlView'
+import {
+  workspaceFilesApi,
+  type WorkspaceFileEntry,
+} from '../../api/workspaceFiles'
+
+type ViewerType = 'code' | 'md' | 'data' | 'html' | 'other'
+
+interface Props {
+  projectId: string
+  projectName: string
+}
 
 /**
- * Files tab — left tree + right viewer. Mirrors the Pencil-Dev /
- * Stitch layout from the Claude Design bundle.
- *
- * Data is sampled from ``lib/bsd-sample.ts`` until the backend exposes
- * ``GET /api/v1/projects/{id}/files``.
+ * Files tab — left tree + right viewer. Reads the project workspace
+ * directory directly (``GET /api/v1/projects/{id}/files``). A workspace
+ * entry is created for every fenced code block in a run's output, so
+ * the file tree grows as the company ships.
  */
-export default function FilesView({ projectName }: { projectName: string }) {
-  const files = SAMPLE_FILES
-  const [selectedPath, setSelectedPath] = useState<string>(files[0]?.path ?? '')
-  const [bulkOpen, setBulkOpen] = useState(false)
+export default function FilesView({ projectId, projectName }: Props) {
+  const { data: entries = [], isLoading } = useQuery<WorkspaceFileEntry[]>({
+    queryKey: ['workspace-files', projectId],
+    queryFn: () => workspaceFilesApi.list(projectId),
+    refetchInterval: 3000,
+  })
 
-  const file = files.find((f) => f.path === selectedPath)
+  const [selected, setSelected] = useState<string | null>(null)
 
-  if (files.length === 0) {
+  useEffect(() => {
+    if (!selected && entries.length > 0) setSelected(entries[0].path)
+    if (selected && !entries.find((e) => e.path === selected)) {
+      setSelected(entries[0]?.path ?? null)
+    }
+  }, [entries, selected])
+
+  if (isLoading && entries.length === 0) {
     return (
-      <div style={{ padding: 32, color: 'var(--text-tertiary)' }}>No files yet.</div>
+      <div style={{ padding: 32, color: 'var(--text-tertiary)', fontSize: 13 }}>
+        Loading…
+      </div>
+    )
+  }
+
+  if (entries.length === 0) {
+    return (
+      <div style={{ padding: 32, color: 'var(--text-tertiary)', fontSize: 13 }}>
+        No files yet. Send a direction in the chat and the company will start
+        shipping files here.
+      </div>
     )
   }
 
@@ -48,101 +75,18 @@ export default function FilesView({ projectName }: { projectName: string }) {
       >
         <div
           style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
             padding: '10px 12px',
             borderBottom: '1px solid var(--border-subtle)',
+            fontSize: 10,
+            color: 'var(--text-tertiary)',
+            textTransform: 'uppercase',
+            letterSpacing: '0.08em',
           }}
         >
-          <div
-            style={{
-              fontSize: 10,
-              color: 'var(--text-tertiary)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.08em',
-              flex: 1,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {projectName} · files
-          </div>
-          <div style={{ position: 'relative' }}>
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              onClick={() => setBulkOpen((v) => !v)}
-              title="Export all files"
-            >
-              <I.Download size={12} /> Export all
-            </button>
-            {bulkOpen && (
-              <>
-                <div
-                  onClick={() => setBulkOpen(false)}
-                  style={{ position: 'fixed', inset: 0, zIndex: 50 }}
-                />
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: 'calc(100% + 6px)',
-                    right: 0,
-                    minWidth: 240,
-                    background: 'var(--bg-surface)',
-                    border: '1px solid var(--border-default)',
-                    borderRadius: 'var(--r-md)',
-                    boxShadow: '0 12px 40px rgba(0,0,0,0.4)',
-                    padding: 4,
-                    zIndex: 51,
-                  }}
-                >
-                  <div
-                    style={{
-                      padding: '6px 10px',
-                      fontSize: 10,
-                      color: 'var(--text-tertiary)',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.08em',
-                    }}
-                  >
-                    Bundle · {files.length} files
-                  </div>
-                  {[
-                    { id: 'zip', label: 'ZIP archive', hint: 'all files' },
-                    { id: 'tar', label: 'tar.gz', hint: 'all files' },
-                    { id: 'gh', label: 'Push to GitHub repo…' },
-                    { id: 'drive', label: 'Send to Google Drive' },
-                    { id: 'handoff', label: 'Handoff package', hint: 'readme + files' },
-                  ].map((opt) => (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      className="sb-item"
-                      style={{ width: '100%', padding: '8px 10px', fontSize: 12 }}
-                      onClick={() => setBulkOpen(false)}
-                    >
-                      <span className="label">{opt.label}</span>
-                      {opt.hint && (
-                        <span className="mono faded" style={{ fontSize: 10 }}>
-                          {opt.hint}
-                        </span>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
+          {projectName} · files · {entries.length}
         </div>
-
         <div style={{ flex: 1, overflow: 'auto', padding: 8 }}>
-          <BsdFileTree
-            files={files}
-            selected={selectedPath}
-            onSelect={setSelectedPath}
-          />
+          <FileTree entries={entries} selected={selected} onSelect={setSelected} />
         </div>
       </nav>
 
@@ -154,7 +98,7 @@ export default function FilesView({ projectName }: { projectName: string }) {
           flexDirection: 'column',
         }}
       >
-        {file && <FileViewer file={file} />}
+        {selected && <FileViewer projectId={projectId} path={selected} />}
       </div>
     </div>
   )
@@ -162,105 +106,179 @@ export default function FilesView({ projectName }: { projectName: string }) {
 
 interface TreeNode {
   name: string
-  children: Record<string, TreeNode>
-  files: ProjectFile[]
+  fullPath: string
+  children: Map<string, TreeNode>
+  size: number | null
 }
 
-function BsdFileTree({
-  files,
+function FileTree({
+  entries,
   selected,
   onSelect,
 }: {
-  files: ProjectFile[]
-  selected: string
-  onSelect: (path: string) => void
+  entries: WorkspaceFileEntry[]
+  selected: string | null
+  onSelect: (p: string) => void
 }) {
-  const tree = useMemo(() => {
-    const root: TreeNode = { name: '', children: {}, files: [] }
-    files.forEach((f) => {
-      const parts = f.path.split('/')
-      let node = root
-      for (let i = 0; i < parts.length - 1; i++) {
-        if (!node.children[parts[i]]) {
-          node.children[parts[i]] = { name: parts[i], children: {}, files: [] }
-        }
-        node = node.children[parts[i]]
-      }
-      node.files.push(f)
-    })
-    return root
-  }, [files])
-
-  return <div>{renderNode(tree, 0, selected, onSelect)}</div>
+  const root = useMemo(() => buildTree(entries), [entries])
+  return <>{renderTree(root, 0, selected, onSelect)}</>
 }
 
-function renderNode(
+function buildTree(entries: WorkspaceFileEntry[]): TreeNode {
+  const root: TreeNode = {
+    name: '',
+    fullPath: '',
+    children: new Map(),
+    size: null,
+  }
+  for (const e of entries) {
+    const parts = e.path.split('/')
+    let cur = root
+    for (let i = 0; i < parts.length; i++) {
+      const p = parts[i]
+      const isLeaf = i === parts.length - 1
+      const key = parts.slice(0, i + 1).join('/')
+      if (!cur.children.has(p)) {
+        cur.children.set(p, {
+          name: p,
+          fullPath: key,
+          children: new Map(),
+          size: isLeaf ? e.size : null,
+        })
+      }
+      cur = cur.children.get(p)!
+    }
+  }
+  return root
+}
+
+function renderTree(
   node: TreeNode,
   depth: number,
-  selected: string,
-  onSelect: (path: string) => void,
+  selected: string | null,
+  onSelect: (p: string) => void,
 ): React.ReactNode {
+  const kids = [...node.children.values()].sort((a, b) => {
+    const aDir = a.children.size > 0
+    const bDir = b.children.size > 0
+    if (aDir !== bDir) return aDir ? -1 : 1
+    return a.name.localeCompare(b.name)
+  })
   return (
     <>
-      {Object.values(node.children).map((c) => (
-        <div key={c.name}>
-          <div
+      {kids.map((c) => {
+        const isDir = c.children.size > 0
+        if (isDir) {
+          return (
+            <div key={c.fullPath}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '3px 8px',
+                  paddingLeft: 8 + depth * 14,
+                  fontSize: 12,
+                  color: 'var(--gray-400)',
+                }}
+              >
+                <I.ChevDown size={10} />
+                <span>{c.name}</span>
+              </div>
+              {renderTree(c, depth + 1, selected, onSelect)}
+            </div>
+          )
+        }
+        const isActive = selected === c.fullPath
+        return (
+          <button
+            key={c.fullPath}
+            type="button"
+            onClick={() => onSelect(c.fullPath)}
+            className={`sb-item ${isActive ? 'active' : ''}`}
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              padding: '3px 8px',
               paddingLeft: 8 + depth * 14,
+              margin: '1px 0',
               fontSize: 12,
-              color: 'var(--gray-400)',
             }}
           >
-            <I.ChevDown size={10} />
-            <span>{c.name}</span>
-          </div>
-          {renderNode(c, depth + 1, selected, onSelect)}
-        </div>
-      ))}
-      {node.files.map((f) => (
-        <button
-          key={f.path}
-          type="button"
-          onClick={() => onSelect(f.path)}
-          className={`sb-item ${selected === f.path ? 'active' : ''}`}
-          style={{ paddingLeft: 8 + depth * 14, margin: '1px 0', fontSize: 12 }}
-        >
-          <FileIcon type={f.type} />
-          <span className="label">{f.path.split('/').pop()}</span>
-          {f.size && (
-            <span className="mono faded" style={{ fontSize: 10 }}>
-              {f.size}
-            </span>
-          )}
-        </button>
-      ))}
+            <FileIcon path={c.name} />
+            <span className="label">{c.name}</span>
+            {c.size != null && (
+              <span className="mono faded" style={{ fontSize: 10 }}>
+                {formatSize(c.size)}
+              </span>
+            )}
+          </button>
+        )
+      })}
     </>
   )
 }
 
-export function FileIcon({ type }: { type: FileType }) {
-  const glyph: Record<FileType, React.ReactNode> = {
-    bsd: <I.Design size={12} />,
-    md: <I.Doc size={12} />,
-    code: <I.Code size={12} />,
-    data: <I.Data size={12} />,
-    url: <I.Url size={12} />,
-  }
-  const color: Record<FileType, string> = {
-    bsd: '#c4b5fd',
-    md: '#6ee7b7',
-    code: '#93c5fd',
-    data: '#fcd34d',
-    url: '#93c5fd',
-  }
-  return <span style={{ color: color[type], flex: 'none' }}>{glyph[type]}</span>
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}K`
+  return `${(bytes / (1024 * 1024)).toFixed(1)}M`
 }
 
-function FileViewer({ file }: { file: ProjectFile }) {
+function classifyType(path: string): ViewerType {
+  const p = path.toLowerCase()
+  if (p.endsWith('.md') || p.endsWith('.markdown')) return 'md'
+  if (p.endsWith('.json') || p.endsWith('.yml') || p.endsWith('.yaml')) return 'data'
+  if (p.endsWith('.html') || p.endsWith('.htm')) return 'html'
+  if (
+    /\.(py|ts|tsx|jsx|js|mjs|css|scss|sass|sh|bash|rs|go|java|kt|swift|sql|xml|env|toml)$/.test(p)
+  )
+    return 'code'
+  if (/(^|\/)Dockerfile(\.|$)/.test(path)) return 'code'
+  return 'other'
+}
+
+function langFromPath(path: string): string {
+  const ext = path.split('.').pop()?.toLowerCase() ?? ''
+  if (/^(tsx|jsx)$/.test(ext)) return ext
+  if (ext === 'py') return 'python'
+  if (ext === 'ts') return 'typescript'
+  if (ext === 'js') return 'javascript'
+  if (ext === 'sh' || ext === 'bash') return 'bash'
+  if (ext === 'yml' || ext === 'yaml') return 'yaml'
+  if (/(^|\/)Dockerfile(\.|$)/.test(path)) return 'dockerfile'
+  return ext || 'text'
+}
+
+export function FileIcon({ path }: { path: string }) {
+  const kind = classifyType(path)
+  const glyph =
+    kind === 'md' ? (
+      <I.Doc size={12} />
+    ) : kind === 'data' ? (
+      <I.Data size={12} />
+    ) : kind === 'html' ? (
+      <I.Design size={12} />
+    ) : (
+      <I.Code size={12} />
+    )
+  const color: Record<ViewerType, string> = {
+    md: '#6ee7b7',
+    data: '#fcd34d',
+    html: '#c4b5fd',
+    code: '#93c5fd',
+    other: '#9ca3af',
+  }
+  return <span style={{ color: color[kind], flex: 'none' }}>{glyph}</span>
+}
+
+function FileViewer({ projectId, path }: { projectId: string; path: string }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['workspace-file', projectId, path],
+    queryFn: () => workspaceFilesApi.read(projectId, path),
+    refetchInterval: 3000,
+  })
+
+  const kind = classifyType(path)
+  const content = data?.content ?? ''
+
   return (
     <>
       <div
@@ -271,23 +289,22 @@ function FileViewer({ file }: { file: ProjectFile }) {
           alignItems: 'center',
           gap: 8,
           background: 'var(--bg-surface)',
-          position: 'relative',
         }}
       >
-        <FileIcon type={file.type} />
+        <FileIcon path={path} />
         <span className="mono" style={{ fontSize: 12, color: 'var(--gray-100)' }}>
-          {file.path}
+          {path}
         </span>
         <Badge tone="gray" square>
-          {file.type}
+          {kind}
         </Badge>
         <span style={{ flex: 1 }} />
         <button
           type="button"
           className="btn btn-ghost btn-sm"
-          onClick={() => navigator.clipboard.writeText(file.path)}
+          onClick={() => content && navigator.clipboard.writeText(content)}
         >
-          <I.Copy size={12} /> Copy path
+          <I.Copy size={12} /> Copy
         </button>
       </div>
       <div
@@ -295,16 +312,32 @@ function FileViewer({ file }: { file: ProjectFile }) {
           flex: 1,
           overflow: 'auto',
           minHeight: 0,
-          background: file.type === 'bsd' ? 'var(--bg-base)' : 'var(--bg-surface)',
+          background: 'var(--bg-surface)',
         }}
       >
-        {file.type === 'bsd' && file.bsd && <BsdViewer bsd={file.bsd as BsdDocument} />}
-        {file.type === 'md' && <MdView content={file.content ?? ''} />}
-        {file.type === 'code' && (
-          <CodeView content={file.content ?? ''} lang={file.lang ?? 'text'} />
+        {isLoading && (
+          <div style={{ padding: 24, color: 'var(--text-tertiary)' }}>Loading…</div>
         )}
-        {file.type === 'data' && <CodeView content={file.content ?? ''} lang="json" />}
-        {file.type === 'url' && <UrlView url={file.content ?? ''} />}
+        {!isLoading && kind === 'md' && (
+          <div className="md" style={{ padding: 16, color: 'var(--gray-100)' }}>
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+          </div>
+        )}
+        {!isLoading && kind !== 'md' && (
+          <pre
+            className="mono"
+            style={{
+              margin: 0,
+              padding: 16,
+              fontSize: 12,
+              lineHeight: '18px',
+              color: 'var(--gray-100)',
+              whiteSpace: 'pre',
+            }}
+          >
+            <code className={`lang-${langFromPath(path)}`}>{content}</code>
+          </pre>
+        )}
       </div>
     </>
   )

@@ -18,6 +18,7 @@ from backend.src.api import (
     projects,
     requests_api,
     workers as workers_api,
+    workspace_files,
 )
 from backend.src.config import Settings, settings as app_settings
 from backend.src.core.rate_limiter import RateLimitMiddleware
@@ -121,6 +122,7 @@ _ROUTERS = [
     integrations.router,
     executor_configs.router,
     workers_api.router,
+    workspace_files.router,
 ]
 
 

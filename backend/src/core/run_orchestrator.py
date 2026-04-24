@@ -131,11 +131,12 @@ class RunOrchestrator:
         history = await _load_chat_history(
             db, project_id=run.project_id, origin_message_id=request.origin_message_id
         )
+        user_prompt = run.directive or request.intent_summary
 
         try:
             result = await executor.execute(
                 composition.system_prompt,
-                request.intent_summary,
+                user_prompt,
                 tools_allowed=composition.tools_allowed,
                 history=history,
             )
@@ -209,6 +210,60 @@ class RunOrchestrator:
                 db_session=db,
                 stream_manager=stream_manager,
             )
+
+        # Planner chain: a child run whose ``parent_run_id`` points at
+        # us was seeded ``blocked`` by the planner. Promote it to
+        # pending and fire the background dispatcher so the next phase
+        # starts without the founder having to send another message.
+        successor = await _find_blocked_successor(db, run.id)
+        if successor is not None:
+            await self._state.transition(
+                successor,
+                RunStatus.pending,
+                reason=f"predecessor {run.id} completed",
+                actor="orchestrator",
+                db_session=db,
+                stream_manager=stream_manager,
+            )
+            await db.flush()
+            await db.commit()  # commit so the background task's own session sees the promoted row
+            _fire_async(successor.id, successor.tenant_id, successor.project_id, stream_manager)
+
+        # Also kick off any ready-children promoted above.
+        for child in children:
+            _fire_async(child.id, child.tenant_id, child.project_id, stream_manager)
+
+
+def _fire_async(
+    run_id: uuid.UUID,
+    tenant_id: uuid.UUID,
+    project_id: uuid.UUID,
+    stream_manager: Any | None,
+) -> None:
+    """Schedule a background dispatch of ``run_id``.
+
+    Lazy import of ``core.dispatcher`` avoids a circular import: the
+    dispatcher module depends on the orchestrator to run the actual
+    compose→audit→execute loop.
+    """
+    from backend.src.core.dispatcher import fire_run  # noqa: PLC0415
+
+    fire_run(run_id, tenant_id, project_id, stream_manager)
+
+
+async def _find_blocked_successor(
+    db: AsyncSession, parent_run_id: uuid.UUID
+) -> ExecutionRun | None:
+    stmt = (
+        select(ExecutionRun)
+        .where(
+            ExecutionRun.parent_run_id == parent_run_id,
+            ExecutionRun.status == RunStatus.blocked,
+        )
+        .order_by(ExecutionRun.created_at.asc())
+        .limit(1)
+    )
+    return (await db.execute(stmt)).scalar_one_or_none()
 
 
 def _tools_from_executor_hint(executor: Any | None) -> list[str]:

@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.core.auth import get_current_user
 from backend.src.core.orchestrator_adapter import LiteLLMOrchestratorAdapter
+from backend.src.core.planner import maybe_plan_phases, seed_phase_chain
 from backend.src.core.request_extractor import RequestExtractor
 from backend.src.core.run_artifacts import publish_run_output
 from backend.src.core.run_orchestrator import get_run_orchestrator
@@ -105,10 +106,11 @@ async def send_message(
         message, tenant_id=tenant_id, db=db
     )
 
-    # Both brand-new requests and modifications to an existing open
-    # request create work; the founder is giving more direction either
-    # way. Chit-chat / question intents (``outcome.request is None``)
-    # still don't seed a run.
+    # Chit-chat skips the orchestrator; question / request / modification
+    # all seed a run. For macro directions ("앱 만들어줘"), the planner
+    # asks the tenant's LLM for a phase plan and seeds a linear chain
+    # BEFORE we dispatch so the orchestrator runs phase 1 first and its
+    # completion hook fires phase 2, etc.
     run_to_dispatch: uuid.UUID | None = None
     if outcome.request is not None:
         seeded_run = ExecutionRun(
@@ -121,6 +123,16 @@ async def send_message(
         db.add(seeded_run)
         await db.flush()
         run_to_dispatch = seeded_run.id
+
+        phases = await maybe_plan_phases(
+            direction=outcome.request.intent_summary,
+            tenant_id=tenant_id,
+            session=db,
+        )
+        if phases:
+            await seed_phase_chain(
+                session=db, root_run=seeded_run, phases=phases
+            )
 
     await db.commit()
     await db.refresh(message)

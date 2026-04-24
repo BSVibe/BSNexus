@@ -24,6 +24,8 @@ import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.src.core.code_extractor import ExtractedFile, extract_files
+from backend.src.core import workspace as workspace_store
 from backend.src.models import (
     ConversationMessage,
     Deliverable,
@@ -57,8 +59,26 @@ async def publish_run_output(
         logger.info("publish_run_output_no_inline", run_id=str(run.id))
         return
 
+    extracted = extract_files(inline)
+    _write_files_to_workspace(run.project_id, extracted)
+
     await _ensure_assistant_message(run, inline, session)
-    await _ensure_deliverable(run, inline, session)
+    await _ensure_deliverable(run, inline, extracted, session)
+
+
+def _write_files_to_workspace(
+    project_id: Any, files: list[ExtractedFile]
+) -> None:
+    for f in files:
+        try:
+            workspace_store.write_file(project_id, f.path, f.content)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "workspace_write_failed",
+                project_id=str(project_id),
+                path=f.path,
+                error=str(exc),
+            )
 
 
 def _extract_inline(output_ref: object) -> str | None:
@@ -99,7 +119,10 @@ async def _ensure_assistant_message(
 
 
 async def _ensure_deliverable(
-    run: "ExecutionRun", inline: str, session: AsyncSession
+    run: "ExecutionRun",
+    inline: str,
+    files: list[ExtractedFile],
+    session: AsyncSession,
 ) -> None:
     if run.request_id is None:
         return
@@ -127,11 +150,17 @@ async def _ensure_deliverable(
     await session.flush()
 
     encoded = inline.encode("utf-8")
+    content_ref: dict[str, Any] = {"inline": inline}
+    if files:
+        content_ref["files"] = [
+            {"path": f.path, "language": f.language, "size": len(f.content)}
+            for f in files
+        ]
     version = DeliverableVersion(
         deliverable_id=deliverable.id,
         version_int=1,
         storage_backend=StorageBackend.object,
-        content_ref={"inline": inline},
+        content_ref=content_ref,
         content_hash=hashlib.sha256(encoded).hexdigest(),
         size_bytes=len(encoded),
         created_by_run_id=run.id,

@@ -107,6 +107,11 @@ class ExecutionRun(Base):
         Enum(RunPriority), nullable=False, default=RunPriority.medium
     )
 
+    # Per-run user direction. For the founder's original message it
+    # mirrors ``request.intent_summary``; for planner-seeded child runs
+    # it carries the phase-specific prompt.
+    directive: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     output_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
     output_ref: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 

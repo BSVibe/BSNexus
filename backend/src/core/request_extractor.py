@@ -203,7 +203,11 @@ class RequestExtractor:
 
         classification = await self._classifier.classify(message.content, summaries)
 
-        if classification.intent in (MessageIntent.chit_chat, MessageIntent.question):
+        # Only pure chit-chat ("안녕") skips the orchestrator entirely.
+        # Questions and requests both create a Request so the LLM can
+        # answer — a founder asking "지금 몇 개 active 프로젝트?" expects
+        # a reply, not silence.
+        if classification.intent == MessageIntent.chit_chat:
             return ExtractionOutcome(classification.intent, None, False)
 
         if classification.intent == MessageIntent.modification and open_requests:

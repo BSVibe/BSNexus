@@ -7,8 +7,8 @@ import FilesView from '../components/files/FilesView'
 import ProgressView from '../components/progress/ProgressView'
 import DecisionsView from '../components/decisions/DecisionsView'
 import Inspector from '../components/inside/Inspector'
-import { SAMPLE_FILES } from '../lib/bsd-sample'
 import { projectsApi, type Project } from '../api/projects'
+import { workspaceFilesApi } from '../api/workspaceFiles'
 import { decisionsApi, deliverablesApi } from '../api/founder'
 
 type TabId = 'progress' | 'files' | 'decisions' | 'inspector'
@@ -40,6 +40,13 @@ export default function ProjectPage() {
   const { data: decisions = [] } = useQuery({
     queryKey: ['decisions', projectId],
     queryFn: () => decisionsApi.listForProject(projectId!),
+    enabled: Boolean(projectId),
+    refetchInterval: 3000,
+  })
+
+  const { data: files = [] } = useQuery({
+    queryKey: ['workspace-files', projectId],
+    queryFn: () => workspaceFilesApi.list(projectId!),
     enabled: Boolean(projectId),
     refetchInterval: 3000,
   })
@@ -111,7 +118,7 @@ export default function ProjectPage() {
           icon={<I.Doc size={14} />}
           active={tab === 'files'}
           onClick={() => setTab('files')}
-          count={SAMPLE_FILES.length}
+          count={files.length || null}
         />
         <TabButton
           label="Decisions"
@@ -131,7 +138,9 @@ export default function ProjectPage() {
 
       <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
         {tab === 'progress' && <ProgressView projectId={projectId} />}
-        {tab === 'files' && <FilesView projectName={project?.name ?? 'Project'} />}
+        {tab === 'files' && (
+          <FilesView projectId={projectId} projectName={project?.name ?? 'Project'} />
+        )}
         {tab === 'decisions' && <DecisionsView projectId={projectId} />}
         {tab === 'inspector' && (
           <Inspector projectId={projectId} focusRequestId={focusRequestId} />

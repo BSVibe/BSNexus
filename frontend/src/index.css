@@ -332,6 +332,31 @@
   .chat-bubble-ai { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--r-lg); padding: 10px 12px; font-size: 13px; line-height: 20px; color: var(--gray-100); }
   .chat-bubble-u  { background: rgba(59,130,246,0.08); border: 1px solid rgba(59,130,246,0.3); border-radius: var(--r-lg); padding: 10px 12px; font-size: 13px; line-height: 20px; color: var(--gray-100); }
 
+  /* Markdown rendering inside assistant chat bubbles */
+  .md { font-size: 13px; line-height: 20px; color: var(--gray-100); }
+  .md > :first-child { margin-top: 0; }
+  .md > :last-child  { margin-bottom: 0; }
+  .md p { margin: 8px 0; }
+  .md h1, .md h2, .md h3, .md h4 { margin: 14px 0 6px; font-weight: 600; color: var(--gray-50); line-height: 1.3; }
+  .md h1 { font-size: 16px; }
+  .md h2 { font-size: 15px; }
+  .md h3 { font-size: 14px; }
+  .md h4 { font-size: 13px; color: var(--gray-200); }
+  .md ul, .md ol { margin: 6px 0 10px; padding-left: 20px; }
+  .md li { margin: 3px 0; }
+  .md li::marker { color: var(--text-tertiary); }
+  .md a { color: var(--blue-500); text-decoration: underline; text-underline-offset: 2px; }
+  .md strong { font-weight: 600; color: var(--gray-50); }
+  .md em { font-style: italic; color: var(--gray-200); }
+  .md hr { margin: 12px 0; border: 0; border-top: 1px solid var(--border-subtle); }
+  .md blockquote { margin: 8px 0; padding-left: 10px; border-left: 2px solid var(--border-default); color: var(--text-secondary); }
+  .md code { font-family: var(--font-mono); font-size: 12px; padding: 1px 5px; border-radius: 4px; background: var(--bg-base); border: 1px solid var(--border-subtle); color: var(--gray-100); }
+  .md pre { margin: 8px 0; padding: 10px 12px; background: var(--bg-base); border: 1px solid var(--border-subtle); border-radius: var(--r-sm); overflow: auto; max-height: 360px; }
+  .md pre code { padding: 0; background: transparent; border: 0; font-size: 12px; line-height: 18px; white-space: pre; }
+  .md table { border-collapse: collapse; margin: 8px 0; font-size: 12px; }
+  .md th, .md td { border: 1px solid var(--border-subtle); padding: 4px 8px; text-align: left; }
+  .md th { background: var(--bg-elevated); font-weight: 600; }
+
   .route-chip {
     display: inline-flex; align-items: center; gap: 6px;
     padding: 3px 8px; font-size: 11px; border-radius: var(--r-full);

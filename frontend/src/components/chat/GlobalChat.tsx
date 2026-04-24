@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQueries, useQueryClient } from '@tanstack/react-query'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 import { I } from '../../lib/icons'
 import { relTime, truncId } from '../../lib/fmt'
@@ -452,7 +454,15 @@ function ChatBubble({
       className="fade-in"
       style={{ display: 'flex', flexDirection: 'column', gap: 4 }}
     >
-      <div className={isUser ? 'chat-bubble-u' : 'chat-bubble-ai'}>{m.content}</div>
+      <div className={isUser ? 'chat-bubble-u' : 'chat-bubble-ai'}>
+        {isUser ? (
+          m.content
+        ) : (
+          <div className="md">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+          </div>
+        )}
+      </div>
       <div
         style={{
           display: 'flex',
