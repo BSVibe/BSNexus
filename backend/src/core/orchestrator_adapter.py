@@ -37,7 +37,12 @@ MAX_TOOL_ITERATIONS = int(os.getenv("LLM_MAX_TOOL_ITERATIONS", "12"))
 class LiteLLMOrchestratorAdapter:
     """Orchestrator-facing adapter over ``litellm.acompletion``."""
 
-    tools_supported: list[str] = ["file_read", "file_write", "file_list"]
+    tools_supported: list[str] = [
+        "file_read",
+        "file_write",
+        "file_list",
+        "shell_exec",
+    ]
 
     def __init__(
         self,

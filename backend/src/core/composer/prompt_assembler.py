@@ -169,7 +169,30 @@ _SHARED_POLICY = (
     "new``) for actual file contents. If a scaffold would generate "
     "files, write those files yourself via ``file_write``. Don't emit "
     "placeholder bodies (``TODO``, ``...``, empty functions) — write "
-    "real working content."
+    "real working content.\n\n"
+    "Self-verification — MANDATORY before you report a phase done:\n"
+    "  Q1. Success condition: in ONE sentence, state what 'done' looks "
+    "like for THIS phase, in observable terms (not feelings). E.g. "
+    "'`pnpm install && pnpm next build` exits 0' / "
+    "'`python -m pytest tests/` exits 0' / "
+    "'`python -m json.tool docs/report.json` exits 0' / "
+    "'`grep -cE \"Abstract|Method|Result\" report.md` returns ≥ 3'.\n"
+    "  Q2. Verification command: pick ONE ``shell_exec`` command that "
+    "proves Q1. It must run the artifact itself (compile, test, "
+    "validate, start-and-curl), not just ``cat`` or ``ls``.\n"
+    "  Q3. Write files + run Q2 via ``shell_exec``. If exit ≠ 0, "
+    "read the error, fix the code with ``file_write``, and run Q2 "
+    "again. Loop until Q2 passes or you hit 3 attempts.\n"
+    "Your chat reply MUST quote the final ``shell_exec`` result "
+    "(``exit=0`` plus a one-line hint of what it ran). If Q2 still "
+    "fails after 3 tries, say so clearly in the reply — don't pretend "
+    "success.\n\n"
+    "Dependency hygiene: if your code imports a package, the package "
+    "MUST be in the manifest file (``package.json`` / "
+    "``pyproject.toml`` / ``requirements.txt``). ``shell_exec`` with "
+    "``pnpm install`` / ``pip install -r requirements.txt`` is the "
+    "fastest way to catch missing deps — they surface as 'Module not "
+    "found' errors at build time. Add the missing entry and re-run."
 )
 
 
@@ -181,7 +204,7 @@ _DEFAULT_TEMPLATES: list[PersonaTemplate] = [
             f"{_SHARED_POLICY}\n\n"
             "Relevant project context:\n{context}"
         ),
-        tools=["file_read", "file_write", "file_list"],
+        tools=["file_read", "file_write", "file_list", "shell_exec"],
         keywords=["implement", "fix", "build", "add", "refactor", "bug"],
         default_fit=0.6,
     ),
@@ -192,7 +215,7 @@ _DEFAULT_TEMPLATES: list[PersonaTemplate] = [
             f"{_SHARED_POLICY}\n\n"
             "Relevant project context:\n{context}"
         ),
-        tools=["file_read", "file_write", "file_list"],
+        tools=["file_read", "file_write", "file_list", "shell_exec"],
         keywords=["research", "analyze", "compare", "investigate", "summarize"],
         default_fit=0.5,
     ),
@@ -203,7 +226,7 @@ _DEFAULT_TEMPLATES: list[PersonaTemplate] = [
             f"{_SHARED_POLICY}\n\n"
             "Relevant project context:\n{context}"
         ),
-        tools=["file_read", "file_write", "file_list"],
+        tools=["file_read", "file_write", "file_list", "shell_exec"],
         keywords=["design", "ux", "ui", "mockup", "wireframe", "screen"],
         default_fit=0.5,
     ),
@@ -215,7 +238,7 @@ _DEFAULT_TEMPLATES: list[PersonaTemplate] = [
             f"{_SHARED_POLICY}\n\n"
             "Relevant project context:\n{context}"
         ),
-        tools=["file_read", "file_write", "file_list"],
+        tools=["file_read", "file_write", "file_list", "shell_exec"],
         keywords=[],
         default_fit=0.4,
     ),

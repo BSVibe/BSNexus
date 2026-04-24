@@ -15,7 +15,9 @@ paths that escape.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import os
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
@@ -33,6 +35,11 @@ logger = structlog.get_logger(__name__)
 # typically well under 64 KB.
 MAX_FILE_BYTES = 1_000_000
 
+# shell_exec safety caps.
+SHELL_DEFAULT_TIMEOUT_S = 180
+SHELL_MAX_TIMEOUT_S = 900
+SHELL_MAX_OUTPUT_BYTES = 20_000
+
 
 @dataclass
 class WrittenFile:
@@ -47,6 +54,15 @@ class WrittenFile:
 
 
 @dataclass
+class ShellInvocation:
+    """Record of one ``shell_exec`` call (command + outcome)."""
+
+    command: str
+    exit_code: int
+    duration_ms: int
+
+
+@dataclass
 class ToolRunLog:
     """Accumulated tool-call outcomes for a single run.
 
@@ -56,6 +72,7 @@ class ToolRunLog:
 
     project_id: uuid.UUID
     written: list[WrittenFile] = field(default_factory=list)
+    shells: list[ShellInvocation] = field(default_factory=list)
     invocations: int = 0
     errors: int = 0
 
@@ -64,16 +81,26 @@ class ToolRunLog:
             WrittenFile(path=path, size=len(content.encode("utf-8")), language=language)
         )
 
+    def record_shell(self, command: str, exit_code: int, duration_ms: int) -> None:
+        self.shells.append(
+            ShellInvocation(command=command[:240], exit_code=exit_code, duration_ms=duration_ms)
+        )
+
 
 def tool_schemas(allowed: list[str] | None = None) -> list[dict[str, Any]]:
     """Return OpenAI-style function schemas for the subset that's allowed.
 
     ``allowed`` matches tool names (``file_write`` / ``file_read`` /
-    ``file_list``). Passing ``None`` or an empty list returns every tool
-    — convenient for the default case where the composer already told
-    the worker which tools exist.
+    ``file_list`` / ``shell_exec``). Passing ``None`` or an empty list
+    returns every tool — convenient for the default case where the
+    composer already told the worker which tools exist.
     """
-    all_schemas = [_FILE_WRITE_SCHEMA, _FILE_READ_SCHEMA, _FILE_LIST_SCHEMA]
+    all_schemas = [
+        _FILE_WRITE_SCHEMA,
+        _FILE_READ_SCHEMA,
+        _FILE_LIST_SCHEMA,
+        _SHELL_EXEC_SCHEMA,
+    ]
     if not allowed:
         return all_schemas
     allow_set = set(allowed)
@@ -111,6 +138,8 @@ async def execute_tool_call(
             return await _handle_file_read(arguments, log)
         if name == "file_list":
             return await _handle_file_list(arguments, log)
+        if name == "shell_exec":
+            return await _handle_shell_exec(arguments, log)
     except ValueError as exc:
         log.errors += 1
         logger.info("tool_rejected", name=name, error=str(exc))
@@ -162,6 +191,69 @@ async def _handle_file_list(args: dict[str, Any], log: ToolRunLog) -> str:
     if not entries:
         return "(workspace is empty)"
     return "\n".join(f"{e['path']}\t{e['size']}" for e in entries)
+
+
+async def _handle_shell_exec(args: dict[str, Any], log: ToolRunLog) -> str:
+    command = _str_arg(args, "command")
+    timeout_raw = args.get("timeout_s")
+    try:
+        timeout = int(timeout_raw) if timeout_raw is not None else SHELL_DEFAULT_TIMEOUT_S
+    except (TypeError, ValueError):
+        timeout = SHELL_DEFAULT_TIMEOUT_S
+    timeout = max(1, min(timeout, SHELL_MAX_TIMEOUT_S))
+
+    cwd = workspace_store.project_workspace_path(log.project_id)
+
+    start_ns = asyncio.get_event_loop().time()
+    try:
+        proc = await asyncio.create_subprocess_shell(
+            command,
+            cwd=str(cwd),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            env={**os.environ, "CI": "1"},  # tell tools like pnpm not to interact
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.record_shell(command=command, exit_code=-1, duration_ms=0)
+        return f"error: shell spawn failed ({exc})"
+
+    timed_out = False
+    try:
+        stdout_bytes, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        timed_out = True
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+        try:
+            await proc.wait()
+        except Exception:  # noqa: BLE001
+            pass
+        stdout_bytes = b""
+
+    duration_ms = int((asyncio.get_event_loop().time() - start_ns) * 1000)
+    output = (stdout_bytes or b"").decode("utf-8", errors="replace")
+    if len(output.encode("utf-8")) > SHELL_MAX_OUTPUT_BYTES:
+        clipped = output.encode("utf-8")[:SHELL_MAX_OUTPUT_BYTES].decode("utf-8", errors="ignore")
+        output = clipped + f"\n[... truncated at {SHELL_MAX_OUTPUT_BYTES} bytes ...]"
+
+    exit_code = -1 if timed_out else int(proc.returncode or 0)
+    log.record_shell(command=command, exit_code=exit_code, duration_ms=duration_ms)
+    logger.info(
+        "tool_shell_exec",
+        project_id=str(log.project_id),
+        cmd_preview=command[:80],
+        exit_code=exit_code,
+        duration_ms=duration_ms,
+        timed_out=timed_out,
+    )
+    if timed_out:
+        return (
+            f"exit=-1 (timeout after {timeout}s)\n"
+            f"{output}"
+        )
+    return f"exit={exit_code}\n{output}"
 
 
 def _str_arg(args: dict[str, Any], key: str, *, allow_empty: bool = False) -> str:
@@ -243,5 +335,37 @@ _FILE_LIST_SCHEMA: dict[str, Any] = {
             "can see what's there and integrate with it."
         ),
         "parameters": {"type": "object", "properties": {}, "required": []},
+    },
+}
+
+
+_SHELL_EXEC_SCHEMA: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "shell_exec",
+        "description": (
+            "Run a shell command inside the project workspace. Use this "
+            "to VERIFY your work — install deps, run the build, execute "
+            "a test, curl a started server, parse a JSON file with "
+            "python -m json.tool, etc. The command runs with the "
+            "workspace as cwd; you cannot escape it via relative paths. "
+            "Stdout+stderr are returned merged, with 'exit=<code>' on "
+            "the first line. Do NOT mark a phase done until a verifying "
+            "shell_exec returns exit=0."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "command": {
+                    "type": "string",
+                    "description": "Shell command to run. Supports pipes, &&, etc.",
+                },
+                "timeout_s": {
+                    "type": "integer",
+                    "description": f"Max seconds to wait (default {SHELL_DEFAULT_TIMEOUT_S}, max {SHELL_MAX_TIMEOUT_S}).",
+                },
+            },
+            "required": ["command"],
+        },
     },
 }

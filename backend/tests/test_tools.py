@@ -128,4 +128,62 @@ def test_tool_schemas_filter_by_name():
         "file_write",
         "file_read",
         "file_list",
+        "shell_exec",
     }
+
+
+@pytest.mark.asyncio
+async def test_shell_exec_captures_stdout_and_exit_zero(isolated_workspace, log):
+    payload = json.dumps({"command": "echo hello && echo world"})
+    result = await execute_tool_call(name="shell_exec", raw_arguments=payload, log=log)
+    assert result.startswith("exit=0")
+    assert "hello" in result
+    assert "world" in result
+    assert len(log.shells) == 1
+    assert log.shells[0].exit_code == 0
+
+
+@pytest.mark.asyncio
+async def test_shell_exec_nonzero_exit_returned_as_plain_payload(isolated_workspace, log):
+    payload = json.dumps({"command": "false"})
+    result = await execute_tool_call(name="shell_exec", raw_arguments=payload, log=log)
+    assert result.startswith("exit=1")
+    assert log.shells[0].exit_code == 1
+    # Nonzero exit is NOT an error from the tool's perspective — it's
+    # data the model needs to react to.
+    assert log.errors == 0
+
+
+@pytest.mark.asyncio
+async def test_shell_exec_runs_with_workspace_as_cwd(
+    isolated_workspace, log, project_id
+):
+    # Create a marker file in the workspace.
+    workspace_root = isolated_workspace / str(project_id)
+    workspace_root.mkdir(parents=True, exist_ok=True)
+    (workspace_root / "marker.txt").write_text("hi", encoding="utf-8")
+
+    payload = json.dumps({"command": "cat marker.txt"})
+    result = await execute_tool_call(name="shell_exec", raw_arguments=payload, log=log)
+    assert result.startswith("exit=0")
+    assert "hi" in result
+
+
+@pytest.mark.asyncio
+async def test_shell_exec_honors_timeout(isolated_workspace, log):
+    payload = json.dumps({"command": "sleep 5", "timeout_s": 1})
+    result = await execute_tool_call(name="shell_exec", raw_arguments=payload, log=log)
+    assert result.startswith("exit=-1")
+    assert "timeout" in result.lower()
+    assert log.shells[0].exit_code == -1
+
+
+@pytest.mark.asyncio
+async def test_shell_exec_truncates_runaway_output(isolated_workspace, log):
+    # Emit ~30KB of output; should clip at SHELL_MAX_OUTPUT_BYTES.
+    payload = json.dumps(
+        {"command": "python3 -c 'print(\"x\" * 30000)'"}
+    )
+    result = await execute_tool_call(name="shell_exec", raw_arguments=payload, log=log)
+    assert "truncated" in result
+    assert len(result.encode("utf-8")) < 25_000
