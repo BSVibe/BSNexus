@@ -106,18 +106,24 @@ def _default_summary(files: list[dict[str, Any]]) -> str:
 async def _ensure_assistant_message(run: "ExecutionRun", reply_text: str, session: AsyncSession) -> None:
     if run.request_id is None or not reply_text:
         return
-    stmt = select(ConversationMessage.id).where(
+    # Dedupe the *result* reply. An immediate "ack" message is inserted
+    # from the HTTP handler when a run is dispatched so the chat doesn't
+    # appear frozen — skip those when deciding if we've already landed a
+    # result. JSON-in-SQL matchers differ across SQLite and PG, so do
+    # the filter in Python.
+    stmt = select(ConversationMessage).where(
         ConversationMessage.request_id == run.request_id,
         ConversationMessage.role == "assistant",
     )
-    existing = (await session.execute(stmt)).scalar_one_or_none()
-    if existing is not None:
+    existing_results = [row for row in (await session.execute(stmt)).scalars().all() if not _is_ack(row)]
+    if existing_results:
         return
     msg = ConversationMessage(
         project_id=run.project_id,
         role="assistant",
         content=reply_text,
         request_id=run.request_id,
+        actions=[{"kind": "result", "run_id": str(run.id)}],
     )
     session.add(msg)
     await session.flush()
@@ -127,6 +133,11 @@ async def _ensure_assistant_message(run: "ExecutionRun", reply_text: str, sessio
         request_id=str(run.request_id),
         message_id=str(msg.id),
     )
+
+
+def _is_ack(msg: ConversationMessage) -> bool:
+    actions = msg.actions or []
+    return any(isinstance(a, dict) and a.get("kind") == "ack" for a in actions)
 
 
 async def _ensure_deliverable(

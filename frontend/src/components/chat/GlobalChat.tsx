@@ -9,7 +9,18 @@ import { relTime, truncId } from '../../lib/fmt'
 import { statusTone } from '../../lib/tone'
 import { StatusDot } from '../common/Badge'
 import { conversationApi, type Message, type SendMessageResponse } from '../../api/conversation'
-import type { Project } from '../../api/projects'
+import { projectsApi, type Project } from '../../api/projects'
+
+/**
+ * First meaningful chunk of the founder's message → project name. Keeps
+ * the label short (60 chars), single-line, and trimmed of trailing
+ * punctuation so the sidebar doesn't show a wall of text.
+ */
+function deriveProjectTitle(text: string): string {
+  const firstLine = text.split(/\r?\n/)[0].trim()
+  const clipped = firstLine.slice(0, 60).replace(/[.!?。！？,;:—–]+$/, '').trim()
+  return clipped || 'New project'
+}
 
 interface GlobalChatProps {
   projects: Project[]
@@ -47,6 +58,9 @@ export default function GlobalChat({
   const [scopeToCurrent, setScopeToCurrent] = useState(false)
   const taRef = useRef<HTMLTextAreaElement | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
+  // Korean/Japanese/Chinese IME composition. Enter during composition
+  // commits the candidate — must NOT send the message.
+  const isComposingRef = useRef(false)
 
   const projectQueries = useQueries({
     queries: projects.map((p) => ({
@@ -152,6 +166,25 @@ export default function GlobalChat({
     },
   })
 
+  // Auto-create a new project when the user types a direction with no
+  // target — the founder shouldn't have to "create project" before
+  // talking. Title is derived from the first line of the message so
+  // the project label is sensible from the start.
+  const autoCreateAndSendMutation = useMutation({
+    mutationFn: async (text: string) => {
+      const title = deriveProjectTitle(text)
+      const project = await projectsApi.create({ name: title, description: '' })
+      const resp = await conversationApi.send(project.id, text)
+      return { project, resp }
+    },
+    onSuccess: ({ project }) => {
+      queryClient.invalidateQueries({ queryKey: ['projects'] })
+      queryClient.invalidateQueries({ queryKey: ['messages', project.id] })
+      queryClient.invalidateQueries({ queryKey: ['requests', project.id] })
+      navigate(`/projects/${project.id}`)
+    },
+  })
+
   const [unrouted, setUnrouted] = useState<
     | { content: string; at: string }
     | null
@@ -162,10 +195,10 @@ export default function GlobalChat({
     if (!text) return
     const { projectId } = resolveRouting(text)
     if (!projectId) {
-      setUnrouted({ content: text, at: new Date().toISOString() })
-      return
+      autoCreateAndSendMutation.mutate(text)
+    } else {
+      sendMutation.mutate({ content: text, projectId })
     }
-    sendMutation.mutate({ content: text, projectId })
     setDraft('')
     setMentions([])
     setUnrouted(null)
@@ -194,9 +227,10 @@ export default function GlobalChat({
         return
       }
     }
-    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+    if (e.key === 'Enter' && !e.shiftKey && !isComposingRef.current) {
       e.preventDefault()
       send()
+      return
     }
     if (e.key === 'Backspace' && draft === '' && mentions.length) {
       setMentions((m) => m.slice(0, -1))
@@ -387,6 +421,12 @@ export default function GlobalChat({
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={onKey}
+            onCompositionStart={() => {
+              isComposingRef.current = true
+            }}
+            onCompositionEnd={() => {
+              isComposingRef.current = false
+            }}
             rows={1}
             placeholder={
               mentions.length
@@ -431,8 +471,7 @@ export default function GlobalChat({
             )}
             <span style={{ flex: 1 }} />
             <span className="faded" style={{ fontSize: 10 }}>
-              <kbd>⌘</kbd>
-              <kbd>↵</kbd>
+              <kbd>↵</kbd> send · <kbd>⇧↵</kbd> newline
             </span>
             <button
               type="button"

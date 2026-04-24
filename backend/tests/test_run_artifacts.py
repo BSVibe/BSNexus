@@ -145,6 +145,50 @@ async def test_idempotent_on_second_call(db_session, mock_tenant_id, seeded_tena
 
 
 @pytest.mark.asyncio
+async def test_ack_does_not_prevent_result_assistant_message(db_session, mock_tenant_id, seeded_tenant):
+    """A pre-existing ack message must NOT cause publish_run_output to
+    skip writing the final result. Dedupe ignores messages tagged
+    ``actions=[{'kind': 'ack'}]`` so the founder sees both the
+    'Starting…' note and the completion reply."""
+    run = await _seed_completed_run(
+        db_session,
+        mock_tenant_id,
+        inline="All done — here's the deliverable.",
+        files=[{"path": "a.py", "size": 1}],
+    )
+
+    # Simulate the ack inserted by conversation.send_message before the
+    # run started.
+    ack = ConversationMessage(
+        project_id=run.project_id,
+        role="assistant",
+        content="⚡ Starting work on: Build a tiny thing",
+        request_id=run.request_id,
+        actions=[{"kind": "ack", "run_id": str(run.id)}],
+    )
+    db_session.add(ack)
+    await db_session.flush()
+
+    await publish_run_output(run, db_session)
+    await db_session.flush()
+
+    msgs = (
+        (
+            await db_session.execute(
+                select(ConversationMessage)
+                .where(ConversationMessage.request_id == run.request_id)
+                .order_by(ConversationMessage.created_at.asc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    contents = [m.content for m in msgs]
+    assert "⚡ Starting work on: Build a tiny thing" in contents
+    assert "All done — here's the deliverable." in contents
+
+
+@pytest.mark.asyncio
 async def test_falls_back_to_file_list_summary_when_chat_empty(db_session, mock_tenant_id, seeded_tenant):
     run = await _seed_completed_run(
         db_session,

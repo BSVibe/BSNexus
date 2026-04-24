@@ -229,4 +229,9 @@ export const I = {
       <path d="M12 3v12M6 11l6 6 6-6M4 21h16" />
     </Icon>
   ),
+  Trash: (p: P) => (
+    <Icon {...p}>
+      <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M10 11v6M14 11v6M5 6l1 14a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1l1-14" />
+    </Icon>
+  ),
 }
