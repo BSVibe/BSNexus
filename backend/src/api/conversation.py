@@ -124,14 +124,14 @@ async def send_message(
         await db.flush()
         run_to_dispatch = seeded_run.id
 
-        phases = await maybe_plan_phases(
+        plan = await maybe_plan_phases(
             direction=outcome.request.intent_summary,
             tenant_id=tenant_id,
             session=db,
         )
-        if phases:
+        if plan is not None:
             await seed_phase_chain(
-                session=db, root_run=seeded_run, phases=phases
+                session=db, root_run=seeded_run, plan=plan
             )
 
     await db.commit()

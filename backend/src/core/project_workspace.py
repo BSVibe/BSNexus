@@ -58,18 +58,31 @@ def write_file(
     return target
 
 
-def list_files(project_id: uuid.UUID) -> list[dict[str, object]]:
-    """Return a flat list of files under the workspace with size bytes."""
+HIDDEN_PREFIXES: tuple[str, ...] = (".bsnexus/",)
+
+
+def list_files(
+    project_id: uuid.UUID, *, include_hidden: bool = False
+) -> list[dict[str, object]]:
+    """Return a flat list of files under the workspace with size bytes.
+
+    The ``.bsnexus/`` harness directory is internal plumbing — hidden by
+    default so the UI's Files tab shows only founder-facing deliverables.
+    Internal callers (the harness itself) pass ``include_hidden=True``.
+    """
     root = project_workspace_path(project_id)
     out: list[dict[str, object]] = []
     for path in sorted(root.rglob("*")):
-        if path.is_file():
-            rel = path.relative_to(root).as_posix()
-            try:
-                size = path.stat().st_size
-            except OSError:
-                size = 0
-            out.append({"path": rel, "size": size})
+        if not path.is_file():
+            continue
+        rel = path.relative_to(root).as_posix()
+        if not include_hidden and rel.startswith(HIDDEN_PREFIXES):
+            continue
+        try:
+            size = path.stat().st_size
+        except OSError:
+            size = 0
+        out.append({"path": rel, "size": size})
     return out
 
 

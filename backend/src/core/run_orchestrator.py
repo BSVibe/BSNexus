@@ -32,6 +32,7 @@ import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.src.core import harness
 from backend.src.core.audit import AuditSink, emit_post_async, resolve_audit_sink
 from backend.src.core.composer import (
     PromptAssembler,
@@ -90,6 +91,16 @@ class RunOrchestrator:
 
         knowledge = resolve_knowledge_client(integrations.bsage)
         audit = resolve_audit_sink(integrations.bsupervisor)
+
+        # Refresh .bsnexus/context/*.md so the composer's pointer to
+        # those files resolves to fresh state. Failing to refresh must
+        # not break the run — log and continue with stale context.
+        try:
+            await harness.refresh_context(
+                run.project_id, request=request, db=db
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("harness_refresh_failed", run_id=str(run.id))
 
         tools_available = _tools_from_executor_hint(executor)
         composition = await self._assembler.compose(

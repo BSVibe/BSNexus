@@ -31,6 +31,7 @@ import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.src.core import harness
 from backend.src.models import ExecutionRun, ExecutorConfig, RunPriority, RunStatus
 
 logger = structlog.get_logger(__name__)
@@ -69,8 +70,11 @@ _PLANNER_SYSTEM = (
     "anyway. Include them when they make sense for the domain.\n\n"
     "Respond with STRICT JSON only (no prose, no markdown fences), "
     "matching exactly:\n"
-    '{"phases": [{"name": "string, ≤24 chars", "direction": "string, a '
-    "self-contained prompt for that phase\"}, …]}\n\n"
+    '{"stack": "string, 2-5 line tech-stack contract the whole chain '
+    "commits to (runtime, framework, db, styling, file-layout root, "
+    "naming conventions) — worded so any phase can check it and stay "
+    "consistent\", \"phases\": [{\"name\": \"string, ≤24 chars\", "
+    '"direction": "string, a self-contained prompt for that phase"}, …]}\n\n'
     "Phase-count guidance — scale to the request, don't pad:\n"
     "- Trivial edits / rename / single-question: 1 phase (the caller "
     "skips the planner for these, but still: if you see one, return "
@@ -114,8 +118,16 @@ _PLANNER_SYSTEM = (
     "7. Sensible production defaults: include the boring basics "
     "appropriate to the tech stack the worker chooses — structured "
     "errors, input validation, config via env vars, a README or "
-    "runbook, at least one test or usage example. Don't over-specify "
-    "the stack if the founder didn't — workers can choose."
+    "runbook, at least one test or usage example.\n\n"
+    "8. Stack contract: the ``stack`` field locks the chain to ONE "
+    "coherent choice. Each ``direction`` MUST be compatible with it — "
+    "never let phase 4 switch runtime from phase 1. If the founder "
+    "didn't specify a stack, pick a conventional one for the domain "
+    "and commit. Example stacks: 'Next.js 14 App Router (src/app/) + "
+    "Prisma+SQLite + Tailwind + TypeScript' / 'FastAPI + SQLAlchemy "
+    "async + Pydantic v2 + PostgreSQL' / 'Python stdlib CLI, single "
+    "module'. Every ``direction`` must reference paths + tools that "
+    "match the stack."
 )
 
 
@@ -125,15 +137,28 @@ class PhasePlan:
     direction: str
 
 
+@dataclass
+class ChainPlan:
+    """Planner's output for a single macro direction.
+
+    ``stack`` is the committed tech-stack contract; it gets written to
+    ``.bsnexus/context/stack.md`` and the workers reference it on every
+    phase so later phases don't silently switch frameworks.
+    """
+
+    stack: str
+    phases: list[PhasePlan]
+
+
 async def maybe_plan_phases(
     *,
     direction: str,
     tenant_id: uuid.UUID,
     session: AsyncSession,
-) -> list[PhasePlan] | None:
-    """Return a phase list if the direction looks macro AND the tenant
-    has an LLM-capable executor configured. Otherwise None — the caller
-    runs a single phase.
+) -> ChainPlan | None:
+    """Return a ChainPlan if the direction looks macro AND the tenant has
+    an LLM-capable executor configured. Otherwise None — the caller runs
+    a single phase without planner decomposition.
     """
     if not is_macro_direction(direction):
         return None
@@ -146,16 +171,16 @@ async def maybe_plan_phases(
     except Exception as exc:  # noqa: BLE001 — planner mustn't break send_message
         logger.warning("planner_llm_failed", error=str(exc))
         return None
-    phases = _parse_plan(raw)
-    if not phases or len(phases) < 2:
+    plan = _parse_plan(raw)
+    if plan is None or len(plan.phases) < 2:
         logger.info(
             "planner_no_phases_or_trivial",
-            phases=len(phases or []),
+            phases=len(plan.phases) if plan else 0,
             raw_preview=raw[:400],
             raw_len=len(raw),
         )
         return None
-    return phases
+    return plan
 
 
 async def _llm_adapter_args(
@@ -219,7 +244,7 @@ async def _run_planner_llm(
     return (content or "").strip()
 
 
-def _parse_plan(raw: str) -> list[PhasePlan]:
+def _parse_plan(raw: str) -> ChainPlan | None:
     text = raw.strip()
     if text.startswith("```"):
         # Strip a leading code fence if the model ignored the rule.
@@ -230,15 +255,17 @@ def _parse_plan(raw: str) -> list[PhasePlan]:
     except json.JSONDecodeError:
         m = re.search(r"\{[\s\S]+\}", text)
         if not m:
-            return []
+            return None
         try:
             data = json.loads(m.group(0))
         except json.JSONDecodeError:
-            return []
-    raw_phases = data.get("phases") if isinstance(data, dict) else None
+            return None
+    if not isinstance(data, dict):
+        return None
+    raw_phases = data.get("phases")
     if not isinstance(raw_phases, list):
-        return []
-    out: list[PhasePlan] = []
+        return None
+    phases: list[PhasePlan] = []
     for item in raw_phases:
         if not isinstance(item, dict):
             continue
@@ -246,26 +273,38 @@ def _parse_plan(raw: str) -> list[PhasePlan]:
         direction = str(item.get("direction") or "").strip()
         if not direction:
             continue
-        out.append(PhasePlan(name=name or f"phase {len(out) + 1}", direction=direction))
-    return out[:6]
+        phases.append(
+            PhasePlan(name=name or f"phase {len(phases) + 1}", direction=direction)
+        )
+    if not phases:
+        return None
+    stack = str(data.get("stack") or "").strip()
+    return ChainPlan(stack=stack, phases=phases[:6])
 
 
 async def seed_phase_chain(
     *,
     session: AsyncSession,
     root_run: ExecutionRun,
-    phases: list[PhasePlan],
+    plan: ChainPlan,
 ) -> list[ExecutionRun]:
     """Create one ExecutionRun per phase, linked as a blocked chain.
 
-    ``root_run`` is the run dispatched by the initial send_message call.
-    It gets rewritten to be phase 1 (takes on phase 1's directive).
-    Phases 2..N are fresh ExecutionRuns seeded as ``blocked``; each
+    ``root_run`` is the run dispatched by the initial send_message call;
+    it's rewritten to be phase 1 (takes on phase 1's directive). Phases
+    2..N are fresh ExecutionRuns seeded as ``blocked``; each
     ``parent_run_id`` points at the previous phase so the orchestrator
     chains them after each completion.
+
+    The planner's ``stack`` contract is persisted once to
+    ``.bsnexus/context/stack.md`` so every phase's prompt can reference
+    it — this is the primary defense against phase 4 flipping frameworks.
     """
+    phases = plan.phases
     if not phases:
         return []
+
+    harness.write_stack_contract(root_run.project_id, plan.stack)
 
     # Phase 1 takes over the root run.
     first, *rest = phases
@@ -289,6 +328,7 @@ async def seed_phase_chain(
     logger.info(
         "planner_chain_seeded",
         run_id=str(root_run.id),
+        stack_preview=plan.stack[:120],
         phases=[p.name for p in phases],
     )
     return created
