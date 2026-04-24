@@ -18,14 +18,11 @@ interface InspectorProps {
 }
 
 export default function Inspector({ projectId, focusRequestId }: InspectorProps) {
-  const [selectedRequest, setSelectedRequest] = useState<string | null>(
-    focusRequestId ?? null,
-  )
+  // Track the user's explicit pick; the parent's focusRequestId and
+  // the request list's first entry act as fallbacks, derived during
+  // render to avoid setState-in-effect cascades.
+  const [manualRequestId, setManualRequestId] = useState<string | null>(null)
   const [selectedRun, setSelectedRun] = useState<ExecutionRun | null>(null)
-
-  useEffect(() => {
-    if (focusRequestId) setSelectedRequest(focusRequestId)
-  }, [focusRequestId])
 
   const { data: requests = [] } = useQuery<FounderRequest[]>({
     queryKey: ['requests', projectId],
@@ -33,11 +30,16 @@ export default function Inspector({ projectId, focusRequestId }: InspectorProps)
     refetchInterval: 3000,
   })
 
-  useEffect(() => {
-    if (!selectedRequest && requests.length > 0) {
-      setSelectedRequest(requests[0].id)
-    }
-  }, [requests, selectedRequest])
+  const selectedRequest =
+    (manualRequestId && requests.some((r) => r.id === manualRequestId)
+      ? manualRequestId
+      : null) ??
+    (focusRequestId && requests.some((r) => r.id === focusRequestId)
+      ? focusRequestId
+      : null) ??
+    requests[0]?.id ??
+    null
+  const setSelectedRequest = setManualRequestId
 
   return (
     <div

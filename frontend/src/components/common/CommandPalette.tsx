@@ -27,8 +27,8 @@ export default function CommandPalette({ projects, onClose }: CommandPaletteProp
   const inputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
-    setQ('')
-    setIdx(0)
+    // Only the imperative focus call belongs in an effect — q/idx
+    // already start at their defaults via useState initializer.
     const t = setTimeout(() => inputRef.current?.focus(), 10)
     return () => clearTimeout(t)
   }, [])

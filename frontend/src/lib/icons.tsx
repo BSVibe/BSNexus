@@ -13,6 +13,7 @@ interface IconProps {
   children: React.ReactNode
 }
 
+// eslint-disable-next-line react-refresh/only-export-components -- ``I`` below is a glyph-registry const, not a component; co-locating with ``Icon`` keeps the file cohesive.
 function Icon({ size = 16, stroke = 1.75, style, className, title, children }: IconProps) {
   return (
     <svg

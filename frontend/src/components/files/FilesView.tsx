@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -30,14 +30,14 @@ export default function FilesView({ projectId, projectName }: Props) {
     refetchInterval: 3000,
   })
 
-  const [selected, setSelected] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!selected && entries.length > 0) setSelected(entries[0].path)
-    if (selected && !entries.find((e) => e.path === selected)) {
-      setSelected(entries[0]?.path ?? null)
-    }
-  }, [entries, selected])
+  // Track the user's explicit pick separately from the effective
+  // selection. Effective selection is derived during render so we
+  // don't need a setState-in-effect to auto-pick the first entry.
+  const [manualSelected, setManualSelected] = useState<string | null>(null)
+  const selected =
+    manualSelected && entries.some((e) => e.path === manualSelected)
+      ? manualSelected
+      : entries[0]?.path ?? null
 
   if (isLoading && entries.length === 0) {
     return (
@@ -86,7 +86,7 @@ export default function FilesView({ projectId, projectName }: Props) {
           {projectName} · files · {entries.length}
         </div>
         <div style={{ flex: 1, overflow: 'auto', padding: 8 }}>
-          <FileTree entries={entries} selected={selected} onSelect={setSelected} />
+          <FileTree entries={entries} selected={selected} onSelect={setManualSelected} />
         </div>
       </nav>
 

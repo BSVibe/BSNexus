@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 
@@ -17,12 +17,18 @@ export default function DashboardPage() {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const [search, setSearch] = useSearchParams()
-  const [createOpen, setCreateOpen] = useState(search.get('new') === '1')
+  const newParam = search.get('new') === '1'
+  const [createOpen, setCreateOpen] = useState(newParam)
   const [filter, setFilter] = useState<StatusFilter>('all')
 
-  useEffect(() => {
-    if (search.get('new') === '1') setCreateOpen(true)
-  }, [search])
+  // When the caller navigates to ``?new=1`` while the page is already
+  // mounted (e.g. from the command palette), open the modal. Using the
+  // during-render previous-value pattern avoids a setState-in-effect.
+  const [prevNewParam, setPrevNewParam] = useState(newParam)
+  if (prevNewParam !== newParam) {
+    setPrevNewParam(newParam)
+    if (newParam && !createOpen) setCreateOpen(true)
+  }
 
   const { data: projects = [], isLoading } = useQuery<Project[]>({
     queryKey: ['projects'],
@@ -58,7 +64,10 @@ export default function DashboardPage() {
   const activeRequests = allRequests.filter(
     (r) => r.status === 'running' || r.status === 'open',
   )
-  const sevenDaysAgo = Date.now() - 7 * 86400 * 1000
+  // Lazy-initialised once at mount so render stays pure. The dashboard
+  // is a snapshot — the cutoff doesn't need to drift while the user
+  // looks at it.
+  const [sevenDaysAgo] = useState(() => Date.now() - 7 * 86400 * 1000)
   const shipped7d = allDeliverables.filter(
     (d) =>
       d.status === 'delivered' && new Date(d.created_at).getTime() >= sevenDaysAgo,

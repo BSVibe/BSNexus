@@ -31,7 +31,7 @@ function renderMarkdown(src: string): string {
       .trim()
       .split('\n')
       .map((r) => r.slice(1, -1).split('|').map((s) => s.trim()))
-    const [head, _sep, ...body] = rows
+    const [head, , ...body] = rows
     return `<table style="width:100%;border-collapse:collapse;margin:12px 0">
 <thead><tr>${head.map((h) => `<th style="padding:6px 8px;border-bottom:1px solid var(--border-subtle);text-align:left">${h}</th>`).join('')}</tr></thead>
 <tbody>${body
@@ -52,7 +52,7 @@ function renderMarkdown(src: string): string {
       /`([^`]+)`/g,
       '<code style="background:var(--bg-elevated);padding:1px 6px;border-radius:var(--r-sm);font-size:12px">$1</code>',
     )
-    .replace(/^\- (.+)$/gm, '<li>$1</li>')
+    .replace(/^- (.+)$/gm, '<li>$1</li>')
 
   return out.replace(/\n\n/g, '<p></p>')
 }

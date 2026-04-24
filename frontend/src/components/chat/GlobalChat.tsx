@@ -38,7 +38,11 @@ export default function GlobalChat({
   const navigate = useNavigate()
   const [draft, setDraft] = useState('')
   const [mentions, setMentions] = useState<Project[]>([])
-  const [menuOpen, setMenuOpen] = useState(false)
+  // The mention menu's open state is derived from the @-query. A
+  // manual dismiss (escape / selection) sets ``menuDismissed`` so we
+  // don't reopen until the query changes again. menuIdx is keyed to
+  // atQuery so we reset on query change without a setState-in-effect.
+  const [menuDismissed, setMenuDismissed] = useState(false)
   const [menuIdx, setMenuIdx] = useState(0)
   const [scopeToCurrent, setScopeToCurrent] = useState(false)
   const taRef = useRef<HTMLTextAreaElement | null>(null)
@@ -98,10 +102,18 @@ export default function GlobalChat({
       .slice(0, 6)
   }, [atQuery, projects, mentions])
 
-  useEffect(() => {
-    setMenuOpen(atQuery !== null && mentionCandidates.length > 0)
-    setMenuIdx(0)
-  }, [atQuery, mentionCandidates.length])
+  const menuOpen =
+    !menuDismissed && atQuery !== null && mentionCandidates.length > 0
+
+  // Reset highlighted index when the query text changes. Keying the
+  // reset off atQuery (not the candidates array) avoids thrashing when
+  // the candidate list reshuffles mid-typing.
+  const lastAtQueryRef = useRef<string | null>(atQuery)
+  if (lastAtQueryRef.current !== atQuery) {
+    lastAtQueryRef.current = atQuery
+    if (menuIdx !== 0) setMenuIdx(0)
+    if (menuDismissed) setMenuDismissed(false)
+  }
 
   useEffect(() => {
     if (taRef.current) {
@@ -113,7 +125,7 @@ export default function GlobalChat({
   const addMention = (p: Project) => {
     setMentions((m) => [...m, p])
     setDraft((d) => d.replace(/@[\w\- ]*$/, ''))
-    setMenuOpen(false)
+    setMenuDismissed(true)
     setTimeout(() => taRef.current?.focus(), 10)
   }
 
@@ -178,7 +190,7 @@ export default function GlobalChat({
         return
       }
       if (e.key === 'Escape') {
-        setMenuOpen(false)
+        setMenuDismissed(true)
         return
       }
     }
