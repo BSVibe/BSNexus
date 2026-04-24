@@ -160,6 +160,33 @@ export default function GlobalChat({
     mutationFn: async (payload: { content: string; projectId: string }): Promise<SendMessageResponse> => {
       return conversationApi.send(payload.projectId, payload.content)
     },
+    onMutate: async (vars) => {
+      // Show the founder's message in the thread immediately. Without
+      // this, the text clears from the input and nothing appears for
+      // the full backend + refetch round-trip — ~1s where the chat
+      // looks broken. Rolled back on error.
+      await queryClient.cancelQueries({ queryKey: ['messages', vars.projectId] })
+      const prev = queryClient.getQueryData<Message[]>(['messages', vars.projectId]) ?? []
+      const optimistic: Message = {
+        id: `optimistic-${Date.now()}`,
+        project_id: vars.projectId,
+        role: 'user',
+        content: vars.content,
+        request_id: null,
+        actions: [],
+        source: 'web',
+        external_id: null,
+        thread_ref: null,
+        created_at: new Date().toISOString(),
+      }
+      queryClient.setQueryData<Message[]>(['messages', vars.projectId], [...prev, optimistic])
+      return { prev }
+    },
+    onError: (_err, vars, context) => {
+      if (context?.prev) {
+        queryClient.setQueryData(['messages', vars.projectId], context.prev)
+      }
+    },
     onSuccess: (_, vars) => {
       queryClient.invalidateQueries({ queryKey: ['messages', vars.projectId] })
       queryClient.invalidateQueries({ queryKey: ['requests', vars.projectId] })
