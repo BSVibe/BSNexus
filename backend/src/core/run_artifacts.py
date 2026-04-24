@@ -126,17 +126,17 @@ async def _ensure_deliverable(
 ) -> None:
     if run.request_id is None:
         return
-    existing_stmt = select(Deliverable.id).where(
-        Deliverable.request_id == run.request_id,
+    # Dedupe per-run (planner-seeded phases share a request_id, so one
+    # deliverable per phase is what the timeline needs).
+    existing_stmt = select(DeliverableVersion.deliverable_id).where(
+        DeliverableVersion.created_by_run_id == run.id,
     )
     if (await session.execute(existing_stmt)).scalar_one_or_none() is not None:
         return
 
     request_stmt = select(Request).where(Request.id == run.request_id)
     request = (await session.execute(request_stmt)).scalar_one_or_none()
-    title = (
-        (request.intent_summary or "Deliverable")[:500] if request else "Deliverable"
-    )
+    title = _derive_title(inline, run, request)
 
     deliverable = Deliverable(
         tenant_id=run.tenant_id,
@@ -144,7 +144,7 @@ async def _ensure_deliverable(
         request_id=run.request_id,
         type=_infer_type(inline),
         title=title,
-        status=DeliverableStatus.ready,
+        status=DeliverableStatus.delivered,
     )
     session.add(deliverable)
     await session.flush()
@@ -176,6 +176,60 @@ async def _ensure_deliverable(
         deliverable_id=str(deliverable.id),
         type=deliverable.type.value,
     )
+
+
+def _derive_title(
+    inline: str,
+    run: "ExecutionRun",
+    request: "Request | None",
+) -> str:
+    """Pick a short descriptive title for the timeline card.
+
+    Priority:
+    1. First sentence of the assistant output — it's already a natural
+       summary of what was shipped in this phase.
+    2. The run's directive (planner phase prompt) if set.
+    3. The request's intent_summary (founder's original wording).
+    """
+    summary = _first_sentence(inline)
+    if summary:
+        return summary[:200]
+    if run.directive:
+        return _first_line(run.directive)[:200]
+    if request and request.intent_summary:
+        return request.intent_summary[:200]
+    return "Deliverable"
+
+
+def _first_sentence(text: str) -> str | None:
+    """Return the first meaningful sentence of a markdown doc."""
+    import re as _re
+
+    # Strip fenced code blocks so we don't title with a code line.
+    without_code = _re.sub(r"```[\s\S]*?```", "", text)
+    for raw in without_code.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        # Drop markdown decoration at the start of a header/list line.
+        line = _re.sub(r"^[#*\->\s]+", "", line)
+        line = line.strip("*_`\"'—– ")
+        if not line:
+            continue
+        # Split at first sentence terminator (include Korean full stop).
+        m = _re.search(r"[.!?。！？]\s", line)
+        if m:
+            return line[: m.end()].rstrip()
+        return line
+    return None
+
+
+def _first_line(text: str) -> str:
+    for raw in text.splitlines():
+        line = raw.strip()
+        if line:
+            return line
+    return text
 
 
 def _infer_type(content: str) -> DeliverableType:
