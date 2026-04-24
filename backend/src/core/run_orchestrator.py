@@ -132,7 +132,12 @@ class RunOrchestrator:
             db_session=db,
             stream_manager=stream_manager,
         )
-        await db.flush()
+        # Commit BEFORE the long-running LLM call so the execution_run /
+        # composition_snapshot / message rows aren't held under a row
+        # lock for the entire duration. Without this, ``DELETE FROM
+        # projects`` — which cascades to execution_runs — blocks for
+        # minutes while waiting for this transaction to finish.
+        await db.commit()
 
         if executor is None:
             # Caller will invoke the executor and call ``on_run_completed``
