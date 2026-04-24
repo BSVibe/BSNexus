@@ -42,9 +42,7 @@ def fire_run(
     Callers typically ignore the returned task — the background work
     finalizes the run in its own session + commits independently.
     """
-    return asyncio.create_task(
-        _dispatch_background(run_id, tenant_id, project_id, stream_manager)
-    )
+    return asyncio.create_task(_dispatch_background(run_id, tenant_id, project_id, stream_manager))
 
 
 async def _dispatch_background(
@@ -53,7 +51,27 @@ async def _dispatch_background(
     project_id: uuid.UUID,
     stream_manager: Any | None,
 ) -> None:
+    """Run dispatch across three session scopes so the DB pool isn't
+    pinned for the full LLM round-trip.
+
+    Phase 1 (short session): build adapter + run ``dispatch_run`` with
+    ``executor=None`` so the orchestrator only does compose →
+    snapshot → state transition + COMMIT, then returns. The session is
+    released back to the pool before the network call.
+
+    Phase 2 (no session): call ``adapter.execute(...)`` for the actual
+    LLM turn. This is the minutes-long step; holding a DB connection
+    here would starve concurrent HTTP requests (especially DELETE
+    project, which blocks behind the row lock).
+
+    Phase 3 (short session): re-attach the run in a fresh session and
+    finalize via ``on_run_completed`` → ``publish_run_output``.
+    """
+    from backend.src.core.audit import resolve_audit_sink  # noqa: PLC0415 — avoid cycle
+
     try:
+        # Phase 1: prepare + transition to running, commit, release.
+        prepared: dict[str, Any] | None = None
         async with async_session() as session:
             adapter = await build_adapter(
                 session,
@@ -62,28 +80,114 @@ async def _dispatch_background(
                 project_id=project_id,
                 stream_manager=stream_manager,
             )
+            if adapter is None:
+                # No executor configured — orchestrator's normal path
+                # (with executor=None) still transitions to running and
+                # awaits an external callback.
+                await get_run_orchestrator().dispatch_run(
+                    run_id,
+                    db=session,
+                    executor=None,
+                    stream_manager=stream_manager,
+                )
+                return
+
             run = await get_run_orchestrator().dispatch_run(
                 run_id,
                 db=session,
-                executor=adapter,
+                executor=None,  # prep-only; we run the LLM ourselves below
                 stream_manager=stream_manager,
             )
-            if run is not None and run.status == RunStatus.done:
-                integrations = await get_tenant_integration_snapshot(session, tenant_id)
+            if run is None or run.status != RunStatus.running:
+                # Blocked by audit, etc. — nothing to finalize.
+                return
+
+            # Gather everything the LLM needs before closing the session.
+            from backend.src.core.run_orchestrator import (  # noqa: PLC0415
+                _load_chat_history,
+                _load_request,
+            )
+            from backend.src.models import CompositionSnapshot  # noqa: PLC0415
+
+            request = await _load_request(session, run.request_id)
+            history = await _load_chat_history(
+                session,
+                project_id=run.project_id,
+                origin_message_id=request.origin_message_id,
+            )
+            snapshot_row = (
+                await session.execute(
+                    select(CompositionSnapshot).where(CompositionSnapshot.id == run.composition_snapshot_id)
+                )
+            ).scalar_one()
+            prepared = {
+                "adapter": adapter,
+                "system_prompt": (snapshot_row.system_prompt_ref or {}).get("inline", ""),
+                "user_prompt": run.directive or request.intent_summary,
+                "tools_allowed": list(snapshot_row.tools_allowed or []),
+                "history": history,
+            }
+
+        # Phase 2: run the LLM with no DB session held.
+        assert prepared is not None
+        adapter = prepared["adapter"]
+        try:
+            result = await adapter.execute(
+                prepared["system_prompt"],
+                prepared["user_prompt"],
+                tools_allowed=prepared["tools_allowed"],
+                history=prepared["history"],
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("llm_execute_failed", run_id=str(run_id))
+            result = {"_error": str(exc)}
+
+        # Async / worker executors return a "dispatched" sentinel —
+        # they'll finalize via the worker-result consumer, not here.
+        if isinstance(result, dict) and result.get("status") == "dispatched":
+            return
+
+        # Phase 3: finalize in a fresh session.
+        async with async_session() as session:
+            integrations = await get_tenant_integration_snapshot(session, tenant_id)
+            audit = resolve_audit_sink(integrations.bsupervisor)
+            # Re-load the run — ORM object from phase 1 is detached.
+            from backend.src.models import ExecutionRun  # noqa: PLC0415
+
+            run = (await session.execute(select(ExecutionRun).where(ExecutionRun.id == run_id))).scalar_one_or_none()
+            if run is None:
+                # Project was deleted while the LLM was running — nothing
+                # to finalize. Not an error.
+                logger.info("run_disappeared_during_llm", run_id=str(run_id))
+                return
+
+            if isinstance(result, dict) and "_error" in result:
+                from backend.src.models import RunStatus as _RunStatus  # noqa: PLC0415
+
+                run.status = _RunStatus.blocked
+                run.error_message = result["_error"]
+                await session.commit()
+                return
+
+            await get_run_orchestrator().on_run_completed(
+                run,
+                result=result,
+                audit=audit,
+                db=session,
+                stream_manager=stream_manager,
+            )
+
+            if run.status == RunStatus.done:
                 originator_token: str | None = None
                 if run.request_id is not None:
                     from backend.src.models import Request as _Request  # noqa: PLC0415
 
                     req_row = (
-                        await session.execute(
-                            select(_Request).where(_Request.id == run.request_id)
-                        )
+                        await session.execute(select(_Request).where(_Request.id == run.request_id))
                     ).scalar_one_or_none()
                     if req_row is not None:
                         originator_token = req_row.originator_auth
-                knowledge = resolve_knowledge_client(
-                    integrations.bsage, auth_token=originator_token
-                )
+                knowledge = resolve_knowledge_client(integrations.bsage, auth_token=originator_token)
                 await publish_run_output(run, session, knowledge=knowledge)
             await session.commit()
     except Exception:
@@ -145,9 +249,7 @@ async def build_adapter(
             return None
         required = None if exec_type == "worker" else [exec_type]
         dispatcher = WorkerDispatcher(stream_manager)
-        worker = await dispatcher.find_available_worker(
-            session, tenant_id=tenant_id, required_capabilities=required
-        )
+        worker = await dispatcher.find_available_worker(session, tenant_id=tenant_id, required_capabilities=required)
         if worker is None:
             return None
         return WorkerDispatchAdapter(
