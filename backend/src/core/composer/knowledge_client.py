@@ -10,8 +10,13 @@ Read endpoints:
 - ``GET  /api/vault/backlinks?path=...``
 
 Write endpoints:
-- ``POST /api/knowledge/entries``   — generic knowledge note
+- ``POST /api/webhooks/bsnexus-input`` — raw deliverable payload. The
+  ``bsnexus-input`` plugin writes it as a seed; BSage's AgentLoop
+  seed-refiner derives a concise title (under 30 chars) + refined
+  content + tags via LLM. Matches the pattern every other BSage input
+  plugin follows — BSNexus sends raw run output, BSage owns titling.
 - ``POST /api/knowledge/decisions`` — structured decision record
+  (still pre-titled; decisions carry a human-authored question).
 
 ``NoopKnowledgeClient`` is the fallback when BSage is disabled or
 unreachable for the tenant — search/fetch/backlinks return empty,
@@ -75,9 +80,7 @@ class KnowledgeClient(Protocol):
     BSage is down.
     """
 
-    async def search(
-        self, intent: str, *, top_k: int = 10
-    ) -> list[KnowledgeFragment]: ...
+    async def search(self, intent: str, *, top_k: int = 10) -> list[KnowledgeFragment]: ...
 
     async def fetch(self, path: str) -> str | None: ...
 
@@ -86,13 +89,7 @@ class KnowledgeClient(Protocol):
     async def index(
         self,
         *,
-        title: str,
-        content: str,
-        note_type: str = "idea",
-        tags: list[str] | None = None,
-        links: list[str] | None = None,
-        source: str = "bsnexus",
-        metadata: dict | None = None,
+        payload: dict,
         auth_token: str | None = None,
     ) -> KnowledgeEntryRef | None: ...
 
@@ -117,9 +114,7 @@ class NoopKnowledgeClient:
     ``source="local"`` so the Inside panel can surface degraded mode.
     """
 
-    async def search(
-        self, intent: str, *, top_k: int = 10
-    ) -> list[KnowledgeFragment]:
+    async def search(self, intent: str, *, top_k: int = 10) -> list[KnowledgeFragment]:
         return []
 
     async def fetch(self, path: str) -> str | None:
@@ -131,13 +126,7 @@ class NoopKnowledgeClient:
     async def index(
         self,
         *,
-        title: str,
-        content: str,
-        note_type: str = "idea",
-        tags: list[str] | None = None,
-        links: list[str] | None = None,
-        source: str = "bsnexus",
-        metadata: dict | None = None,
+        payload: dict,
         auth_token: str | None = None,
     ) -> KnowledgeEntryRef | None:
         return None
@@ -200,9 +189,7 @@ class BSageKnowledgeClient:
             return self._headers
         return {**self._headers, "Authorization": f"Bearer {auth_token}"}
 
-    async def search(
-        self, intent: str, *, top_k: int = 10
-    ) -> list[KnowledgeFragment]:
+    async def search(self, intent: str, *, top_k: int = 10) -> list[KnowledgeFragment]:
         try:
             async with httpx.AsyncClient(timeout=self._timeout_s) as client:
                 resp = await client.get(
@@ -223,9 +210,7 @@ class BSageKnowledgeClient:
             KnowledgeFragment(
                 path=hit.get("path", ""),
                 title=hit.get("title", hit.get("path", "")),
-                excerpt=hit.get("preview")
-                or hit.get("excerpt")
-                or hit.get("content", ""),
+                excerpt=hit.get("preview") or hit.get("excerpt") or hit.get("content", ""),
                 score=float(hit.get("score", 0.0)),
                 extra={k: v for k, v in hit.items() if k not in known_keys},
             )
@@ -265,39 +250,34 @@ class BSageKnowledgeClient:
     async def index(
         self,
         *,
-        title: str,
-        content: str,
-        note_type: str = "idea",
-        tags: list[str] | None = None,
-        links: list[str] | None = None,
-        source: str = "bsnexus",
-        metadata: dict | None = None,
+        payload: dict,
         auth_token: str | None = None,
     ) -> KnowledgeEntryRef | None:
-        body = {
-            "title": title,
-            "content": content,
-            "note_type": note_type,
-            "tags": list(tags or []),
-            "links": list(links or []),
-            "source": source,
-            "metadata": dict(metadata or {}),
-        }
+        """Forward a run payload to BSage's bsnexus-input webhook.
+
+        The webhook response confirms the seed was accepted but does not
+        yet include the final note path — BSage's seed-refiner runs
+        asynchronously to derive a title + refined content. Callers that
+        just want "did BSage accept it?" check for a non-None ref.
+        """
         try:
             async with httpx.AsyncClient(timeout=self._timeout_s) as client:
                 resp = await client.post(
-                    f"{self._base_url}/api/knowledge/entries",
-                    json=body,
+                    f"{self._base_url}/api/webhooks/bsnexus-input",
+                    json=payload,
                     headers=self._headers_with_token(auth_token),
                 )
                 resp.raise_for_status()
-                payload = resp.json()
+                body = resp.json() if resp.content else {}
         except Exception as exc:
-            logger.warning("bsage_index_failed", title=title[:60], error=str(exc))
+            logger.warning("bsage_index_failed", error=str(exc))
             return None
+        # Webhook returns {"plugin": "bsnexus-input", "results": [...]}.
+        # Surface plugin acceptance as an anonymous ref — BSage owns the
+        # actual note id/path once the refiner runs.
         return KnowledgeEntryRef(
-            id=str(payload.get("id", "")),
-            path=str(payload.get("path", "")),
+            id=str(body.get("plugin", "bsnexus-input")),
+            path="",
         )
 
     async def record_decision(

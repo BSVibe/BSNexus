@@ -103,9 +103,7 @@ def _default_summary(files: list[dict[str, Any]]) -> str:
     return f"Wrote {len(files)} file(s): {names}{suffix}"
 
 
-async def _ensure_assistant_message(
-    run: "ExecutionRun", reply_text: str, session: AsyncSession
-) -> None:
+async def _ensure_assistant_message(run: "ExecutionRun", reply_text: str, session: AsyncSession) -> None:
     if run.request_id is None or not reply_text:
         return
     stmt = select(ConversationMessage.id).where(
@@ -166,9 +164,9 @@ async def _ensure_deliverable(
     if files:
         content_ref["files"] = files
 
-    payload_for_hash = (reply_text + "\n" + "\n".join(
-        f"{f.get('path')}:{f.get('size')}" for f in files
-    )).encode("utf-8")
+    payload_for_hash = (reply_text + "\n" + "\n".join(f"{f.get('path')}:{f.get('size')}" for f in files)).encode(
+        "utf-8"
+    )
 
     version = DeliverableVersion(
         deliverable_id=deliverable.id,
@@ -202,57 +200,50 @@ async def _index_deliverable(
     files: list[dict[str, Any]],
     session: AsyncSession,
 ) -> None:
-    """Post the deliverable to BSage so it's searchable across projects."""
-    project = (
-        await session.execute(select(Project).where(Project.id == run.project_id))
-    ).scalar_one_or_none()
+    """Forward the raw run output to BSage's bsnexus-input webhook.
+
+    Deliberately does NOT pre-compute a title or content — BSage's
+    seed-refiner (AgentLoop._refine_seed) derives a concise title from
+    the payload via LLM, matching the pattern every other BSage input
+    plugin follows. Pre-computing here produced noisy names like
+    'Wrote 6 file(s): package.json, tsconfig.json, ...'.
+    """
+    project = (await session.execute(select(Project).where(Project.id == run.project_id))).scalar_one_or_none()
     project_name = project.name if project is not None else "unknown-project"
 
     # Forward the founder's own JWT so BSage records the write under
     # their identity (same-account SSO). Falls back to the configured
     # api_key when no originator token is available.
     originator_token: str | None = None
+    request_intent: str | None = None
     if run.request_id is not None:
-        req = (
-            await session.execute(select(Request).where(Request.id == run.request_id))
-        ).scalar_one_or_none()
+        req = (await session.execute(select(Request).where(Request.id == run.request_id))).scalar_one_or_none()
         if req is not None:
             originator_token = req.originator_auth
+            request_intent = req.intent_summary
 
-    content_lines = [reply_text] if reply_text else []
-    if files:
-        content_lines.append("")
-        content_lines.append("## Files")
-        content_lines.extend(f"- `{f.get('path')}` ({f.get('size', 0)} B)" for f in files)
-    content = "\n".join(content_lines).strip() or "(empty deliverable)"
-
-    tags = [
-        f"project:{_slug(project_name)}",
-        f"type:{deliverable.type.value}",
-        "bsnexus-deliverable",
-    ]
-    metadata = {
-        "bsnexus_project_id": str(run.project_id),
-        "bsnexus_run_id": str(run.id),
-        "bsnexus_request_id": str(run.request_id) if run.request_id else "",
-        "bsnexus_deliverable_id": str(deliverable.id),
+    payload: dict[str, Any] = {
+        "reply_text": reply_text,
+        "files": files,
+        "project": project_name,
+        "run_id": str(run.id),
+        "request_id": str(run.request_id) if run.request_id else None,
+        "request_intent": request_intent,
+        "deliverable_id": str(deliverable.id),
+        "deliverable_type": deliverable.type.value,
+        "source": f"bsnexus:{project_name}",
+        "tags": [
+            f"project:{_slug(project_name)}",
+            f"type:{deliverable.type.value}",
+            "bsnexus-deliverable",
+        ],
     }
-    ref = await knowledge.index(
-        title=deliverable.title[:240] or f"Deliverable {deliverable.id}",
-        content=content,
-        note_type="idea",
-        tags=tags,
-        source=f"bsnexus:{project_name}",
-        metadata=metadata,
-        auth_token=originator_token,
-    )
+    ref = await knowledge.index(payload=payload, auth_token=originator_token)
     if ref is not None:
         logger.info(
             "deliverable_indexed_in_bsage",
             run_id=str(run.id),
             deliverable_id=str(deliverable.id),
-            bsage_id=ref.id,
-            bsage_path=ref.path,
         )
 
 
@@ -322,14 +313,36 @@ def _infer_type(files: list[dict[str, Any]]) -> DeliverableType:
     if any(p.endswith((".html", ".htm")) for p in paths):
         return DeliverableType.design
     code_ext = (
-        ".py", ".ts", ".tsx", ".jsx", ".js", ".mjs", ".go", ".rs",
-        ".java", ".kt", ".swift", ".rb", ".php", ".cs", ".cpp", ".c",
+        ".py",
+        ".ts",
+        ".tsx",
+        ".jsx",
+        ".js",
+        ".mjs",
+        ".go",
+        ".rs",
+        ".java",
+        ".kt",
+        ".swift",
+        ".rb",
+        ".php",
+        ".cs",
+        ".cpp",
+        ".c",
     )
     if any(p.endswith(code_ext) for p in paths):
         return DeliverableType.code
     code_langs = {
-        "python", "typescript", "javascript", "go", "rust",
-        "java", "kotlin", "swift", "ruby", "php",
+        "python",
+        "typescript",
+        "javascript",
+        "go",
+        "rust",
+        "java",
+        "kotlin",
+        "swift",
+        "ruby",
+        "php",
     }
     if any(lang in code_langs for lang in langs):
         return DeliverableType.code
