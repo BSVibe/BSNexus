@@ -253,7 +253,6 @@ async def _dispatch_background(
         # Phase 3: finalize in a fresh session.
         async with async_session() as session:
             integrations = await get_tenant_integration_snapshot(session, tenant_id)
-            audit = resolve_audit_sink(integrations.bsupervisor)
             # Re-load the run — ORM object from phase 1 is detached.
             from backend.src.models import ExecutionRun  # noqa: PLC0415
 
@@ -263,6 +262,18 @@ async def _dispatch_background(
                 # to finalize. Not an error.
                 logger.info("run_disappeared_during_llm", run_id=str(run_id))
                 return
+
+            originator_token: str | None = None
+            if run.request_id is not None:
+                from backend.src.models import Request as _Request  # noqa: PLC0415
+
+                req_row = (
+                    await session.execute(select(_Request).where(_Request.id == run.request_id))
+                ).scalar_one_or_none()
+                if req_row is not None:
+                    originator_token = req_row.originator_auth
+
+            audit = resolve_audit_sink(integrations.bsupervisor, auth_token=originator_token)
 
             if isinstance(result, dict) and "_error" in result:
                 from backend.src.models import RunStatus as _RunStatus  # noqa: PLC0415
@@ -281,15 +292,6 @@ async def _dispatch_background(
             )
 
             if run.status == RunStatus.done:
-                originator_token: str | None = None
-                if run.request_id is not None:
-                    from backend.src.models import Request as _Request  # noqa: PLC0415
-
-                    req_row = (
-                        await session.execute(select(_Request).where(_Request.id == run.request_id))
-                    ).scalar_one_or_none()
-                    if req_row is not None:
-                        originator_token = req_row.originator_auth
                 knowledge = resolve_knowledge_client(integrations.bsage, auth_token=originator_token)
                 await publish_run_output(run, session, knowledge=knowledge)
             await session.commit()

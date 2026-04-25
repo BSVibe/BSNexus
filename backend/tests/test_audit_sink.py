@@ -61,6 +61,35 @@ def test_resolve_audit_sink_returns_bsupervisor_when_configured():
     assert isinstance(sink, BSupervisorAuditSink)
 
 
+def test_resolve_audit_sink_returns_noop_when_no_credentials():
+    """Enabled BSupervisor + base_url but neither api_key nor auth_token →
+    Noop. Without credentials, ``*.bsvibe.dev`` BSupervisor 401s every
+    call; the founder gets a flood of warning logs and zero useful audit
+    data. Better to short-circuit to Noop and surface 'degraded' in the
+    Inside panel.
+    """
+    cfg = AuditProviderConfig(enabled=True, base_url="http://supervisor", api_key=None)
+    assert isinstance(resolve_audit_sink(cfg), NoopAuditSink)
+    assert isinstance(resolve_audit_sink(cfg, auth_token=None), NoopAuditSink)
+
+
+def test_resolve_audit_sink_uses_auth_token_when_no_api_key():
+    cfg = AuditProviderConfig(enabled=True, base_url="http://supervisor", api_key=None)
+    sink = resolve_audit_sink(cfg, auth_token="founder-jwt")
+    assert isinstance(sink, BSupervisorAuditSink)
+    assert sink._headers["Authorization"] == "Bearer founder-jwt"
+
+
+def test_bsupervisor_auth_token_overrides_api_key():
+    sink = BSupervisorAuditSink("http://supervisor", "static-key", auth_token="founder-jwt")
+    assert sink._headers["Authorization"] == "Bearer founder-jwt"
+
+
+def test_bsupervisor_falls_back_to_api_key_without_auth_token():
+    sink = BSupervisorAuditSink("http://supervisor", "static-key")
+    assert sink._headers["Authorization"] == "Bearer static-key"
+
+
 @pytest.mark.asyncio
 async def test_bsupervisor_preflight_allowed_when_ok():
     sink = BSupervisorAuditSink("http://supervisor", "k")

@@ -90,7 +90,7 @@ class RunOrchestrator:
         integrations = await snapshot_data(db, run.tenant_id)
 
         knowledge = resolve_knowledge_client(integrations.bsage, auth_token=request.originator_auth)
-        audit = resolve_audit_sink(integrations.bsupervisor)
+        audit = resolve_audit_sink(integrations.bsupervisor, auth_token=request.originator_auth)
 
         # Refresh .bsnexus/context/*.md so the composer's pointer to
         # those files resolves to fresh state. Failing to refresh must

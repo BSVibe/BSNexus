@@ -76,6 +76,7 @@ class BSupervisorAuditSink:
         base_url: str,
         api_key: str | None,
         *,
+        auth_token: str | None = None,
         timeout_ms: int = 200,
         fail_mode: str = "open",
     ):
@@ -87,7 +88,13 @@ class BSupervisorAuditSink:
         self._headers: dict[str, str] = {
             "User-Agent": "BSNexus/0.2 (+https://nexus.bsvibe.dev)",
         }
-        if api_key:
+        # Auth precedence mirrors BSageKnowledgeClient: forwarded SSO
+        # JWT (from the founder's HTTP request) takes precedence over a
+        # static api_key. Without either, BSupervisor's @protected
+        # routes 401 — which is what was happening in production.
+        if auth_token:
+            self._headers["Authorization"] = f"Bearer {auth_token}"
+        elif api_key:
             self._headers["Authorization"] = f"Bearer {api_key}"
 
     def _fail_result(self, reason: str) -> AuditResult:
@@ -156,16 +163,32 @@ def _summarize_result(result: Any) -> dict:
     return {"type": type(result).__name__}
 
 
-def resolve_audit_sink(cfg: AuditProviderConfig | None) -> AuditSink:
-    """Factory: return BSupervisor sink when configured, Noop otherwise."""
-    if cfg is not None and cfg.enabled and cfg.base_url:
-        return BSupervisorAuditSink(
-            cfg.base_url,
-            cfg.api_key,
-            timeout_ms=cfg.timeout_ms,
-            fail_mode=cfg.fail_mode,
-        )
-    return NoopAuditSink()
+def resolve_audit_sink(
+    cfg: AuditProviderConfig | None,
+    *,
+    auth_token: str | None = None,
+) -> AuditSink:
+    """Factory: return BSupervisor sink when configured, Noop otherwise.
+
+    ``auth_token`` forwards the founder's own Bearer JWT so BSupervisor
+    sees the call under the founder's identity (same-account SSO).
+    Falls back to the tenant's static api_key when omitted. With
+    *neither* set, the sink would always 401 against ``*.bsvibe.dev``
+    BSupervisor; we degrade to Noop in that case so the chat doesn't
+    fill with audit warnings on every run.
+    """
+    if cfg is None or not cfg.enabled or not cfg.base_url:
+        return NoopAuditSink()
+    if not auth_token and not cfg.api_key:
+        # No way to authenticate → BSupervisor will 401. Don't bother.
+        return NoopAuditSink()
+    return BSupervisorAuditSink(
+        cfg.base_url,
+        cfg.api_key,
+        auth_token=auth_token,
+        timeout_ms=cfg.timeout_ms,
+        fail_mode=cfg.fail_mode,
+    )
 
 
 # Convenience: fire-and-forget post event
