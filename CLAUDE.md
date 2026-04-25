@@ -87,7 +87,7 @@ frontend/src/
     settings/            # IntegrationsTab + IntegrationCard
     common/              # Modal, Button, Badge, StatCard, Toast
     layout/              # Layout, Sidebar, Header
-  hooks/useAuth.ts       # JWT resolver (+ VITE_DEV_BYPASS_TOKEN dev escape)
+  hooks/useAuth.ts       # JWT resolver via BSVibe-Auth cross-subdomain SSO + hash-route OAuth callback
   pages/                 # Dashboard, Project, Settings, Landing
   types/founder.ts       # Snake-case mirrors of Pydantic schemas
   design-tokens.ts       # Source of truth; synced to ~/Docs/design_system.md
@@ -121,7 +121,7 @@ cd backend && BSNEXUS_INTEGRATION_PG_URL="postgresql+asyncpg://bsnexus:bsnexus_d
 # Frontend
 cd frontend && pnpm install
 VITE_API_URL=http://localhost:18100 \
-VITE_DEV_BYPASS_TOKEN=dev-token \
+VITE_AUTH_URL=https://auth.bsvibe.dev \
 pnpm dev --host 0.0.0.0 --port 13100
 
 cd frontend && pnpm exec tsc -b         # Type-check
