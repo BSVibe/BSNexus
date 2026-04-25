@@ -21,12 +21,8 @@ project_router = APIRouter(prefix="/api/v1/projects", tags=["decisions"])
 decision_router = APIRouter(prefix="/api/v1/decisions", tags=["decisions"])
 
 
-async def _assert_project_belongs(
-    db: AsyncSession, project_id: uuid.UUID, tenant_id: uuid.UUID
-) -> None:
-    stmt = select(Project.id).where(
-        Project.id == project_id, Project.tenant_id == tenant_id
-    )
+async def _assert_project_belongs(db: AsyncSession, project_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
+    stmt = select(Project.id).where(Project.id == project_id, Project.tenant_id == tenant_id)
     if (await db.execute(stmt)).scalar_one_or_none() is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
 
@@ -70,9 +66,7 @@ async def resolve_decision(
     db: AsyncSession = Depends(get_db),
     _user=Depends(get_current_user),
 ) -> Decision:
-    stmt = select(Decision).where(
-        Decision.id == decision_id, Decision.tenant_id == tenant_id
-    )
+    stmt = select(Decision).where(Decision.id == decision_id, Decision.tenant_id == tenant_id)
     decision = (await db.execute(stmt)).scalar_one_or_none()
     if decision is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Decision not found")
@@ -85,9 +79,7 @@ async def resolve_decision(
 
     integrations = await get_tenant_integration_snapshot(db, tenant_id)
     knowledge = resolve_knowledge_client(integrations.bsage)
-    project = (
-        await db.execute(select(Project).where(Project.id == decision.project_id))
-    ).scalar_one_or_none()
+    project = (await db.execute(select(Project).where(Project.id == decision.project_id))).scalar_one_or_none()
     project_name = project.name if project is not None else "project"
 
     auth_header = request.headers.get("authorization") or request.headers.get("Authorization", "")

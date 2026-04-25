@@ -45,21 +45,15 @@ class AuditResult:
 
 
 class AuditSink(Protocol):
-    async def preflight(
-        self, run: "ExecutionRun", snapshot: "CompositionSnapshot"
-    ) -> AuditResult: ...
+    async def preflight(self, run: "ExecutionRun", snapshot: "CompositionSnapshot") -> AuditResult: ...
 
-    async def emit_post(
-        self, run: "ExecutionRun", result: Any
-    ) -> None: ...
+    async def emit_post(self, run: "ExecutionRun", result: Any) -> None: ...
 
 
 class NoopAuditSink:
     """Fallback when BSupervisor isn't configured. Always allow."""
 
-    async def preflight(
-        self, run: "ExecutionRun", snapshot: "CompositionSnapshot"
-    ) -> AuditResult:
+    async def preflight(self, run: "ExecutionRun", snapshot: "CompositionSnapshot") -> AuditResult:
         logger.debug("audit_noop_preflight", run_id=str(run.id))
         return AuditResult(blocked=False)
 
@@ -100,9 +94,7 @@ class BSupervisorAuditSink:
         blocked = self._fail_mode == "closed"
         return AuditResult(blocked=blocked, reason=reason, degraded=True)
 
-    async def preflight(
-        self, run: "ExecutionRun", snapshot: "CompositionSnapshot"
-    ) -> AuditResult:
+    async def preflight(self, run: "ExecutionRun", snapshot: "CompositionSnapshot") -> AuditResult:
         payload = {
             "event_type": "run.pre",
             "mode": "preflight",
@@ -126,9 +118,7 @@ class BSupervisorAuditSink:
             logger.warning("bsupervisor_preflight_timeout", run_id=str(run.id))
             return self._fail_result("preflight timeout")
         except Exception as exc:
-            logger.warning(
-                "bsupervisor_preflight_failed", run_id=str(run.id), error=str(exc)
-            )
+            logger.warning("bsupervisor_preflight_failed", run_id=str(run.id), error=str(exc))
             return self._fail_result(f"preflight error: {exc}")
 
         allowed = bool(body.get("allowed", True))
@@ -157,9 +147,7 @@ class BSupervisorAuditSink:
                 )
                 resp.raise_for_status()
         except Exception as exc:
-            logger.warning(
-                "bsupervisor_post_failed", run_id=str(run.id), error=str(exc)
-            )
+            logger.warning("bsupervisor_post_failed", run_id=str(run.id), error=str(exc))
 
 
 def _summarize_result(result: Any) -> dict:
@@ -181,8 +169,6 @@ def resolve_audit_sink(cfg: AuditProviderConfig | None) -> AuditSink:
 
 
 # Convenience: fire-and-forget post event
-def emit_post_async(
-    sink: AuditSink, run: "ExecutionRun", result: Any
-) -> asyncio.Task:
+def emit_post_async(sink: AuditSink, run: "ExecutionRun", result: Any) -> asyncio.Task:
     """Schedule post-run audit emission without blocking the caller."""
     return asyncio.create_task(sink.emit_post(run, result))

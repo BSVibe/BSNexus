@@ -17,12 +17,8 @@ from backend.src.storage.database import get_db
 router = APIRouter(prefix="/api/v1/projects", tags=["requests"])
 
 
-async def _assert_project_belongs(
-    db: AsyncSession, project_id: uuid.UUID, tenant_id: uuid.UUID
-) -> None:
-    stmt = select(Project.id).where(
-        Project.id == project_id, Project.tenant_id == tenant_id
-    )
+async def _assert_project_belongs(db: AsyncSession, project_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
+    stmt = select(Project.id).where(Project.id == project_id, Project.tenant_id == tenant_id)
     if (await db.execute(stmt)).scalar_one_or_none() is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
 

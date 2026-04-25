@@ -57,16 +57,15 @@ async def test_adapter_returns_orchestrator_shaped_dict_no_tools():
         base_url="http://localhost:11434",
     )
 
-    with patch(
-        "backend.src.core.orchestrator_adapter.litellm.acompletion",
-        AsyncMock(
-            return_value=_fake_response(
-                content="hello world", prompt_tokens=40, completion_tokens=12
-            )
+    with (
+        patch(
+            "backend.src.core.orchestrator_adapter.litellm.acompletion",
+            AsyncMock(return_value=_fake_response(content="hello world", prompt_tokens=40, completion_tokens=12)),
+        ) as mock_call,
+        patch(
+            "backend.src.core.orchestrator_adapter.litellm.cost_per_token",
+            return_value=(0.001, 0.001),
         ),
-    ) as mock_call, patch(
-        "backend.src.core.orchestrator_adapter.litellm.cost_per_token",
-        return_value=(0.001, 0.001),
     ):
         out = await adapter.execute(
             "You are a helpful assistant.",
@@ -132,12 +131,15 @@ async def test_adapter_runs_tool_loop_and_records_file_writes(tmp_path, monkeypa
     ]
     acompletion_mock = AsyncMock(side_effect=responses)
 
-    with patch(
-        "backend.src.core.orchestrator_adapter.litellm.acompletion",
-        acompletion_mock,
-    ), patch(
-        "backend.src.core.orchestrator_adapter.litellm.cost_per_token",
-        return_value=0.0,
+    with (
+        patch(
+            "backend.src.core.orchestrator_adapter.litellm.acompletion",
+            acompletion_mock,
+        ),
+        patch(
+            "backend.src.core.orchestrator_adapter.litellm.cost_per_token",
+            return_value=0.0,
+        ),
     ):
         out = await adapter.execute(
             "system",
@@ -189,13 +191,16 @@ async def test_adapter_surfaces_tool_errors_as_payloads_not_exceptions(tmp_path,
         ),
         _fake_response(content="Could not read missing.txt; proceeding."),
     ]
-    with patch(
-        "backend.src.core.orchestrator_adapter.litellm.acompletion",
-        AsyncMock(side_effect=responses),
-    ), patch(
-        "backend.src.core.orchestrator_adapter.litellm.cost_per_token",
-        return_value=0.0,
-    ) as _:
+    with (
+        patch(
+            "backend.src.core.orchestrator_adapter.litellm.acompletion",
+            AsyncMock(side_effect=responses),
+        ),
+        patch(
+            "backend.src.core.orchestrator_adapter.litellm.cost_per_token",
+            return_value=0.0,
+        ) as _,
+    ):
         out = await adapter.execute("sys", "work", tools_allowed=["file_read"])
 
     assert out["status"] == "done"
@@ -206,12 +211,15 @@ async def test_adapter_surfaces_tool_errors_as_payloads_not_exceptions(tmp_path,
 async def test_adapter_does_not_send_num_ctx_for_non_ollama_model():
     adapter = LiteLLMOrchestratorAdapter(model="openai/gpt-4o", project_id=uuid.uuid4())
 
-    with patch(
-        "backend.src.core.orchestrator_adapter.litellm.acompletion",
-        AsyncMock(return_value=_fake_response(content="ok")),
-    ) as mock_call, patch(
-        "backend.src.core.orchestrator_adapter.litellm.cost_per_token",
-        return_value=0.0,
+    with (
+        patch(
+            "backend.src.core.orchestrator_adapter.litellm.acompletion",
+            AsyncMock(return_value=_fake_response(content="ok")),
+        ) as mock_call,
+        patch(
+            "backend.src.core.orchestrator_adapter.litellm.cost_per_token",
+            return_value=0.0,
+        ),
     ):
         await adapter.execute("sys", "hi", tools_allowed=[])
 
@@ -225,12 +233,15 @@ async def test_adapter_swallows_cost_lookup_errors():
     def _blow_up(**_):
         raise ValueError("unknown model")
 
-    with patch(
-        "backend.src.core.orchestrator_adapter.litellm.acompletion",
-        AsyncMock(return_value=_fake_response(content="ok")),
-    ), patch(
-        "backend.src.core.orchestrator_adapter.litellm.cost_per_token",
-        side_effect=_blow_up,
+    with (
+        patch(
+            "backend.src.core.orchestrator_adapter.litellm.acompletion",
+            AsyncMock(return_value=_fake_response(content="ok")),
+        ),
+        patch(
+            "backend.src.core.orchestrator_adapter.litellm.cost_per_token",
+            side_effect=_blow_up,
+        ),
     ):
         out = await adapter.execute("sys", "hi", tools_allowed=[])
 
@@ -255,9 +266,7 @@ async def test_adapter_bails_out_when_tool_loop_exceeds_cap(tmp_path, monkeypatc
         "backend.src.core.project_workspace._root",
         lambda: tmp_path,
     )
-    monkeypatch.setattr(
-        "backend.src.core.orchestrator_adapter.MAX_TOOL_ITERATIONS", 3
-    )
+    monkeypatch.setattr("backend.src.core.orchestrator_adapter.MAX_TOOL_ITERATIONS", 3)
     adapter = LiteLLMOrchestratorAdapter(model="openai/gpt-4o", project_id=project_id)
 
     # A stubborn model that only ever calls the list tool.
@@ -274,12 +283,15 @@ async def test_adapter_bails_out_when_tool_loop_exceeds_cap(tmp_path, monkeypatc
             ],
         )
 
-    with patch(
-        "backend.src.core.orchestrator_adapter.litellm.acompletion",
-        AsyncMock(side_effect=[_infinite_call(), _infinite_call(), _infinite_call()]),
-    ), patch(
-        "backend.src.core.orchestrator_adapter.litellm.cost_per_token",
-        return_value=0.0,
+    with (
+        patch(
+            "backend.src.core.orchestrator_adapter.litellm.acompletion",
+            AsyncMock(side_effect=[_infinite_call(), _infinite_call(), _infinite_call()]),
+        ),
+        patch(
+            "backend.src.core.orchestrator_adapter.litellm.cost_per_token",
+            return_value=0.0,
+        ),
     ):
         out = await adapter.execute("sys", "go", tools_allowed=["file_list"])
 

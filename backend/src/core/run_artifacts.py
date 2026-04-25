@@ -152,6 +152,18 @@ async def _ensure_assistant_message(run: "ExecutionRun", reply_text: str, sessio
         request_id=str(run.request_id),
         message_id=str(msg.id),
     )
+    # SSE fan-out for the chat rail.
+    from backend.src.core.project_events import publish_message  # noqa: PLC0415
+
+    await publish_message(
+        run.project_id,
+        message_id=msg.id,
+        role=msg.role,
+        content=msg.content,
+        request_id=msg.request_id,
+        actions=list(msg.actions or []),
+        created_at=(msg.created_at.isoformat() if msg.created_at else ""),
+    )
 
 
 def _message_kind(msg: ConversationMessage) -> str | None:
@@ -207,6 +219,17 @@ async def insert_chat_event(
     session.add(msg)
     await session.flush()
     logger.info("chat_event_recorded", kind=kind, run_id=str(run_id), message_id=str(msg.id))
+    from backend.src.core.project_events import publish_message  # noqa: PLC0415
+
+    await publish_message(
+        project_id,
+        message_id=msg.id,
+        role=msg.role,
+        content=msg.content,
+        request_id=msg.request_id,
+        actions=list(msg.actions or []),
+        created_at=(msg.created_at.isoformat() if msg.created_at else ""),
+    )
     return msg
 
 

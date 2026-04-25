@@ -68,9 +68,7 @@ class RunStateMachine:
                 from_status=old_status.value,
                 to_status=new_status.value,
             )
-            raise ValueError(
-                f"Invalid transition: {old_status.value} → {new_status.value}"
-            )
+            raise ValueError(f"Invalid transition: {old_status.value} → {new_status.value}")
 
         logger.info(
             "run_transition",
@@ -119,9 +117,7 @@ class RunStateMachine:
                 "to_status": new_status.value,
                 "actor": actor,
             }
-            await stream_manager.publish_project_event(
-                str(run.project_id), "run_transition", event
-            )
+            await stream_manager.publish_project_event(str(run.project_id), "run_transition", event)
 
         return run
 
@@ -158,9 +154,7 @@ def _milestone_event_type(new_status: RunStatus) -> str:
     return _MILESTONE_EVENT_TYPES.get(new_status, "run_transition")
 
 
-def _milestone_summary(
-    new_status: RunStatus, actor: str, reason: str | None
-) -> str:
+def _milestone_summary(new_status: RunStatus, actor: str, reason: str | None) -> str:
     label = {
         RunStatus.pending: "Reset to pending",
         RunStatus.running: "Started",
@@ -173,16 +167,18 @@ def _milestone_summary(
 
 
 # Convenience: check if a set of run IDs have all finished.
-async def all_runs_done(
-    run_ids: list[uuid.UUID], db_session: AsyncSession
-) -> bool:
+async def all_runs_done(run_ids: list[uuid.UUID], db_session: AsyncSession) -> bool:
     from sqlalchemy import func, select
 
     if not run_ids:
         return True
-    stmt = select(func.count()).select_from(ExecutionRun).where(
-        ExecutionRun.id.in_(run_ids),
-        ExecutionRun.status != RunStatus.done,
+    stmt = (
+        select(func.count())
+        .select_from(ExecutionRun)
+        .where(
+            ExecutionRun.id.in_(run_ids),
+            ExecutionRun.status != RunStatus.done,
+        )
     )
     result = await db_session.execute(stmt)
     return (result.scalar() or 0) == 0

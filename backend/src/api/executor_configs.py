@@ -37,14 +37,11 @@ def _validate_executor_type(executor_type: str) -> None:
     if executor_type not in EXECUTOR_TYPES:
         raise HTTPException(
             422,
-            f"Unknown executor_type '{executor_type}'. "
-            f"Expected one of: {', '.join(sorted(EXECUTOR_TYPES))}",
+            f"Unknown executor_type '{executor_type}'. Expected one of: {', '.join(sorted(EXECUTOR_TYPES))}",
         )
 
 
-async def _unset_other_selected(
-    db: AsyncSession, tenant_id: uuid.UUID, keep_id: uuid.UUID | None
-) -> None:
+async def _unset_other_selected(db: AsyncSession, tenant_id: uuid.UUID, keep_id: uuid.UUID | None) -> None:
     stmt = (
         update(ExecutorConfig)
         .where(
@@ -58,9 +55,7 @@ async def _unset_other_selected(
     await db.execute(stmt)
 
 
-async def _get_for_tenant(
-    db: AsyncSession, config_id: uuid.UUID, tenant_id: uuid.UUID
-) -> ExecutorConfig:
+async def _get_for_tenant(db: AsyncSession, config_id: uuid.UUID, tenant_id: uuid.UUID) -> ExecutorConfig:
     stmt = select(ExecutorConfig).where(
         ExecutorConfig.id == config_id,
         ExecutorConfig.tenant_id == tenant_id,
@@ -77,11 +72,7 @@ async def list_configs(
     db: AsyncSession = Depends(get_db),
     _user=Depends(get_current_user),
 ) -> list[ExecutorConfig]:
-    stmt = (
-        select(ExecutorConfig)
-        .where(ExecutorConfig.tenant_id == tenant_id)
-        .order_by(ExecutorConfig.created_at.asc())
-    )
+    stmt = select(ExecutorConfig).where(ExecutorConfig.tenant_id == tenant_id).order_by(ExecutorConfig.created_at.asc())
     return list((await db.execute(stmt)).scalars())
 
 

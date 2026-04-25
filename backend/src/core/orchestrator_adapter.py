@@ -69,9 +69,7 @@ class LiteLLMOrchestratorAdapter:
         tools_allowed: list[str],
         history: list[dict[str, str]] | None = None,
     ) -> dict[str, Any]:
-        messages: list[dict[str, Any]] = [
-            {"role": "system", "content": system_prompt}
-        ]
+        messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
         for turn in history or []:
             if turn.get("role") in ("user", "assistant") and turn.get("content"):
                 messages.append({"role": turn["role"], "content": turn["content"]})
@@ -113,9 +111,7 @@ class LiteLLMOrchestratorAdapter:
             for call in tool_calls:
                 name = _call_name(call)
                 args_raw = _call_arguments(call)
-                result = await execute_tool_call(
-                    name=name, raw_arguments=args_raw, log=tool_log
-                )
+                result = await execute_tool_call(name=name, raw_arguments=args_raw, log=tool_log)
                 messages.append(
                     {
                         "role": "tool",
@@ -159,9 +155,7 @@ class LiteLLMOrchestratorAdapter:
             "completion_tokens": total_completion_tokens,
         }
 
-    async def _complete(
-        self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]
-    ) -> Any:
+    async def _complete(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> Any:
         extra_kwargs: dict[str, Any] = {}
         if self._model.startswith(("ollama/", "ollama_chat/")):
             extra_kwargs["num_ctx"] = int(os.getenv("OLLAMA_NUM_CTX", "40960"))
@@ -216,9 +210,7 @@ def _tool_calls_of(message: Any) -> list[Any]:
 
 
 def _call_name(call: Any) -> str:
-    func = getattr(call, "function", None) or (
-        call.get("function") if isinstance(call, dict) else None
-    )
+    func = getattr(call, "function", None) or (call.get("function") if isinstance(call, dict) else None)
     if func is None:
         return ""
     name = getattr(func, "name", None)
@@ -228,9 +220,7 @@ def _call_name(call: Any) -> str:
 
 
 def _call_arguments(call: Any) -> str:
-    func = getattr(call, "function", None) or (
-        call.get("function") if isinstance(call, dict) else None
-    )
+    func = getattr(call, "function", None) or (call.get("function") if isinstance(call, dict) else None)
     if func is None:
         return ""
     args = getattr(func, "arguments", None)

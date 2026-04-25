@@ -106,9 +106,7 @@ class WorkerDispatcher:
         candidates = list(result.scalars())
         if required_capabilities:
             required = set(required_capabilities)
-            candidates = [
-                w for w in candidates if required.issubset(set(w.capabilities or []))
-            ]
+            candidates = [w for w in candidates if required.issubset(set(w.capabilities or []))]
         return candidates[0] if candidates else None
 
     async def report_result(

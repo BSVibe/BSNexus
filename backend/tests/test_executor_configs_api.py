@@ -102,9 +102,7 @@ async def test_get_by_id(client):
         )
     ).json()
 
-    resp = await client.get(
-        f"/api/v1/executor-configs/{created['id']}", headers=AUTH
-    )
+    resp = await client.get(f"/api/v1/executor-configs/{created['id']}", headers=AUTH)
     assert resp.status_code == 200
     assert resp.json()["id"] == created["id"]
 
@@ -172,9 +170,7 @@ async def test_patch_updates_and_unsets_others_when_making_selected(client):
     assert patched.status_code == 200
     assert patched.json()["is_selected"] is True
 
-    a_refetched = (
-        await client.get(f"/api/v1/executor-configs/{a['id']}", headers=AUTH)
-    ).json()
+    a_refetched = (await client.get(f"/api/v1/executor-configs/{a['id']}", headers=AUTH)).json()
     assert a_refetched["is_selected"] is False
 
 
@@ -188,12 +184,8 @@ async def test_delete(client):
         )
     ).json()
 
-    resp = await client.delete(
-        f"/api/v1/executor-configs/{created['id']}", headers=AUTH
-    )
+    resp = await client.delete(f"/api/v1/executor-configs/{created['id']}", headers=AUTH)
     assert resp.status_code == 204
 
-    resp = await client.get(
-        f"/api/v1/executor-configs/{created['id']}", headers=AUTH
-    )
+    resp = await client.get(f"/api/v1/executor-configs/{created['id']}", headers=AUTH)
     assert resp.status_code == 404

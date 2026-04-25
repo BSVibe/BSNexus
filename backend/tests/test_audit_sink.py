@@ -89,9 +89,7 @@ async def test_bsupervisor_preflight_blocked_when_denied():
     mock_response = MagicMock(spec=httpx.Response)
     mock_response.status_code = 200
     mock_response.raise_for_status = MagicMock()
-    mock_response.json = MagicMock(
-        return_value={"allowed": False, "reason": "rule X violated"}
-    )
+    mock_response.json = MagicMock(return_value={"allowed": False, "reason": "rule X violated"})
 
     async_client = AsyncMock()
     async_client.post = AsyncMock(return_value=mock_response)

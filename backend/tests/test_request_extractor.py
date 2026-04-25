@@ -22,9 +22,7 @@ from backend.src.models import Request, RequestStatus
 class FakeClassifier:
     scripted: dict[str, ClassificationResult]
 
-    async def classify(
-        self, content: str, open_request_summaries: list[str]
-    ) -> ClassificationResult:
+    async def classify(self, content: str, open_request_summaries: list[str]) -> ClassificationResult:
         return self.scripted.get(
             content,
             ClassificationResult(MessageIntent.chit_chat, "", 0.5),
@@ -125,9 +123,7 @@ async def test_extractor_creates_request_on_new_intent():
     ex = RequestExtractor(
         FakeClassifier(
             scripted={
-                "Ship the landing page": ClassificationResult(
-                    MessageIntent.request, "ship landing page", 0.9
-                ),
+                "Ship the landing page": ClassificationResult(MessageIntent.request, "ship landing page", 0.9),
             }
         )
     )
@@ -185,9 +181,7 @@ async def test_extractor_modification_with_no_open_requests_creates_new():
     ex = RequestExtractor(
         FakeClassifier(
             scripted={
-                "Remove the footer": ClassificationResult(
-                    MessageIntent.modification, "remove footer", 0.7
-                ),
+                "Remove the footer": ClassificationResult(MessageIntent.modification, "remove footer", 0.7),
             }
         )
     )

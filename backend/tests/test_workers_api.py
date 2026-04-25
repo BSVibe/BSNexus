@@ -27,9 +27,7 @@ async def test_generate_install_token_returns_token_once(client):
     assert isinstance(body["token"], str) and len(body["token"]) >= 32
 
     # Subsequent GET shows it's set but never returns the raw value.
-    status_resp = await client.get(
-        "/api/v1/workers/install-token", headers=AUTH
-    )
+    status_resp = await client.get("/api/v1/workers/install-token", headers=AUTH)
     assert status_resp.json() == {"has_token": True}
 
 

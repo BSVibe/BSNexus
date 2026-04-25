@@ -17,7 +17,8 @@ class Worker(Base):
         Index("ix_workers_status", "status"),
         Index(
             "uq_workers_tenant_name_active",
-            "tenant_id", "name",
+            "tenant_id",
+            "name",
             unique=True,
             postgresql_where=text("is_active = true"),
             sqlite_where=text("is_active = 1"),

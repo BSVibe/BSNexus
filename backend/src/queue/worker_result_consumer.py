@@ -62,14 +62,10 @@ class WorkerResultConsumer:
 
     async def start(self) -> None:
         try:
-            await self._stream.redis.xgroup_create(
-                RESULTS_STREAM, RESULTS_GROUP, id="0", mkstream=True
-            )
+            await self._stream.redis.xgroup_create(RESULTS_STREAM, RESULTS_GROUP, id="0", mkstream=True)
         except Exception as exc:  # noqa: BLE001
             if "BUSYGROUP" not in str(exc):
-                logger.warning(
-                    "worker_result_consumer_xgroup_create_failed", error=str(exc)
-                )
+                logger.warning("worker_result_consumer_xgroup_create_failed", error=str(exc))
         self._task = asyncio.create_task(self._run())
         logger.info("worker_result_consumer_started")
 
@@ -119,13 +115,9 @@ class WorkerResultConsumer:
                     mid = msg.get("_message_id")
                     if mid:
                         try:
-                            await self._stream.acknowledge(
-                                RESULTS_STREAM, RESULTS_GROUP, mid
-                            )
+                            await self._stream.acknowledge(RESULTS_STREAM, RESULTS_GROUP, mid)
                         except Exception:  # noqa: BLE001
-                            logger.warning(
-                                "worker_result_ack_failed", message_id=mid
-                            )
+                            logger.warning("worker_result_ack_failed", message_id=mid)
 
     async def _handle_message(self, msg: dict[str, Any]) -> None:
         raw_run_id = msg.get("run_id")
@@ -148,11 +140,7 @@ class WorkerResultConsumer:
                 output_data = {"raw": output_data}
 
         async with self._session_maker() as session:
-            run = (
-                await session.execute(
-                    select(ExecutionRun).where(ExecutionRun.id == run_id)
-                )
-            ).scalar_one_or_none()
+            run = (await session.execute(select(ExecutionRun).where(ExecutionRun.id == run_id))).scalar_one_or_none()
             if run is None:
                 logger.warning("worker_result_unknown_run", run_id=str(run_id))
                 return
@@ -202,14 +190,10 @@ class WorkerResultConsumer:
             originator_token: str | None = None
             if run.request_id is not None:
                 req_row = (
-                    await session.execute(
-                        select(_Request).where(_Request.id == run.request_id)
-                    )
+                    await session.execute(select(_Request).where(_Request.id == run.request_id))
                 ).scalar_one_or_none()
                 if req_row is not None:
                     originator_token = req_row.originator_auth
-            knowledge = resolve_knowledge_client(
-                snapshot.bsage, auth_token=originator_token
-            )
+            knowledge = resolve_knowledge_client(snapshot.bsage, auth_token=originator_token)
             await publish_run_output(run, session, knowledge=knowledge)
             await session.commit()

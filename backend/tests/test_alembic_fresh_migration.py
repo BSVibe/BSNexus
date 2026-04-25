@@ -53,13 +53,17 @@ async def test_alembic_upgrade_head_on_fresh_pg():
     engine = create_async_engine(_PG_URL)
     async with engine.connect() as conn:
         tables = (
-            await conn.execute(
-                text(
-                    "SELECT table_name FROM information_schema.tables "
-                    "WHERE table_schema = 'public' ORDER BY table_name"
+            (
+                await conn.execute(
+                    text(
+                        "SELECT table_name FROM information_schema.tables "
+                        "WHERE table_schema = 'public' ORDER BY table_name"
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
     await engine.dispose()
 
     expected = {

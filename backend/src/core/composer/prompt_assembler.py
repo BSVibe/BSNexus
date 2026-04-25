@@ -47,9 +47,7 @@ class PersonaTemplate:
         if not fragments:
             context_block = "(no project-specific context available)"
         else:
-            context_block = "\n\n".join(
-                f"### {f.title}\n{f.excerpt}" for f in fragments
-            )
+            context_block = "\n\n".join(f"### {f.title}\n{f.excerpt}" for f in fragments)
         return self.system_prompt_template.replace("{context}", context_block)
 
 
@@ -80,18 +78,14 @@ class PersonaTemplateRegistry:
     def pick(self, intent: str, tools_available: list[str] | None) -> PersonaTemplate:
         if not self._templates:
             raise LookupError("PersonaTemplateRegistry is empty")
-        scored = [
-            (t.score_for(intent, tools_available or []), t) for t in self._templates
-        ]
+        scored = [(t.score_for(intent, tools_available or []), t) for t in self._templates]
         scored.sort(key=lambda x: x[0], reverse=True)
         return scored[0][1]
 
     def best_score(self, intent: str, tools_available: list[str] | None) -> float:
         if not self._templates:
             return 0.0
-        return max(
-            t.score_for(intent, tools_available or []) for t in self._templates
-        )
+        return max(t.score_for(intent, tools_available or []) for t in self._templates)
 
 
 class PromptAssembler:
@@ -200,9 +194,7 @@ _DEFAULT_TEMPLATES: list[PersonaTemplate] = [
     PersonaTemplate(
         name="builder",
         system_prompt_template=(
-            "You are an engineer on the founder's team.\n\n"
-            f"{_SHARED_POLICY}\n\n"
-            "Relevant project context:\n{context}"
+            f"You are an engineer on the founder's team.\n\n{_SHARED_POLICY}\n\nRelevant project context:\n{{context}}"
         ),
         tools=["file_read", "file_write", "file_list", "shell_exec"],
         keywords=["implement", "fix", "build", "add", "refactor", "bug"],

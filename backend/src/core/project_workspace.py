@@ -61,9 +61,7 @@ def write_file(
 HIDDEN_PREFIXES: tuple[str, ...] = (".bsnexus/",)
 
 
-def list_files(
-    project_id: uuid.UUID, *, include_hidden: bool = False
-) -> list[dict[str, object]]:
+def list_files(project_id: uuid.UUID, *, include_hidden: bool = False) -> list[dict[str, object]]:
     """Return a flat list of files under the workspace with size bytes.
 
     The ``.bsnexus/`` harness directory is internal plumbing — hidden by

@@ -22,12 +22,8 @@ runs_router = APIRouter(prefix="/api/v1/requests", tags=["inside"])
 snapshot_router = APIRouter(prefix="/api/v1/composition-snapshots", tags=["inside"])
 
 
-async def _require_request(
-    db: AsyncSession, request_id: uuid.UUID, tenant_id: uuid.UUID
-) -> Request:
-    stmt = select(Request).where(
-        Request.id == request_id, Request.tenant_id == tenant_id
-    )
+async def _require_request(db: AsyncSession, request_id: uuid.UUID, tenant_id: uuid.UUID) -> Request:
+    stmt = select(Request).where(Request.id == request_id, Request.tenant_id == tenant_id)
     req = (await db.execute(stmt)).scalar_one_or_none()
     if req is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Request not found")
@@ -45,11 +41,7 @@ async def list_runs(
     _user=Depends(get_current_user),
 ) -> list[ExecutionRun]:
     await _require_request(db, request_id, tenant_id)
-    stmt = (
-        select(ExecutionRun)
-        .where(ExecutionRun.request_id == request_id)
-        .order_by(ExecutionRun.created_at.asc())
-    )
+    stmt = select(ExecutionRun).where(ExecutionRun.request_id == request_id).order_by(ExecutionRun.created_at.asc())
     return list((await db.execute(stmt)).scalars())
 
 

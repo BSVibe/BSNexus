@@ -6,6 +6,7 @@ import Sidebar from './Sidebar'
 import GlobalChat from '../chat/GlobalChat'
 import CommandPalette from '../common/CommandPalette'
 import { projectsApi, type Project } from '../../api/projects'
+import { useProjectEvents } from '../../hooks/useProjectEvents'
 
 const CHAT_COLLAPSED_KEY = 'bsnexus.chat.collapsed'
 
@@ -46,6 +47,12 @@ export default function Layout() {
   const currentProject = params.projectId
     ? projects.find((p) => p.id === params.projectId) ?? null
     : null
+
+  // Subscribe to per-project SSE so chat / deliverables / decisions
+  // update in real time. Only the current project route streams; the
+  // chat rail still polls other projects (it sees ALL projects via
+  // ``useQueries`` for cross-project visibility).
+  useProjectEvents(params.projectId ?? null)
 
   return (
     <div className={`app ${chatCollapsed ? 'chat-collapsed' : ''}`}>

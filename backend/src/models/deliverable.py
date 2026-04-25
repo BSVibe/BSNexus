@@ -50,12 +50,8 @@ class Deliverable(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    tenant_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
-    )
-    project_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
-    )
+    tenant_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    project_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
     request_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("requests.id", ondelete="SET NULL"), nullable=True
     )
@@ -72,9 +68,7 @@ class Deliverable(Base):
         nullable=True,
     )
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
@@ -93,9 +87,7 @@ class DeliverableVersion(Base):
     """
 
     __tablename__ = "deliverable_versions"
-    __table_args__ = (
-        Index("ix_deliverable_versions_deliverable", "deliverable_id", "version_int"),
-    )
+    __table_args__ = (Index("ix_deliverable_versions_deliverable", "deliverable_id", "version_int"),)
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     deliverable_id: Mapped[uuid.UUID] = mapped_column(
@@ -103,9 +95,7 @@ class DeliverableVersion(Base):
     )
     version_int: Mapped[int] = mapped_column(Integer, nullable=False)
 
-    storage_backend: Mapped[StorageBackend] = mapped_column(
-        Enum(StorageBackend), nullable=False
-    )
+    storage_backend: Mapped[StorageBackend] = mapped_column(Enum(StorageBackend), nullable=False)
     content_ref: Mapped[dict] = mapped_column(JSON, nullable=False)
     content_hash: Mapped[str] = mapped_column(String(128), nullable=False)
     size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -114,9 +104,7 @@ class DeliverableVersion(Base):
         Uuid, ForeignKey("execution_runs.id", ondelete="SET NULL"), nullable=True
     )
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     deliverable: Mapped["Deliverable"] = relationship(
         "Deliverable",

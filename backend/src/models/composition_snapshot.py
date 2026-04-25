@@ -43,12 +43,8 @@ class CompositionSnapshot(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    tenant_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
-    )
-    request_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("requests.id", ondelete="CASCADE"), nullable=False
-    )
+    tenant_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    request_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("requests.id", ondelete="CASCADE"), nullable=False)
     execution_run_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("execution_runs.id", ondelete="SET NULL"), nullable=True
     )
@@ -67,6 +63,4 @@ class CompositionSnapshot(Base):
     persona_label: Mapped[str] = mapped_column(String(255), nullable=False)
     fit_score: Mapped[float | None] = mapped_column(Float, nullable=True)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

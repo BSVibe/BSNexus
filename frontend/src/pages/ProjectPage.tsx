@@ -47,21 +47,24 @@ export default function ProjectPage() {
     queryKey: ['deliverables', projectId],
     queryFn: () => deliverablesApi.listForProject(projectId!),
     enabled: Boolean(projectId),
-    refetchInterval: 3000,
+    // Live updates land via the SSE stream wired up in Layout; no
+    // polling needed. The query is invalidated on relevant events.
   })
 
   const { data: decisions = [] } = useQuery({
     queryKey: ['decisions', projectId],
     queryFn: () => decisionsApi.listForProject(projectId!),
     enabled: Boolean(projectId),
-    refetchInterval: 3000,
+    // Live updates land via the SSE stream wired up in Layout; no
+    // polling needed. The query is invalidated on relevant events.
   })
 
   const { data: files = [] } = useQuery({
     queryKey: ['workspace-files', projectId],
     queryFn: () => workspaceFilesApi.list(projectId!),
     enabled: Boolean(projectId),
-    refetchInterval: 3000,
+    // Live updates land via the SSE stream wired up in Layout; no
+    // polling needed. The query is invalidated on relevant events.
   })
 
   const openDecisions = useMemo(

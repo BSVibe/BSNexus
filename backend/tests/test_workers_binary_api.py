@@ -23,9 +23,7 @@ async def _mint_install_token(db_session, tenant_id) -> str:
 
     from backend.src.models import Tenant
 
-    tenant = (
-        await db_session.execute(select(Tenant).where(Tenant.id == tenant_id))
-    ).scalar_one()
+    tenant = (await db_session.execute(select(Tenant).where(Tenant.id == tenant_id))).scalar_one()
     raw = "install-raw-" + uuid.uuid4().hex
     tenant.worker_install_token_hash = _sha(raw)
     await db_session.commit()
@@ -75,9 +73,7 @@ async def test_register_rejects_unknown_install_token(client):
 
 
 @pytest.mark.asyncio
-async def test_register_creates_worker_and_returns_token_once(
-    client, db_session, mock_tenant_id
-):
+async def test_register_creates_worker_and_returns_token_once(client, db_session, mock_tenant_id):
     token = await _mint_install_token(db_session, mock_tenant_id)
     resp = await client.post(
         "/api/v1/workers/register",
@@ -130,9 +126,7 @@ async def test_heartbeat_rejects_unknown_token(client):
 
 
 @pytest.mark.asyncio
-async def test_heartbeat_updates_last_heartbeat_and_flips_online(
-    client, db_session, mock_tenant_id
-):
+async def test_heartbeat_updates_last_heartbeat_and_flips_online(client, db_session, mock_tenant_id):
     worker, raw = await _register_worker_row(db_session, mock_tenant_id)
     # Force offline so we can observe the flip.
     worker.status = "offline"
@@ -153,9 +147,7 @@ async def test_heartbeat_updates_last_heartbeat_and_flips_online(
 
 
 @pytest.mark.asyncio
-async def test_poll_returns_empty_list_when_no_messages(
-    client, db_session, mock_tenant_id, mock_stream_manager
-):
+async def test_poll_returns_empty_list_when_no_messages(client, db_session, mock_tenant_id, mock_stream_manager):
     _, raw = await _register_worker_row(db_session, mock_tenant_id)
     mock_stream_manager.consume.return_value = []
     resp = await client.post(
@@ -167,9 +159,7 @@ async def test_poll_returns_empty_list_when_no_messages(
 
 
 @pytest.mark.asyncio
-async def test_poll_maps_stream_payload_to_task_dict(
-    client, db_session, mock_tenant_id, mock_stream_manager
-):
+async def test_poll_maps_stream_payload_to_task_dict(client, db_session, mock_tenant_id, mock_stream_manager):
     worker, raw = await _register_worker_row(db_session, mock_tenant_id)
     run_id = str(uuid.uuid4())
     project_id = str(uuid.uuid4())
@@ -216,9 +206,7 @@ async def test_poll_rejects_unknown_token(client):
 
 
 @pytest.mark.asyncio
-async def test_result_publishes_to_runs_results_stream(
-    client, db_session, mock_tenant_id, mock_stream_manager
-):
+async def test_result_publishes_to_runs_results_stream(client, db_session, mock_tenant_id, mock_stream_manager):
     worker, raw = await _register_worker_row(db_session, mock_tenant_id)
     task_id = str(uuid.uuid4())
     resp = await client.post(
@@ -241,9 +229,7 @@ async def test_result_publishes_to_runs_results_stream(
 
 
 @pytest.mark.asyncio
-async def test_result_failure_includes_error_message(
-    client, db_session, mock_tenant_id, mock_stream_manager
-):
+async def test_result_failure_includes_error_message(client, db_session, mock_tenant_id, mock_stream_manager):
     _, raw = await _register_worker_row(db_session, mock_tenant_id)
     resp = await client.post(
         "/api/v1/workers/result",

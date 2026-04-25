@@ -186,6 +186,43 @@ async def send_message(
         run_dispatched=bool(run_to_dispatch),
     )
 
+    # SSE fan-out for the chat rail. Re-fetch the assistant rows the
+    # handler may have inserted (ack / mod_ack) so subscribers see them
+    # without waiting for a poll.
+    from backend.src.core.project_events import publish_message  # noqa: PLC0415
+
+    await publish_message(
+        project_id,
+        message_id=message.id,
+        role=message.role,
+        content=message.content,
+        request_id=message.request_id,
+        actions=list(message.actions or []),
+        created_at=(message.created_at.isoformat() if message.created_at else ""),
+    )
+    if outcome.request is not None:
+        recent_assistant_stmt = (
+            select(ConversationMessage)
+            .where(
+                ConversationMessage.project_id == project_id,
+                ConversationMessage.role == "assistant",
+                ConversationMessage.request_id == outcome.request.id,
+            )
+            .order_by(ConversationMessage.created_at.desc())
+            .limit(1)
+        )
+        latest = (await db.execute(recent_assistant_stmt)).scalar_one_or_none()
+        if latest is not None:
+            await publish_message(
+                project_id,
+                message_id=latest.id,
+                role=latest.role,
+                content=latest.content,
+                request_id=latest.request_id,
+                actions=list(latest.actions or []),
+                created_at=(latest.created_at.isoformat() if latest.created_at else ""),
+            )
+
     if run_to_dispatch is not None:
         stream_manager = getattr(request.app.state, "stream_manager", None)
         asyncio.create_task(_BACKGROUND_DISPATCH(run_to_dispatch, tenant_id, project_id, stream_manager))

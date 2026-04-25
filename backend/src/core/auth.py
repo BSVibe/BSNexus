@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.src.config import settings
 from backend.src.storage.database import get_db
 
+
 class Role(str, enum.Enum):
     admin = "admin"
     operator = "operator"

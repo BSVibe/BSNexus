@@ -96,9 +96,7 @@ def _write_workspace_md(project_id: uuid.UUID, ctx: Path) -> None:
     path.write_text(_format_workspace_md(entries), encoding="utf-8")
 
 
-async def _write_history_md(
-    ctx: Path, *, request: Request, db: AsyncSession
-) -> None:
+async def _write_history_md(ctx: Path, *, request: Request, db: AsyncSession) -> None:
     runs = list(
         (
             await db.execute(
@@ -109,8 +107,7 @@ async def _write_history_md(
                 )
                 .order_by(ExecutionRun.completed_at.asc().nullslast())
             )
-        )
-        .scalars()
+        ).scalars()
     )
 
     # Fetch the assistant ConversationMessage for each run so the
@@ -125,9 +122,7 @@ async def _write_history_md(
     )
 
 
-async def _load_assistant_replies(
-    db: AsyncSession, *, request_id: uuid.UUID
-) -> dict[uuid.UUID, str]:
+async def _load_assistant_replies(db: AsyncSession, *, request_id: uuid.UUID) -> dict[uuid.UUID, str]:
     stmt = select(ConversationMessage).where(
         ConversationMessage.request_id == request_id,
         ConversationMessage.role == "assistant",
@@ -154,11 +149,7 @@ def _format_stack_md(contract: str) -> str:
 
 def _format_workspace_md(entries: list[dict]) -> str:
     if not entries:
-        return (
-            "# Workspace\n\n"
-            "(no files yet — this is the first phase. Stick to whatever "
-            "stack.md declares.)\n"
-        )
+        return "# Workspace\n\n(no files yet — this is the first phase. Stick to whatever stack.md declares.)\n"
     lines = [
         "# Workspace",
         "",
@@ -197,9 +188,7 @@ def _format_history_md(
     recent = runs[-MAX_HISTORY_ENTRIES:]
     for i, run in enumerate(recent, start=1):
         directive = (run.directive or "").strip().replace("\n", " ")
-        summary = _first_paragraph(
-            replies.get(i - 1, "") or _inline_of(run.output_ref)
-        )
+        summary = _first_paragraph(replies.get(i - 1, "") or _inline_of(run.output_ref))
         lines.append(f"## Phase {i}")
         lines.append(f"Directive: {directive[:240]}")
         lines.append(f"Outcome: {summary[:MAX_HISTORY_SUMMARY_CHARS]}")

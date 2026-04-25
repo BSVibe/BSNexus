@@ -54,9 +54,7 @@ async def _seed_run(db_session, tenant_id) -> ExecutionRun:
 
 
 @pytest.mark.asyncio
-async def test_dispatched_result_leaves_run_in_running(
-    db_session, mock_tenant_id, seeded_tenant
-):
+async def test_dispatched_result_leaves_run_in_running(db_session, mock_tenant_id, seeded_tenant):
     run = await _seed_run(db_session, mock_tenant_id)
 
     # Fake adapter that returns the dispatched sentinel
@@ -78,9 +76,7 @@ async def test_dispatched_result_leaves_run_in_running(
 
     # The orchestrator should have transitioned pending → running but
     # NOT advanced to done; the worker will finalize later.
-    refreshed = (
-        await db_session.execute(select(ExecutionRun).where(ExecutionRun.id == run.id))
-    ).scalar_one()
+    refreshed = (await db_session.execute(select(ExecutionRun).where(ExecutionRun.id == run.id))).scalar_one()
     assert refreshed.status == RunStatus.running
     assert refreshed.completed_at is None
     # And a composition snapshot was persisted along the way.
@@ -88,9 +84,7 @@ async def test_dispatched_result_leaves_run_in_running(
 
 
 @pytest.mark.asyncio
-async def test_done_result_still_transitions_to_done(
-    db_session, mock_tenant_id, seeded_tenant
-):
+async def test_done_result_still_transitions_to_done(db_session, mock_tenant_id, seeded_tenant):
     """Synchronous executors returning a regular result dict keep the
     existing happy path intact — the orchestrator marks them done."""
     run = await _seed_run(db_session, mock_tenant_id)
@@ -110,7 +104,5 @@ async def test_done_result_still_transitions_to_done(
     await orch.dispatch_run(run.id, db=db_session, executor=adapter)
     await db_session.commit()
 
-    refreshed = (
-        await db_session.execute(select(ExecutionRun).where(ExecutionRun.id == run.id))
-    ).scalar_one()
+    refreshed = (await db_session.execute(select(ExecutionRun).where(ExecutionRun.id == run.id))).scalar_one()
     assert refreshed.status == RunStatus.done

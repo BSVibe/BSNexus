@@ -15,6 +15,7 @@ from backend.src.api import (
     executor_configs,
     inside,
     integrations,
+    project_events,
     projects,
     requests_api,
     workers as workers_api,
@@ -78,8 +79,7 @@ async def lifespan(app: FastAPI):
         )
     if not app_settings.debug and app_settings.encryption_key == _DEV_ENCRYPTION_KEY:
         raise RuntimeError(
-            "FATAL: encryption_key is still the dev default. Set a secure "
-            "ENCRYPTION_KEY env var for production."
+            "FATAL: encryption_key is still the dev default. Set a secure ENCRYPTION_KEY env var for production."
         )
 
     await init_db()
@@ -96,9 +96,7 @@ async def lifespan(app: FastAPI):
     from backend.src.queue.worker_result_consumer import WorkerResultConsumer
     from backend.src.storage.database import async_session
 
-    worker_result_consumer = WorkerResultConsumer(
-        stream_manager=stream_manager, session_maker=async_session
-    )
+    worker_result_consumer = WorkerResultConsumer(stream_manager=stream_manager, session_maker=async_session)
     await worker_result_consumer.start()
     app.state.worker_result_consumer = worker_result_consumer
 
@@ -123,6 +121,7 @@ _ROUTERS = [
     executor_configs.router,
     workers_api.router,
     workspace_files.router,
+    project_events.router,
 ]
 
 

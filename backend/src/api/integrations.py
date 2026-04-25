@@ -52,8 +52,7 @@ def _parse_provider(raw: str) -> IntegrationProvider:
     except ValueError:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
-            f"Unknown provider '{raw}'. Expected one of: "
-            f"{', '.join(p.value for p in IntegrationProvider)}",
+            f"Unknown provider '{raw}'. Expected one of: {', '.join(p.value for p in IntegrationProvider)}",
         )
 
 
@@ -76,18 +75,12 @@ async def list_integrations(
     rows = {
         row.provider: row
         for row in (
-            await db.execute(
-                select(TenantIntegrationConfig).where(
-                    TenantIntegrationConfig.tenant_id == tenant_id
-                )
-            )
+            await db.execute(select(TenantIntegrationConfig).where(TenantIntegrationConfig.tenant_id == tenant_id))
         ).scalars()
     }
     return IntegrationConfigList(
         bsage=redacted(IntegrationProvider.bsage, rows.get(IntegrationProvider.bsage)),
-        bsupervisor=redacted(
-            IntegrationProvider.bsupervisor, rows.get(IntegrationProvider.bsupervisor)
-        ),
+        bsupervisor=redacted(IntegrationProvider.bsupervisor, rows.get(IntegrationProvider.bsupervisor)),
     )
 
 
@@ -145,9 +138,7 @@ async def test_integration(
     row = await _load_row(db, tenant_id, prov)
 
     if row is None or not row.enabled or not row.base_url:
-        return IntegrationTestResult(
-            ok=False, status="disabled", detail="Enable + set base URL first"
-        )
+        return IntegrationTestResult(ok=False, status="disabled", detail="Enable + set base URL first")
 
     probe_path = _probe_path_for(prov)
     # Explicit service UA to clear Cloudflare Bot Fight Mode on the
@@ -160,32 +151,22 @@ async def test_integration(
             token = _encryption().decrypt_value(row.api_key_encrypted)
             headers["Authorization"] = f"Bearer {token}"
         except ValueError:
-            logger.error(
-                "integration_api_key_decrypt_failed", provider=prov.value
-            )
+            logger.error("integration_api_key_decrypt_failed", provider=prov.value)
 
     url = f"{row.base_url.rstrip('/')}{probe_path}"
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:
             resp = await client.get(url, headers=headers)
     except httpx.TimeoutException:
-        return IntegrationTestResult(
-            ok=False, status="unreachable", detail="timeout"
-        )
+        return IntegrationTestResult(ok=False, status="unreachable", detail="timeout")
     except Exception as exc:  # noqa: BLE001
-        return IntegrationTestResult(
-            ok=False, status="unreachable", detail=str(exc)
-        )
+        return IntegrationTestResult(ok=False, status="unreachable", detail=str(exc))
 
     if resp.status_code in (401, 403):
-        return IntegrationTestResult(
-            ok=False, status="unauthorized", detail=f"HTTP {resp.status_code}"
-        )
+        return IntegrationTestResult(ok=False, status="unauthorized", detail=f"HTTP {resp.status_code}")
     if resp.status_code < 500:
         return IntegrationTestResult(ok=True, status="healthy")
-    return IntegrationTestResult(
-        ok=False, status="unreachable", detail=f"HTTP {resp.status_code}"
-    )
+    return IntegrationTestResult(ok=False, status="unreachable", detail=f"HTTP {resp.status_code}")
 
 
 def _probe_path_for(provider: IntegrationProvider) -> str:

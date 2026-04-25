@@ -216,13 +216,11 @@ async def test_resolve_decision_404_for_foreign_tenant(client, db_session):
         )
     )
     await db_session.commit()
-    db_session.add(
-        Project(tenant_id=other_tid, name="Hidden", description="")
-    )
+    db_session.add(Project(tenant_id=other_tid, name="Hidden", description=""))
     await db_session.commit()
-    foreign_project = (await db_session.execute(
-        __import__("sqlalchemy").select(Project).where(Project.tenant_id == other_tid)
-    )).scalar_one()
+    foreign_project = (
+        await db_session.execute(__import__("sqlalchemy").select(Project).where(Project.tenant_id == other_tid))
+    ).scalar_one()
 
     decision = Decision(
         tenant_id=other_tid,

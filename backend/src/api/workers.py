@@ -48,9 +48,7 @@ def _hash_token(raw: str) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
-async def _get_tenant(
-    db: AsyncSession, tenant_id: uuid.UUID
-) -> Tenant:
+async def _get_tenant(db: AsyncSession, tenant_id: uuid.UUID) -> Tenant:
     stmt = select(Tenant).where(Tenant.id == tenant_id)
     tenant = (await db.execute(stmt)).scalar_one_or_none()
     if tenant is None:
@@ -115,11 +113,7 @@ async def list_workers(
     db: AsyncSession = Depends(get_db),
     _user=Depends(get_current_user),
 ) -> list[Worker]:
-    stmt = (
-        select(Worker)
-        .where(Worker.tenant_id == tenant_id)
-        .order_by(Worker.created_at.asc())
-    )
+    stmt = select(Worker).where(Worker.tenant_id == tenant_id).order_by(Worker.created_at.asc())
     return list((await db.execute(stmt)).scalars())
 
 
@@ -130,9 +124,7 @@ async def delete_worker(
     db: AsyncSession = Depends(get_db),
     _user=Depends(get_current_user),
 ) -> None:
-    stmt = select(Worker).where(
-        Worker.id == worker_id, Worker.tenant_id == tenant_id
-    )
+    stmt = select(Worker).where(Worker.id == worker_id, Worker.tenant_id == tenant_id)
     worker = (await db.execute(stmt)).scalar_one_or_none()
     if worker is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Worker not found")
@@ -145,9 +137,7 @@ async def delete_worker(
 # tenant-context middleware — the tenant is derived from the token.
 
 
-async def _auth_by_install_token(
-    x_install_token: str | None, db: AsyncSession
-) -> Tenant:
+async def _auth_by_install_token(x_install_token: str | None, db: AsyncSession) -> Tenant:
     if not x_install_token:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing X-Install-Token")
     hashed = _hash_token(x_install_token)
@@ -158,15 +148,11 @@ async def _auth_by_install_token(
     return tenant
 
 
-async def _auth_by_worker_token(
-    x_worker_token: str | None, db: AsyncSession
-) -> Worker:
+async def _auth_by_worker_token(x_worker_token: str | None, db: AsyncSession) -> Worker:
     if not x_worker_token:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing X-Worker-Token")
     hashed = _hash_token(x_worker_token)
-    stmt = select(Worker).where(
-        Worker.token_hash == hashed, Worker.is_active.is_(True)
-    )
+    stmt = select(Worker).where(Worker.token_hash == hashed, Worker.is_active.is_(True))
     worker = (await db.execute(stmt)).scalar_one_or_none()
     if worker is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid worker token")
@@ -248,9 +234,7 @@ async def worker_poll(
     # Ensure the consumer group exists. Idempotent — BUSYGROUP means it
     # was already created.
     try:
-        await stream_manager.redis.xgroup_create(
-            stream_name, group_name, id="0", mkstream=True
-        )
+        await stream_manager.redis.xgroup_create(stream_name, group_name, id="0", mkstream=True)
     except Exception as exc:  # noqa: BLE001
         if "BUSYGROUP" not in str(exc):
             logger.warning(

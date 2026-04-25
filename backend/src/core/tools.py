@@ -77,14 +77,10 @@ class ToolRunLog:
     errors: int = 0
 
     def record_write(self, path: str, content: str, language: str = "") -> None:
-        self.written.append(
-            WrittenFile(path=path, size=len(content.encode("utf-8")), language=language)
-        )
+        self.written.append(WrittenFile(path=path, size=len(content.encode("utf-8")), language=language))
 
     def record_shell(self, command: str, exit_code: int, duration_ms: int) -> None:
-        self.shells.append(
-            ShellInvocation(command=command[:240], exit_code=exit_code, duration_ms=duration_ms)
-        )
+        self.shells.append(ShellInvocation(command=command[:240], exit_code=exit_code, duration_ms=duration_ms))
 
 
 def tool_schemas(allowed: list[str] | None = None) -> list[dict[str, Any]]:
@@ -161,9 +157,7 @@ async def _handle_file_write(args: dict[str, Any], log: ToolRunLog) -> str:
     content = _str_arg(args, "content", allow_empty=True)
     language = str(args.get("language") or "").strip()
     if len(content.encode("utf-8")) > MAX_FILE_BYTES:
-        raise ValueError(
-            f"file content exceeds {MAX_FILE_BYTES} bytes; split into smaller files"
-        )
+        raise ValueError(f"file content exceeds {MAX_FILE_BYTES} bytes; split into smaller files")
     target = workspace_store.write_file(log.project_id, path, content)
     log.record_write(path=path, content=content, language=language)
     logger.info(
@@ -249,10 +243,7 @@ async def _handle_shell_exec(args: dict[str, Any], log: ToolRunLog) -> str:
         timed_out=timed_out,
     )
     if timed_out:
-        return (
-            f"exit=-1 (timeout after {timeout}s)\n"
-            f"{output}"
-        )
+        return f"exit=-1 (timeout after {timeout}s)\n{output}"
     return f"exit={exit_code}\n{output}"
 
 

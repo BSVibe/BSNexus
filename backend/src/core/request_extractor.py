@@ -43,9 +43,7 @@ class ClassificationResult:
 
 
 class Classifier(Protocol):
-    async def classify(
-        self, content: str, open_request_summaries: list[str]
-    ) -> ClassificationResult: ...
+    async def classify(self, content: str, open_request_summaries: list[str]) -> ClassificationResult: ...
 
 
 class StaticKeywordClassifier:
@@ -61,49 +59,78 @@ class StaticKeywordClassifier:
     """
 
     REQUEST_KEYWORDS = {
-        "implement", "build", "add", "create", "fix", "refactor",
-        "write", "design", "update", "change", "remove", "delete",
-        "ship", "please",
+        "implement",
+        "build",
+        "add",
+        "create",
+        "fix",
+        "refactor",
+        "write",
+        "design",
+        "update",
+        "change",
+        "remove",
+        "delete",
+        "ship",
+        "please",
         # Korean — matched as substrings so ``만들어줘`` / ``만들어주세요``
         # / ``작성해 줘`` all hit. ``주세요`` is the canonical polite
         # imperative suffix — covers most directive Korean messages that
         # don't contain a more specific verb.
-        "만들", "작성", "디자인", "구현", "개발", "설계", "고쳐",
-        "추가해", "리팩토", "부탁", "제작", "주세요", "해줘",
-        "분리", "출력", "생성",
+        "만들",
+        "작성",
+        "디자인",
+        "구현",
+        "개발",
+        "설계",
+        "고쳐",
+        "추가해",
+        "리팩토",
+        "부탁",
+        "제작",
+        "주세요",
+        "해줘",
+        "분리",
+        "출력",
+        "생성",
     }
 
     MODIFICATION_CUES = {
-        "change", "update", "also", "instead", "actually",
-        "but ", "rather", "revise", "reword", "reconsider",
+        "change",
+        "update",
+        "also",
+        "instead",
+        "actually",
+        "but ",
+        "rather",
+        "revise",
+        "reword",
+        "reconsider",
         # Korean
-        "바꿔", "수정", "변경", "대신", "다시", "또한",
+        "바꿔",
+        "수정",
+        "변경",
+        "대신",
+        "다시",
+        "또한",
     }
 
-    async def classify(
-        self, content: str, open_request_summaries: list[str]
-    ) -> ClassificationResult:
+    async def classify(self, content: str, open_request_summaries: list[str]) -> ClassificationResult:
         lowered = content.strip().lower()
         if not lowered:
             return ClassificationResult(MessageIntent.chit_chat, "", 1.0)
 
-        if lowered.endswith("?") and not any(
-            k in lowered for k in self.REQUEST_KEYWORDS
-        ):
+        if lowered.endswith("?") and not any(k in lowered for k in self.REQUEST_KEYWORDS):
             return ClassificationResult(MessageIntent.question, lowered[:120], 0.7)
 
         has_request_cue = any(k in lowered for k in self.REQUEST_KEYWORDS)
         has_modification_cue = any(cue in lowered for cue in self.MODIFICATION_CUES)
 
         if open_request_summaries and has_modification_cue:
-            return ClassificationResult(
-                MessageIntent.modification, content.strip()[:240], 0.65
-            )
+            return ClassificationResult(MessageIntent.modification, content.strip()[:240], 0.65)
 
         if has_request_cue:
-            return ClassificationResult(
-                MessageIntent.request, content.strip()[:240], 0.6
-            )
+            return ClassificationResult(MessageIntent.request, content.strip()[:240], 0.6)
 
         return ClassificationResult(MessageIntent.chit_chat, "", 0.5)
 
@@ -127,16 +154,13 @@ class LiteLLMClassifier:
         self._base_url = base_url
         self._api_key = api_key
 
-    async def classify(
-        self, content: str, open_request_summaries: list[str]
-    ) -> ClassificationResult:
+    async def classify(self, content: str, open_request_summaries: list[str]) -> ClassificationResult:
         import json as _json
 
         import litellm  # imported lazily so tests that don't exercise LiteLLM don't require it
 
         existing = (
-            "Open requests on this project:\n- "
-            + "\n- ".join(open_request_summaries)
+            "Open requests on this project:\n- " + "\n- ".join(open_request_summaries)
             if open_request_summaries
             else "No open requests on this project."
         )
@@ -163,9 +187,7 @@ class LiteLLMClassifier:
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("classifier_failed_fallback_static", error=str(exc))
-            return await StaticKeywordClassifier().classify(
-                content, open_request_summaries
-            )
+            return await StaticKeywordClassifier().classify(content, open_request_summaries)
 
 
 @dataclass(frozen=True)
@@ -240,9 +262,7 @@ class RequestExtractor:
         return ExtractionOutcome(classification.intent, request, True)
 
 
-async def _load_open_requests(
-    db: AsyncSession, project_id: uuid.UUID
-) -> list[Request]:
+async def _load_open_requests(db: AsyncSession, project_id: uuid.UUID) -> list[Request]:
     stmt = (
         select(Request)
         .where(
@@ -255,14 +275,10 @@ async def _load_open_requests(
     return list(result.scalars())
 
 
-def _pick_best_match(
-    intent_summary: str, requests: list[Request]
-) -> Request | None:
+def _pick_best_match(intent_summary: str, requests: list[Request]) -> Request | None:
     """Trivial match: first open request if we have one.
 
     v1 strategy — keep simple; let the UI expose split/merge controls
     so the user can correct mismatches.
     """
     return requests[0] if requests else None
-
-

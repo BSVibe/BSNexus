@@ -57,17 +57,13 @@ async def test_file_read_returns_content(isolated_workspace, log, project_id):
     root.mkdir(parents=True, exist_ok=True)
     (root / "note.txt").write_text("hello", encoding="utf-8")
 
-    result = await execute_tool_call(
-        name="file_read", raw_arguments=json.dumps({"path": "note.txt"}), log=log
-    )
+    result = await execute_tool_call(name="file_read", raw_arguments=json.dumps({"path": "note.txt"}), log=log)
     assert result == "hello"
 
 
 @pytest.mark.asyncio
 async def test_file_read_missing_file_returns_error_string(log):
-    result = await execute_tool_call(
-        name="file_read", raw_arguments=json.dumps({"path": "nope.txt"}), log=log
-    )
+    result = await execute_tool_call(name="file_read", raw_arguments=json.dumps({"path": "nope.txt"}), log=log)
     assert result.startswith("error:")
     # Tool-level errors should be reported to the model, not recorded
     # as a "written" file.
@@ -106,9 +102,7 @@ async def test_file_write_rejects_oversize_content(log):
 
 @pytest.mark.asyncio
 async def test_invalid_json_arguments_return_error(log):
-    result = await execute_tool_call(
-        name="file_write", raw_arguments="{not json", log=log
-    )
+    result = await execute_tool_call(name="file_write", raw_arguments="{not json", log=log)
     assert result.startswith("error:")
     assert log.errors == 1
 
@@ -155,9 +149,7 @@ async def test_shell_exec_nonzero_exit_returned_as_plain_payload(isolated_worksp
 
 
 @pytest.mark.asyncio
-async def test_shell_exec_runs_with_workspace_as_cwd(
-    isolated_workspace, log, project_id
-):
+async def test_shell_exec_runs_with_workspace_as_cwd(isolated_workspace, log, project_id):
     # Create a marker file in the workspace.
     workspace_root = isolated_workspace / str(project_id)
     workspace_root.mkdir(parents=True, exist_ok=True)
@@ -181,9 +173,7 @@ async def test_shell_exec_honors_timeout(isolated_workspace, log):
 @pytest.mark.asyncio
 async def test_shell_exec_truncates_runaway_output(isolated_workspace, log):
     # Emit ~30KB of output; should clip at SHELL_MAX_OUTPUT_BYTES.
-    payload = json.dumps(
-        {"command": "python3 -c 'print(\"x\" * 30000)'"}
-    )
+    payload = json.dumps({"command": "python3 -c 'print(\"x\" * 30000)'"})
     result = await execute_tool_call(name="shell_exec", raw_arguments=payload, log=log)
     assert "truncated" in result
     assert len(result.encode("utf-8")) < 25_000

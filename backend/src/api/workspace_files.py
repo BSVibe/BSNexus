@@ -30,12 +30,8 @@ logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v1/projects", tags=["workspace-files"])
 
 
-async def _require_project(
-    db: AsyncSession, project_id: uuid.UUID, tenant_id: uuid.UUID
-) -> Project:
-    stmt = select(Project).where(
-        Project.id == project_id, Project.tenant_id == tenant_id
-    )
+async def _require_project(db: AsyncSession, project_id: uuid.UUID, tenant_id: uuid.UUID) -> Project:
+    stmt = select(Project).where(Project.id == project_id, Project.tenant_id == tenant_id)
     project = (await db.execute(stmt)).scalar_one_or_none()
     if project is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")

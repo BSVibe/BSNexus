@@ -31,9 +31,7 @@ async def test_update_persists_enabled_and_base_url(client):
     assert resp.json()["enabled"] is True
     assert resp.json()["base_url"] == "http://sage.example.com"
 
-    listed = (
-        await client.get("/api/v1/integrations", headers={"Authorization": "Bearer fake"})
-    ).json()
+    listed = (await client.get("/api/v1/integrations", headers={"Authorization": "Bearer fake"})).json()
     assert listed["bsage"]["enabled"] is True
 
 

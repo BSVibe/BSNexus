@@ -77,15 +77,9 @@ class ExecutionRun(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    tenant_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
-    )
-    project_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
-    )
-    request_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("requests.id", ondelete="CASCADE"), nullable=False
-    )
+    tenant_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
+    project_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    request_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("requests.id", ondelete="CASCADE"), nullable=False)
     parent_run_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("execution_runs.id", ondelete="SET NULL"), nullable=True
     )
@@ -100,12 +94,8 @@ class ExecutionRun(Base):
         nullable=True,
     )
 
-    status: Mapped[RunStatus] = mapped_column(
-        Enum(RunStatus), nullable=False, default=RunStatus.pending
-    )
-    priority: Mapped[RunPriority] = mapped_column(
-        Enum(RunPriority), nullable=False, default=RunPriority.medium
-    )
+    status: Mapped[RunStatus] = mapped_column(Enum(RunStatus), nullable=False, default=RunStatus.pending)
+    priority: Mapped[RunPriority] = mapped_column(Enum(RunPriority), nullable=False, default=RunPriority.medium)
 
     # Per-run user direction. For the founder's original message it
     # mirrors ``request.intent_summary``; for planner-seeded child runs
@@ -115,12 +105,8 @@ class ExecutionRun(Base):
     output_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
     output_ref: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
-    estimated_cost_cents: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=0, server_default="0"
-    )
-    actual_cost_cents: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=0, server_default="0"
-    )
+    estimated_cost_cents: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    actual_cost_cents: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
 
     worker_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("workers.id", ondelete="SET NULL"), nullable=True
@@ -132,9 +118,7 @@ class ExecutionRun(Base):
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     max_retries: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
@@ -165,21 +149,15 @@ class ExecutionRun(Base):
 
 class ExecutionRunHistory(Base):
     __tablename__ = "execution_run_history"
-    __table_args__ = (
-        Index("ix_execution_run_history_run_timestamp", "run_id", "timestamp"),
-    )
+    __table_args__ = (Index("ix_execution_run_history_run_timestamp", "run_id", "timestamp"),)
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    run_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("execution_runs.id", ondelete="CASCADE"), nullable=False
-    )
+    run_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("execution_runs.id", ondelete="CASCADE"), nullable=False)
     from_status: Mapped[RunStatus] = mapped_column(Enum(RunStatus), nullable=False)
     to_status: Mapped[RunStatus] = mapped_column(Enum(RunStatus), nullable=False)
     actor: Mapped[str] = mapped_column(String(100), nullable=False)
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     extra_metadata: Mapped[dict | None] = mapped_column("metadata", JSON, nullable=True)
-    timestamp: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     run: Mapped["ExecutionRun"] = relationship("ExecutionRun", back_populates="history")

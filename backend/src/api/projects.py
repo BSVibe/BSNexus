@@ -20,12 +20,8 @@ logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v1/projects", tags=["projects"])
 
 
-async def _get_project_for_tenant(
-    db: AsyncSession, project_id: uuid.UUID, tenant_id: uuid.UUID
-) -> Project:
-    stmt = select(Project).where(
-        Project.id == project_id, Project.tenant_id == tenant_id
-    )
+async def _get_project_for_tenant(db: AsyncSession, project_id: uuid.UUID, tenant_id: uuid.UUID) -> Project:
+    stmt = select(Project).where(Project.id == project_id, Project.tenant_id == tenant_id)
     project = (await db.execute(stmt)).scalar_one_or_none()
     if project is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
@@ -38,11 +34,7 @@ async def list_projects(
     db: AsyncSession = Depends(get_db),
     _user=Depends(get_current_user),
 ) -> list[Project]:
-    stmt = (
-        select(Project)
-        .where(Project.tenant_id == tenant_id)
-        .order_by(Project.created_at.desc())
-    )
+    stmt = select(Project).where(Project.tenant_id == tenant_id).order_by(Project.created_at.desc())
     return list((await db.execute(stmt)).scalars())
 
 

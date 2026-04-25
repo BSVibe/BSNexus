@@ -42,9 +42,7 @@ async def _seed_request(db_session, tenant_id) -> tuple[Project, Request]:
 
 
 @pytest.mark.asyncio
-async def test_refresh_context_writes_expected_files(
-    db_session, mock_tenant_id, seeded_tenant, isolated_workspace
-):
+async def test_refresh_context_writes_expected_files(db_session, mock_tenant_id, seeded_tenant, isolated_workspace):
     project, req = await _seed_request(db_session, mock_tenant_id)
 
     # Pretend phase 1 wrote some files.
@@ -67,9 +65,7 @@ async def test_refresh_context_writes_expected_files(
 
 
 @pytest.mark.asyncio
-async def test_refresh_context_history_includes_prior_phase_summaries(
-    db_session, mock_tenant_id, seeded_tenant
-):
+async def test_refresh_context_history_includes_prior_phase_summaries(db_session, mock_tenant_id, seeded_tenant):
     project, req = await _seed_request(db_session, mock_tenant_id)
 
     # A prior phase completed — its run + assistant reply exist.
@@ -80,7 +76,10 @@ async def test_refresh_context_history_includes_prior_phase_summaries(
         status=RunStatus.done,
         priority=RunPriority.medium,
         directive="Phase 1: scaffold Next.js app.",
-        output_ref={"inline": "Next.js 프로젝트를 초기화했습니다.\n\n파일: package.json, src/app/layout.tsx", "files": []},
+        output_ref={
+            "inline": "Next.js 프로젝트를 초기화했습니다.\n\n파일: package.json, src/app/layout.tsx",
+            "files": [],
+        },
     )
     db_session.add(run)
     await db_session.flush()

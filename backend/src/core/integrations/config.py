@@ -87,11 +87,7 @@ def _row_to_provider(
     if row is None or not row.enabled:
         return None
 
-    cls = (
-        AuditProviderConfig
-        if row.provider == IntegrationProvider.bsupervisor
-        else ProviderConfig
-    )
+    cls = AuditProviderConfig if row.provider == IntegrationProvider.bsupervisor else ProviderConfig
     return cls(
         enabled=True,
         base_url=row.base_url,
@@ -100,12 +96,8 @@ def _row_to_provider(
     )
 
 
-async def _load_rows(
-    db: AsyncSession, tenant_id: uuid.UUID
-) -> dict[IntegrationProvider, TenantIntegrationConfig]:
-    stmt = select(TenantIntegrationConfig).where(
-        TenantIntegrationConfig.tenant_id == tenant_id
-    )
+async def _load_rows(db: AsyncSession, tenant_id: uuid.UUID) -> dict[IntegrationProvider, TenantIntegrationConfig]:
+    stmt = select(TenantIntegrationConfig).where(TenantIntegrationConfig.tenant_id == tenant_id)
     result = await db.execute(stmt)
     return {row.provider: row for row in result.scalars()}
 

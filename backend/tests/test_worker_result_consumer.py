@@ -63,15 +63,11 @@ def _stream_manager():
 
 
 @pytest.mark.asyncio
-async def test_success_message_marks_run_done(
-    db_session, test_session_maker, mock_tenant_id, seeded_tenant
-):
+async def test_success_message_marks_run_done(db_session, test_session_maker, mock_tenant_id, seeded_tenant):
     run = await _seed_running_run(db_session, mock_tenant_id)
 
     sm = _stream_manager()
-    consumer = WorkerResultConsumer(
-        stream_manager=sm, session_maker=test_session_maker, block_ms=10
-    )
+    consumer = WorkerResultConsumer(stream_manager=sm, session_maker=test_session_maker, block_ms=10)
     await consumer._handle_message(
         {
             "run_id": str(run.id),
@@ -82,9 +78,7 @@ async def test_success_message_marks_run_done(
     )
 
     async with test_session_maker() as s:
-        refreshed = (
-            await s.execute(select(ExecutionRun).where(ExecutionRun.id == run.id))
-        ).scalar_one()
+        refreshed = (await s.execute(select(ExecutionRun).where(ExecutionRun.id == run.id))).scalar_one()
     assert refreshed.status == RunStatus.done
     assert refreshed.output_type == "text"
     assert refreshed.output_ref == {"stdout": "ok"}
@@ -97,9 +91,7 @@ async def test_failure_message_marks_run_blocked_with_error(
     run = await _seed_running_run(db_session, mock_tenant_id)
 
     sm = _stream_manager()
-    consumer = WorkerResultConsumer(
-        stream_manager=sm, session_maker=test_session_maker, block_ms=10
-    )
+    consumer = WorkerResultConsumer(stream_manager=sm, session_maker=test_session_maker, block_ms=10)
     await consumer._handle_message(
         {
             "run_id": str(run.id),
@@ -110,26 +102,20 @@ async def test_failure_message_marks_run_blocked_with_error(
     )
 
     async with test_session_maker() as s:
-        refreshed = (
-            await s.execute(select(ExecutionRun).where(ExecutionRun.id == run.id))
-        ).scalar_one()
+        refreshed = (await s.execute(select(ExecutionRun).where(ExecutionRun.id == run.id))).scalar_one()
     assert refreshed.status == RunStatus.blocked
     assert refreshed.error_message == "cli not found"
 
 
 @pytest.mark.asyncio
-async def test_message_for_non_running_run_is_ignored(
-    db_session, test_session_maker, mock_tenant_id, seeded_tenant
-):
+async def test_message_for_non_running_run_is_ignored(db_session, test_session_maker, mock_tenant_id, seeded_tenant):
     """Don't re-finalise a run that's already done or blocked."""
     run = await _seed_running_run(db_session, mock_tenant_id)
     run.status = RunStatus.done
     await db_session.commit()
 
     sm = _stream_manager()
-    consumer = WorkerResultConsumer(
-        stream_manager=sm, session_maker=test_session_maker, block_ms=10
-    )
+    consumer = WorkerResultConsumer(stream_manager=sm, session_maker=test_session_maker, block_ms=10)
     # Should not raise; the state machine would block done→done.
     await consumer._handle_message(
         {
@@ -140,20 +126,14 @@ async def test_message_for_non_running_run_is_ignored(
     )
 
     async with test_session_maker() as s:
-        refreshed = (
-            await s.execute(select(ExecutionRun).where(ExecutionRun.id == run.id))
-        ).scalar_one()
+        refreshed = (await s.execute(select(ExecutionRun).where(ExecutionRun.id == run.id))).scalar_one()
     assert refreshed.status == RunStatus.done
 
 
 @pytest.mark.asyncio
-async def test_unknown_run_id_is_tolerated(
-    db_session, test_session_maker, mock_tenant_id, seeded_tenant
-):
+async def test_unknown_run_id_is_tolerated(db_session, test_session_maker, mock_tenant_id, seeded_tenant):
     sm = _stream_manager()
-    consumer = WorkerResultConsumer(
-        stream_manager=sm, session_maker=test_session_maker, block_ms=10
-    )
+    consumer = WorkerResultConsumer(stream_manager=sm, session_maker=test_session_maker, block_ms=10)
     # No exception = tolerated.
     await consumer._handle_message(
         {
@@ -165,17 +145,11 @@ async def test_unknown_run_id_is_tolerated(
 
 
 @pytest.mark.asyncio
-async def test_malformed_message_is_tolerated(
-    db_session, test_session_maker, mock_tenant_id, seeded_tenant
-):
+async def test_malformed_message_is_tolerated(db_session, test_session_maker, mock_tenant_id, seeded_tenant):
     sm = _stream_manager()
-    consumer = WorkerResultConsumer(
-        stream_manager=sm, session_maker=test_session_maker, block_ms=10
-    )
+    consumer = WorkerResultConsumer(stream_manager=sm, session_maker=test_session_maker, block_ms=10)
     await consumer._handle_message({"success": "true", "_message_id": "5-0"})
-    await consumer._handle_message(
-        {"run_id": "not-a-uuid", "success": "true", "_message_id": "6-0"}
-    )
+    await consumer._handle_message({"run_id": "not-a-uuid", "success": "true", "_message_id": "6-0"})
 
 
 @pytest.mark.asyncio
@@ -195,9 +169,7 @@ async def test_run_loop_acknowledges_messages_after_processing(
     }
     sm.consume.side_effect = [[message], [], [], []]
 
-    consumer = WorkerResultConsumer(
-        stream_manager=sm, session_maker=test_session_maker, block_ms=10
-    )
+    consumer = WorkerResultConsumer(stream_manager=sm, session_maker=test_session_maker, block_ms=10)
     await consumer.start()
 
     # Give the loop a beat to consume + ack.
