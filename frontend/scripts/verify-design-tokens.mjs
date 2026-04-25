@@ -1,18 +1,28 @@
 #!/usr/bin/env node
 /**
- * Verifies frontend/src/design-tokens.ts matches /Users/blasin/Docs/design_system.md.
- * Parses the markdown spec, compares the hex values, exits non-zero on drift.
+ * Verifies frontend/src/design-tokens.ts matches the canonical
+ * design_system.md spec.
  *
- * Runs in CI via `pnpm tokens:verify`.
+ * The spec lives in the maintainer's personal docs vault
+ * (``~/Docs/design_system.md``) by design — it covers the whole
+ * BSVibe ecosystem, not just BSNexus, so it's not vendored into
+ * this repo. The drift guard is therefore an inherently
+ * local-machine check; CI runners don't have the file. When the
+ * spec isn't reachable we print a notice and exit 0 instead of
+ * failing CI on something only the maintainer can verify.
+ *
+ * Override the path with ``DESIGN_SYSTEM_SPEC=/abs/path``.
  */
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '..', '..');
-const SPEC_PATH = resolve(process.env.HOME || '/Users/blasin', 'Docs/design_system.md');
+const SPEC_PATH =
+  process.env.DESIGN_SYSTEM_SPEC ||
+  resolve(process.env.HOME || '/Users/blasin', 'Docs/design_system.md');
 const TOKENS_PATH = resolve(REPO_ROOT, 'frontend/src/design-tokens.ts');
 
 function parseSpec(markdown) {
@@ -56,6 +66,13 @@ function compare(label, expected, actual) {
 }
 
 async function main() {
+  if (!existsSync(SPEC_PATH)) {
+    console.log(
+      `design-tokens.ts drift guard: spec not reachable at ${SPEC_PATH} ` +
+        `— skipping (set DESIGN_SYSTEM_SPEC to enable on this machine).`,
+    );
+    return;
+  }
   const markdown = readFileSync(SPEC_PATH, 'utf8');
   const expected = parseSpec(markdown);
   const actual = await loadTokens();
