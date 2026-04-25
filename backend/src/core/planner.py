@@ -1,21 +1,31 @@
-"""Auto-decomposition planner — one founder message → many phase runs.
+"""Iterative replanner — agile-style next-step picker.
 
-When the founder types "TODO 앱 만들어줘" they expect the company to
-figure out design + backend + frontend + deploy on their own, not to
-ping-pong four times. This module detects macro directions and asks
-the tenant's LLM to produce a JSON phase plan, then seeds a linear
-chain of ``ExecutionRun`` rows where each phase's ``parent_run_id``
-points at the previous so the orchestrator's completion hook dispatches
-them in order.
+Replaces the legacy single-shot planner that locked the entire phase
+chain at request time. The legacy approach was a waterfall: by the time
+phase 4 ran, phase 1's findings couldn't influence phase 4's direction
+because phase 4 was already seeded with its directive frozen.
 
-Conservative heuristic for "macro":
-- Korean: contains ``앱`` / ``웹`` / ``사이트`` / ``서비스`` / ``풀스택`` etc.
-  combined with an imperative verb (``만들`` / ``구현`` / ``제작``).
-- English: contains ``app`` / ``website`` / ``service`` / ``fullstack``
-  combined with ``build`` / ``make`` / ``create`` / ``implement``.
+The new model runs one LLM "chief-of-staff" pass at the start of every
+iteration. Inputs:
 
-Non-macro requests skip planning entirely and run as a single phase,
-same as today. That keeps short directions ("그 문단 바꿔줘") cheap.
+- the founder's original request (``intent_summary``)
+- ordered summaries of every prior run in this request (what was
+  produced + what was learned)
+- the latest founder messages on this conversation (so a
+  modification mid-flight steers the next iteration)
+- any open Decision rows the founder hasn't resolved
+
+Output is one of:
+
+- ``next_step`` → seed the next phase with a fresh directive
+- ``done`` → goal is satisfied; close out
+- ``ask_founder`` → there's a fork the company can't unilaterally pick;
+  raise a Decision and stop until the founder resolves it
+
+The same response always carries a ``founder_message`` — a short
+human-language note that goes straight to the chat. That's how every
+"design moment" surfaces to the founder without waiting for the phase
+to finish executing.
 """
 
 from __future__ import annotations
@@ -24,174 +34,216 @@ import json
 import re
 import uuid
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 import litellm
 import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.src.core import harness
-from backend.src.models import ExecutionRun, ExecutorConfig, RunPriority, RunStatus
+from backend.src.models import (
+    ConversationMessage,
+    Decision,
+    ExecutionRun,
+    ExecutorConfig,
+    Request,
+)
 
 logger = structlog.get_logger(__name__)
 
 
-_MACRO_SUBJECTS = re.compile(
-    r"(?:"
-    r"앱|웹|사이트|서비스|풀스택|프로젝트|시스템|플랫폼|API 서버|백엔드|프론트엔드|"
-    r"\bapp\b|\bwebsite\b|\bweb\b|\bservice\b|\bfullstack\b|\bbackend\b|\bfrontend\b|\bsystem\b|\bplatform\b"
-    r")",
-    re.IGNORECASE,
-)
-
-_MACRO_VERBS = re.compile(
-    r"(?:"
-    r"만들|구현|제작|개발|설계|"
-    r"\bbuild\b|\bmake\b|\bcreate\b|\bimplement\b|\bdevelop\b|\bdesign\b"
-    r")",
-    re.IGNORECASE,
-)
+# Decision codes the replanner returns. Keep stable — they're persisted
+# in run.directive prefixes and surfaced to the frontend.
+ReplanDecision = Literal["next_step", "done", "ask_founder"]
 
 
-def is_macro_direction(text: str) -> bool:
-    """Best-effort: does this direction imply multiple phases?"""
-    if not text or len(text) < 8:
-        return False
-    return bool(_MACRO_SUBJECTS.search(text)) and bool(_MACRO_VERBS.search(text))
+@dataclass
+class ReplanResult:
+    decision: ReplanDecision
+    founder_message: str
+    # Only when decision == "next_step":
+    phase_name: str | None = None
+    phase_direction: str | None = None
+    # Only when decision == "ask_founder":
+    question: str | None = None
+    options: list[str] | None = None
+    blocking: bool = True
 
 
-_PLANNER_SYSTEM = (
+_REPLANNER_SYSTEM = (
     "You are the chief-of-staff for an AI company the founder hired. The "
-    "founder gives short, aspirational directions; you expand them into a "
-    "complete plan of phases that ship a production-ready result. The "
-    "founder never asks for the unglamorous parts (tests, docs, error "
-    "handling, deployment, config, auth, logging) but expects them "
-    "anyway. Include them when they make sense for the domain.\n\n"
-    "Respond with STRICT JSON only (no prose, no markdown fences), "
-    "matching exactly:\n"
-    '{"stack": "string, 2-5 line tech-stack contract the whole chain '
-    "commits to (runtime, framework, db, styling, file-layout root, "
-    "naming conventions) — worded so any phase can check it and stay "
-    "consistent\", \"phases\": [{\"name\": \"string, ≤24 chars\", "
-    '"direction": "string, a self-contained prompt for that phase"}, …]}\n\n'
-    "Phase-count guidance — scale to the request, don't pad:\n"
-    "- Trivial edits / rename / single-question: 1 phase (the caller "
-    "skips the planner for these, but still: if you see one, return "
-    "a single phase).\n"
-    "- Scripts / tiny utilities: 2–3 phases.\n"
-    "- Non-trivial products (apps, services, sites, games, research "
-    "reports, design systems, data pipelines): 4–10 phases, sized so "
-    "each phase is a self-contained unit of work with a clear "
-    "deliverable.\n\n"
-    "Rules for ``direction`` strings — MANDATORY and tech/domain "
-    "agnostic:\n\n"
-    "1. Language: write ``direction`` in the SAME natural language the "
-    "founder used (don't translate). Each direction must tell the "
-    "worker to reply in that same language. ``name`` may stay short "
-    "English.\n\n"
-    "2. Self-containment: restate the cross-phase contract inside each "
-    "direction (file names, API shapes, ports, env vars, conventions). "
-    'Never reference "above" or "the previous phase" — phases may run '
-    "in isolation.\n\n"
-    "3. Tool use for persistence: the workers have ``file_write`` / "
-    "``file_read`` / ``file_list`` tools that write into the project "
-    "workspace. Directions MUST tell the worker to persist any "
-    "artifacts via ``file_write`` — not paste them into chat. Reading "
-    "existing files first (``file_list`` → ``file_read``) before "
-    "overwriting is expected when the phase builds on earlier work.\n\n"
-    "4. Completeness over scaffolding: when a phase would be tempted "
-    "to emit a scaffold command (``npx create-next-app``, ``django-"
-    "admin startproject``, ``cargo new``, ``rails new``, etc.) in lieu "
-    "of files, the direction MUST forbid that and require the worker "
-    "to write each file the scaffold would have created. A one-line "
-    "setup command in a runbook is fine; a setup command INSTEAD OF "
-    "files is not.\n\n"
-    "5. Domain adaptation: output matches the domain. Research → a "
-    "finished written report (not a rough outline). Design → actual "
-    "HTML/CSS/tokens or a design spec with concrete values. Code → "
-    "runnable files. Data pipeline → actual scripts + schema + sample "
-    "output. Never stop at a description of what could be produced.\n\n"
-    "6. No external dependency on humans: don't say \"ask the user for "
-    "a logo\" or \"wait for feedback\" — pick sensible defaults and "
-    "ship. The founder will review the result, not each phase.\n\n"
-    "7. Sensible production defaults: include the boring basics "
-    "appropriate to the tech stack the worker chooses — structured "
-    "errors, input validation, config via env vars, a README or "
-    "runbook, at least one test or usage example.\n\n"
-    "8. Stack contract: the ``stack`` field locks the chain to ONE "
-    "coherent choice. Each ``direction`` MUST be compatible with it — "
-    "never let phase 4 switch runtime from phase 1. If the founder "
-    "didn't specify a stack, pick a conventional one for the domain "
-    "and commit. Example stacks: 'Next.js 14 App Router (src/app/) + "
-    "Prisma+SQLite + Tailwind + TypeScript' / 'FastAPI + SQLAlchemy "
-    "async + Pydantic v2 + PostgreSQL' / 'Python stdlib CLI, single "
-    "module'. Every ``direction`` must reference paths + tools that "
-    "match the stack."
+    "founder gives short directions; you keep the company moving by "
+    "deciding the SINGLE next step at every iteration. This is agile — "
+    "you can adapt based on what previous iterations actually produced.\n\n"
+    "INPUTS you receive each turn:\n"
+    "- ``intent``: the founder's original request, verbatim.\n"
+    "- ``history``: ordered list of previously completed iterations, each "
+    "with ``name``, ``directive`` they ran, ``summary`` (what was "
+    "produced), and ``learnings`` (what was discovered or surprised).\n"
+    "- ``recent_messages``: latest founder turns in chat — pay attention "
+    "to modifications like 'instead use X' or 'wait, also add Y'.\n"
+    "- ``open_decisions``: questions you previously asked that are still "
+    "unresolved. If any are blocking, do NOT pick next_step.\n\n"
+    "OUTPUT: STRICT JSON, no prose, no markdown fences. Match exactly "
+    "ONE of these three shapes:\n\n"
+    "next_step (start the next iteration):\n"
+    '{"decision":"next_step",'
+    '"founder_message":"한국어/영어 1-3 sentences explaining what is '
+    "starting and WHY this next, written to the founder, conversational "
+    'tone","phase_name":"≤24 chars label",'
+    '"phase_direction":"a self-contained worker prompt for that one '
+    'iteration"}\n\n'
+    "done (goal looks satisfied):\n"
+    '{"decision":"done",'
+    '"founder_message":"1-3 sentences summarizing what was '
+    "shipped overall and inviting the founder to push further if they "
+    'want"}\n\n'
+    "ask_founder (you need a decision the founder must make):\n"
+    '{"decision":"ask_founder",'
+    '"founder_message":"1-3 sentences framing the fork in plain '
+    'language",'
+    '"question":"the actual question, ≤200 chars",'
+    '"options":["short label A","short label B"],"blocking":true}\n\n'
+    "Hard rules:\n"
+    "1. Language: write founder_message in the SAME natural language "
+    "the founder used in ``intent``. Don't translate. ``phase_name`` "
+    "may stay short English.\n"
+    "2. One step at a time: phase_direction must describe ONE iteration "
+    "with ONE clear deliverable. No 'do A, then B, then C'.\n"
+    "3. Self-containment: phase_direction must be a complete brief — "
+    "restate file paths, framework, conventions. The worker won't see "
+    "previous directives, only files on disk + history summaries.\n"
+    "4. Adapt to what's there: if history shows the previous iteration "
+    "produced X but failed at Y, the next phase_direction should "
+    "ACKNOWLEDGE that and either fix Y or work around it. Don't repeat "
+    "the same mistake.\n"
+    "5. Finish: pick ``done`` as soon as the founder's intent is "
+    "actually satisfied. Don't pad iterations — the founder hates busy "
+    "work.\n"
+    "6. Bail to founder: pick ``ask_founder`` only when the choice is "
+    "genuinely a values/strategy call (auth provider, monetization "
+    "model, etc.) — not for tactical defaults you can pick yourself.\n"
+    "7. First iteration: when history is empty, decide what the very "
+    "first concrete deliverable should be. For research-style "
+    "intents, often the first step is 'gather and write up findings'. "
+    "For build-style intents, often 'pick a stack and ship a minimal "
+    "vertical slice'. Always pick something concrete, not 'plan the "
+    "phases' or 'set up scaffolding'."
 )
 
 
-@dataclass
-class PhasePlan:
-    name: str
-    direction: str
-
-
-@dataclass
-class ChainPlan:
-    """Planner's output for a single macro direction.
-
-    ``stack`` is the committed tech-stack contract; it gets written to
-    ``.bsnexus/context/stack.md`` and the workers reference it on every
-    phase so later phases don't silently switch frameworks.
-    """
-
-    stack: str
-    phases: list[PhasePlan]
-
-
-async def maybe_plan_phases(
+async def replan_next_step(
     *,
-    direction: str,
+    request: Request,
+    completed_runs: list[ExecutionRun],
+    pending_decisions: list[Decision],
+    recent_messages: list[ConversationMessage],
     tenant_id: uuid.UUID,
     session: AsyncSession,
-) -> ChainPlan | None:
-    """Return a ChainPlan if the direction looks macro AND the tenant has
-    an LLM-capable executor configured. Otherwise None — the caller runs
-    a single phase without planner decomposition.
+) -> ReplanResult:
+    """Ask the chief-of-staff LLM what to do next.
+
+    Always returns a result — when no LLM is configured or the call
+    fails, we fall back to a simple "treat the request like a single
+    iteration" plan derived from ``request.intent_summary``.
     """
-    if not is_macro_direction(direction):
-        return None
+    blocking_unresolved = [d for d in pending_decisions if d.blocking and d.resolved_at is None]
+    if blocking_unresolved:
+        # Replanner can't decide forward while something is blocking.
+        d = blocking_unresolved[0]
+        return ReplanResult(
+            decision="ask_founder",
+            founder_message="아직 결정 대기 중인 항목이 있어요. 그것부터 답해주시면 이어서 진행할게요.",
+            question=d.question,
+            options=list(d.options) if isinstance(d.options, list) else None,
+            blocking=True,
+        )
+
     adapter_args = await _llm_adapter_args(session, tenant_id)
     if adapter_args is None:
-        logger.info("planner_no_llm_executor_skipping", tenant_id=str(tenant_id))
-        return None
+        return _fallback_first_step(request, completed_runs)
+
+    payload = _build_replanner_payload(request, completed_runs, recent_messages)
     try:
-        raw = await _run_planner_llm(direction, **adapter_args)
-    except Exception as exc:  # noqa: BLE001 — planner mustn't break send_message
-        logger.warning("planner_llm_failed", error=str(exc))
-        return None
-    plan = _parse_plan(raw)
-    if plan is None or len(plan.phases) < 2:
-        logger.info(
-            "planner_no_phases_or_trivial",
-            phases=len(plan.phases) if plan else 0,
-            raw_preview=raw[:400],
-            raw_len=len(raw),
+        raw = await _run_replanner_llm(payload, **adapter_args)
+    except Exception as exc:  # noqa: BLE001 — replanner failure must never crash the loop
+        logger.warning("replanner_llm_failed", error=str(exc))
+        return _fallback_first_step(request, completed_runs)
+
+    parsed = _parse_replan(raw)
+    if parsed is None:
+        logger.warning("replanner_unparseable_output", raw_preview=raw[:400])
+        return _fallback_first_step(request, completed_runs)
+    return parsed
+
+
+def _fallback_first_step(request: Request, completed_runs: list[ExecutionRun]) -> ReplanResult:
+    """Static fallback when the LLM isn't available.
+
+    First iteration → run the founder's intent directly as the directive.
+    Past first iteration with no LLM → declare done so we don't loop.
+    """
+    if completed_runs:
+        return ReplanResult(
+            decision="done",
+            founder_message="여기까지 진행했어요. 추가로 더 할 일이 있으면 메시지 주세요.",
         )
-        return None
-    return plan
+    return ReplanResult(
+        decision="next_step",
+        founder_message=f"받았어요. 시작합니다: **{request.intent_summary[:120]}**",
+        phase_name="iteration 1",
+        phase_direction=request.intent_summary,
+    )
 
 
-async def _llm_adapter_args(
-    session: AsyncSession, tenant_id: uuid.UUID
-) -> dict[str, Any] | None:
+def _build_replanner_payload(
+    request: Request,
+    completed_runs: list[ExecutionRun],
+    recent_messages: list[ConversationMessage],
+) -> dict[str, Any]:
+    history: list[dict[str, str]] = []
+    for r in completed_runs:
+        out = r.output_ref if isinstance(r.output_ref, dict) else {}
+        history.append(
+            {
+                "name": _name_from_directive(r.directive),
+                "directive": (r.directive or "")[:600],
+                "summary": str(out.get("founder_summary") or out.get("inline") or "")[:600],
+                "learnings": str(out.get("learnings") or "")[:400],
+            }
+        )
+
+    recent: list[dict[str, str]] = []
+    for m in recent_messages[-8:]:
+        if m.role not in ("user", "assistant"):
+            continue
+        recent.append({"role": m.role, "content": (m.content or "")[:400]})
+
+    return {
+        "intent": request.intent_summary,
+        "history": history,
+        "recent_messages": recent,
+        "open_decisions": [],  # blocking decisions short-circuit before this point
+    }
+
+
+def _name_from_directive(directive: str | None) -> str:
+    if not directive:
+        return "iteration"
+    first_line = directive.strip().splitlines()[0]
+    return first_line[:24] or "iteration"
+
+
+async def _llm_adapter_args(session: AsyncSession, tenant_id: uuid.UUID) -> dict[str, Any] | None:
     row = (
         await session.execute(
-            select(ExecutorConfig).where(
+            select(ExecutorConfig)
+            .where(
                 ExecutorConfig.tenant_id == tenant_id,
                 ExecutorConfig.is_selected.is_(True),
             )
+            .order_by(ExecutorConfig.created_at.desc())
+            .limit(1)
         )
     ).scalar_one_or_none()
     if row is None:
@@ -213,8 +265,8 @@ async def _llm_adapter_args(
     return None
 
 
-async def _run_planner_llm(
-    direction: str,
+async def _run_replanner_llm(
+    payload: dict[str, Any],
     *,
     model: str,
     api_key: str,
@@ -222,18 +274,18 @@ async def _run_planner_llm(
 ) -> str:
     extra: dict[str, Any] = {}
     if model.startswith(("ollama/", "ollama_chat/")):
-        extra["num_ctx"] = 40960
+        extra["num_ctx"] = 32768
     resp = await litellm.acompletion(
         model=model,
         messages=[
-            {"role": "system", "content": _PLANNER_SYSTEM},
-            {"role": "user", "content": direction},
+            {"role": "system", "content": _REPLANNER_SYSTEM},
+            {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
         ],
         api_key=api_key,
         api_base=base_url,
-        max_tokens=8192,  # local reasoning models burn most of this on thinking + large plans
+        max_tokens=4096,
         temperature=0.2,
-        timeout=600,
+        timeout=180,
         **extra,
     )
     choice = resp.choices[0] if getattr(resp, "choices", None) else None
@@ -244,10 +296,9 @@ async def _run_planner_llm(
     return (content or "").strip()
 
 
-def _parse_plan(raw: str) -> ChainPlan | None:
+def _parse_replan(raw: str) -> ReplanResult | None:
     text = raw.strip()
     if text.startswith("```"):
-        # Strip a leading code fence if the model ignored the rule.
         text = re.sub(r"^```[a-zA-Z0-9]*\n", "", text)
         text = re.sub(r"\n```\s*$", "", text)
     try:
@@ -262,73 +313,38 @@ def _parse_plan(raw: str) -> ChainPlan | None:
             return None
     if not isinstance(data, dict):
         return None
-    raw_phases = data.get("phases")
-    if not isinstance(raw_phases, list):
+    decision = str(data.get("decision") or "").strip()
+    founder_message = str(data.get("founder_message") or "").strip()
+    if not founder_message:
         return None
-    phases: list[PhasePlan] = []
-    for item in raw_phases:
-        if not isinstance(item, dict):
-            continue
-        name = str(item.get("name") or "").strip()[:24]
-        direction = str(item.get("direction") or "").strip()
+
+    if decision == "next_step":
+        direction = str(data.get("phase_direction") or "").strip()
         if not direction:
-            continue
-        phases.append(
-            PhasePlan(name=name or f"phase {len(phases) + 1}", direction=direction)
+            return None
+        return ReplanResult(
+            decision="next_step",
+            founder_message=founder_message,
+            phase_name=str(data.get("phase_name") or "iteration").strip()[:24] or "iteration",
+            phase_direction=direction,
         )
-    if not phases:
-        return None
-    stack = str(data.get("stack") or "").strip()
-    return ChainPlan(stack=stack, phases=phases[:6])
 
+    if decision == "done":
+        return ReplanResult(decision="done", founder_message=founder_message)
 
-async def seed_phase_chain(
-    *,
-    session: AsyncSession,
-    root_run: ExecutionRun,
-    plan: ChainPlan,
-) -> list[ExecutionRun]:
-    """Create one ExecutionRun per phase, linked as a blocked chain.
-
-    ``root_run`` is the run dispatched by the initial send_message call;
-    it's rewritten to be phase 1 (takes on phase 1's directive). Phases
-    2..N are fresh ExecutionRuns seeded as ``blocked``; each
-    ``parent_run_id`` points at the previous phase so the orchestrator
-    chains them after each completion.
-
-    The planner's ``stack`` contract is persisted once to
-    ``.bsnexus/context/stack.md`` so every phase's prompt can reference
-    it — this is the primary defense against phase 4 flipping frameworks.
-    """
-    phases = plan.phases
-    if not phases:
-        return []
-
-    harness.write_stack_contract(root_run.project_id, plan.stack)
-
-    # Phase 1 takes over the root run.
-    first, *rest = phases
-    root_run.directive = first.direction
-    previous = root_run
-    created: list[ExecutionRun] = [root_run]
-    for p in rest:
-        child = ExecutionRun(
-            tenant_id=root_run.tenant_id,
-            project_id=root_run.project_id,
-            request_id=root_run.request_id,
-            parent_run_id=previous.id,
-            status=RunStatus.blocked,
-            priority=RunPriority.medium,
-            directive=p.direction,
+    if decision == "ask_founder":
+        question = str(data.get("question") or "").strip()
+        if not question:
+            return None
+        opts = data.get("options") or []
+        options = [str(o).strip()[:120] for o in opts if isinstance(o, (str, int, float))]
+        blocking = bool(data.get("blocking", True))
+        return ReplanResult(
+            decision="ask_founder",
+            founder_message=founder_message,
+            question=question[:240],
+            options=options or None,
+            blocking=blocking,
         )
-        session.add(child)
-        await session.flush()
-        created.append(child)
-        previous = child
-    logger.info(
-        "planner_chain_seeded",
-        run_id=str(root_run.id),
-        stack_preview=plan.stack[:120],
-        phases=[p.name for p in phases],
-    )
-    return created
+
+    return None

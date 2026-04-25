@@ -9,7 +9,6 @@ import httpx
 import pytest
 
 from backend.src.core.audit import (
-    AuditResult,
     BSupervisorAuditSink,
     NoopAuditSink,
     resolve_audit_sink,

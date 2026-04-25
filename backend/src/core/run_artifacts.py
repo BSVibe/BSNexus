@@ -57,14 +57,15 @@ async def publish_run_output(
     """
     if run.status != RunStatus.done:
         return
+    summary = _extract_founder_summary(run.output_ref)
     inline = _extract_inline(run.output_ref)
     files = _extract_files(run.output_ref)
 
-    if not inline and not files:
+    if not summary and not inline and not files:
         logger.info("publish_run_output_empty", run_id=str(run.id))
         return
 
-    reply_text = inline or _default_summary(files)
+    reply_text = summary or inline or _default_summary(files)
     await _ensure_assistant_message(run, reply_text, session)
     deliverable = await _ensure_deliverable(run, reply_text, files, session)
 
@@ -76,6 +77,21 @@ def _extract_inline(output_ref: object) -> str:
     if not isinstance(output_ref, dict):
         return ""
     val = output_ref.get("inline")
+    if isinstance(val, str):
+        return val.strip()
+    return ""
+
+
+def _extract_founder_summary(output_ref: object) -> str:
+    """Worker-authored 1-3 sentence summary for the founder chat.
+
+    Distinct from ``inline`` which is the raw worker prose; this is the
+    explicit "what to tell the founder" field. Workers should populate
+    it; falls back to ``inline``.
+    """
+    if not isinstance(output_ref, dict):
+        return ""
+    val = output_ref.get("founder_summary")
     if isinstance(val, str):
         return val.strip()
     return ""
@@ -104,40 +120,94 @@ def _default_summary(files: list[dict[str, Any]]) -> str:
 
 
 async def _ensure_assistant_message(run: "ExecutionRun", reply_text: str, session: AsyncSession) -> None:
+    """Write the per-iteration ``phase_done`` chat message.
+
+    Replaces the old per-request dedupe with per-run dedupe so each
+    iteration gets its own founder-facing summary. The replanner-issued
+    ``phase_start`` and ``decision_request`` messages live in the same
+    table tagged differently — they don't block this insert.
+    """
     if run.request_id is None or not reply_text:
         return
-    # Dedupe the *result* reply. An immediate "ack" message is inserted
-    # from the HTTP handler when a run is dispatched so the chat doesn't
-    # appear frozen — skip those when deciding if we've already landed a
-    # result. JSON-in-SQL matchers differ across SQLite and PG, so do
-    # the filter in Python.
+    # One ``phase_done`` per run.
     stmt = select(ConversationMessage).where(
         ConversationMessage.request_id == run.request_id,
         ConversationMessage.role == "assistant",
     )
-    existing_results = [row for row in (await session.execute(stmt)).scalars().all() if not _is_ack(row)]
-    if existing_results:
+    rows = (await session.execute(stmt)).scalars().all()
+    if any(_message_kind(r) == "phase_done" and _action_run_id(r) == str(run.id) for r in rows):
         return
     msg = ConversationMessage(
         project_id=run.project_id,
         role="assistant",
         content=reply_text,
         request_id=run.request_id,
-        actions=[{"kind": "result", "run_id": str(run.id)}],
+        actions=[{"kind": "phase_done", "run_id": str(run.id)}],
     )
     session.add(msg)
     await session.flush()
     logger.info(
-        "assistant_reply_recorded",
+        "phase_done_message_recorded",
         run_id=str(run.id),
         request_id=str(run.request_id),
         message_id=str(msg.id),
     )
 
 
-def _is_ack(msg: ConversationMessage) -> bool:
+def _message_kind(msg: ConversationMessage) -> str | None:
     actions = msg.actions or []
-    return any(isinstance(a, dict) and a.get("kind") == "ack" for a in actions)
+    for a in actions:
+        if isinstance(a, dict) and a.get("kind"):
+            return str(a["kind"])
+    return None
+
+
+def _action_run_id(msg: ConversationMessage) -> str | None:
+    actions = msg.actions or []
+    for a in actions:
+        if isinstance(a, dict) and a.get("run_id"):
+            return str(a["run_id"])
+    return None
+
+
+async def insert_chat_event(
+    session: AsyncSession,
+    *,
+    project_id,
+    request_id,
+    run_id,
+    kind: str,
+    content: str,
+    extra: dict[str, Any] | None = None,
+) -> ConversationMessage:
+    """Append an assistant chat event with a typed ``actions`` tag.
+
+    Used by the dispatcher for the chief-of-staff narration: phase_start,
+    chain_done, decision_request. Always idempotent on (run_id, kind):
+    re-running the same dispatcher phase shouldn't duplicate messages.
+    """
+    stmt = select(ConversationMessage).where(
+        ConversationMessage.request_id == request_id,
+        ConversationMessage.role == "assistant",
+    )
+    rows = (await session.execute(stmt)).scalars().all()
+    for row in rows:
+        if _message_kind(row) == kind and _action_run_id(row) == str(run_id):
+            return row
+    action: dict[str, Any] = {"kind": kind, "run_id": str(run_id)}
+    if extra:
+        action.update(extra)
+    msg = ConversationMessage(
+        project_id=project_id,
+        role="assistant",
+        content=content,
+        request_id=request_id,
+        actions=[action],
+    )
+    session.add(msg)
+    await session.flush()
+    logger.info("chat_event_recorded", kind=kind, run_id=str(run_id), message_id=str(msg.id))
+    return msg
 
 
 async def _ensure_deliverable(

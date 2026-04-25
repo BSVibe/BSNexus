@@ -55,6 +55,14 @@ def _build_ack_content(intent_summary: str) -> str:
     return "⚡ On it."
 
 
+async def _request_has_active_run(db: AsyncSession, request_id: uuid.UUID) -> bool:
+    stmt = select(ExecutionRun.id).where(
+        ExecutionRun.request_id == request_id,
+        ExecutionRun.status.in_((RunStatus.pending, RunStatus.running)),
+    )
+    return (await db.execute(stmt)).first() is not None
+
+
 async def _require_project(db: AsyncSession, project_id: uuid.UUID, tenant_id: uuid.UUID) -> Project:
     stmt = select(Project).where(Project.id == project_id, Project.tenant_id == tenant_id)
     project = (await db.execute(stmt)).scalar_one_or_none()
@@ -118,37 +126,51 @@ async def send_message(
     if outcome.request is not None and originator_token:
         outcome.request.originator_auth = originator_token
 
-    # Chit-chat skips the orchestrator; question / request / modification
-    # all seed a run. Planner decomposition ("앱 만들어줘" → N phases)
-    # runs inside the background task, NOT here — a planner LLM call
-    # with a 10-minute timeout would stall this HTTP handler and leave
-    # the chat stuck on "routing · composing…" for the duration.
+    # Run dispatch policy:
+    #
+    # - chit_chat / question → no run, no ack. Just the user message.
+    # - request (new Request created) → seed one ExecutionRun pending; the
+    #   background dispatcher's Phase 0 calls the replanner for the
+    #   first iteration. Insert a chip-style ack so the chat doesn't
+    #   look frozen during the replanner LLM round-trip.
+    # - modification on an already-running Request → DO NOT seed a new
+    #   run. The replanner pulls recent founder messages on every
+    #   iteration; the modification will land in the next iteration's
+    #   plan automatically. Insert a small mod_ack so the founder sees
+    #   the steer was received.
     run_to_dispatch: uuid.UUID | None = None
     if outcome.request is not None:
-        seeded_run = ExecutionRun(
-            tenant_id=tenant_id,
-            project_id=project_id,
-            request_id=outcome.request.id,
-            status=RunStatus.pending,
-            priority=RunPriority.medium,
-        )
-        db.add(seeded_run)
-        await db.flush()
-        run_to_dispatch = seeded_run.id
+        active_run_exists = await _request_has_active_run(db, outcome.request.id)
+        if active_run_exists and not outcome.created_new:
+            # Modification riding on an in-flight chain — let it ride.
+            mod_ack = ConversationMessage(
+                project_id=project_id,
+                role="assistant",
+                content=("확인했어요. 진행 중인 작업이 끝나면 이 변경사항 반영해서 다음 단계 잡을게요."),
+                request_id=outcome.request.id,
+                actions=[{"kind": "mod_ack"}],
+            )
+            db.add(mod_ack)
+        else:
+            seeded_run = ExecutionRun(
+                tenant_id=tenant_id,
+                project_id=project_id,
+                request_id=outcome.request.id,
+                status=RunStatus.pending,
+                priority=RunPriority.medium,
+            )
+            db.add(seeded_run)
+            await db.flush()
+            run_to_dispatch = seeded_run.id
 
-        # Immediate assistant acknowledgment so the founder doesn't see a
-        # frozen chat while the background run executes (runs can take
-        # minutes). The final result reply lands via publish_run_output
-        # when the run completes; _ensure_assistant_message skips acks
-        # during dedupe so both messages coexist.
-        ack_msg = ConversationMessage(
-            project_id=project_id,
-            role="assistant",
-            content=_build_ack_content(outcome.request.intent_summary),
-            request_id=outcome.request.id,
-            actions=[{"kind": "ack", "run_id": str(seeded_run.id)}],
-        )
-        db.add(ack_msg)
+            ack_msg = ConversationMessage(
+                project_id=project_id,
+                role="assistant",
+                content=_build_ack_content(outcome.request.intent_summary),
+                request_id=outcome.request.id,
+                actions=[{"kind": "ack", "run_id": str(seeded_run.id)}],
+            )
+            db.add(ack_msg)
 
     await db.commit()
     await db.refresh(message)

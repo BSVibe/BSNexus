@@ -89,18 +89,14 @@ class RunOrchestrator:
         snapshot_data = get_tenant_integration_snapshot
         integrations = await snapshot_data(db, run.tenant_id)
 
-        knowledge = resolve_knowledge_client(
-            integrations.bsage, auth_token=request.originator_auth
-        )
+        knowledge = resolve_knowledge_client(integrations.bsage, auth_token=request.originator_auth)
         audit = resolve_audit_sink(integrations.bsupervisor)
 
         # Refresh .bsnexus/context/*.md so the composer's pointer to
         # those files resolves to fresh state. Failing to refresh must
         # not break the run — log and continue with stale context.
         try:
-            await harness.refresh_context(
-                run.project_id, request=request, db=db
-            )
+            await harness.refresh_context(run.project_id, request=request, db=db)
         except Exception:  # noqa: BLE001
             logger.exception("harness_refresh_failed", run_id=str(run.id))
 
@@ -145,9 +141,7 @@ class RunOrchestrator:
             emit_post_async(audit, run, {"status": "running", "stage": "ready"})
             return run
 
-        history = await _load_chat_history(
-            db, project_id=run.project_id, origin_message_id=request.origin_message_id
-        )
+        history = await _load_chat_history(db, project_id=run.project_id, origin_message_id=request.origin_message_id)
         user_prompt = run.directive or request.intent_summary
 
         try:
@@ -201,7 +195,18 @@ class RunOrchestrator:
         db: AsyncSession,
         stream_manager: RedisStreamManager | None = None,
     ) -> None:
-        """Finalize a completed run + enqueue children whose deps are met."""
+        """Finalize a completed run, then seed the next iteration.
+
+        Iterative replanner model: each completed run kicks off a fresh
+        ``ExecutionRun`` (pending, parent_run_id = this run) that the
+        background dispatcher will pick up. Phase 0 of that dispatcher
+        calls the replanner to decide whether to do another iteration,
+        declare the goal done, or ask the founder a question.
+
+        We do NOT decide here whether the chain is done — that's the
+        replanner's call when it sees the latest results. From this
+        function's POV it just always schedules the next replanner pass.
+        """
         if isinstance(result, dict):
             run.output_type = result.get("output_type")
             run.output_ref = result.get("output_ref")
@@ -217,38 +222,25 @@ class RunOrchestrator:
             stream_manager=stream_manager,
         )
 
-        children = await _find_ready_children(db, run)
-        for child in children:
-            await self._state.transition(
-                child,
-                RunStatus.pending,
-                reason=f"dependencies met (parent {run.id})",
-                actor="orchestrator",
-                db_session=db,
-                stream_manager=stream_manager,
-            )
+        if run.request_id is None:
+            return
 
-        # Planner chain: a child run whose ``parent_run_id`` points at
-        # us was seeded ``blocked`` by the planner. Promote it to
-        # pending and fire the background dispatcher so the next phase
-        # starts without the founder having to send another message.
-        successor = await _find_blocked_successor(db, run.id)
-        if successor is not None:
-            await self._state.transition(
-                successor,
-                RunStatus.pending,
-                reason=f"predecessor {run.id} completed",
-                actor="orchestrator",
-                db_session=db,
-                stream_manager=stream_manager,
-            )
-            await db.flush()
-            await db.commit()  # commit so the background task's own session sees the promoted row
-            _fire_async(successor.id, successor.tenant_id, successor.project_id, stream_manager)
-
-        # Also kick off any ready-children promoted above.
-        for child in children:
-            _fire_async(child.id, child.tenant_id, child.project_id, stream_manager)
+        # Schedule the next iteration. The replanner inside Phase 0 of
+        # the dispatcher decides whether this is the last one (it can
+        # return ``done`` and the new run becomes a no-op closer).
+        next_run = ExecutionRun(
+            tenant_id=run.tenant_id,
+            project_id=run.project_id,
+            request_id=run.request_id,
+            parent_run_id=run.id,
+            status=RunStatus.pending,
+            priority=run.priority,
+        )
+        db.add(next_run)
+        await db.flush()
+        # Commit so the background task's own session sees the row.
+        await db.commit()
+        _fire_async(next_run.id, next_run.tenant_id, next_run.project_id, stream_manager)
 
 
 def _fire_async(
@@ -268,9 +260,7 @@ def _fire_async(
     fire_run(run_id, tenant_id, project_id, stream_manager)
 
 
-async def _find_blocked_successor(
-    db: AsyncSession, parent_run_id: uuid.UUID
-) -> ExecutionRun | None:
+async def _find_blocked_successor(db: AsyncSession, parent_run_id: uuid.UUID) -> ExecutionRun | None:
     stmt = (
         select(ExecutionRun)
         .where(
@@ -350,11 +340,7 @@ async def _persist_snapshot(
         tenant_id=run.tenant_id,
         request_id=request.id,
         execution_run_id=run.id,
-        source=(
-            CompositionSource.bsage
-            if composition.source == "bsage"
-            else CompositionSource.local
-        ),
+        source=(CompositionSource.bsage if composition.source == "bsage" else CompositionSource.local),
         system_prompt_ref={"inline": composition.system_prompt},
         tools_allowed=list(composition.tools_allowed),
         context_doc_refs=list(composition.context_doc_refs),
@@ -366,9 +352,7 @@ async def _persist_snapshot(
     return snapshot
 
 
-async def _find_ready_children(
-    db: AsyncSession, parent: ExecutionRun
-) -> list[ExecutionRun]:
+async def _find_ready_children(db: AsyncSession, parent: ExecutionRun) -> list[ExecutionRun]:
     """Find blocked/pending children whose all dependencies are now done."""
     deps = execution_run_dependencies
     dependent_ids_stmt = select(deps.c.run_id).where(deps.c.dependency_id == parent.id)
@@ -387,9 +371,11 @@ async def _find_ready_children(
 
     ready: list[ExecutionRun] = []
     for candidate in candidates:
-        deps_stmt = select(ExecutionRun.status).join(
-            deps, deps.c.dependency_id == ExecutionRun.id
-        ).where(deps.c.run_id == candidate.id)
+        deps_stmt = (
+            select(ExecutionRun.status)
+            .join(deps, deps.c.dependency_id == ExecutionRun.id)
+            .where(deps.c.run_id == candidate.id)
+        )
         dep_statuses = (await db.execute(deps_stmt)).scalars().all()
         if all(status == RunStatus.done for status in dep_statuses):
             ready.append(candidate)

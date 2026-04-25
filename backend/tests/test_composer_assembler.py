@@ -9,7 +9,6 @@ from typing import Any
 import pytest
 
 from backend.src.core.composer import (
-    Composition,
     KnowledgeFragment,
     NoopKnowledgeClient,
     PersonaTemplate,

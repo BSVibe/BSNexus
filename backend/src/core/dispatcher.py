@@ -68,14 +68,22 @@ async def _dispatch_background(
     finalize via ``on_run_completed`` → ``publish_run_output``.
     """
     from backend.src.core.audit import resolve_audit_sink  # noqa: PLC0415 — avoid cycle
-    from backend.src.core.planner import maybe_plan_phases, seed_phase_chain  # noqa: PLC0415
+    from backend.src.core.planner import replan_next_step  # noqa: PLC0415
 
     try:
-        # Phase 0: if this is a top-level (not-yet-started) run for a
-        # macro direction, decompose into phases first. Runs here because
-        # the planner LLM call takes up to 10 min and must not block the
-        # /messages HTTP handler.
+        # Phase 0: replan. Calls the chief-of-staff LLM to decide what
+        # this iteration should do. Possible outcomes:
+        #   next_step → fill in run.directive, write a phase_start
+        #               message, fall through to Phase 1.
+        #   done      → mark the run done with no work, write a
+        #               chain_done message, exit.
+        #   ask_founder → create a Decision row + decision_request
+        #                 message, mark run blocked, exit.
         async with async_session() as session:
+            from backend.src.core.run_artifacts import (  # noqa: PLC0415
+                insert_chat_event,
+            )
+            from backend.src.models import Decision  # noqa: PLC0415
             from backend.src.models import ExecutionRun as _ExecutionRun  # noqa: PLC0415
             from backend.src.models import Request as _Request  # noqa: PLC0415
 
@@ -84,20 +92,86 @@ async def _dispatch_background(
             ).scalar_one_or_none()
             if run_row is None:
                 return
-            # Only plan for root runs that haven't spawned a chain yet.
-            if run_row.parent_run_id is None and run_row.request_id is not None:
-                req_row = (
-                    await session.execute(select(_Request).where(_Request.id == run_row.request_id))
-                ).scalar_one_or_none()
-                if req_row is not None:
-                    plan = await maybe_plan_phases(
-                        direction=req_row.intent_summary,
-                        tenant_id=tenant_id,
-                        session=session,
-                    )
-                    if plan is not None:
-                        await seed_phase_chain(session=session, root_run=run_row, plan=plan)
-                        await session.commit()
+            if run_row.request_id is None:
+                return
+
+            req_row = (
+                await session.execute(select(_Request).where(_Request.id == run_row.request_id))
+            ).scalar_one_or_none()
+            if req_row is None:
+                return
+
+            prior_runs = await _load_prior_completed_runs(session, req_row.id)
+            pending_decisions = await _load_pending_decisions(session, req_row.id)
+            recent_msgs = await _load_recent_messages(session, run_row.project_id)
+
+            replan = await replan_next_step(
+                request=req_row,
+                completed_runs=prior_runs,
+                pending_decisions=pending_decisions,
+                recent_messages=recent_msgs,
+                tenant_id=tenant_id,
+                session=session,
+            )
+
+            if replan.decision == "done":
+                await insert_chat_event(
+                    session,
+                    project_id=run_row.project_id,
+                    request_id=req_row.id,
+                    run_id=run_row.id,
+                    kind="chain_done",
+                    content=replan.founder_message,
+                )
+                from backend.src.models import RequestStatus  # noqa: PLC0415
+
+                run_row.status = RunStatus.done
+                req_row.status = RequestStatus.completed
+                await session.commit()
+                return
+
+            if replan.decision == "ask_founder":
+                decision = Decision(
+                    tenant_id=tenant_id,
+                    project_id=run_row.project_id,
+                    request_id=req_row.id,
+                    origin_run_id=run_row.id,
+                    question=replan.question or "",
+                    options=replan.options or [],
+                    blocking=replan.blocking,
+                )
+                session.add(decision)
+                await session.flush()
+                await insert_chat_event(
+                    session,
+                    project_id=run_row.project_id,
+                    request_id=req_row.id,
+                    run_id=run_row.id,
+                    kind="decision_request",
+                    content=replan.founder_message,
+                    extra={
+                        "question": replan.question,
+                        "options": replan.options or [],
+                        "decision_id": str(decision.id),
+                    },
+                )
+                run_row.status = RunStatus.blocked
+                run_row.error_message = "awaiting founder decision"
+                await session.commit()
+                return
+
+            # decision == "next_step"
+            run_row.directive = replan.phase_direction
+            await insert_chat_event(
+                session,
+                project_id=run_row.project_id,
+                request_id=req_row.id,
+                run_id=run_row.id,
+                kind="phase_start",
+                content=replan.founder_message,
+                extra={"phase_name": replan.phase_name or "iteration"},
+            )
+            await session.commit()
 
         # Phase 1: prepare + transition to running, commit, release.
         prepared: dict[str, Any] | None = None
@@ -223,6 +297,62 @@ async def _dispatch_background(
         logger.exception("background_dispatch_failed", run_id=str(run_id))
 
 
+async def _load_prior_completed_runs(session: AsyncSession, request_id: uuid.UUID) -> list[Any]:
+    """Ordered prior completed runs for a request — feeds the replanner."""
+    from backend.src.models import ExecutionRun as _ExecutionRun  # noqa: PLC0415
+
+    rows = (
+        (
+            await session.execute(
+                select(_ExecutionRun)
+                .where(
+                    _ExecutionRun.request_id == request_id,
+                    _ExecutionRun.status == RunStatus.done,
+                )
+                .order_by(_ExecutionRun.created_at.asc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return list(rows)
+
+
+async def _load_pending_decisions(session: AsyncSession, request_id: uuid.UUID) -> list[Any]:
+    from backend.src.models import Decision  # noqa: PLC0415
+
+    rows = (
+        (
+            await session.execute(
+                select(Decision)
+                .where(Decision.request_id == request_id, Decision.resolved_at.is_(None))
+                .order_by(Decision.created_at.asc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return list(rows)
+
+
+async def _load_recent_messages(session: AsyncSession, project_id: uuid.UUID, *, limit: int = 12) -> list[Any]:
+    from backend.src.models import ConversationMessage  # noqa: PLC0415
+
+    rows = (
+        (
+            await session.execute(
+                select(ConversationMessage)
+                .where(ConversationMessage.project_id == project_id)
+                .order_by(ConversationMessage.created_at.desc())
+                .limit(limit)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return list(reversed(rows))
+
+
 async def build_adapter(
     session: AsyncSession,
     tenant_id: uuid.UUID,
@@ -239,10 +369,13 @@ async def build_adapter(
     """
     row = (
         await session.execute(
-            select(ExecutorConfig).where(
+            select(ExecutorConfig)
+            .where(
                 ExecutorConfig.tenant_id == tenant_id,
                 ExecutorConfig.is_selected.is_(True),
             )
+            .order_by(ExecutorConfig.created_at.desc())
+            .limit(1)
         )
     ).scalar_one_or_none()
     if row is None:

@@ -13,7 +13,6 @@ from backend.src.models import (
     DeliverableType,
     Project,
     Request,
-    RequestStatus,
 )
 
 

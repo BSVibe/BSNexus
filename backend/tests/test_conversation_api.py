@@ -199,9 +199,16 @@ async def test_send_request_captures_originator_auth(client, db_session):
 
 
 @pytest.mark.asyncio
-async def test_send_modification_also_seeds_a_run(client, _stub_background_dispatch):
-    """Both new requests and modifications seed a run — the founder is
-    giving the company more direction either way."""
+async def test_send_modification_does_not_seed_parallel_run(client, db_session, _stub_background_dispatch):
+    """Modifications on an in-flight request must NOT spawn a parallel
+    run — that's how legacy created agent-army chaos. The replanner
+    pulls recent founder messages each iteration, so the modification
+    will land in the next iteration's plan automatically. We just record
+    a small ``mod_ack`` chip so the founder sees the steer was heard."""
+    from sqlalchemy import select
+
+    from backend.src.models import ConversationMessage
+
     project_id = await _make_project(client)
 
     await client.post(
@@ -215,8 +222,23 @@ async def test_send_modification_also_seeds_a_run(client, _stub_background_dispa
         headers={"Authorization": "Bearer fake"},
     )
 
-    # Each user direction — new or modification — seeds a run.
-    assert len(_stub_background_dispatch) == 2
+    # First send dispatched; modification rode on the same chain.
+    assert len(_stub_background_dispatch) == 1
+
+    # mod_ack chip recorded so the founder sees their steer landed.
+    rows = (
+        (
+            await db_session.execute(
+                select(ConversationMessage)
+                .where(ConversationMessage.project_id == uuid.UUID(project_id))
+                .order_by(ConversationMessage.created_at.asc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    kinds = [next((a.get("kind") for a in (r.actions or []) if isinstance(a, dict)), None) for r in rows]
+    assert "mod_ack" in kinds
 
 
 @pytest.mark.asyncio
