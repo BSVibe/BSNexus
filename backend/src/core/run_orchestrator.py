@@ -101,11 +101,15 @@ class RunOrchestrator:
             logger.exception("harness_refresh_failed", run_id=str(run.id))
 
         tools_available = _tools_from_executor_hint(executor)
+        workspace_state = _safe_workspace_listing(run.project_id)
+        prior_iterations = await _load_prior_iterations_for_compose(db, run)
         composition = await self._assembler.compose(
             run,
             knowledge,
             intent_summary=request.intent_summary,
             tools_available=tools_available,
+            workspace_state=workspace_state,
+            prior_iterations=prior_iterations,
         )
         snapshot = await _persist_snapshot(db, run, request, composition)
         run.composition_snapshot_id = snapshot.id
@@ -271,6 +275,64 @@ async def _find_blocked_successor(db: AsyncSession, parent_run_id: uuid.UUID) ->
         .limit(1)
     )
     return (await db.execute(stmt)).scalar_one_or_none()
+
+
+def _safe_workspace_listing(project_id: uuid.UUID) -> list[dict]:
+    """Workspace files for the prompt — never raises, returns ``[]`` on
+    any error so a transient FS hiccup doesn't kill the run.
+    """
+    try:
+        from backend.src.core import workspace_store  # noqa: PLC0415
+
+        return list(workspace_store.list_files(project_id))
+    except Exception:  # noqa: BLE001
+        logger.exception("workspace_listing_failed", project_id=str(project_id))
+        return []
+
+
+async def _load_prior_iterations_for_compose(db: AsyncSession, current_run: ExecutionRun) -> list[dict]:
+    """Build a per-iteration summary list for the prompt.
+
+    Pulls every previously-completed run on the same request (excluding
+    ``current_run`` itself), in chronological order. Each entry carries
+    the worker's ``founder_summary`` (or ``inline``) plus the list of
+    file paths it wrote. The worker prompt uses this to refuse to
+    re-create files already produced.
+    """
+    if current_run.request_id is None:
+        return []
+    stmt = (
+        select(ExecutionRun)
+        .where(
+            ExecutionRun.request_id == current_run.request_id,
+            ExecutionRun.id != current_run.id,
+            ExecutionRun.status == RunStatus.done,
+        )
+        .order_by(ExecutionRun.created_at.asc())
+    )
+    rows = list((await db.execute(stmt)).scalars())
+    out: list[dict] = []
+    for r in rows:
+        out_ref = r.output_ref if isinstance(r.output_ref, dict) else {}
+        files_written = []
+        for f in (out_ref.get("files") or [])[:50]:
+            if isinstance(f, dict) and f.get("path"):
+                files_written.append(str(f["path"]))
+        out.append(
+            {
+                "name": _name_from_directive(r.directive),
+                "founder_summary": str(out_ref.get("founder_summary") or out_ref.get("inline") or "")[:600],
+                "files_written": files_written,
+            }
+        )
+    return out
+
+
+def _name_from_directive(directive: str | None) -> str:
+    if not directive:
+        return "iteration"
+    first_line = directive.strip().splitlines()[0]
+    return first_line[:48] or "iteration"
 
 
 def _tools_from_executor_hint(executor: Any | None) -> list[str]:

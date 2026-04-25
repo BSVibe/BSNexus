@@ -83,6 +83,24 @@ async def test_file_list_enumerates_workspace(isolated_workspace, log, project_i
 
 
 @pytest.mark.asyncio
+async def test_file_write_skips_identical_rewrite(isolated_workspace, log, project_id):
+    """Weak LLMs land in loops where they call file_write on the same
+    path with byte-identical content several turns in a row. Returning
+    a clear ``noop`` response (not ``ok:``) breaks that loop."""
+    payload = json.dumps({"path": "pkg.json", "content": '{"name":"x"}'})
+
+    first = await execute_tool_call(name="file_write", raw_arguments=payload, log=log)
+    assert first.startswith("ok:")
+    assert len(log.written) == 1
+
+    second = await execute_tool_call(name="file_write", raw_arguments=payload, log=log)
+    assert second.startswith("noop:")
+    assert "identical content" in second
+    # No new write recorded — the cap budget isn't burned for nothing.
+    assert len(log.written) == 1
+
+
+@pytest.mark.asyncio
 async def test_file_write_rejects_escape_paths(log):
     payload = json.dumps({"path": "../outside.txt", "content": "x"})
     result = await execute_tool_call(name="file_write", raw_arguments=payload, log=log)

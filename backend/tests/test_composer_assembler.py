@@ -87,6 +87,67 @@ async def test_assembler_marks_source_local_when_no_fragments():
 
 
 @pytest.mark.asyncio
+async def test_assembler_inlines_workspace_state_into_prompt():
+    """workspace_state goes straight into the system prompt so weak
+    LLMs don't have to remember to file_read workspace.md before
+    acting."""
+    assembler = PromptAssembler(default_template_registry())
+    composition = await assembler.compose(
+        _fake_run(),
+        NoopKnowledgeClient(),
+        intent_summary="Add user signup",
+        tools_available=["file_read", "file_write"],
+        workspace_state=[
+            {"path": "backend/package.json", "size": 689},
+            {"path": "backend/src/routes.ts", "size": 196},
+        ],
+    )
+    assert "CURRENT WORKSPACE" in composition.system_prompt
+    assert "backend/package.json" in composition.system_prompt
+    assert "backend/src/routes.ts" in composition.system_prompt
+    assert "Do NOT recreate" in composition.system_prompt
+
+
+@pytest.mark.asyncio
+async def test_assembler_inlines_prior_iterations_with_files():
+    """prior_iterations lists what each previous phase produced so the
+    worker doesn't pick a directive that overlaps."""
+    assembler = PromptAssembler(default_template_registry())
+    composition = await assembler.compose(
+        _fake_run(),
+        NoopKnowledgeClient(),
+        intent_summary="Build the frontend",
+        tools_available=["file_read", "file_write"],
+        prior_iterations=[
+            {
+                "name": "Scaffold Backend API",
+                "founder_summary": "Wrote 8 backend files.",
+                "files_written": ["backend/package.json", "backend/src/routes.ts"],
+            },
+        ],
+    )
+    assert "PRIOR ITERATIONS" in composition.system_prompt
+    assert "Scaffold Backend API" in composition.system_prompt
+    assert "backend/package.json" in composition.system_prompt
+    assert "Do NOT reproduce work" in composition.system_prompt
+
+
+@pytest.mark.asyncio
+async def test_assembler_first_iteration_says_workspace_empty():
+    """workspace_state=[] (first iteration) gets a clear hint instead
+    of a confusing empty list."""
+    assembler = PromptAssembler(default_template_registry())
+    composition = await assembler.compose(
+        _fake_run(),
+        NoopKnowledgeClient(),
+        intent_summary="Build it",
+        tools_available=["file_write"],
+        workspace_state=[],
+    )
+    assert "first iteration" in composition.system_prompt
+
+
+@pytest.mark.asyncio
 async def test_assembler_marks_source_bsage_when_fragments_present():
     fragments = [
         KnowledgeFragment(

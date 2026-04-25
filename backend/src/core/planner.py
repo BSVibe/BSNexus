@@ -78,8 +78,17 @@ _REPLANNER_SYSTEM = (
     "INPUTS you receive each turn:\n"
     "- ``intent``: the founder's original request, verbatim.\n"
     "- ``history``: ordered list of previously completed iterations, each "
-    "with ``name``, ``directive`` they ran, ``summary`` (what was "
-    "produced), and ``learnings`` (what was discovered or surprised).\n"
+    "with ``name``, ``directive`` they ran, ``summary`` (what the worker "
+    "produced), and ``files_written`` (concrete file paths shipped that "
+    "iteration). Read this CAREFULLY — picking a next_step that "
+    "duplicates files already in ``files_written`` is the most common "
+    "failure mode.\n"
+    "- ``workspace_files``: every file currently on disk. Cross-reference "
+    "this against your candidate next_step. If the files you'd ask the "
+    "worker to create are ALL already in ``workspace_files``, you are "
+    "either ``done`` or you need to pick a DIFFERENT next phase that "
+    "EXTENDS the existing files (frontend, tests, deployment, etc.) — "
+    "never re-scaffold the backend twice.\n"
     "- ``recent_messages``: latest founder turns in chat — pay attention "
     "to modifications like 'instead use X' or 'wait, also add Y'.\n"
     "- ``open_decisions``: questions you previously asked that are still "
@@ -117,9 +126,20 @@ _REPLANNER_SYSTEM = (
     "produced X but failed at Y, the next phase_direction should "
     "ACKNOWLEDGE that and either fix Y or work around it. Don't repeat "
     "the same mistake.\n"
+    "4b. NO DUPLICATE WORK. Before you commit to a phase_direction, "
+    "list (mentally) what files it would create. Then check "
+    "``workspace_files`` and the union of all ``history[].files_written`` "
+    "lists. If your phase would mostly recreate paths that are already "
+    "there (e.g. ``backend/package.json`` is in workspace and you're "
+    "picking 'Setup Backend' — that's a duplicate), pivot to the NEXT "
+    "natural step instead: write the frontend, add tests, wire up "
+    "deployment, polish docs, run the verification command, etc. The "
+    "directive must require NEW files or substantive edits, not "
+    "rewrites of identical content.\n"
     "5. Finish: pick ``done`` as soon as the founder's intent is "
     "actually satisfied. Don't pad iterations — the founder hates busy "
-    "work.\n"
+    "work. If 3+ iterations have already shipped concrete files and the "
+    "founder's intent is roughly covered, lean toward ``done``.\n"
     "6. Bail to founder: pick ``ask_founder`` only when the choice is "
     "genuinely a values/strategy call (auth provider, monetization "
     "model, etc.) — not for tactical defaults you can pick yourself.\n"
@@ -201,15 +221,19 @@ def _build_replanner_payload(
     completed_runs: list[ExecutionRun],
     recent_messages: list[ConversationMessage],
 ) -> dict[str, Any]:
-    history: list[dict[str, str]] = []
+    history: list[dict[str, Any]] = []
     for r in completed_runs:
         out = r.output_ref if isinstance(r.output_ref, dict) else {}
+        files: list[str] = []
+        for f in (out.get("files") or [])[:30]:
+            if isinstance(f, dict) and f.get("path"):
+                files.append(str(f["path"]))
         history.append(
             {
                 "name": _name_from_directive(r.directive),
                 "directive": (r.directive or "")[:600],
                 "summary": str(out.get("founder_summary") or out.get("inline") or "")[:600],
-                "learnings": str(out.get("learnings") or "")[:400],
+                "files_written": files,
             }
         )
 
@@ -219,9 +243,24 @@ def _build_replanner_payload(
             continue
         recent.append({"role": m.role, "content": (m.content or "")[:400]})
 
+    # Snapshot of files actually on disk right now. Replanner sees this
+    # alongside ``history[].files_written`` so it can detect when its
+    # next pick would re-do something already shipped.
+    workspace_files: list[str] = []
+    try:
+        from backend.src.core import workspace_store  # noqa: PLC0415
+
+        for entry in workspace_store.list_files(request.project_id)[:200]:
+            path = entry.get("path") if isinstance(entry, dict) else None
+            if path:
+                workspace_files.append(str(path))
+    except Exception:  # noqa: BLE001 — replanner runs without it
+        workspace_files = []
+
     return {
         "intent": request.intent_summary,
         "history": history,
+        "workspace_files": workspace_files,
         "recent_messages": recent,
         "open_decisions": [],  # blocking decisions short-circuit before this point
     }

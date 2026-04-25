@@ -29,9 +29,14 @@ logger = structlog.get_logger(__name__)
 REQUEST_TIMEOUT = int(os.getenv("LLM_REQUEST_TIMEOUT", "600"))
 
 # Maximum number of assistant↔tool turns in a single ``execute``. Each
-# iteration lets the model issue another batch of tool calls. 12 is
-# enough for ~1 dozen files of output while capping runaway loops.
-MAX_TOOL_ITERATIONS = int(os.getenv("LLM_MAX_TOOL_ITERATIONS", "12"))
+# iteration lets the model issue another batch of tool calls. Need
+# headroom for: read context files (3-4 turns) → write N files (N turns)
+# → run verification command (1-2 turns) → fix-up loop (3 turns). 24 is
+# the sweet spot — high enough that legitimate multi-file scaffolds
+# (≈ 8-10 files) finish cleanly, low enough that the
+# write-the-same-file-forever loops weak local LLMs sometimes fall
+# into still get capped within a couple of minutes.
+MAX_TOOL_ITERATIONS = int(os.getenv("LLM_MAX_TOOL_ITERATIONS", "24"))
 
 
 class LiteLLMOrchestratorAdapter:

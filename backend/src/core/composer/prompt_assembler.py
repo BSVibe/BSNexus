@@ -102,16 +102,28 @@ class PromptAssembler:
         intent_summary: str,
         tools_available: list[str] | None = None,
         top_k: int = 10,
+        workspace_state: list[dict] | None = None,
+        prior_iterations: list[dict] | None = None,
     ) -> Composition:
         """Build a Composition for ``run`` using ``knowledge`` for context.
 
         ``intent_summary`` is typically ``run.request.intent_summary`` — passed
         explicitly so this function has no DB side effects and is fully
         testable.
+
+        ``workspace_state`` is the current list of files on disk (each
+        ``{path, size}``). When provided it gets baked into the system
+        prompt so weak LLMs don't have to remember to ``file_read`` the
+        workspace.md context file before acting.
+
+        ``prior_iterations`` is a list of completed iteration summaries
+        (each ``{name, founder_summary, files_written}``) so the worker
+        sees what's already been shipped and skips re-doing it.
         """
         fragments = await knowledge.search(intent_summary, top_k=top_k)
         template = self._templates.pick(intent_summary, tools_available)
-        system_prompt = template.render(fragments)
+        rendered = template.render(fragments)
+        system_prompt = _bake_in_state(rendered, workspace_state, prior_iterations)
 
         return Composition(
             source="bsage" if fragments else "local",
@@ -121,6 +133,64 @@ class PromptAssembler:
             persona_label=template.name,
             fit_score=template.score_for(intent_summary, tools_available or []),
         )
+
+
+def _bake_in_state(
+    base_prompt: str,
+    workspace_state: list[dict] | None,
+    prior_iterations: list[dict] | None,
+) -> str:
+    """Append a ``CURRENT WORKSPACE`` + ``PRIOR ITERATIONS`` block.
+
+    Inlining this state means the worker doesn't have to issue 3
+    ``file_read`` calls (stack.md / workspace.md / history.md) before
+    its first real action — every saved tool call is one less chance to
+    burn the iteration budget on bookkeeping. Weak LLMs that previously
+    skipped the file_read step entirely now get the same information
+    impossible to miss.
+    """
+    parts: list[str] = [base_prompt]
+
+    if workspace_state is not None:
+        parts.append("\n\n## CURRENT WORKSPACE (truth on disk)\n")
+        if not workspace_state:
+            parts.append("(empty — this is the first iteration. Pick a stack and create files.)")
+        else:
+            parts.append("Files already present. **Do NOT recreate any of these unless extending them.**\n")
+            parts.append("```\n")
+            for entry in workspace_state[:200]:
+                path = str(entry.get("path") or "")
+                size = entry.get("size") or 0
+                parts.append(f"{path}\t{size} bytes\n")
+            if len(workspace_state) > 200:
+                parts.append(f"... ({len(workspace_state) - 200} more files)\n")
+            parts.append("```\n")
+            parts.append(
+                "If your directive would create a file that already exists "
+                "above, ``file_read`` it FIRST and EXTEND it. Identical "
+                "rewrites are rejected by file_write."
+            )
+
+    if prior_iterations:
+        parts.append("\n\n## PRIOR ITERATIONS (what's already been shipped)\n")
+        for i, iteration in enumerate(prior_iterations, 1):
+            name = str(iteration.get("name") or f"iteration {i}")
+            summary = str(iteration.get("founder_summary") or iteration.get("summary") or "")[:400]
+            files = iteration.get("files_written") or []
+            parts.append(f"\n### Iteration {i}: {name}\n")
+            if summary:
+                parts.append(f"{summary}\n")
+            if files:
+                file_list = ", ".join(str(f)[:80] for f in files[:10])
+                if len(files) > 10:
+                    file_list += f", … ({len(files) - 10} more)"
+                parts.append(f"\nFiles produced: {file_list}\n")
+        parts.append(
+            "\n**Your directive is the NEXT step after these iterations.** "
+            "Do NOT reproduce work that's already in the file list above."
+        )
+
+    return "".join(parts)
 
 
 # ─────────────────────────────────────────────────────────

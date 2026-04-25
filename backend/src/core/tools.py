@@ -158,6 +158,22 @@ async def _handle_file_write(args: dict[str, Any], log: ToolRunLog) -> str:
     language = str(args.get("language") or "").strip()
     if len(content.encode("utf-8")) > MAX_FILE_BYTES:
         raise ValueError(f"file content exceeds {MAX_FILE_BYTES} bytes; split into smaller files")
+
+    # Refuse identical-content rewrites. Weak LLMs land in loops where
+    # they call ``file_write`` on the same path with the same bytes
+    # multiple turns in a row; that burns the iteration budget without
+    # progress. Returning a clear "no-op" tells the model "this file is
+    # already exactly what you want — move on to something else."
+    existing = workspace_store.read_file(log.project_id, path)
+    if existing == content:
+        logger.info("tool_file_write_skipped_identical", project_id=str(log.project_id), path=path)
+        return (
+            f"noop: {path} already exists with identical content "
+            f"({len(content.encode('utf-8'))} bytes). Pick a different "
+            f"file or move on to the next step — do not call file_write "
+            f"on this path again."
+        )
+
     target = workspace_store.write_file(log.project_id, path, content)
     log.record_write(path=path, content=content, language=language)
     logger.info(
