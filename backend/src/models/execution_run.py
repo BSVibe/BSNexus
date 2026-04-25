@@ -74,6 +74,11 @@ class ExecutionRun(Base):
         Index("ix_execution_runs_project_status", "project_id", "status"),
         Index("ix_execution_runs_request", "request_id"),
         Index("ix_execution_runs_tenant_created", "tenant_id", "created_at"),
+        # S2-1 M1 (revised after founder-metaphor refactor): the original
+        # finding cited assigned_agent_id (now retired) and created_at
+        # (already covered above). The remaining gap is parent_run_id —
+        # the iterative replanner queries by it on every completed run.
+        Index("ix_execution_runs_parent_run", "parent_run_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)

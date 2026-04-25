@@ -25,6 +25,7 @@ request creation or ``on_run_completed`` from a completion handler.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from typing import Any
 
@@ -95,10 +96,15 @@ class RunOrchestrator:
         # Refresh .bsnexus/context/*.md so the composer's pointer to
         # those files resolves to fresh state. Failing to refresh must
         # not break the run — log and continue with stale context.
+        # ``CancelledError`` is BaseException in 3.11+ so it propagates
+        # past this Exception catch automatically; the noqa stays on
+        # purpose because harness internals can raise OSError, FS race
+        # conditions, jinja errors, etc., none of which are worth
+        # listing exhaustively.
         try:
             await harness.refresh_context(run.project_id, request=request, db=db)
-        except Exception:  # noqa: BLE001
-            logger.exception("harness_refresh_failed", run_id=str(run.id))
+        except Exception:  # noqa: BLE001 — sink-all: never block a run on context refresh
+            logger.warning("harness_refresh_failed", run_id=str(run.id), exc_info=True)
 
         tools_available = _tools_from_executor_hint(executor)
         workspace_state = _safe_workspace_listing(run.project_id)
@@ -155,8 +161,12 @@ class RunOrchestrator:
                 tools_allowed=composition.tools_allowed,
                 history=history,
             )
+        except asyncio.CancelledError:
+            # Allow cooperative cancellation to propagate — a hung run
+            # must remain killable.
+            raise
         except Exception as exc:  # noqa: BLE001 — sink-all at the executor boundary
-            logger.exception("run_executor_failed", run_id=str(run.id))
+            logger.warning("run_executor_failed", run_id=str(run.id), exc_info=True)
             emit_post_async(audit, run, {"status": "error", "error": str(exc)})
             return await self._state.transition(
                 run,
@@ -278,15 +288,24 @@ async def _find_blocked_successor(db: AsyncSession, parent_run_id: uuid.UUID) ->
 
 
 def _safe_workspace_listing(project_id: uuid.UUID) -> list[dict]:
-    """Workspace files for the prompt — never raises, returns ``[]`` on
-    any error so a transient FS hiccup doesn't kill the run.
+    """Workspace files for the prompt — fail-soft on FS errors.
+
+    ``CancelledError`` is BaseException in 3.11+ so cooperative
+    cancellation passes through this catch. ``OSError`` covers the
+    realistic failure modes (missing dir, permission denied, broken
+    pipe). Any other exception still falls through ``Exception`` to
+    keep prompt assembly resilient — the noqa is intentional, the
+    workspace listing is purely advisory context.
     """
     try:
         from backend.src.core import project_workspace  # noqa: PLC0415
 
         return list(project_workspace.list_files(project_id))
-    except Exception:  # noqa: BLE001
-        logger.exception("workspace_listing_failed", project_id=str(project_id))
+    except OSError:
+        logger.warning("workspace_listing_failed", project_id=str(project_id), reason="os_error", exc_info=True)
+        return []
+    except Exception:  # noqa: BLE001 — never break compose on workspace listing
+        logger.warning("workspace_listing_failed", project_id=str(project_id), exc_info=True)
         return []
 
 

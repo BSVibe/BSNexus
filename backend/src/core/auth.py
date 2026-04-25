@@ -9,6 +9,11 @@ from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.config import settings
+from backend.src.core.tenant_context import (
+    DEFAULT_TENANT_ID,
+    _tenant_id_from_user,
+    ensure_personal_tenant,
+)
 from backend.src.storage.database import get_db
 
 
@@ -148,12 +153,10 @@ async def get_current_user(
         ``ENVIRONMENT`` is non-production (see ``_e2e_bypass_enabled``).
         A leaked dev bypass token is inert in prod.
     """
-    # Local import to avoid circular dependency between auth and tenant_context.
-    from backend.src.core.tenant_context import (
-        DEFAULT_TENANT_ID,
-        _tenant_id_from_user,
-        ensure_personal_tenant,
-    )
+    # ``tenant_context`` symbols are now imported at module level (no
+    # cycle exists in practice — tenant_context does not import auth).
+    # The previously local import was defensive; eliminating it makes
+    # the dependency direction explicit and removes the M8 smell.
 
     # Token resolution order:
     #   1. ``Authorization: Bearer <token>`` — preferred

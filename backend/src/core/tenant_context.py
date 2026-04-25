@@ -30,6 +30,7 @@ import structlog
 from bsvibe_auth import BSVibeUser
 from fastapi import Depends, Request
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = structlog.get_logger(__name__)
@@ -135,7 +136,15 @@ async def ensure_personal_tenant(db: AsyncSession, tenant_id: uuid.UUID, user: B
         row.owner_user_id = owner
     try:
         await db.commit()
-    except Exception:  # noqa: BLE001
+    except IntegrityError:
+        # Concurrent insert from another request raced us — let the
+        # other commit win and keep going.
+        await db.rollback()
+    except SQLAlchemyError:
+        # Any other DB failure: roll back so the session stays usable
+        # and let the original error surface to the caller, but log it
+        # with exc_info so the on-call has a stack trace.
+        logger.warning("tenant_upsert_commit_failed", tenant_id=str(tenant_id), exc_info=True)
         await db.rollback()
 
 

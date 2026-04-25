@@ -241,8 +241,12 @@ async def _dispatch_background(
                 tools_allowed=prepared["tools_allowed"],
                 history=prepared["history"],
             )
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("llm_execute_failed", run_id=str(run_id))
+        except asyncio.CancelledError:
+            # Cooperative cancellation: don't swallow — let the
+            # supervising task finalize the run as cancelled.
+            raise
+        except Exception as exc:  # noqa: BLE001 — sink-all at the LLM boundary
+            logger.warning("llm_execute_failed", run_id=str(run_id), exc_info=True)
             result = {"_error": str(exc)}
 
         # Async / worker executors return a "dispatched" sentinel —
@@ -295,8 +299,11 @@ async def _dispatch_background(
                 knowledge = resolve_knowledge_client(integrations.bsage, auth_token=originator_token)
                 await publish_run_output(run, session, knowledge=knowledge)
             await session.commit()
-    except Exception:
-        logger.exception("background_dispatch_failed", run_id=str(run_id))
+    except asyncio.CancelledError:
+        logger.info("background_dispatch_cancelled", run_id=str(run_id))
+        raise
+    except Exception:  # noqa: BLE001 — top-level guard for the fire-and-forget task
+        logger.error("background_dispatch_failed", run_id=str(run_id), exc_info=True)
 
 
 async def _load_prior_completed_runs(session: AsyncSession, request_id: uuid.UUID) -> list[Any]:
