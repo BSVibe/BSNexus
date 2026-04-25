@@ -16,7 +16,14 @@ from backend.src.core.integrations.config import ProviderConfig
 
 
 def _mock_httpx_post(*, status: int = 201, json_payload: dict | None = None):
-    """Build a context-manager mock that fakes httpx.AsyncClient.post()."""
+    """Build a context-manager mock that fakes httpx.AsyncClient.
+
+    After the BaseServiceClient (S2-1-X) refactor, calls flow through
+    ``AsyncClient.request(method, url, ...)``. This helper preserves
+    the prior ``cm.post`` API by routing ``request("POST", ...)`` calls
+    through it (and similarly for GET) so existing assertions continue
+    to work.
+    """
     response = MagicMock()
     response.status_code = status
     response.json = MagicMock(return_value=json_payload or {})
@@ -26,11 +33,20 @@ def _mock_httpx_post(*, status: int = 201, json_payload: dict | None = None):
             raise RuntimeError(f"http {status}")
 
     response.raise_for_status = _raise_for_status
+    response.content = b'{"x":1}'
 
     cm = MagicMock()
     cm.__aenter__ = AsyncMock(return_value=cm)
     cm.__aexit__ = AsyncMock(return_value=None)
     cm.post = AsyncMock(return_value=response)
+    cm.get = AsyncMock(return_value=response)
+
+    async def _request(method, url, **kwargs):
+        if method.upper() == "POST":
+            return await cm.post(url, **kwargs)
+        return await cm.get(url, **kwargs)
+
+    cm.request = AsyncMock(side_effect=_request)
     return cm
 
 
@@ -62,7 +78,7 @@ async def test_bsage_index_posts_bsnexus_input_webhook():
         }
     )
     with patch(
-        "backend.src.core.composer.knowledge_client.httpx.AsyncClient",
+        "backend.src.core.clients.base.httpx.AsyncClient",
         return_value=cm,
     ):
         client = BSageKnowledgeClient("https://bsage.test", "key")
@@ -95,7 +111,7 @@ async def test_bsage_index_posts_bsnexus_input_webhook():
 async def test_bsage_index_fails_soft_on_500():
     cm = _mock_httpx_post(status=500, json_payload={"detail": "boom"})
     with patch(
-        "backend.src.core.composer.knowledge_client.httpx.AsyncClient",
+        "backend.src.core.clients.base.httpx.AsyncClient",
         return_value=cm,
     ):
         client = BSageKnowledgeClient("https://bsage.test", "key")
@@ -113,7 +129,7 @@ async def test_bsage_record_decision_posts_decisions_endpoint():
         }
     )
     with patch(
-        "backend.src.core.composer.knowledge_client.httpx.AsyncClient",
+        "backend.src.core.clients.base.httpx.AsyncClient",
         return_value=cm,
     ):
         client = BSageKnowledgeClient("https://bsage.test", "key")
@@ -179,7 +195,7 @@ def test_resolve_knowledge_client_threads_auth_token():
 async def test_bsage_record_decision_fails_soft_on_500():
     cm = _mock_httpx_post(status=500, json_payload={"detail": "boom"})
     with patch(
-        "backend.src.core.composer.knowledge_client.httpx.AsyncClient",
+        "backend.src.core.clients.base.httpx.AsyncClient",
         return_value=cm,
     ):
         client = BSageKnowledgeClient("https://bsage.test", "key")
@@ -195,9 +211,12 @@ async def test_bsage_search_returns_empty_on_500():
         def __init__(self):
             self.get = AsyncMock()
             resp = MagicMock()
+            resp.status_code = 500
             resp.raise_for_status = MagicMock(side_effect=RuntimeError("boom"))
             resp.json = MagicMock(return_value={})
+            resp.content = b'{}'
             self.get.return_value = resp
+            self.request = AsyncMock(return_value=resp)
 
         async def __aenter__(self):
             return self
@@ -207,7 +226,7 @@ async def test_bsage_search_returns_empty_on_500():
 
     cm = _GetCM()
     with patch(
-        "backend.src.core.composer.knowledge_client.httpx.AsyncClient",
+        "backend.src.core.clients.base.httpx.AsyncClient",
         return_value=cm,
     ):
         client = _C("https://bsage.test", "key")
@@ -219,7 +238,7 @@ async def test_bsage_search_returns_empty_on_500():
 async def test_bsage_index_uses_per_call_auth_token():
     cm = _mock_httpx_post(json_payload={"plugin": "bsnexus-input", "results": [{"collected": 1}]})
     with patch(
-        "backend.src.core.composer.knowledge_client.httpx.AsyncClient",
+        "backend.src.core.clients.base.httpx.AsyncClient",
         return_value=cm,
     ):
         client = BSageKnowledgeClient("https://bsage.test", "static")

@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 import httpx
 import structlog
 
+from backend.src.core.clients import BaseServiceClient
 from backend.src.core.integrations.config import AuditProviderConfig
 
 if TYPE_CHECKING:
@@ -28,6 +29,8 @@ if TYPE_CHECKING:
     from backend.src.models.execution_run import ExecutionRun
 
 logger = structlog.get_logger(__name__)
+
+_USER_AGENT = "BSNexus/0.2 (+https://nexus.bsvibe.dev)"
 
 
 @dataclass(frozen=True)
@@ -64,6 +67,11 @@ class NoopAuditSink:
 class BSupervisorAuditSink:
     """Calls existing BSupervisor POST /api/events.
 
+    Composes ``BaseServiceClient`` for the shared Bearer + UA + timeout
+    + fail-soft scaffolding (S2-1-X). The auth provider closure can be
+    swapped at runtime in Phase 0 P0.7 to mint service JWTs without
+    touching this adapter.
+
     Fail-mode:
     - ``open`` (default): on timeout/error return ``blocked=False,
       degraded=True`` so runs proceed.
@@ -80,22 +88,22 @@ class BSupervisorAuditSink:
         timeout_ms: int = 200,
         fail_mode: str = "open",
     ):
-        self._base_url = base_url.rstrip("/")
-        self._timeout_s = timeout_ms / 1000.0
         self._fail_mode = fail_mode
-        # Named service UA — Cloudflare's Bot Fight Mode on the
-        # *.bsvibe.dev frontends 403s httpx's default python-httpx UA.
-        self._headers: dict[str, str] = {
-            "User-Agent": "BSNexus/0.2 (+https://nexus.bsvibe.dev)",
-        }
         # Auth precedence mirrors BSageKnowledgeClient: forwarded SSO
         # JWT (from the founder's HTTP request) takes precedence over a
         # static api_key. Without either, BSupervisor's @protected
         # routes 401 — which is what was happening in production.
-        if auth_token:
-            self._headers["Authorization"] = f"Bearer {auth_token}"
-        elif api_key:
-            self._headers["Authorization"] = f"Bearer {api_key}"
+        self._instance_token = auth_token or api_key or ""
+        self._base = BaseServiceClient(
+            base_url=base_url,
+            auth_provider=lambda: self._instance_token,
+            user_agent=_USER_AGENT,
+            timeout_s=timeout_ms / 1000.0,
+        )
+        # Backwards-compat snapshot for tests inspecting ``_headers``.
+        self._headers: dict[str, str] = {"User-Agent": _USER_AGENT}
+        if self._instance_token:
+            self._headers["Authorization"] = f"Bearer {self._instance_token}"
 
     def _fail_result(self, reason: str) -> AuditResult:
         blocked = self._fail_mode == "closed"
@@ -113,19 +121,21 @@ class BSupervisorAuditSink:
             "persona_label": snapshot.persona_label,
         }
         try:
-            async with httpx.AsyncClient(timeout=self._timeout_s) as client:
-                resp = await client.post(
-                    f"{self._base_url}/api/events",
-                    json=payload,
-                    headers=self._headers,
-                )
-                resp.raise_for_status()
-                body = resp.json()
+            resp = await self._base.request("POST", "/api/events", json=payload)
+            resp.raise_for_status()
+            body = resp.json()
+        except asyncio.CancelledError:
+            raise
         except httpx.TimeoutException:
             logger.warning("bsupervisor_preflight_timeout", run_id=str(run.id))
             return self._fail_result("preflight timeout")
-        except Exception as exc:
-            logger.warning("bsupervisor_preflight_failed", run_id=str(run.id), error=str(exc))
+        except (httpx.HTTPError, ValueError) as exc:
+            logger.warning(
+                "bsupervisor_preflight_failed",
+                run_id=str(run.id),
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
             return self._fail_result(f"preflight error: {exc}")
 
         allowed = bool(body.get("allowed", True))
@@ -145,16 +155,23 @@ class BSupervisorAuditSink:
             "actual_cost_cents": getattr(run, "actual_cost_cents", 0),
             "result_summary": _summarize_result(result),
         }
+        resp = await self._base.safe_request(
+            "POST",
+            "/api/events",
+            event="bsupervisor_post_failed",
+            json=payload,
+        )
+        if resp is None:
+            return
         try:
-            async with httpx.AsyncClient(timeout=self._timeout_s) as client:
-                resp = await client.post(
-                    f"{self._base_url}/api/events",
-                    json=payload,
-                    headers=self._headers,
-                )
-                resp.raise_for_status()
-        except Exception as exc:
-            logger.warning("bsupervisor_post_failed", run_id=str(run.id), error=str(exc))
+            resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            logger.warning(
+                "bsupervisor_post_failed",
+                run_id=str(run.id),
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
 
 
 def _summarize_result(result: Any) -> dict:

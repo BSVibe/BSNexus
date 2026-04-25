@@ -80,7 +80,10 @@ async def test_test_connection_ok_when_http_200(client):
 
     mock_response = MagicMock()
     mock_response.status_code = 200
+    # Post-S2-1-X the probe runs through BaseServiceClient which calls
+    # AsyncClient.request(method, url, ...) instead of get(...).
     async_client = AsyncMock()
+    async_client.request = AsyncMock(return_value=mock_response)
     async_client.get = AsyncMock(return_value=mock_response)
     async_client.__aenter__ = AsyncMock(return_value=async_client)
     async_client.__aexit__ = AsyncMock(return_value=None)
@@ -104,6 +107,7 @@ async def test_test_connection_unreachable_on_timeout(client):
     )
 
     async_client = AsyncMock()
+    async_client.request = AsyncMock(side_effect=httpx.TimeoutException("boom"))
     async_client.get = AsyncMock(side_effect=httpx.TimeoutException("boom"))
     async_client.__aenter__ = AsyncMock(return_value=async_client)
     async_client.__aexit__ = AsyncMock(return_value=None)
