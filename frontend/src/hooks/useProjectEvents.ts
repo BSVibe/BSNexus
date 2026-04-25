@@ -22,12 +22,15 @@ export type ConnectionStatus = 'idle' | 'connecting' | 'open' | 'reconnecting'
  */
 export function useProjectEvents(projectId: string | null): ConnectionStatus {
   const queryClient = useQueryClient()
-  const [status, setStatus] = useState<ConnectionStatus>('idle')
+  // Live connection status driven by EventSource events. ``idle`` is
+  // derived from ``projectId`` at return time so we don't need to
+  // setLiveStatus('idle') inside the effect — that would trip React 19's
+  // ``react-hooks/set-state-in-effect`` lint.
+  const [liveStatus, setLiveStatus] = useState<ConnectionStatus>('connecting')
   const esRef = useRef<EventSource | null>(null)
 
   useEffect(() => {
     if (!projectId) {
-      setStatus('idle')
       return
     }
 
@@ -38,11 +41,11 @@ export function useProjectEvents(projectId: string | null): ConnectionStatus {
       const token = await getAccessToken()
       if (cancelled || !token) return
       const url = `${API_BASE_URL}/api/v1/projects/${projectId}/events?token=${encodeURIComponent(token)}`
-      setStatus('connecting')
+      setLiveStatus('connecting')
       es = new EventSource(url)
       esRef.current = es
 
-      es.addEventListener('ready', () => setStatus('open'))
+      es.addEventListener('ready', () => setLiveStatus('open'))
       es.addEventListener('heartbeat', () => {
         // no-op; presence of the event keeps the connection alive
       })
@@ -79,7 +82,7 @@ export function useProjectEvents(projectId: string | null): ConnectionStatus {
       es.onerror = () => {
         // EventSource auto-reconnects on its own using the server's
         // ``retry:`` directive; we just surface the state.
-        setStatus('reconnecting')
+        setLiveStatus('reconnecting')
       }
     }
 
@@ -92,5 +95,5 @@ export function useProjectEvents(projectId: string | null): ConnectionStatus {
     }
   }, [projectId, queryClient])
 
-  return status
+  return projectId ? liveStatus : 'idle'
 }

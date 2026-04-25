@@ -13,7 +13,7 @@ from backend.src.storage.database import Base
 class ExecutorConfig(Base):
     """A registered executor instance.
 
-    Each row represents a configured executor that agents can use.
+    Each row represents a configured executor that runs use.
     For example, a tenant might register:
     - "Claude Code (local)" with executor_type=claude_code, config={execution_mode: "self_hosted"}
     - "Claude Code (cloud)" with executor_type=claude_code, config={execution_mode: "tenant"}

@@ -106,9 +106,10 @@ async def get_current_user(
     """Authenticate the request and upsert the personal tenant row.
 
     Wraps the bsvibe-auth dependency so every authenticated handler is
-    guaranteed a Tenant row exists for the user's tenant_id before any FK
-    insert (agents, projects, goals, ...) runs. Without this, brand-new
-    users hit ``ForeignKeyViolationError`` on their first mutating call.
+    guaranteed a Tenant row exists for the user's tenant_id before any
+    FK insert (projects, requests, deliverables, ...) runs. Without
+    this, brand-new users hit ``ForeignKeyViolationError`` on their
+    first mutating call.
 
     When ``settings.e2e_test_token`` is non-empty AND the request carries
     that exact bearer token, we short-circuit the bsvibe.dev round-trip

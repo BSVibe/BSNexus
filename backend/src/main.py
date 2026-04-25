@@ -116,7 +116,8 @@ def _install_asyncio_signal(loop) -> None:
 async def lifespan(app: FastAPI):
     """Server lifecycle: startup and shutdown.
 
-    P3 TODO: start RunOrchestrator (event-driven, replaces GlobalDispatcher).
+    RunOrchestrator is event-driven (dispatched per Run), not a
+    background task — there's nothing to start here for it.
     """
     import asyncio as _asyncio_local
 
