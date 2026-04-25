@@ -16,14 +16,14 @@ class ExecutorConfigCreate(BaseModel):
     executor_type: str
     config: dict = Field(default_factory=dict)
     description: Optional[str] = None
-    is_default: bool = False
+    is_selected: bool = False
 
 
 class ExecutorConfigUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     config: Optional[dict] = None
     description: Optional[str] = None
-    is_default: Optional[bool] = None
+    is_selected: Optional[bool] = None
 
 
 class ExecutorConfigResponse(BaseModel):
@@ -35,6 +35,6 @@ class ExecutorConfigResponse(BaseModel):
     executor_type: str
     config: dict = Field(default_factory=dict)
     description: Optional[str] = None
-    is_default: bool = False
+    is_selected: bool = False
     created_at: datetime
     updated_at: datetime

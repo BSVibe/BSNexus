@@ -1,11 +1,50 @@
 import apiClient from './client'
-import type { Project, ProjectCreate, ProjectUpdate } from '../types/project'
+
+export interface Project {
+  id: string
+  tenant_id: string
+  name: string
+  description: string
+  status: string
+  bsage_workspace_id: string | null
+  bsupervisor_policy_id: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ProjectCreate {
+  name: string
+  description?: string
+  bsage_workspace_id?: string | null
+  bsupervisor_policy_id?: string | null
+}
+
+export interface ProjectUpdate {
+  name?: string
+  description?: string
+  status?: string
+  bsage_workspace_id?: string | null
+  bsupervisor_policy_id?: string | null
+}
 
 export const projectsApi = {
-  list: () => apiClient.get<Project[]>('/api/v1/projects').then(r => r.data),
-  get: (id: string) => apiClient.get<Project>(`/api/v1/projects/${id}`).then(r => r.data),
-  create: (data: ProjectCreate) => apiClient.post<Project>('/api/v1/projects', data).then(r => r.data),
-  update: (id: string, data: ProjectUpdate) => apiClient.patch<Project>(`/api/v1/projects/${id}`, data).then(r => r.data),
-  delete: (id: string) => apiClient.delete(`/api/v1/projects/${id}`).then(r => r.data),
-  batchDelete: (ids: string[]) => apiClient.post<{ deleted: number }>('/api/v1/projects/batch-delete', { ids }).then(r => r.data),
+  list: async (): Promise<Project[]> => {
+    const { data } = await apiClient.get<Project[]>('/api/v1/projects')
+    return data
+  },
+  get: async (id: string): Promise<Project> => {
+    const { data } = await apiClient.get<Project>(`/api/v1/projects/${id}`)
+    return data
+  },
+  create: async (body: ProjectCreate): Promise<Project> => {
+    const { data } = await apiClient.post<Project>('/api/v1/projects', body)
+    return data
+  },
+  update: async (id: string, body: ProjectUpdate): Promise<Project> => {
+    const { data } = await apiClient.patch<Project>(`/api/v1/projects/${id}`, body)
+    return data
+  },
+  delete: async (id: string): Promise<void> => {
+    await apiClient.delete(`/api/v1/projects/${id}`)
+  },
 }

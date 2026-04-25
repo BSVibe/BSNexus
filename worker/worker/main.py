@@ -101,7 +101,12 @@ async def _handle_task(
         logger.debug("skipping_wrong_project", task_id=task_id)
         return
 
-    logger.info("task_received", task_id=task_id, title=title)
+    logger.info(
+        "task_received",
+        task_id=task_id,
+        title=title,
+        executor=executor.name,
+    )
     result = await executor.execute(prompt, cwd)
     await client.post(
         "/api/v1/workers/result",

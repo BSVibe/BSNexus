@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     server_port: int = 8000
     debug: bool = False
 
+    # Per-project workspace root — where run outputs land as real files.
+    workspace_root: str = "./data/workspaces"
+
     # Claude Code executor (worker path)
     workspace_dir: str = "/workspace"
     execution_timeout_seconds: int = 3600

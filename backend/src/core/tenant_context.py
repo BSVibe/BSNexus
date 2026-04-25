@@ -171,10 +171,11 @@ class TenantMiddleware:
             user_stub, tenant_id = _identify_from_token(token)
             if tenant_id is not None and tenant_id != DEFAULT_TENANT_ID:
                 request.state.tenant_id = tenant_id
-                # Upsert the Tenant row so subsequent FK inserts (agents,
-                # projects, ...) just work. Account/tenant identity lives
-                # in bsvibe.dev — our local row is a derived projection of
-                # whatever the JWT (or e2e bypass token) claims.
+                # Upsert the Tenant row so subsequent FK inserts
+                # (projects, requests, ...) just work. Account/tenant
+                # identity lives in bsvibe.dev — our local row is a
+                # derived projection of whatever the JWT (or e2e bypass
+                # token) claims.
                 if user_stub is not None:
                     await _upsert_tenant_for_request(tenant_id, user_stub)
 

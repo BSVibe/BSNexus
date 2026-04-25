@@ -1,503 +1,582 @@
 import { useMemo, useState } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { projectsApi } from '../api/projects'
-import { dashboardApi } from '../api/dashboard'
-import { budgetApi } from '../api/budget'
-import type { ProjectDashboardSummary } from '../types/project'
-import { Link } from 'react-router-dom'
-import { Badge, Button, Modal, StatCard } from '../components/common'
-import Header from '../components/layout/Header'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 
-const statusBadgeColors: Record<string, string> = {
-  design: 'var(--status-queued)',
-  active: 'var(--color-success)',
-  paused: 'var(--color-warning)',
-  completed: 'var(--status-ready)',
-}
+import { Badge, StatusDot } from '../components/common/Badge'
+import { I } from '../lib/icons'
+import { relTime, truncId } from '../lib/fmt'
+import { statusTone, type Tone } from '../lib/tone'
+import { projectsApi, type Project } from '../api/projects'
+import { requestsApi, deliverablesApi, decisionsApi } from '../api/founder'
+import type { Decision, Deliverable, Request as FounderRequest } from '../types/founder'
 
-const INPUT_CLASS =
-  'w-full px-3 py-2 bg-stitch-surface-low border border-stitch-outline-variant/20 rounded-md text-text-primary text-sm placeholder:text-text-tertiary focus:outline-none focus:border-stitch-primary focus:ring-1 focus:ring-stitch-primary'
+const STATUS_FILTERS = ['all', 'active', 'archived'] as const
+type StatusFilter = (typeof STATUS_FILTERS)[number]
 
 export default function DashboardPage() {
   const queryClient = useQueryClient()
-  const [createModalOpen, setCreateModalOpen] = useState(false)
-  const [newName, setNewName] = useState('')
-  const [newDesc, setNewDesc] = useState('')
-  const [newWorkspaceType, setNewWorkspaceType] = useState<'server_managed' | 'local_import'>('server_managed')
-  const [newRepoPath, setNewRepoPath] = useState('')
+  const navigate = useNavigate()
+  const [search, setSearch] = useSearchParams()
+  const newParam = search.get('new') === '1'
+  const [createOpen, setCreateOpen] = useState(newParam)
+  const [filter, setFilter] = useState<StatusFilter>('all')
 
-  const createMutation = useMutation({
-    mutationFn: () => projectsApi.create({
-      name: newName,
-      description: newDesc,
-      workspace_type: newWorkspaceType,
-      repo_path: newWorkspaceType === 'local_import' && newRepoPath ? newRepoPath : undefined,
-    }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['projects'] })
-      queryClient.invalidateQueries({ queryKey: ['projects-summary'] })
-      setCreateModalOpen(false)
-      setNewName('')
-      setNewDesc('')
-      setNewWorkspaceType('server_managed')
-      setNewRepoPath('')
-    },
-  })
+  // When the caller navigates to ``?new=1`` while the page is already
+  // mounted (e.g. from the command palette), open the modal. Using the
+  // during-render previous-value pattern avoids a setState-in-effect.
+  const [prevNewParam, setPrevNewParam] = useState(newParam)
+  if (prevNewParam !== newParam) {
+    setPrevNewParam(newParam)
+    if (newParam && !createOpen) setCreateOpen(true)
+  }
 
-  const { data: projects, isLoading, error } = useQuery({
+  const { data: projects = [], isLoading } = useQuery<Project[]>({
     queryKey: ['projects'],
     queryFn: projectsApi.list,
   })
 
-  const { data: projectsSummary } = useQuery({
-    queryKey: ['projects-summary'],
-    queryFn: dashboardApi.getProjectsSummary,
+  // Aggregate across all projects.
+  const reqQueries = useQueries({
+    queries: projects.map((p) => ({
+      queryKey: ['requests', p.id],
+      queryFn: () => requestsApi.listForProject(p.id),
+    })),
+  })
+  const delQueries = useQueries({
+    queries: projects.map((p) => ({
+      queryKey: ['deliverables', p.id],
+      queryFn: () => deliverablesApi.listForProject(p.id),
+    })),
+  })
+  const decQueries = useQueries({
+    queries: projects.map((p) => ({
+      queryKey: ['decisions', p.id],
+      queryFn: () => decisionsApi.listForProject(p.id),
+    })),
   })
 
-  const { data: budgetOverview } = useQuery({
-    queryKey: ['budget', 'summary'],
-    queryFn: budgetApi.getSummary,
-  })
+  const allRequests = reqQueries.flatMap((q) => q.data ?? [])
+  const allDeliverables = delQueries.flatMap((q) => q.data ?? [])
+  const allDecisions = decQueries.flatMap((q) => q.data ?? [])
 
-  const summaryMap = useMemo(() => {
-    const map = new Map<string, ProjectDashboardSummary>()
-    projectsSummary?.forEach((s) => map.set(s.id, s))
-    return map
-  }, [projectsSummary])
+  const openDecisions = allDecisions.filter((d) => !d.resolved_at)
+  const blocking = openDecisions.filter((d) => d.blocking)
+  const activeRequests = allRequests.filter(
+    (r) => r.status === 'running' || r.status === 'open',
+  )
+  // Lazy-initialised once at mount so render stays pure. The dashboard
+  // is a snapshot — the cutoff doesn't need to drift while the user
+  // looks at it.
+  const [sevenDaysAgo] = useState(() => Date.now() - 7 * 86400 * 1000)
+  const shipped7d = allDeliverables.filter(
+    (d) =>
+      d.status === 'delivered' && new Date(d.created_at).getTime() >= sevenDaysAgo,
+  )
 
-  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
-  const [selectMode, setSelectMode] = useState(false)
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
-  const [showBatchDeleteModal, setShowBatchDeleteModal] = useState(false)
+  const filteredProjects = useMemo(() => {
+    if (filter === 'all') return projects
+    return projects.filter((p) => p.status === filter)
+  }, [projects, filter])
 
-  const exitSelectMode = () => {
-    setSelectMode(false)
-    setSelectedIds(new Set())
-  }
+  const perProject = useMemo(() => {
+    const byProject = new Map<
+      string,
+      { requests: FounderRequest[]; decisions: Decision[]; deliverables: Deliverable[] }
+    >()
+    projects.forEach((p) =>
+      byProject.set(p.id, { requests: [], decisions: [], deliverables: [] }),
+    )
+    allRequests.forEach((r) => byProject.get(r.project_id)?.requests.push(r))
+    allDecisions.forEach((d) => byProject.get(d.project_id)?.decisions.push(d))
+    allDeliverables.forEach((d) => byProject.get(d.project_id)?.deliverables.push(d))
+    return byProject
+  }, [projects, allRequests, allDecisions, allDeliverables])
 
-  const invalidateAfterDelete = (ids: string[]) => {
-    queryClient.invalidateQueries({ queryKey: ['projects'] })
-    queryClient.invalidateQueries({ queryKey: ['projects-summary'] })
-    // Evict per-project caches so stale data doesn't linger.
-    for (const id of ids) {
-      queryClient.removeQueries({ queryKey: ['project', id] })
-      queryClient.removeQueries({ queryKey: ['project-chat', id] })
-      queryClient.removeQueries({ queryKey: ['plan-tree', id] })
-    }
-  }
+  const [createName, setCreateName] = useState('')
+  const [createDesc, setCreateDesc] = useState('')
 
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => projectsApi.delete(id),
-    onSuccess: (_data, id) => {
-      invalidateAfterDelete([id])
-      setDeleteTarget(null)
+  const createMutation = useMutation({
+    mutationFn: () =>
+      projectsApi.create({
+        name: createName.trim(),
+        description: createDesc.trim(),
+      }),
+    onSuccess: (project) => {
+      queryClient.invalidateQueries({ queryKey: ['projects'] })
+      setCreateOpen(false)
+      setCreateName('')
+      setCreateDesc('')
+      const next = new URLSearchParams(search)
+      next.delete('new')
+      setSearch(next, { replace: true })
+      navigate(`/projects/${project.id}`)
     },
   })
-
-  const batchDeleteMutation = useMutation({
-    mutationFn: (ids: string[]) => projectsApi.batchDelete(ids),
-    onSuccess: (_data, ids) => {
-      invalidateAfterDelete(ids)
-      exitSelectMode()
-      setShowBatchDeleteModal(false)
-    },
-  })
-
-  const toggleSelect = (id: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
-
-  const selectAll = () => {
-    if (projects) {
-      setSelectedIds(new Set(projects.map((p) => p.id)))
-    }
-  }
-
-  const stats = useMemo(() => {
-    const list = projects || []
-    const summaries = projectsSummary || []
-    const totalProjects = list.length
-    const completedProjects = list.filter(p => p.status === 'completed').length
-    const activeProjects = list.filter(p => p.status === 'active').length
-    const totalTasks = summaries.reduce((sum, s) => {
-      return sum + Object.values(s.task_counts).reduce((a, b) => a + b, 0)
-    }, 0)
-    const doneTasks = summaries.reduce((sum, s) => sum + (s.task_counts['done'] || 0), 0)
-    const totalBugs = summaries.reduce((sum, s) => sum + s.bug_count, 0)
-    const completionRate = totalTasks > 0
-      ? `${Math.round((doneTasks / totalTasks) * 100)}%`
-      : '0%'
-    return { totalProjects, completedProjects, activeProjects, totalTasks, doneTasks, totalBugs, completionRate }
-  }, [projects, projectsSummary])
-
-  if (isLoading) {
-    return (
-      <>
-        <Header title="Dashboard" />
-        <div className="p-8 flex items-center justify-center h-64">
-          <div className="animate-spin rounded-full h-8 w-8 border-2 border-stitch-primary border-t-transparent" />
-        </div>
-      </>
-    )
-  }
-
-  if (error) {
-    return (
-      <>
-        <Header title="Dashboard" />
-        <div className="p-8">
-          <div className="rounded-xl border border-stitch-error/30 bg-stitch-error-container/10 p-6 text-sm text-stitch-error text-center">
-            Failed to load projects. Please try again.
-          </div>
-        </div>
-      </>
-    )
-  }
 
   return (
-    <>
-      <Header title="Dashboard" action={
-        <div className="flex items-center gap-2">
+    <div className="page fade-in">
+      <div className="page-hd" style={{ justifyContent: 'flex-end' }}>
+        <div style={{ display: 'flex', gap: 8 }}>
           <button
-            onClick={() => setCreateModalOpen(true)}
-            className="bg-gradient-to-r from-stitch-primary to-stitch-primary-container text-stitch-on-primary-container px-4 py-1.5 rounded-md text-sm font-bold shadow-lg shadow-stitch-primary/20 hover:opacity-90 transition-opacity"
+            type="button"
+            className="btn btn-secondary"
+            onClick={() =>
+              queryClient.invalidateQueries({ queryKey: ['projects'] })
+            }
           >
-            New Project
+            <I.Refresh size={14} /> Refresh
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => setCreateOpen(true)}
+          >
+            <I.Plus size={14} /> New project
           </button>
         </div>
-      } />
-      <div className="flex-1 overflow-auto p-8 max-w-[1600px] mx-auto w-full">
-        {/* Stat Cards (Bento-style) */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10">
-          <StatCard label="Total Projects" value={stats.totalProjects} icon="folder_open" />
-          <StatCard label="Active Tasks" value={stats.totalTasks} subtext={`${stats.doneTasks} done`} />
-          <StatCard label="Completion Rate" value={stats.completionRate} icon="bolt" />
-          <StatCard label="Compute Cost" value={budgetOverview ? `$${(budgetOverview.total_spent_cents / 100).toFixed(2)}` : '$0.00'} icon="payments" subtext={budgetOverview?.total_budget_cents ? `of $${(budgetOverview.total_budget_cents / 100).toFixed(2)}` : undefined} />
-        </div>
+      </div>
 
-        {/* Project List Header with Batch Actions */}
-        {(projects?.length ?? 0) > 0 && (
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <h2 className="text-xs font-bold uppercase tracking-[0.05em] text-text-secondary">
-                Projects <span className="ml-2 text-[10px] opacity-50">{projects?.length}</span>
-              </h2>
-              {!selectMode && (
-                <button
-                  onClick={() => setSelectMode(true)}
-                  className="p-1.5 rounded-md text-text-tertiary hover:text-text-primary hover:bg-stitch-surface-container transition-colors"
-                  title="Select mode"
-                >
-                  <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>checklist</span>
-                </button>
-              )}
+      {/* aggregate strip */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(4,1fr)',
+          gap: 12,
+          marginBottom: 24,
+        }}
+      >
+        <Stat
+          label="Active projects"
+          value={projects.filter((p) => p.status === 'active').length}
+          sub={`${projects.length} total`}
+          tone="blue"
+        />
+        <Stat
+          label="Blocking decisions"
+          value={blocking.length}
+          sub={`${openDecisions.length} open`}
+          tone={blocking.length > 0 ? 'rose' : 'gray'}
+          onClick={() => {
+            if (blocking[0]) navigate(`/projects/${blocking[0].project_id}`)
+          }}
+        />
+        <Stat
+          label="Active requests"
+          value={activeRequests.length}
+          sub={`${allRequests.length} total`}
+          tone="emerald"
+        />
+        <Stat
+          label="Delivered · 7d"
+          value={shipped7d.length}
+          sub="ready to review"
+          tone="amber"
+        />
+      </div>
+
+      {/* filter chips */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          marginBottom: 12,
+        }}
+      >
+        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--gray-100)' }}>
+          Projects
+        </span>
+        <span style={{ flex: 1 }} />
+        {STATUS_FILTERS.map((s) => (
+          <button
+            key={s}
+            type="button"
+            className={`btn btn-sm ${filter === s ? 'btn-secondary' : 'btn-ghost'}`}
+            onClick={() => setFilter(s)}
+          >
+            {s === 'all' ? 'All' : s.charAt(0).toUpperCase() + s.slice(1)}
+            <span className="mono faded" style={{ fontSize: 10, marginLeft: 4 }}>
+              {s === 'all' ? projects.length : projects.filter((p) => p.status === s).length}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill,minmax(340px,1fr))',
+          gap: 12,
+        }}
+      >
+        {filteredProjects.map((p) => {
+          const bundle = perProject.get(p.id)
+          return (
+            <ProjectCard
+              key={p.id}
+              project={p}
+              activeReqCount={
+                bundle?.requests.filter(
+                  (r) => r.status === 'open' || r.status === 'running',
+                ).length ?? 0
+              }
+              openDecisions={
+                bundle?.decisions.filter((d) => !d.resolved_at).length ?? 0
+              }
+              deliveredThisWeek={
+                bundle?.deliverables.filter(
+                  (d) =>
+                    d.status === 'delivered' &&
+                    new Date(d.created_at).getTime() >= sevenDaysAgo,
+                ).length ?? 0
+              }
+              onOpen={() => navigate(`/projects/${p.id}`)}
+            />
+          )
+        })}
+        {!isLoading && filteredProjects.length === 0 && (
+          <div
+            className="card"
+            style={{ gridColumn: '1/-1', padding: 48, textAlign: 'center' }}
+          >
+            <div style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>
+              {projects.length === 0
+                ? 'No projects yet. Hit "New project" to hire the company on something.'
+                : 'No projects match this filter.'}
             </div>
-            {selectMode && (
-              <div className="flex items-center gap-2">
-                <Button variant="secondary" size="sm" onClick={selectAll}>All</Button>
-                {selectedIds.size > 0 && (
-                  <>
-                    <span className="text-xs text-text-secondary bg-stitch-surface-container px-2.5 py-1 rounded-full border border-stitch-outline-variant/20">
-                      {selectedIds.size} selected
-                    </span>
-                    <Button
-                      size="sm"
-                      className="!bg-stitch-error-container hover:!bg-stitch-error-container/80 !text-stitch-error"
-                      onClick={() => setShowBatchDeleteModal(true)}
-                    >
-                      Delete
-                    </Button>
-                  </>
-                )}
-                <Button variant="secondary" size="sm" onClick={exitSelectMode}>Cancel</Button>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Project List */}
-        {projects?.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-stitch-outline-variant/30 p-16 text-center">
-            <div className="w-16 h-16 rounded-2xl bg-stitch-primary/10 flex items-center justify-center mx-auto mb-4">
-              <span className="material-symbols-outlined text-stitch-primary text-3xl">add</span>
-            </div>
-            <p className="text-text-secondary mb-2 font-medium">No projects yet</p>
-            <p className="text-sm text-text-tertiary mb-6">Create your first project to get started.</p>
-            <button
-              onClick={() => setCreateModalOpen(true)}
-              className="bg-gradient-to-r from-stitch-primary to-stitch-primary-container text-stitch-on-primary-container px-6 py-2.5 rounded-md text-sm font-bold shadow-lg shadow-stitch-primary/20"
-            >
-              Create Project
-            </button>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {projects?.map((project) => {
-              const badgeColor = statusBadgeColors[project.status] || statusBadgeColors.design
-              const phaseCount = project.phases.length
-              const isSelected = selectedIds.has(project.id)
-
-              return (
-                <div
-                  key={project.id}
-                  onClick={selectMode ? () => toggleSelect(project.id) : undefined}
-                  className={`relative bg-stitch-surface-container p-5 rounded-lg transition-all group border ${
-                    selectMode ? 'cursor-pointer' : ''
-                  } ${
-                    isSelected
-                      ? 'border-stitch-primary ring-1 ring-stitch-primary/30'
-                      : 'border-stitch-outline-variant/10 hover:border-stitch-primary/20 hover:bg-stitch-surface-high'
-                  }`}
-                >
-                  {/* Checkbox (select mode only) */}
-                  {selectMode && (
-                    <div
-                      className={`absolute top-3 left-3 w-5 h-5 rounded border flex items-center justify-center transition-colors ${
-                        isSelected
-                          ? 'border-stitch-primary bg-stitch-primary'
-                          : 'border-stitch-outline-variant'
-                      }`}
-                    >
-                      {isSelected && (
-                        <span className="material-symbols-outlined text-stitch-on-primary" style={{ fontSize: '14px' }}>check</span>
-                      )}
-                    </div>
-                  )}
-                  {/* Delete button */}
-                  {!selectMode && (
-                    <button
-                      onClick={(e) => {
-                        e.preventDefault()
-                        e.stopPropagation()
-                        setDeleteTarget({ id: project.id, name: project.name })
-                      }}
-                      className="absolute top-3 right-3 p-1.5 rounded-lg text-text-tertiary hover:text-stitch-error hover:bg-stitch-error-container/10 opacity-0 group-hover:opacity-100 transition-all"
-                      title="Delete project"
-                    >
-                      <span className="material-symbols-outlined" style={{ fontSize: '16px' }}>close</span>
-                    </button>
-                  )}
-                  {selectMode ? (
-                    <div className="pl-4">
-                      <div className="flex items-start justify-between mb-3">
-                        <h3 className="text-sm font-semibold text-white">{project.name}</h3>
-                        <Badge color={badgeColor} label={project.status} />
-                      </div>
-                      <p className="text-xs text-text-secondary mt-1 mb-4 line-clamp-2">{project.description}</p>
-                      <div className="flex items-center justify-between text-xs text-text-tertiary">
-                        <span>{phaseCount} phase{phaseCount !== 1 ? 's' : ''}</span>
-                        <span>{new Date(project.updated_at).toLocaleDateString()}</span>
-                      </div>
-                    </div>
-                  ) : (
-                    <Link
-                      to={`/projects/${project.id}`}
-                      className="block cursor-pointer"
-                    >
-                      <div className="flex items-start justify-between mb-3 pr-6">
-                        <h4 className="text-sm font-semibold text-white leading-snug">{project.name}</h4>
-                        <span className="px-2 py-0.5 rounded-full bg-stitch-secondary-container text-stitch-on-secondary-container text-[10px] font-bold">
-                          {project.status}
-                        </span>
-                      </div>
-                      <p className="text-xs text-text-secondary mt-1 mb-4 line-clamp-2 leading-relaxed">{project.description}</p>
-
-                      {/* Task distribution bar */}
-                      {(() => {
-                        const summary = summaryMap.get(project.id)
-                        if (!summary) return null
-                        const counts = summary.task_counts
-                        const total = Object.values(counts).reduce((a, b) => a + b, 0)
-                        if (total === 0) return null
-                        const done = counts['done'] || 0
-                        const inProgress = counts['running'] || 0
-                        const pctDone = Math.round((done / total) * 100)
-                        const pctInProgress = Math.round((inProgress / total) * 100)
-                        return (
-                          <div className="mb-3">
-                            <div className="flex items-center gap-2 mb-1.5">
-                              <div className="flex-1 h-1.5 rounded-full bg-stitch-surface-lowest overflow-hidden flex">
-                                <div className="h-full bg-stitch-primary rounded-l-full" style={{ width: `${pctDone}%` }} />
-                                <div className="h-full bg-stitch-secondary" style={{ width: `${pctInProgress}%` }} />
-                              </div>
-                              <span className="text-xs font-medium text-text-secondary">{pctDone}%</span>
-                            </div>
-                            <div className="flex items-center gap-3 text-xs text-text-tertiary">
-                              <span>{total} tasks</span>
-                              {summary.bug_count > 0 && (
-                                <span className="flex items-center gap-0.5 text-stitch-error">
-                                  <span className="material-symbols-outlined" style={{ fontSize: '12px' }}>bug_report</span>
-                                  {summary.bug_count}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        )
-                      })()}
-
-                      <div className="flex items-center justify-between text-xs text-text-tertiary pt-2 border-t border-stitch-outline-variant/10">
-                        <span>{phaseCount} phase{phaseCount !== 1 ? 's' : ''}</span>
-                        <span className="flex items-center gap-1">
-                          <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>event</span>
-                          {new Date(project.updated_at).toLocaleDateString()}
-                        </span>
-                      </div>
-                    </Link>
-                  )}
-                </div>
-              )
-            })}
           </div>
         )}
       </div>
 
-      {/* Delete Confirmation Modal */}
-      <Modal
-        open={!!deleteTarget}
-        onClose={() => setDeleteTarget(null)}
-        title="Delete Project"
-        width={420}
-        footer={
-          <>
-            <Button variant="secondary" size="sm" onClick={() => setDeleteTarget(null)}>
-              Cancel
-            </Button>
-            <Button
-              size="sm"
-              loading={deleteMutation.isPending}
-              onClick={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}
-              className="!bg-stitch-error-container hover:!bg-stitch-error-container/80 !text-stitch-error"
-            >
-              Delete
-            </Button>
-          </>
-        }
-      >
-        <p className="text-text-secondary text-sm">
-          Are you sure you want to delete <strong className="text-white">{deleteTarget?.name}</strong>?
-          This will permanently remove the project and all its phases, tasks, and history.
-        </p>
-      </Modal>
+      {createOpen && (
+        <CreateProjectModal
+          name={createName}
+          desc={createDesc}
+          onChangeName={setCreateName}
+          onChangeDesc={setCreateDesc}
+          onClose={() => {
+            setCreateOpen(false)
+            const next = new URLSearchParams(search)
+            next.delete('new')
+            setSearch(next, { replace: true })
+          }}
+          onSubmit={() => createMutation.mutate()}
+          pending={createMutation.isPending}
+        />
+      )}
+    </div>
+  )
+}
 
-      {/* Batch Delete Confirmation Modal */}
-      <Modal
-        open={showBatchDeleteModal}
-        onClose={() => setShowBatchDeleteModal(false)}
-        title="Delete Projects"
-        width={420}
-        footer={
-          <>
-            <Button variant="secondary" size="sm" onClick={() => setShowBatchDeleteModal(false)}>
-              Cancel
-            </Button>
-            <Button
-              size="sm"
-              loading={batchDeleteMutation.isPending}
-              onClick={() => batchDeleteMutation.mutate([...selectedIds])}
-              className="!bg-stitch-error-container hover:!bg-stitch-error-container/80 !text-stitch-error"
-            >
-              Delete {selectedIds.size} Projects
-            </Button>
-          </>
-        }
+function Stat({
+  label,
+  value,
+  sub,
+  tone,
+  onClick,
+}: {
+  label: string
+  value: number
+  sub: string
+  tone: Tone
+  onClick?: () => void
+}) {
+  return (
+    <button
+      type="button"
+      className="card"
+      style={{
+        padding: 16,
+        cursor: onClick ? 'pointer' : 'default',
+        textAlign: 'left',
+        transition: 'border var(--t-fast) var(--ease)',
+      }}
+      onClick={onClick}
+      disabled={!onClick}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          fontSize: 11,
+          color: 'var(--text-tertiary)',
+          textTransform: 'uppercase',
+          letterSpacing: '0.08em',
+          marginBottom: 8,
+        }}
       >
-        <p className="text-text-secondary text-sm">
-          Are you sure you want to delete <strong className="text-white">{selectedIds.size} projects</strong>?
-          This will permanently remove all selected projects and their phases, tasks, and history.
-        </p>
-      </Modal>
-
-      {/* Create Project Modal */}
-      <Modal
-        open={createModalOpen}
-        onClose={() => setCreateModalOpen(false)}
-        title="New Project"
-        width={480}
-        footer={
-          <>
-            <Button variant="secondary" size="sm" onClick={() => setCreateModalOpen(false)}>Cancel</Button>
-            <Button
-              variant="primary"
-              size="sm"
-              loading={createMutation.isPending}
-              onClick={() => createMutation.mutate()}
-              disabled={!newName.trim() || (newWorkspaceType === 'local_import' && !newRepoPath.trim())}
-            >
-              Create
-            </Button>
-          </>
-        }
-      >
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm text-text-secondary mb-1.5">Project Name *</label>
-            <input
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              placeholder="e.g. BSNexus Mobile App"
-              className={INPUT_CLASS}
-              autoFocus
-            />
-          </div>
-          <div>
-            <label className="block text-sm text-text-secondary mb-1.5">Description</label>
-            <textarea
-              value={newDesc}
-              onChange={(e) => setNewDesc(e.target.value)}
-              placeholder="Brief description of the project"
-              rows={3}
-              className={INPUT_CLASS + ' resize-none'}
-            />
-          </div>
-          <div>
-            <label className="block text-sm text-text-secondary mb-2">Workspace</label>
-            <div className="grid grid-cols-2 gap-3">
-              {([
-                { value: 'server_managed' as const, icon: 'cloud', label: 'Server', desc: 'Hosted workspace. Browse files in the web UI.' },
-                { value: 'local_import' as const, icon: 'computer', label: 'Local', desc: 'Self-hosted worker required. Agent works on your machine.' },
-              ]).map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => setNewWorkspaceType(opt.value)}
-                  className={`p-3 rounded-lg border text-left transition-all ${
-                    newWorkspaceType === opt.value
-                      ? 'border-stitch-primary bg-stitch-primary/5'
-                      : 'border-stitch-outline-variant/20 hover:border-stitch-outline-variant/40'
-                  }`}
-                >
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="material-symbols-outlined" style={{ fontSize: '16px', color: newWorkspaceType === opt.value ? 'var(--stitch-primary)' : undefined }}>
-                      {opt.icon}
-                    </span>
-                    <span className={`text-sm font-bold ${newWorkspaceType === opt.value ? 'text-stitch-primary' : 'text-text-primary'}`}>
-                      {opt.label}
-                    </span>
-                  </div>
-                  <p className="text-[10px] text-text-tertiary leading-relaxed">{opt.desc}</p>
-                </button>
-              ))}
-            </div>
-            {newWorkspaceType === 'local_import' && (
-              <div className="mt-3">
-                <label className="block text-xs text-text-tertiary mb-1">Project Path *</label>
-                <input
-                  type="text"
-                  value={newRepoPath}
-                  onChange={(e) => setNewRepoPath(e.target.value)}
-                  placeholder="/home/user/projects/my-app"
-                  className="w-full px-3 py-2 bg-stitch-surface-low border border-stitch-outline-variant/20 rounded-md text-text-primary text-sm placeholder:text-text-tertiary focus:outline-none focus:border-stitch-primary"
-                />
-              </div>
-            )}
-          </div>
+        <StatusDot tone={tone} size={8} />
+        {label}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+        <div
+          style={{
+            fontSize: 30,
+            lineHeight: '32px',
+            fontWeight: 700,
+            color: 'var(--gray-50)',
+            letterSpacing: '-0.02em',
+            fontFamily: 'var(--font-mono)',
+          }}
+        >
+          {value}
         </div>
-      </Modal>
-    </>
+        <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{sub}</div>
+      </div>
+    </button>
+  )
+}
+
+function ProjectCard({
+  project,
+  activeReqCount,
+  openDecisions,
+  deliveredThisWeek,
+  onOpen,
+}: {
+  project: Project
+  activeReqCount: number
+  openDecisions: number
+  deliveredThisWeek: number
+  onOpen: () => void
+}) {
+  return (
+    <button
+      type="button"
+      className="card"
+      style={{
+        padding: 16,
+        cursor: 'pointer',
+        textAlign: 'left',
+        transition: 'all var(--t-fast) var(--ease)',
+      }}
+      onClick={onOpen}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'flex-start',
+          justifyContent: 'space-between',
+          gap: 8,
+          marginBottom: 8,
+        }}
+      >
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              marginBottom: 2,
+            }}
+          >
+            <Badge tone={statusTone(project.status)} dot>
+              {project.status}
+            </Badge>
+            <span
+              className="mono faded"
+              style={{ fontSize: 11 }}
+              title={project.id}
+            >
+              {truncId(project.id)}
+            </span>
+          </div>
+          <div
+            style={{
+              fontSize: 15,
+              fontWeight: 600,
+              color: 'var(--gray-50)',
+              marginBottom: 4,
+              lineHeight: '20px',
+            }}
+          >
+            {project.name}
+          </div>
+          {project.description && (
+            <div
+              style={{
+                fontSize: 12,
+                color: 'var(--text-secondary)',
+                lineHeight: '18px',
+                display: '-webkit-box',
+                WebkitLineClamp: 2,
+                WebkitBoxOrient: 'vertical',
+                overflow: 'hidden',
+              }}
+            >
+              {project.description}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div
+        style={{
+          height: 1,
+          background: 'var(--border-subtle)',
+          margin: '12px 0',
+        }}
+      />
+
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 16,
+          fontSize: 11,
+          color: 'var(--text-tertiary)',
+        }}
+      >
+        <span>
+          <span className="hl mono" style={{ fontSize: 12 }}>
+            {activeReqCount}
+          </span>{' '}
+          requests
+        </span>
+        <span>
+          <span className="hl mono" style={{ fontSize: 12 }}>
+            {openDecisions}
+          </span>{' '}
+          pending
+        </span>
+        <span>
+          <span className="hl mono" style={{ fontSize: 12 }}>
+            {deliveredThisWeek}
+          </span>{' '}
+          shipped
+        </span>
+        <span style={{ flex: 1 }} />
+        <span title={new Date(project.updated_at).toLocaleString()}>
+          {relTime(project.updated_at)}
+        </span>
+      </div>
+    </button>
+  )
+}
+
+function CreateProjectModal({
+  name,
+  desc,
+  onChangeName,
+  onChangeDesc,
+  onClose,
+  onSubmit,
+  pending,
+}: {
+  name: string
+  desc: string
+  onChangeName: (v: string) => void
+  onChangeDesc: (v: string) => void
+  onClose: () => void
+  onSubmit: () => void
+  pending: boolean
+}) {
+  return (
+    <div className="cmd-mask" onClick={onClose}>
+      <div className="cmd" style={{ width: 520 }} onClick={(e) => e.stopPropagation()}>
+        <div
+          style={{
+            padding: '14px 16px',
+            borderBottom: '1px solid var(--border-subtle)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
+          <div style={{ fontSize: 14, fontWeight: 600 }}>New project</div>
+          <button type="button" className="btn btn-icon" onClick={onClose}>
+            <I.X size={14} />
+          </button>
+        </div>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (name.trim()) onSubmit()
+          }}
+          style={{
+            padding: 16,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 12,
+          }}
+        >
+          <div>
+            <label
+              style={{
+                fontSize: 12,
+                color: 'var(--text-secondary)',
+                marginBottom: 4,
+                display: 'block',
+              }}
+            >
+              Name
+            </label>
+            <input
+              className="input"
+              value={name}
+              autoFocus
+              onChange={(e) => onChangeName(e.target.value)}
+              placeholder="e.g. Pelago Billing Rework"
+            />
+          </div>
+          <div>
+            <label
+              style={{
+                fontSize: 12,
+                color: 'var(--text-secondary)',
+                marginBottom: 4,
+                display: 'block',
+              }}
+            >
+              One-line description
+            </label>
+            <input
+              className="input"
+              value={desc}
+              onChange={(e) => onChangeDesc(e.target.value)}
+              placeholder="What do you want the agents to build?"
+            />
+          </div>
+          <div
+            style={{
+              fontSize: 12,
+              color: 'var(--text-tertiary)',
+              padding: '8px 12px',
+              background: 'var(--bg-elevated)',
+              border: '1px solid var(--border-subtle)',
+              borderRadius: 'var(--r-md)',
+            }}
+          >
+            <I.Sparkle
+              size={12}
+              style={{ display: 'inline', marginRight: 6, verticalAlign: -2 }}
+            />
+            Once created, you'll land in the project. Talk to the company and mention
+            <span className="mono hl"> @{name || 'project'}</span> to direct it.
+          </div>
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'flex-end',
+              gap: 8,
+              paddingTop: 8,
+              borderTop: '1px solid var(--border-subtle)',
+            }}
+          >
+            <button type="button" className="btn btn-ghost" onClick={onClose}>
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="btn btn-primary"
+              disabled={!name.trim() || pending}
+            >
+              {pending ? 'Creating…' : 'Create & open'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   )
 }

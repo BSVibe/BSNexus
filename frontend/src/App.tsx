@@ -7,8 +7,6 @@ import ProtectedRoute from './components/auth/ProtectedRoute'
 import LandingPage from './pages/LandingPage'
 import DashboardPage from './pages/DashboardPage'
 import ProjectPage from './pages/ProjectPage'
-import AgentsPage from './pages/AgentsPage'
-import BudgetPage from './pages/BudgetPage'
 import SettingsPage from './pages/SettingsPage'
 
 const queryClient = new QueryClient()
@@ -24,8 +22,6 @@ function App() {
               <Route element={<Layout />}>
                 <Route path="/dashboard" element={<DashboardPage />} />
                 <Route path="/projects/:projectId?" element={<ProjectPage />} />
-                <Route path="/agents" element={<AgentsPage />} />
-                <Route path="/budget" element={<BudgetPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
               </Route>
             </Route>

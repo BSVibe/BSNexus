@@ -1,0 +1,30 @@
+# Devcontainer local override — copy to docker-compose.override.yml
+# (which is gitignored) and replace the placeholders with your host
+# paths. Required because each developer's repo lives at a different
+# absolute path and that path must match inside the devcontainer for
+# git worktree refs to resolve.
+#
+# Quick setup:
+#   cp .devcontainer/docker-compose.override.example.yml \
+#      .devcontainer/docker-compose.override.yml
+#   # then edit the file to replace ${HOST_BARE_REPO_PATH}
+#
+# Project-orchestration tooling (e.g. ``_infra/scripts/create-worktree.sh``)
+# can write this file directly with the right values when creating a
+# fresh worktree.
+
+services:
+  app:
+    volumes:
+      # Mount the repo's bare clone at the same absolute path on
+      # both sides so ``git worktree`` refs resolve correctly inside
+      # the container. ``${HOST_BARE_REPO_PATH}`` is e.g.
+      # ``/Users/<you>/Works/BSNexus/.bare`` on macOS or
+      # ``/home/<you>/Works/BSNexus/.bare`` on Linux.
+      - ${HOST_BARE_REPO_PATH}:${HOST_BARE_REPO_PATH}:cached
+  postgres:
+    ports:
+      - "${EXTERNAL_PG_PORT:-5432}:5432"
+  redis:
+    ports:
+      - "${EXTERNAL_REDIS_PORT:-6379}:6379"

@@ -1,0 +1,335 @@
+"""KnowledgeClient — wrapper around BSage knowledge primitives.
+
+BSage is the project's long-term knowledge graph. BSNexus both reads
+from it (to enrich prompts with prior context) and writes back to it
+(to index run outputs so future projects can find them).
+
+Read endpoints:
+- ``GET  /api/knowledge/search?q=…&limit=…``
+- ``GET  /api/vault/file?path=...``
+- ``GET  /api/vault/backlinks?path=...``
+
+Write endpoints:
+- ``POST /api/webhooks/bsnexus-input`` — raw deliverable payload. The
+  ``bsnexus-input`` plugin writes it as a seed; BSage's AgentLoop
+  seed-refiner derives a concise title (under 30 chars) + refined
+  content + tags via LLM. Matches the pattern every other BSage input
+  plugin follows — BSNexus sends raw run output, BSage owns titling.
+- ``POST /api/knowledge/decisions`` — structured decision record
+  (still pre-titled; decisions carry a human-authored question).
+
+``NoopKnowledgeClient`` is the fallback when BSage is disabled or
+unreachable for the tenant — search/fetch/backlinks return empty,
+writes return None. PromptAssembler and publish_run_output still
+produce a valid (degraded) result.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Protocol
+
+import httpx
+import structlog
+
+from backend.src.core.integrations.config import ProviderConfig
+
+logger = structlog.get_logger(__name__)
+
+
+@dataclass(frozen=True)
+class KnowledgeFragment:
+    """One retrieved piece of knowledge from BSage."""
+
+    path: str
+    title: str
+    excerpt: str
+    score: float
+    extra: dict = field(default_factory=dict)
+
+    def to_ref(self) -> dict:
+        """Serialize for composition_snapshots.context_doc_refs."""
+        return {
+            "path": self.path,
+            "title": self.title,
+            "score": self.score,
+            "excerpt_hash": _hash_text(self.excerpt),
+        }
+
+
+def _hash_text(text: str) -> str:
+    import hashlib
+
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
+@dataclass(frozen=True)
+class KnowledgeEntryRef:
+    """Reference to a knowledge entry that was indexed in BSage."""
+
+    id: str
+    path: str
+
+
+class KnowledgeClient(Protocol):
+    """Protocol for knowledge retrieval + indexing backends.
+
+    Implementations must NOT raise on transient failures — return empty
+    or None so the calling code can always complete its main job
+    (composition / deliverable creation / decision resolution) even if
+    BSage is down.
+    """
+
+    async def search(self, intent: str, *, top_k: int = 10) -> list[KnowledgeFragment]: ...
+
+    async def fetch(self, path: str) -> str | None: ...
+
+    async def backlinks(self, path: str) -> list[str]: ...
+
+    async def index(
+        self,
+        *,
+        payload: dict,
+        auth_token: str | None = None,
+    ) -> KnowledgeEntryRef | None: ...
+
+    async def record_decision(
+        self,
+        *,
+        title: str,
+        decision: str,
+        reasoning: str,
+        alternatives: list[str] | None = None,
+        context: str = "",
+        tags: list[str] | None = None,
+        source: str = "bsnexus",
+        auth_token: str | None = None,
+    ) -> KnowledgeEntryRef | None: ...
+
+
+class NoopKnowledgeClient:
+    """Fallback when BSage is disabled or unreachable.
+
+    All methods are no-ops. The resulting composition gets
+    ``source="local"`` so the Inside panel can surface degraded mode.
+    """
+
+    async def search(self, intent: str, *, top_k: int = 10) -> list[KnowledgeFragment]:
+        return []
+
+    async def fetch(self, path: str) -> str | None:
+        return None
+
+    async def backlinks(self, path: str) -> list[str]:
+        return []
+
+    async def index(
+        self,
+        *,
+        payload: dict,
+        auth_token: str | None = None,
+    ) -> KnowledgeEntryRef | None:
+        return None
+
+    async def record_decision(
+        self,
+        *,
+        title: str,
+        decision: str,
+        reasoning: str,
+        alternatives: list[str] | None = None,
+        context: str = "",
+        tags: list[str] | None = None,
+        source: str = "bsnexus",
+        auth_token: str | None = None,
+    ) -> KnowledgeEntryRef | None:
+        return None
+
+
+class BSageKnowledgeClient:
+    """HTTP client against BSage's existing endpoints.
+
+    Timeout + circuit-break: on repeated failures fall back silently to
+    empty results. Never raise out of the Protocol contract.
+    """
+
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str | None,
+        *,
+        auth_token: str | None = None,
+        timeout_s: float = 3.0,
+    ):
+        self._base_url = base_url.rstrip("/")
+        self._timeout_s = timeout_s
+        # Explicit service UA — Cloudflare's Bot Fight Mode on the
+        # *.bsvibe.dev frontends 403s httpx's default ``python-httpx/x.y``
+        # as a bot. A named service identifier is treated as a normal
+        # backend-to-backend call.
+        self._headers: dict[str, str] = {
+            "User-Agent": "BSNexus/0.2 (+https://nexus.bsvibe.dev)",
+        }
+        # Per-instance auth_token (the founder's JWT forwarded for
+        # same-account SSO) takes precedence over the static api_key.
+        # If neither is set, BSage falls back to anonymous which its
+        # @protected routes reject with 401.
+        if auth_token:
+            self._headers["Authorization"] = f"Bearer {auth_token}"
+        elif api_key:
+            self._headers["Authorization"] = f"Bearer {api_key}"
+
+    def _headers_with_token(self, auth_token: str | None) -> dict[str, str]:
+        """Return request headers, preferring a caller-supplied Bearer
+        token over the instance default. Useful when a single client
+        instance serves multiple founders and the token varies per
+        call.
+        """
+        if not auth_token:
+            return self._headers
+        return {**self._headers, "Authorization": f"Bearer {auth_token}"}
+
+    async def search(self, intent: str, *, top_k: int = 10) -> list[KnowledgeFragment]:
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout_s) as client:
+                resp = await client.get(
+                    f"{self._base_url}/api/knowledge/search",
+                    params={"q": intent, "limit": top_k},
+                    headers=self._headers,
+                )
+                resp.raise_for_status()
+                payload = resp.json()
+        except Exception as exc:
+            logger.warning("bsage_search_failed", error=str(exc))
+            return []
+
+        # BSage's SearchResult fields: title, path, preview, score, tags.
+        # Earlier/alternate payloads may use content/excerpt instead of preview.
+        known_keys = {"path", "title", "preview", "excerpt", "content", "score"}
+        return [
+            KnowledgeFragment(
+                path=hit.get("path", ""),
+                title=hit.get("title", hit.get("path", "")),
+                excerpt=hit.get("preview") or hit.get("excerpt") or hit.get("content", ""),
+                score=float(hit.get("score", 0.0)),
+                extra={k: v for k, v in hit.items() if k not in known_keys},
+            )
+            for hit in payload.get("results", [])
+        ]
+
+    async def fetch(self, path: str) -> str | None:
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout_s) as client:
+                resp = await client.get(
+                    f"{self._base_url}/api/vault/file",
+                    params={"path": path},
+                    headers=self._headers,
+                )
+                if resp.status_code == 404:
+                    return None
+                resp.raise_for_status()
+                return resp.json().get("content")
+        except Exception as exc:
+            logger.warning("bsage_fetch_failed", path=path, error=str(exc))
+            return None
+
+    async def backlinks(self, path: str) -> list[str]:
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout_s) as client:
+                resp = await client.get(
+                    f"{self._base_url}/api/vault/backlinks",
+                    params={"path": path},
+                    headers=self._headers,
+                )
+                resp.raise_for_status()
+                return list(resp.json().get("backlinks", []))
+        except Exception as exc:
+            logger.warning("bsage_backlinks_failed", path=path, error=str(exc))
+            return []
+
+    async def index(
+        self,
+        *,
+        payload: dict,
+        auth_token: str | None = None,
+    ) -> KnowledgeEntryRef | None:
+        """Forward a run payload to BSage's bsnexus-input webhook.
+
+        The webhook response confirms the seed was accepted but does not
+        yet include the final note path — BSage's seed-refiner runs
+        asynchronously to derive a title + refined content. Callers that
+        just want "did BSage accept it?" check for a non-None ref.
+        """
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout_s) as client:
+                resp = await client.post(
+                    f"{self._base_url}/api/webhooks/bsnexus-input",
+                    json=payload,
+                    headers=self._headers_with_token(auth_token),
+                )
+                resp.raise_for_status()
+                body = resp.json() if resp.content else {}
+        except Exception as exc:
+            logger.warning("bsage_index_failed", error=str(exc))
+            return None
+        # Webhook returns {"plugin": "bsnexus-input", "results": [...]}.
+        # Surface plugin acceptance as an anonymous ref — BSage owns the
+        # actual note id/path once the refiner runs.
+        return KnowledgeEntryRef(
+            id=str(body.get("plugin", "bsnexus-input")),
+            path="",
+        )
+
+    async def record_decision(
+        self,
+        *,
+        title: str,
+        decision: str,
+        reasoning: str,
+        alternatives: list[str] | None = None,
+        context: str = "",
+        tags: list[str] | None = None,
+        source: str = "bsnexus",
+        auth_token: str | None = None,
+    ) -> KnowledgeEntryRef | None:
+        body = {
+            "title": title,
+            "decision": decision,
+            "reasoning": reasoning,
+            "alternatives": list(alternatives or []),
+            "context": context,
+            "tags": list(tags or []),
+            "source": source,
+        }
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout_s) as client:
+                resp = await client.post(
+                    f"{self._base_url}/api/knowledge/decisions",
+                    json=body,
+                    headers=self._headers_with_token(auth_token),
+                )
+                resp.raise_for_status()
+                payload = resp.json()
+        except Exception as exc:
+            logger.warning("bsage_decision_failed", title=title[:60], error=str(exc))
+            return None
+        return KnowledgeEntryRef(
+            id=str(payload.get("id", "")),
+            path=str(payload.get("path", "")),
+        )
+
+
+def resolve_knowledge_client(
+    cfg: ProviderConfig | None,
+    *,
+    auth_token: str | None = None,
+) -> KnowledgeClient:
+    """Factory: return BSage client when configured, Noop otherwise.
+
+    ``auth_token`` forwards the founder's own Bearer JWT so BSage
+    records per-user attribution (same-account SSO). When omitted, the
+    client falls back to the tenant's configured api_key.
+    """
+    if cfg is not None and cfg.enabled and cfg.base_url:
+        return BSageKnowledgeClient(cfg.base_url, cfg.api_key, auth_token=auth_token)
+    return NoopKnowledgeClient()

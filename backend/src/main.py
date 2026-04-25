@@ -1,6 +1,9 @@
+import faulthandler
 import logging
 import logging.handlers
 import os
+import signal
+import sys
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -8,35 +11,20 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
 from backend.src.api import (
-    agent_chat,
-    agent_control,
-    agent_templates,
-    agents,
     auth,
-    budget,
-    channels,
-    dashboard,
-    design,
+    conversation,
+    decisions as decisions_api,
+    deliverables,
     executor_configs,
-    goals,
-    import_project,
-    mcp,
-    memory,
-    plan_proposals,
-    plan_tree,
+    inside,
+    integrations,
+    project_events,
     projects,
-    security,
-    settings,
-    tasks,
-    workers,
-    workspace,
+    requests_api,
+    workers as workers_api,
+    workspace_files,
 )
 from backend.src.config import Settings, settings as app_settings
-from backend.src.core.channel_supervisor import (
-    start_channel_supervisor,
-    stop_channel_supervisor,
-)
-from backend.src.core.global_dispatcher import start_global_dispatcher, stop_global_dispatcher
 from backend.src.core.rate_limiter import RateLimitMiddleware
 from backend.src.core.security_headers import SecurityHeadersMiddleware
 from backend.src.core.tenant_context import TenantMiddleware
@@ -55,16 +43,13 @@ def _setup_logging() -> None:
     root_logger = logging.getLogger()
     root_logger.setLevel(log_level)
 
-    # Console handler
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(formatter)
     root_logger.addHandler(console_handler)
 
-    # File handlers — skip when running under pytest to avoid side effects
     if os.environ.get("TESTING"):
         return
 
-    # File handler — rotating, 10MB per file, keep 5 backups
     log_dir = app_settings.log_dir
     os.makedirs(log_dir, exist_ok=True)
     file_handler = logging.handlers.RotatingFileHandler(
@@ -76,16 +61,6 @@ def _setup_logging() -> None:
     file_handler.setFormatter(formatter)
     root_logger.addHandler(file_handler)
 
-    # State machine-specific log (transitions, escalation — easy to grep)
-    state_handler = logging.handlers.RotatingFileHandler(
-        os.path.join(log_dir, "state_machine.log"),
-        maxBytes=10 * 1024 * 1024,
-        backupCount=5,
-        encoding="utf-8",
-    )
-    state_handler.setFormatter(formatter)
-    logging.getLogger("backend.src.core.state_machine").addHandler(state_handler)
-
 
 _setup_logging()
 
@@ -94,10 +69,60 @@ _DEV_SIGNING_KEY = Settings.model_fields["prompt_signing_key"].default
 _DEV_ENCRYPTION_KEY = Settings.model_fields["encryption_key"].default
 
 
+_TRACE_DUMP_PATH = os.getenv("BSNEXUS_TRACE_DUMP_PATH", "/tmp/bsnexus-trace.log")
+_trace_dump_fp = None
+
+
+def _install_thread_traceback_signal() -> None:
+    """``kill -USR1 <pid>`` dumps every OS thread's Python stack to
+    ``$BSNEXUS_TRACE_DUMP_PATH``. Synchronous-safe: faulthandler's
+    handler is signal-safe and writes directly to the registered fd."""
+    global _trace_dump_fp  # noqa: PLW0603 — single-shot startup setup
+    _trace_dump_fp = open(_TRACE_DUMP_PATH, "a", buffering=1, encoding="utf-8")
+    faulthandler.register(signal.SIGUSR1, file=_trace_dump_fp, all_threads=True, chain=False)
+
+
+def _install_asyncio_signal(loop) -> None:
+    """``kill -USR2 <pid>`` enumerates every asyncio task on the running
+    loop. Must be installed via ``loop.add_signal_handler`` (not
+    ``signal.signal``) so the callback runs inside the event loop —
+    ``asyncio.all_tasks()`` and ``task.print_stack()`` aren't safe from
+    a raw signal-handler frame."""
+    import datetime as _dt
+    import asyncio as _asyncio
+
+    def _dump():
+        if _trace_dump_fp is None:
+            return
+        tasks = _asyncio.all_tasks(loop)
+        ts = _dt.datetime.now().isoformat(timespec="seconds")
+        _trace_dump_fp.write(f"\n===== {ts} asyncio tasks: {len(tasks)} =====\n")
+        for task in tasks:
+            _trace_dump_fp.write(f"\n[{task.get_name()}] state={task._state}\n")
+            try:
+                task.print_stack(file=_trace_dump_fp)
+            except Exception as exc:  # noqa: BLE001 — best effort
+                _trace_dump_fp.write(f"  print_stack failed: {exc}\n")
+        _trace_dump_fp.write("===== end asyncio tasks =====\n\n")
+        _trace_dump_fp.flush()
+
+    loop.add_signal_handler(signal.SIGUSR2, _dump)
+    # ``sys`` is imported at module top — keep the reference live for
+    # closures that may grow later.
+    _ = sys
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Manage server lifecycle: startup and shutdown."""
-    # Startup — security gate
+    """Server lifecycle: startup and shutdown.
+
+    RunOrchestrator is event-driven (dispatched per Run), not a
+    background task — there's nothing to start here for it.
+    """
+    import asyncio as _asyncio_local
+
+    _install_thread_traceback_signal()
+    _install_asyncio_signal(_asyncio_local.get_running_loop())
     if not app_settings.debug and app_settings.prompt_signing_key == _DEV_SIGNING_KEY:
         raise RuntimeError(
             "FATAL: prompt_signing_key is still the dev default. "
@@ -114,44 +139,40 @@ async def lifespan(app: FastAPI):
     await stream_manager.initialize_streams()
     app.state.redis = redis
     app.state.stream_manager = stream_manager
-    from backend.src.core.agent_queue import init_agent_queue_manager, shutdown_agent_queue_manager
-    init_agent_queue_manager()
     await start_background_consumer(app)
-    await start_global_dispatcher(app)
-    await start_channel_supervisor(app)
 
-    yield
+    # Drain runs:results → orchestrator.on_run_completed. Closes the
+    # loop for worker-executed runs so they don't stay stuck in
+    # ``running`` forever.
+    from backend.src.queue.worker_result_consumer import WorkerResultConsumer
+    from backend.src.storage.database import async_session
 
-    # Shutdown
-    await stop_channel_supervisor(app)
-    await stop_global_dispatcher(app)
-    await shutdown_agent_queue_manager()
-    await close_redis()
+    worker_result_consumer = WorkerResultConsumer(stream_manager=stream_manager, session_maker=async_session)
+    await worker_result_consumer.start()
+    app.state.worker_result_consumer = worker_result_consumer
+
+    try:
+        yield
+    finally:
+        await worker_result_consumer.stop()
+        await close_redis()
 
 
 _ROUTERS = [
-    agent_chat.router,
-    agent_control.router,
-    agent_templates.router,
-    agents.router,
-    budget.router,
-    executor_configs.router,
     auth.router,
-    goals.router,
-    tasks.router,
     projects.router,
-    plan_tree.router,
-    plan_proposals.router,
-    design.router,
-    memory.router,
-    import_project.router,
-    channels.router,
-    dashboard.router,
-    settings.router,
-    security.router,
-    workers.router,
-    workspace.router,
-    mcp.router,
+    conversation.router,
+    requests_api.router,
+    deliverables.router,
+    decisions_api.project_router,
+    decisions_api.decision_router,
+    inside.runs_router,
+    inside.snapshot_router,
+    integrations.router,
+    executor_configs.router,
+    workers_api.router,
+    workspace_files.router,
+    project_events.router,
 ]
 
 
@@ -162,30 +183,24 @@ def create_app(
     enable_hsts: bool | None = None,
     hsts_max_age: int | None = None,
 ) -> FastAPI:
-    """App factory — creates a configured FastAPI instance.
-
-    Defaults are read from app_settings; kwargs override for testing.
-    """
+    """App factory — creates a configured FastAPI instance."""
     _app = FastAPI(
         title="BSNexus",
-        description="AI-Powered Development Manager",
-        version="0.1.0",
+        description="Shell for the AI company you hired",
+        version="0.2.0",
         lifespan=lifespan,
         redirect_slashes=False,
     )
 
-    # Security headers (outermost — runs first on response)
     _app.add_middleware(
         SecurityHeadersMiddleware,
         enable_hsts=enable_hsts if enable_hsts is not None else app_settings.enable_hsts,
         hsts_max_age=hsts_max_age if hsts_max_age is not None else app_settings.hsts_max_age,
     )
 
-    # Rate limiting
     if rate_limit if rate_limit is not None else app_settings.rate_limit_enabled:
         _app.add_middleware(RateLimitMiddleware)
 
-    # CORS
     origins = cors_origins if cors_origins is not None else app_settings.cors_allowed_origins
     _app.add_middleware(
         CORSMiddleware,
@@ -195,13 +210,11 @@ def create_app(
         allow_headers=["*"],
     )
 
-    # Tenant context — stamps request.state.tenant_id from the JWT.
     _app.add_middleware(TenantMiddleware)
 
-    # Health endpoints
     @_app.get("/health")
     async def health():
-        return {"status": "healthy", "version": "0.1.0"}
+        return {"status": "healthy", "version": "0.2.0"}
 
     @_app.get("/health/deps")
     async def health_deps():
@@ -223,48 +236,6 @@ def create_app(
 
         return {"redis": redis_status, "postgresql": pg_status}
 
-    @_app.get("/health/llm")
-    async def health_llm():
-        """Check if the configured LLM backend is reachable."""
-        import httpx
-        from backend.src.storage.database import get_db as _get_db
-
-        # Read llm_base_url from tenant settings
-        llm_base_url = None
-        try:
-            async for db in _get_db():
-                result = await db.execute(
-                    text("SELECT value FROM settings WHERE key = 'llm_base_url' LIMIT 1")
-                )
-                row = result.scalar_one_or_none()
-                if row:
-                    llm_base_url = row.strip().strip('"')
-        except Exception:
-            pass
-
-        if not llm_base_url:
-            return {"status": "unknown", "detail": "No llm_base_url configured"}
-
-        # Probe the health endpoint
-        health_url = llm_base_url.rstrip("/")
-        # Strip /v1 suffix to get the server root (avoids /v1/v1/models)
-        server_root = health_url.removesuffix("/v1")
-        # Try /health first (vLLM), fall back to /v1/models (Ollama/OpenAI-compat)
-        try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.get(f"{server_root}/health")
-                if resp.status_code == 200:
-                    return {"status": "healthy", "base_url": llm_base_url}
-                resp = await client.get(f"{server_root}/v1/models")
-                if resp.status_code == 200:
-                    return {"status": "healthy", "base_url": llm_base_url}
-                return {"status": "unhealthy", "base_url": llm_base_url, "http_status": resp.status_code}
-        except httpx.TimeoutException:
-            return {"status": "timeout", "base_url": llm_base_url}
-        except Exception as e:
-            return {"status": "unreachable", "base_url": llm_base_url, "detail": str(e)}
-
-    # API routers
     for router in _ROUTERS:
         _app.include_router(router)
 

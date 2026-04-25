@@ -71,3 +71,7 @@ data/workspaces/
 
 # Screenshots (temporary)
 screen_*.png
+
+# Runtime workspace artefacts (extracted code blocks per project)
+backend/data/workspaces/
+

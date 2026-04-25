@@ -1,140 +1,168 @@
-import { NavLink, useLocation } from 'react-router-dom'
-import { useAuthContext } from '../auth/AuthContext'
+import { useLocation, useNavigate } from 'react-router-dom'
 
-const navItems = [
-  { to: '/dashboard', label: 'Dashboard', icon: 'dashboard' },
-  { to: '/agents', label: 'Agents', icon: 'groups' },
-  { to: '/budget', label: 'Budget', icon: 'account_balance_wallet' },
-  { to: '/settings', label: 'Settings', icon: 'settings' },
-]
+import { StatusDot } from '../common/Badge'
+import { I } from '../../lib/icons'
+import { statusTone } from '../../lib/tone'
+import { useAuthContext } from '../auth/AuthContext'
+import type { Project } from '../../api/projects'
 
 interface SidebarProps {
-  isOpen: boolean
-  onClose: () => void
-  collapsed?: boolean
-  onToggleCollapsed?: () => void
+  projects: Project[]
+  onOpenPalette: () => void
 }
 
-export default function Sidebar({ isOpen, onClose, collapsed = false, onToggleCollapsed }: SidebarProps) {
+export default function Sidebar({ projects, onOpenPalette }: SidebarProps) {
+  const navigate = useNavigate()
   const location = useLocation()
   const { user, logout } = useAuthContext()
 
-  const handleLogout = async () => {
-    await logout()
-  }
+  const activeProjectId = location.pathname.startsWith('/projects/')
+    ? location.pathname.split('/')[2]
+    : null
+  const onDashboard = location.pathname === '/dashboard'
+  const onSettings = location.pathname.startsWith('/settings')
 
-  const isActive = (to: string) => {
-    if (to === '/dashboard') return location.pathname === '/dashboard' || location.pathname.startsWith('/projects/')
-    return location.pathname.startsWith(to)
-  }
-
-  // Width: full nav vs icon-only rail. Mobile drawer is always full
-  // width (collapse only applies to ``md+`` breakpoints).
-  const widthClass = collapsed ? 'md:w-16' : 'md:w-64'
-  const padX = collapsed ? 'md:px-2' : 'md:px-4'
+  const initials = (user?.email ?? '??').slice(0, 2).toUpperCase()
+  const displayName = (user?.email ?? 'guest').split('@')[0]
 
   return (
-    <>
-      {/* Backdrop - mobile only */}
-      {isOpen && (
-        <div
-          className="fixed inset-0 bg-black/50 z-40 md:hidden"
-          onClick={onClose}
-        />
-      )}
-      <aside
-        className={`fixed left-0 top-0 w-64 ${widthClass} bg-stitch-surface-low h-screen flex flex-col py-6 px-4 ${padX} z-50 transform transition-all duration-200 ${
-          isOpen ? 'translate-x-0' : '-translate-x-full'
-        } md:translate-x-0 md:static md:z-auto md:shrink-0`}
+    <aside className="sb">
+      <button
+        type="button"
+        className="sb-brand"
+        onClick={() => navigate('/dashboard')}
+        aria-label="Home"
       >
-        {/* Logo area */}
-        <div className={`mb-10 px-2 flex items-center gap-3 ${collapsed ? 'md:justify-center md:px-0' : ''}`}>
-          <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-stitch-primary to-stitch-primary-container flex items-center justify-center shrink-0">
-            <span className="material-symbols-outlined text-stitch-on-primary-container" style={{ fontVariationSettings: "'FILL' 1" }}>
-              architecture
-            </span>
-          </div>
-          <div className={collapsed ? 'md:hidden' : ''}>
-            <h1 className="text-xl font-bold tracking-[-0.04em] text-accent-text">BSNexus</h1>
-            <p className="text-[10px] uppercase tracking-widest text-text-secondary font-bold">Agent Orchestrator</p>
-          </div>
+        <div className="sb-logo">BN</div>
+        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1 }}>
+          <span className="sb-brand-name">BSNexus</span>
         </div>
+      </button>
 
-        {/* Collapse toggle (desktop only) */}
-        {onToggleCollapsed && (
-          <button
-            type="button"
-            onClick={onToggleCollapsed}
-            className={`hidden md:flex items-center self-end mb-3 text-text-tertiary hover:text-text-secondary transition-colors ${
-              collapsed ? 'md:self-center' : ''
-            }`}
-            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>
-              {collapsed ? 'chevron_right' : 'chevron_left'}
-            </span>
-          </button>
-        )}
-
-        {/* Navigation */}
-        <nav className="flex-1 space-y-1">
-          {navItems.map((item) => {
-            const active = isActive(item.to)
-
-            return (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end={item.to === '/dashboard'}
-                onClick={onClose}
-                title={collapsed ? item.label : undefined}
-                className={`flex items-center gap-3 px-3 py-2.5 text-sm tracking-tight transition-all duration-200 rounded-lg ${
-                  collapsed ? 'md:justify-center md:px-2' : ''
-                } ${
-                  active
-                    ? 'text-stitch-primary font-semibold bg-stitch-surface-highest shadow-[0_0_15px_rgba(133,173,255,0.1)]'
-                    : 'text-text-secondary font-medium hover:text-accent-text hover:bg-stitch-surface-container'
-                }`}
-              >
-                <span
-                  className="material-symbols-outlined"
-                  style={active ? { fontVariationSettings: "'FILL' 1" } : undefined}
-                >
-                  {item.icon}
-                </span>
-                <span className={collapsed ? 'md:hidden' : ''}>{item.label}</span>
-              </NavLink>
-            )
-          })}
-
-        </nav>
-
-        {/* Bottom section: user profile */}
-        <div
-          className={`mt-auto p-3 bg-stitch-surface-container rounded-xl flex items-center gap-3 ${
-            collapsed ? 'md:flex-col md:p-2 md:gap-2' : ''
-          }`}
+      <button
+        type="button"
+        className="chip"
+        style={{
+          margin: '12px 12px 4px',
+          padding: '8px 10px',
+          justifyContent: 'space-between',
+        }}
+        onClick={onOpenPalette}
+        title="Jump anywhere"
+      >
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 8,
+            color: 'var(--text-tertiary)',
+          }}
         >
-          <div className="w-10 h-10 rounded-full bg-stitch-surface-highest flex items-center justify-center shrink-0">
-            <span className="material-symbols-outlined text-text-secondary" style={{ fontSize: '20px' }}>person</span>
-          </div>
-          <div className={`overflow-hidden flex-1 min-w-0 ${collapsed ? 'md:hidden' : ''}`}>
-            <p className="text-sm font-bold truncate text-text-primary">
-              {user?.email?.split('@')[0] || 'User'}
-            </p>
-            <p className="text-xs text-text-secondary truncate">{user?.email || ''}</p>
-          </div>
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="text-text-tertiary hover:text-stitch-error transition-colors shrink-0"
-            title="Logout"
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>logout</span>
-          </button>
-        </div>
+          <I.Search size={14} /> Jump to…
+        </span>
+        <span style={{ display: 'inline-flex', gap: 4 }}>
+          <kbd>⌘</kbd>
+          <kbd>K</kbd>
+        </span>
+      </button>
 
-      </aside>
-    </>
+      <div className="sb-section">
+        <span>Projects</span>
+        <span className="sb-count">{projects.length}</span>
+      </div>
+      <div className="sb-list">
+        {projects.map((p) => {
+          const tone = statusTone(p.status)
+          const isActive = activeProjectId === p.id
+          return (
+            <button
+              key={p.id}
+              type="button"
+              className={`sb-item ${isActive ? 'active' : ''}`}
+              onClick={() => navigate(`/projects/${p.id}`)}
+              title={p.name}
+            >
+              <StatusDot tone={tone} size={6} />
+              <span className="label">{p.name}</span>
+            </button>
+          )
+        })}
+        {projects.length === 0 && (
+          <span
+            style={{
+              padding: '6px 8px',
+              fontSize: 11,
+              color: 'var(--text-tertiary)',
+            }}
+          >
+            No projects yet.
+          </span>
+        )}
+        <button
+          type="button"
+          className="sb-item"
+          style={{ color: 'var(--text-tertiary)', marginTop: 8 }}
+          onClick={() => navigate('/dashboard')}
+        >
+          <I.Plus size={14} /> <span className="label">New project</span>
+        </button>
+
+        <div style={{ flex: 1 }} />
+
+        <div className="sb-section" style={{ paddingTop: 24 }}>
+          Workspace
+        </div>
+        <button
+          type="button"
+          className={`sb-item ${onDashboard ? 'active' : ''}`}
+          onClick={() => navigate('/dashboard')}
+        >
+          <I.Home size={14} /> <span className="label">Dashboard</span>
+        </button>
+        <button
+          type="button"
+          className={`sb-item ${onSettings ? 'active' : ''}`}
+          onClick={() => navigate('/settings')}
+        >
+          <I.Settings size={14} /> <span className="label">Settings</span>
+        </button>
+      </div>
+
+      <div className="sb-footer">
+        <div className="sb-avatar">{initials}</div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div
+            className="sb-user-name"
+            style={{
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {displayName}
+          </div>
+          <div
+            className="sb-user-mail"
+            style={{
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {user?.email}
+          </div>
+        </div>
+        <button
+          type="button"
+          className="btn btn-icon"
+          title="Log out"
+          onClick={() => {
+            void logout()
+          }}
+        >
+          <I.Logout size={14} />
+        </button>
+      </div>
+    </aside>
   )
 }

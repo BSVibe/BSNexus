@@ -46,21 +46,13 @@ line-length = 120
 
 [tool.coverage.run]
 source = ["src"]
-omit = [
-    "*/migrations/*",
-    # Dead code — no live import site. Kept on disk until session 11
-    # can either wire them up or delete them outright. Excluded from
-    # coverage so the 80 % gate reflects code that actually runs.
-    "src/core/dispatcher.py",
-    "src/tools/context_factory.py",
-]
+omit = ["*/migrations/*"]
 
 [tool.coverage.report]
-# Branch-wide tech debt: several API routers (workers, workspace,
-# plan_proposals, mcp, agent_control) sit below 50 % unit coverage and
-# are covered mostly by integration tests that don't register against
-# cov-run. Lowered from 80 → 75 for this branch; session 11 owns the
-# restoration plan (unit tests for the low-coverage API routers).
+# 75 during the iterative-replanner migration. The new dispatcher
+# Phase 0 paths need an in-process session-sharing test harness before
+# they can be exercised end-to-end; the SSE follow-up bundles that
+# infra and restores 80.
 fail_under = 75
 show_missing = true
 

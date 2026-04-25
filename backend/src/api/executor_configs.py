@@ -1,16 +1,25 @@
-"""Executor Config CRUD API — register, list, update, delete executor instances."""
+"""ExecutorConfigs API — tenant-scoped CRUD.
+
+An ``ExecutorConfig`` is a registered executor that runs LLM calls for
+the tenant: a LiteLLM-direct config (``generic_llm``), a BSGateway
+proxy config (``bsgateway``), a worker adapter (``worker`` /
+``claude_code`` / ``codex``), etc. Tenants can register many configs
+but exactly one carries ``is_selected = true`` — that's the one the
+orchestrator consults when dispatching runs.
+"""
 
 from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+import structlog
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.src.core.auth import get_current_user
 from backend.src.core.tenant_context import get_tenant_id
-from backend.src.models.agent import Agent
-from backend.src.models.executor_config import ExecutorConfig
+from backend.src.models import ExecutorConfig
 from backend.src.schemas.executor_config import (
     EXECUTOR_TYPES,
     ExecutorConfigCreate,
@@ -19,157 +28,130 @@ from backend.src.schemas.executor_config import (
 )
 from backend.src.storage.database import get_db
 
+logger = structlog.get_logger(__name__)
+
 router = APIRouter(prefix="/api/v1/executor-configs", tags=["executor-configs"])
 
 
-async def _cascade_default_to_using_agents(
-    db: AsyncSession, tenant_id: uuid.UUID, executor_type: str
-) -> None:
-    """Update every "use default" agent in the tenant to the new default's type.
-
-    Agents with ``executor_config_id IS NULL`` mean *"whatever the tenant
-    default is right now"*. The agent row caches the resolved ``executor_type``
-    so dispatcher / status code can read it without joining ``executor_configs``
-    on every read; that cache must be re-synced any time the tenant default
-    changes, otherwise the agent stays frozen at whatever default existed at
-    creation time and never picks up a newly registered worker.
-    """
-    await db.execute(
-        update(Agent)
-        .where(
-            Agent.tenant_id == tenant_id,
-            Agent.executor_config_id.is_(None),
-        )
-        .values(executor_type=executor_type)
-    )
-
-
-@router.post("", response_model=ExecutorConfigResponse, status_code=201)
-async def create_executor_config(
-    body: ExecutorConfigCreate,
-    db: AsyncSession = Depends(get_db),
-    tenant_id: uuid.UUID = Depends(get_tenant_id),
-) -> ExecutorConfigResponse:
-    """Register a new executor configuration."""
-    if body.executor_type not in EXECUTOR_TYPES:
+def _validate_executor_type(executor_type: str) -> None:
+    if executor_type not in EXECUTOR_TYPES:
         raise HTTPException(
-            status_code=400,
-            detail=f"Invalid executor_type '{body.executor_type}'. Valid: {sorted(EXECUTOR_TYPES)}",
+            422,
+            f"Unknown executor_type '{executor_type}'. Expected one of: {', '.join(sorted(EXECUTOR_TYPES))}",
         )
 
-    # If this is set as default, unset ALL existing defaults for this tenant
-    if body.is_default:
-        await db.execute(
-            update(ExecutorConfig)
-            .where(
-                ExecutorConfig.tenant_id == tenant_id,
-                ExecutorConfig.is_default.is_(True),
-            )
-            .values(is_default=False)
-        )
 
-    config = ExecutorConfig(
-        tenant_id=tenant_id,
-        name=body.name,
-        executor_type=body.executor_type,
-        config=body.config,
-        description=body.description,
-        is_default=body.is_default,
+async def _unset_other_selected(db: AsyncSession, tenant_id: uuid.UUID, keep_id: uuid.UUID | None) -> None:
+    stmt = (
+        update(ExecutorConfig)
+        .where(
+            ExecutorConfig.tenant_id == tenant_id,
+            ExecutorConfig.is_selected.is_(True),
+        )
+        .values(is_selected=False)
     )
-    db.add(config)
-    await db.flush()
-    if body.is_default:
-        await _cascade_default_to_using_agents(db, tenant_id, body.executor_type)
-        # Also bind agents that have no executor_config_id to this default.
-        await db.execute(
-            update(Agent)
-            .where(
-                Agent.tenant_id == tenant_id,
-                Agent.executor_config_id.is_(None),
-            )
-            .values(executor_config_id=config.id)
-        )
-    await db.commit()
-    await db.refresh(config)
-    return ExecutorConfigResponse.model_validate(config)
+    if keep_id is not None:
+        stmt = stmt.where(ExecutorConfig.id != keep_id)
+    await db.execute(stmt)
+
+
+async def _get_for_tenant(db: AsyncSession, config_id: uuid.UUID, tenant_id: uuid.UUID) -> ExecutorConfig:
+    stmt = select(ExecutorConfig).where(
+        ExecutorConfig.id == config_id,
+        ExecutorConfig.tenant_id == tenant_id,
+    )
+    row = (await db.execute(stmt)).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "ExecutorConfig not found")
+    return row
 
 
 @router.get("", response_model=list[ExecutorConfigResponse])
-async def list_executor_configs(
-    db: AsyncSession = Depends(get_db),
+async def list_configs(
     tenant_id: uuid.UUID = Depends(get_tenant_id),
-) -> list[ExecutorConfigResponse]:
-    """List all registered executor configurations."""
-    result = await db.execute(
-        select(ExecutorConfig)
-        .where(ExecutorConfig.tenant_id == tenant_id)
-        .order_by(ExecutorConfig.executor_type, ExecutorConfig.name)
+    db: AsyncSession = Depends(get_db),
+    _user=Depends(get_current_user),
+) -> list[ExecutorConfig]:
+    stmt = select(ExecutorConfig).where(ExecutorConfig.tenant_id == tenant_id).order_by(ExecutorConfig.created_at.asc())
+    return list((await db.execute(stmt)).scalars())
+
+
+@router.post(
+    "",
+    response_model=ExecutorConfigResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_config(
+    payload: ExecutorConfigCreate,
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+    db: AsyncSession = Depends(get_db),
+    _user=Depends(get_current_user),
+) -> ExecutorConfig:
+    _validate_executor_type(payload.executor_type)
+
+    row = ExecutorConfig(
+        tenant_id=tenant_id,
+        name=payload.name,
+        executor_type=payload.executor_type,
+        config=payload.config or {},
+        description=payload.description,
+        is_selected=payload.is_selected,
     )
-    return [ExecutorConfigResponse.model_validate(c) for c in result.scalars().all()]
+    if payload.is_selected:
+        await _unset_other_selected(db, tenant_id, keep_id=None)
+
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    logger.info(
+        "executor_config_created",
+        tenant_id=str(tenant_id),
+        config_id=str(row.id),
+        executor_type=row.executor_type,
+    )
+    return row
 
 
 @router.get("/{config_id}", response_model=ExecutorConfigResponse)
-async def get_executor_config(
-    config_id: uuid.UUID, db: AsyncSession = Depends(get_db)
-) -> ExecutorConfigResponse:
-    result = await db.execute(select(ExecutorConfig).where(ExecutorConfig.id == config_id))
-    config = result.scalar_one_or_none()
-    if not config:
-        raise HTTPException(status_code=404, detail="Executor config not found")
-    return ExecutorConfigResponse.model_validate(config)
+async def get_config(
+    config_id: uuid.UUID,
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+    db: AsyncSession = Depends(get_db),
+    _user=Depends(get_current_user),
+) -> ExecutorConfig:
+    return await _get_for_tenant(db, config_id, tenant_id)
 
 
 @router.patch("/{config_id}", response_model=ExecutorConfigResponse)
-async def update_executor_config(
+async def update_config(
     config_id: uuid.UUID,
-    body: ExecutorConfigUpdate,
-    db: AsyncSession = Depends(get_db),
+    payload: ExecutorConfigUpdate,
     tenant_id: uuid.UUID = Depends(get_tenant_id),
-) -> ExecutorConfigResponse:
-    result = await db.execute(select(ExecutorConfig).where(ExecutorConfig.id == config_id))
-    config = result.scalar_one_or_none()
-    if not config:
-        raise HTTPException(status_code=404, detail="Executor config not found")
+    db: AsyncSession = Depends(get_db),
+    _user=Depends(get_current_user),
+) -> ExecutorConfig:
+    row = await _get_for_tenant(db, config_id, tenant_id)
 
-    update_data = body.model_dump(exclude_unset=True)
+    data = payload.model_dump(exclude_unset=True)
 
-    # If setting as default, unset ALL existing defaults for this tenant
-    if update_data.get("is_default"):
-        await db.execute(
-            update(ExecutorConfig)
-            .where(
-                ExecutorConfig.tenant_id == tenant_id,
-                ExecutorConfig.is_default.is_(True),
-                ExecutorConfig.id != config_id,
-            )
-            .values(is_default=False)
-        )
+    if data.get("is_selected") is True:
+        await _unset_other_selected(db, tenant_id, keep_id=row.id)
 
-    for key, value in update_data.items():
-        setattr(config, key, value)
+    for key, value in data.items():
+        setattr(row, key, value)
 
-    await db.flush()
-    if update_data.get("is_default"):
-        await _cascade_default_to_using_agents(db, tenant_id, config.executor_type)
-        # Bind agents that have no executor_config_id to this default.
-        await db.execute(
-            update(Agent)
-            .where(
-                Agent.tenant_id == tenant_id,
-                Agent.executor_config_id.is_(None),
-            )
-            .values(executor_config_id=config.id)
-        )
     await db.commit()
-    await db.refresh(config)
-    return ExecutorConfigResponse.model_validate(config)
+    await db.refresh(row)
+    return row
 
 
-@router.delete("/{config_id}", status_code=204)
-async def delete_executor_config(config_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> None:
-    result = await db.execute(select(ExecutorConfig).where(ExecutorConfig.id == config_id))
-    config = result.scalar_one_or_none()
-    if not config:
-        raise HTTPException(status_code=404, detail="Executor config not found")
-    await db.delete(config)
+@router.delete("/{config_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_config(
+    config_id: uuid.UUID,
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+    db: AsyncSession = Depends(get_db),
+    _user=Depends(get_current_user),
+) -> None:
+    row = await _get_for_tenant(db, config_id, tenant_id)
+    await db.delete(row)
     await db.commit()

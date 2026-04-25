@@ -6,9 +6,9 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, Integer, String, Text, Uuid, func
+from sqlalchemy import DateTime, Enum, ForeignKey, Index, Integer, String, Text, Uuid, func
 from sqlalchemy.dialects.postgresql import JSON
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.src.storage.database import Base
 
@@ -20,18 +20,21 @@ class WorkspaceType(str, enum.Enum):
 
 
 class ProjectStatus(str, enum.Enum):
-    design = "design"
+    # Single operational state today — no code transitions projects out
+    # of ``active``. ``archived`` is reserved for a future user-initiated
+    # "hide from dashboard" action (delete is the hard-remove path).
     active = "active"
-    paused = "paused"
-    completed = "completed"
+    archived = "archived"
 
 
 class Project(Base):
     __tablename__ = "projects"
+    __table_args__ = (Index("ix_projects_tenant", "tenant_id"),)
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    description: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     design_doc_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     repo_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
@@ -44,15 +47,17 @@ class Project(Base):
     github_branch: Mapped[str | None] = mapped_column(String(255), nullable=True)
     github_token_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    status: Mapped[ProjectStatus] = mapped_column(Enum(ProjectStatus), nullable=False, default=ProjectStatus.design)
-    max_concurrent_tasks: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    status: Mapped[ProjectStatus] = mapped_column(
+        Enum(ProjectStatus), nullable=False, default=ProjectStatus.active, server_default="active"
+    )
+    max_concurrent_runs: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     llm_config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+    # Optional references to company-OS siblings (resolved per tenant config).
+    bsage_workspace_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    bsupervisor_policy_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
-    )
-
-    # Relationships
-    phases: Mapped[list["Phase"]] = relationship(  # noqa: F821
-        "Phase", back_populates="project", cascade="all, delete-orphan"
     )

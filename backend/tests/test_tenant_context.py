@@ -1,155 +1,251 @@
-"""Tests for the tenant context middleware and helpers."""
+"""TenantMiddleware + resolve_user_tenant + identify_from_token."""
 
 from __future__ import annotations
 
 import base64
 import json
 import uuid
-from datetime import datetime, timezone
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from bsvibe_auth import BSVibeUser
+from fastapi import Request
+from sqlalchemy import select
 
 from backend.src.core.tenant_context import (
     DEFAULT_TENANT_ID,
     TenantMiddleware,
+    _decode_jwt_payload,
+    _identify_from_token,
+    _tenant_id_from_payload,
+    _tenant_id_from_user,
     derive_personal_tenant_id,
     ensure_personal_tenant,
-    _identify_from_token,
+    get_tenant_id,
+    resolve_user_tenant,
 )
-
-
-def _tenant_id_from_token(token: str):
-    """Test shim around the new ``_identify_from_token`` helper."""
-    _, tenant_id = _identify_from_token(token)
-    return tenant_id
 from backend.src.models import Tenant
 
 
-# ── derive_personal_tenant_id ────────────────────────────────────────
-
-
-def test_derive_personal_tenant_id_is_deterministic():
-    a = derive_personal_tenant_id("user-123")
-    b = derive_personal_tenant_id("user-123")
-    assert a == b
-    assert isinstance(a, uuid.UUID)
-
-
-def test_derive_personal_tenant_id_differs_per_user():
-    assert derive_personal_tenant_id("a") != derive_personal_tenant_id("b")
-
-
-def test_derive_personal_tenant_id_not_default():
-    assert derive_personal_tenant_id("any") != DEFAULT_TENANT_ID
-
-
-# ── _tenant_id_from_token ────────────────────────────────────────────
-
-
 def _make_jwt(payload: dict) -> str:
-    header = base64.urlsafe_b64encode(b'{"alg":"HS256","typ":"JWT"}').rstrip(b"=").decode()
+    header = base64.urlsafe_b64encode(b'{"alg":"HS256"}').rstrip(b"=").decode()
     body = base64.urlsafe_b64encode(json.dumps(payload).encode()).rstrip(b"=").decode()
-    return f"{header}.{body}.fake-signature"
+    return f"{header}.{body}.signature"
 
 
-def test_tenant_id_from_token_uses_app_metadata():
-    tenant_uuid = str(uuid.uuid4())
-    token = _make_jwt({"sub": "user-1", "app_metadata": {"tenant_id": tenant_uuid}})
-    assert _tenant_id_from_token(token) == uuid.UUID(tenant_uuid)
+def _user(id_="u1", email="u@example.com", tenant_id=None, role="viewer") -> BSVibeUser:
+    meta: dict = {"role": role}
+    if tenant_id is not None:
+        meta["tenant_id"] = str(tenant_id)
+    return BSVibeUser(id=id_, email=email, app_metadata=meta, user_metadata={})
 
 
-def test_tenant_id_from_token_falls_back_to_sub():
-    token = _make_jwt({"sub": "user-2"})
-    assert _tenant_id_from_token(token) == derive_personal_tenant_id("user-2")
+def test_derive_personal_tenant_id_is_stable():
+    a = derive_personal_tenant_id("user-1")
+    b = derive_personal_tenant_id("user-1")
+    c = derive_personal_tenant_id("user-2")
+    assert a == b
+    assert a != c
 
 
-def test_tenant_id_from_token_returns_none_for_garbage():
-    assert _tenant_id_from_token("not-a-jwt") is None
+def test_tenant_id_from_user_uses_explicit_claim():
+    tid = uuid.uuid4()
+    assert _tenant_id_from_user(_user(tenant_id=tid)) == tid
 
 
-def test_tenant_id_from_token_ignores_invalid_claim_uuid():
-    token = _make_jwt({"sub": "user-3", "app_metadata": {"tenant_id": "not-a-uuid"}})
-    # Bad claim -> falls through to sub-derived id.
-    assert _tenant_id_from_token(token) == derive_personal_tenant_id("user-3")
+def test_tenant_id_from_user_derives_from_id_when_no_claim():
+    assert _tenant_id_from_user(_user(id_="u1")) == derive_personal_tenant_id("u1")
 
 
-# ── ensure_personal_tenant ───────────────────────────────────────────
+def test_tenant_id_from_user_falls_back_on_invalid_claim(capsys):
+    user = BSVibeUser(
+        id="u1",
+        email="e",
+        app_metadata={"tenant_id": "not-a-uuid"},
+        user_metadata={},
+    )
+    assert _tenant_id_from_user(user) == derive_personal_tenant_id("u1")
+
+
+def test_tenant_id_from_user_returns_none_when_no_id():
+    user = BSVibeUser(id="", email=None, app_metadata={}, user_metadata={})
+    assert _tenant_id_from_user(user) is None
+
+
+def test_tenant_id_from_user_none_input():
+    assert _tenant_id_from_user(None) is None
+
+
+def test_decode_jwt_payload_rejects_malformed():
+    assert _decode_jwt_payload("not.a.jwt.extra") is None
+    assert _decode_jwt_payload("single-segment") is None
+
+
+def test_decode_jwt_payload_happy_path():
+    token = _make_jwt({"sub": "abc", "email": "x@y"})
+    payload = _decode_jwt_payload(token)
+    assert payload == {"sub": "abc", "email": "x@y"}
+
+
+def test_tenant_id_from_payload_explicit_claim():
+    tid = uuid.uuid4()
+    out = _tenant_id_from_payload({"app_metadata": {"tenant_id": str(tid)}})
+    assert out == tid
+
+
+def test_tenant_id_from_payload_derives_from_sub():
+    out = _tenant_id_from_payload({"sub": "user-x"})
+    assert out == derive_personal_tenant_id("user-x")
+
+
+def test_tenant_id_from_payload_none_when_no_info():
+    assert _tenant_id_from_payload({}) is None
+    assert _tenant_id_from_payload({"app_metadata": {"tenant_id": "bad"}, "sub": None}) is None
+
+
+def test_identify_from_token_invalid_token():
+    with patch("backend.src.config.settings") as s:
+        s.e2e_test_token = ""
+        user, tid = _identify_from_token("malformed")
+        assert user is None
+        assert tid is None
+
+
+def test_identify_from_token_e2e_bypass():
+    with patch("backend.src.config.settings") as s:
+        s.e2e_test_token = "dev-token"
+        s.e2e_test_user_tenant_id = "11111111-1111-4111-8111-111111111111"
+        s.e2e_test_user_id = "tester"
+        s.e2e_test_user_email = "t@e"
+        user, tid = _identify_from_token("dev-token")
+        assert user is not None
+        assert user.id == "tester"
+        assert str(tid) == "11111111-1111-4111-8111-111111111111"
+
+
+def test_identify_from_token_jwt_path():
+    tid = uuid.uuid4()
+    token = _make_jwt({"sub": "real-user", "app_metadata": {"tenant_id": str(tid), "role": "admin"}})
+    with patch("backend.src.config.settings") as s:
+        s.e2e_test_token = ""
+        user, found_tid = _identify_from_token(token)
+        assert user is not None
+        assert user.id == "real-user"
+        assert user.app_metadata["role"] == "admin"
+        assert found_tid == tid
+
+
+def test_get_tenant_id_reads_request_state():
+    tid = uuid.uuid4()
+    req = Request({"type": "http", "headers": []})
+    req.state.tenant_id = tid
+    assert get_tenant_id(req) == tid
+
+
+def test_get_tenant_id_falls_back_to_default():
+    req = Request({"type": "http", "headers": []})
+    assert get_tenant_id(req) == DEFAULT_TENANT_ID
 
 
 @pytest.mark.asyncio
-async def test_ensure_personal_tenant_inserts_row(db_session):
-    user_id = "user-ensure-1"
-    tenant_id = derive_personal_tenant_id(user_id)
-    user = BSVibeUser(id=user_id, email="user@example.com")
-    await ensure_personal_tenant(db_session, tenant_id, user)
+async def test_ensure_personal_tenant_inserts_and_updates(db_session):
+    tid = uuid.uuid4()
+    user = _user(id_="u1", email="first@e")
 
-    from sqlalchemy import select
+    await ensure_personal_tenant(db_session, tid, user)
+    row = (await db_session.execute(select(Tenant).where(Tenant.id == tid))).scalar_one()
+    assert row.name == "first@e"
 
-    result = await db_session.execute(select(Tenant).where(Tenant.id == tenant_id))
-    tenant = result.scalar_one_or_none()
-    assert tenant is not None
-    assert tenant.id == tenant_id
-    assert tenant.owner_user_id == user_id
-
-
-@pytest.mark.asyncio
-async def test_ensure_personal_tenant_is_idempotent(db_session):
-    user_id = "user-ensure-2"
-    tenant_id = derive_personal_tenant_id(user_id)
-    user = BSVibeUser(id=user_id, email="user@example.com")
-    await ensure_personal_tenant(db_session, tenant_id, user)
-    await ensure_personal_tenant(db_session, tenant_id, user)  # second call must not raise
-
-
-# ── TenantMiddleware ────────────────────────────────────────────────
+    user.email = "second@e"
+    await ensure_personal_tenant(db_session, tid, user)
+    row = (await db_session.execute(select(Tenant).where(Tenant.id == tid))).scalar_one()
+    assert row.name == "second@e"
 
 
 @pytest.mark.asyncio
-async def test_tenant_middleware_stamps_request_state_from_jwt():
-    captured: dict = {}
+async def test_resolve_user_tenant_stamps_request_and_upserts(db_session):
+    tid = uuid.uuid4()
+    user = _user(id_="u1", email="u@e", tenant_id=tid)
+    req = Request({"type": "http", "headers": []})
 
-    async def fake_app(scope, receive, send):
-        from fastapi import Request
+    out = await resolve_user_tenant(req, user, db_session)
+    assert out == tid
+    assert req.state.tenant_id == tid
+    row = (await db_session.execute(select(Tenant).where(Tenant.id == tid))).scalar_one_or_none()
+    assert row is not None
 
-        captured["state"] = Request(scope).state.tenant_id
 
-    middleware = TenantMiddleware(fake_app)
+@pytest.mark.asyncio
+async def test_resolve_user_tenant_default_when_user_id_empty(db_session):
+    user = BSVibeUser(id="", email=None, app_metadata={}, user_metadata={})
+    req = Request({"type": "http", "headers": []})
+    out = await resolve_user_tenant(req, user, db_session)
+    assert out == DEFAULT_TENANT_ID
 
-    user_id = "user-mw-1"
-    token = _make_jwt({"sub": user_id})
+
+@pytest.mark.asyncio
+async def test_middleware_skips_non_http_scopes():
+    called = []
+
+    async def app(scope, receive, send):
+        called.append(scope["type"])
+
+    mw = TenantMiddleware(app)
+    await mw({"type": "lifespan"}, lambda: None, lambda m: None)
+    assert called == ["lifespan"]
+
+
+@pytest.mark.asyncio
+async def test_middleware_stamps_default_without_authorization():
+    captured = {}
+
+    async def app(scope, receive, send):
+        req = Request(scope)
+        captured["tid"] = req.state.tenant_id
+
+    mw = TenantMiddleware(app)
+    scope = {"type": "http", "headers": [], "state": {}}
+    await mw(scope, lambda: None, lambda m: None)
+    assert captured["tid"] == DEFAULT_TENANT_ID
+
+
+@pytest.mark.asyncio
+async def test_middleware_stamps_tenant_from_bearer_token():
+    captured = {}
+    tid = uuid.uuid4()
+    token = _make_jwt({"sub": "u1", "app_metadata": {"tenant_id": str(tid)}})
+
+    async def app(scope, receive, send):
+        req = Request(scope)
+        captured["tid"] = req.state.tenant_id
+
+    mw = TenantMiddleware(app)
     scope = {
         "type": "http",
         "headers": [(b"authorization", f"Bearer {token}".encode())],
+        "state": {},
     }
-
-    async def noop_recv():
-        return {}
-
-    async def noop_send(_msg):
-        return None
-
-    await middleware(scope, noop_recv, noop_send)
-    assert captured["state"] == derive_personal_tenant_id(user_id)
+    with patch(
+        "backend.src.core.tenant_context._upsert_tenant_for_request",
+        AsyncMock(),
+    ):
+        await mw(scope, lambda: None, lambda m: None)
+    assert captured["tid"] == tid
 
 
 @pytest.mark.asyncio
-async def test_tenant_middleware_falls_back_to_default_without_token():
-    captured: dict = {}
+async def test_middleware_keeps_default_when_token_is_malformed():
+    captured = {}
 
-    async def fake_app(scope, receive, send):
-        from fastapi import Request
+    async def app(scope, receive, send):
+        req = Request(scope)
+        captured["tid"] = req.state.tenant_id
 
-        captured["state"] = Request(scope).state.tenant_id
-
-    middleware = TenantMiddleware(fake_app)
-    scope = {"type": "http", "headers": []}
-
-    async def noop_recv():
-        return {}
-
-    async def noop_send(_msg):
-        return None
-
-    await middleware(scope, noop_recv, noop_send)
-    assert captured["state"] == DEFAULT_TENANT_ID
+    mw = TenantMiddleware(app)
+    scope = {
+        "type": "http",
+        "headers": [(b"authorization", b"Bearer garbage")],
+        "state": {},
+    }
+    await mw(scope, lambda: None, lambda m: None)
+    assert captured["tid"] == DEFAULT_TENANT_ID

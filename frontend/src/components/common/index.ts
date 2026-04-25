@@ -1,6 +1,6 @@
 export { Button } from './Button'
 export type { ButtonProps } from './Button'
-export { Badge } from './Badge'
+export { Badge, StatusDot } from './Badge'
 export type { BadgeProps } from './Badge'
 export { StatCard } from './StatCard'
 export type { StatCardProps } from './StatCard'

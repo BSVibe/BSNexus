@@ -1,149 +1,247 @@
-import { useEffect, useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import { projectsApi } from '../api/projects'
-import FileBrowser from '../components/workspace/FileBrowser'
-import UnifiedChatSidebar from '../components/project/UnifiedChatSidebar'
-import DesignView from '../components/project/DesignView'
-import ProjectAgentsTab from '../components/project/ProjectAgentsTab'
-import ProjectChannelsModal from '../components/project/ProjectChannelsModal'
-import GoalSlogan from '../components/project/GoalSlogan'
-import Header from '../components/layout/Header'
-import PlanView from '../components/plan/PlanView'
+import { useEffect, useMemo, useState } from 'react'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-// Timeline tab was a placeholder ("Gantt chart coming soon") and has been
-// removed. The Plan tab covers task progress; the Agents tab stays as a
-// detail view for the per-agent status / drill-down (the Plan view's
-// AgentStatusBar is the at-a-glance summary).
-type TabId = 'plan' | 'files' | 'design' | 'agents'
+import { I } from '../lib/icons'
+import { Modal } from '../components/common/Modal'
+import FilesView from '../components/files/FilesView'
+import ProgressView from '../components/progress/ProgressView'
+import DecisionsView from '../components/decisions/DecisionsView'
+import Inspector from '../components/inside/Inspector'
+import { projectsApi, type Project } from '../api/projects'
+import { workspaceFilesApi } from '../api/workspaceFiles'
+import { decisionsApi, deliverablesApi } from '../api/founder'
 
-const TABS: { id: TabId; label: string; icon: string }[] = [
-  { id: 'plan', label: 'Plan', icon: 'account_tree' },
-  { id: 'files', label: 'Files', icon: 'folder' },
-  { id: 'design', label: 'Design', icon: 'palette' },
-  { id: 'agents', label: 'Agents', icon: 'groups' },
-]
+type TabId = 'progress' | 'files' | 'decisions' | 'inspector'
+
+function parseTab(raw: string | null): TabId {
+  if (raw === 'files' || raw === 'decisions' || raw === 'inspector') return raw
+  return 'progress'
+}
 
 export default function ProjectPage() {
   const { projectId } = useParams<{ projectId: string }>()
+  const [search, setSearch] = useSearchParams()
+  const tab = parseTab(search.get('tab'))
+  const focusRequestId = search.get('focusRequest')
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
+
+  const { data: project } = useQuery<Project>({
+    queryKey: ['project', projectId],
+    queryFn: () => projectsApi.get(projectId!),
+    enabled: Boolean(projectId),
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: () => projectsApi.delete(projectId!),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['projects'] })
+      setConfirmDelete(false)
+      navigate('/')
+    },
+  })
+
+  const { data: deliverables = [] } = useQuery({
+    queryKey: ['deliverables', projectId],
+    queryFn: () => deliverablesApi.listForProject(projectId!),
+    enabled: Boolean(projectId),
+    // Live updates land via the SSE stream wired up in Layout; no
+    // polling needed. The query is invalidated on relevant events.
+  })
+
+  const { data: decisions = [] } = useQuery({
+    queryKey: ['decisions', projectId],
+    queryFn: () => decisionsApi.listForProject(projectId!),
+    enabled: Boolean(projectId),
+    // Live updates land via the SSE stream wired up in Layout; no
+    // polling needed. The query is invalidated on relevant events.
+  })
+
+  const { data: files = [] } = useQuery({
+    queryKey: ['workspace-files', projectId],
+    queryFn: () => workspaceFilesApi.list(projectId!),
+    enabled: Boolean(projectId),
+    // Live updates land via the SSE stream wired up in Layout; no
+    // polling needed. The query is invalidated on relevant events.
+  })
+
+  const openDecisions = useMemo(
+    () => decisions.filter((d) => !d.resolved_at).length,
+    [decisions],
+  )
+
+  function setTab(id: TabId) {
+    const next = new URLSearchParams(search)
+    if (id === 'progress') next.delete('tab')
+    else next.set('tab', id)
+    if (id !== 'inspector') next.delete('focusRequest')
+    setSearch(next, { replace: true })
+  }
+
+  useEffect(() => {
+    function onOpenInspector(e: Event) {
+      const ce = e as CustomEvent<{ requestId?: string }>
+      const rid = ce.detail?.requestId
+      const next = new URLSearchParams(search)
+      next.set('tab', 'inspector')
+      if (rid) next.set('focusRequest', rid)
+      else next.delete('focusRequest')
+      setSearch(next, { replace: true })
+    }
+    document.addEventListener('bsn:open-inspector', onOpenInspector as EventListener)
+    return () =>
+      document.removeEventListener(
+        'bsn:open-inspector',
+        onOpenInspector as EventListener,
+      )
+  }, [search, setSearch])
 
   if (!projectId) {
     return (
-      <>
-        <Header title="Project" />
-        <div className="p-8">
-          <div className="rounded-lg border border-dashed border-stitch-outline-variant/30 p-12 text-center">
-            <p className="text-text-secondary mb-4">Select a project from the Dashboard.</p>
-            <button type="button" onClick={() => navigate('/dashboard')} className="text-sm text-stitch-primary hover:underline">
-              Go to Dashboard
-            </button>
-          </div>
-        </div>
-      </>
+      <div
+        style={{
+          padding: 48,
+          textAlign: 'center',
+          color: 'var(--text-tertiary)',
+        }}
+      >
+        No project selected.
+      </div>
     )
   }
 
-  return <ProjectContent projectId={projectId} />
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
+        minHeight: 0,
+      }}
+    >
+      <div className="tabs" style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+        <TabButton
+          label="Progress"
+          icon={<I.Timeline size={14} />}
+          active={tab === 'progress'}
+          onClick={() => setTab('progress')}
+          count={deliverables.length || null}
+        />
+        <TabButton
+          label="Files"
+          icon={<I.Doc size={14} />}
+          active={tab === 'files'}
+          onClick={() => setTab('files')}
+          count={files.length || null}
+        />
+        <TabButton
+          label="Decisions"
+          icon={<I.Inbox size={14} />}
+          active={tab === 'decisions'}
+          onClick={() => setTab('decisions')}
+          count={openDecisions || null}
+          toneRose={openDecisions > 0}
+        />
+        <TabButton
+          label="Inspector"
+          icon={<I.Eye size={14} />}
+          active={tab === 'inspector'}
+          onClick={() => setTab('inspector')}
+        />
+        <span style={{ flex: 1 }} />
+        <button
+          type="button"
+          className="btn btn-icon"
+          title="Delete project"
+          style={{ color: 'var(--color-rose)', marginRight: 8 }}
+          onClick={() => setConfirmDelete(true)}
+        >
+          <I.Trash size={14} />
+        </button>
+      </div>
+
+      <Modal
+        open={confirmDelete}
+        onClose={() => setConfirmDelete(false)}
+        title="Delete this project?"
+        footer={
+          <>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => setConfirmDelete(false)}
+              disabled={deleteMutation.isPending}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              style={{ background: 'var(--color-rose)', borderColor: 'var(--color-rose)' }}
+              onClick={() => deleteMutation.mutate()}
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? 'Deleting…' : 'Delete'}
+            </button>
+          </>
+        }
+      >
+        <p style={{ color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+          <strong style={{ color: 'var(--gray-50)' }}>{project?.name ?? 'This project'}</strong>{' '}
+          and all of its conversations, requests, deliverables, and decisions
+          will be permanently deleted. This cannot be undone.
+        </p>
+        {deleteMutation.isError && (
+          <p style={{ color: 'var(--color-rose)', marginTop: 12, fontSize: 13 }}>
+            Failed to delete. {(deleteMutation.error as Error)?.message}
+          </p>
+        )}
+      </Modal>
+
+      <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+        {tab === 'progress' && <ProgressView projectId={projectId} />}
+        {tab === 'files' && (
+          <FilesView projectId={projectId} projectName={project?.name ?? 'Project'} />
+        )}
+        {tab === 'decisions' && <DecisionsView projectId={projectId} />}
+        {tab === 'inspector' && (
+          <Inspector projectId={projectId} focusRequestId={focusRequestId} />
+        )}
+      </div>
+    </div>
+  )
 }
 
-function ProjectContent({ projectId }: { projectId: string }) {
-  const [activeTab, setActiveTab] = useState<TabId>('plan')
-  const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [channelsOpen, setChannelsOpen] = useState(false)
-  const navigate = useNavigate()
-
-  // Project data
-  const { data: project, isError } = useQuery({
-    queryKey: ['project', projectId],
-    queryFn: () => projectsApi.get(projectId),
-    enabled: !!projectId,
-    retry: false,
-  })
-
-  // Redirect to dashboard if project was deleted or not found.
-  useEffect(() => {
-    if (isError) navigate('/dashboard')
-  }, [isError, navigate])
-
+function TabButton({
+  label,
+  icon,
+  active,
+  onClick,
+  count,
+  toneRose,
+}: {
+  label: string
+  icon: React.ReactNode
+  active: boolean
+  onClick: () => void
+  count?: number | null
+  toneRose?: boolean
+}) {
   return (
-    <>
-      {/* Header with goal slogan */}
-      <Header
-        title={
-          <span className="flex items-center gap-2">
-            {project?.name || 'Project'}
-            <GoalSlogan projectId={projectId} />
-          </span>
-        }
-        action={
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => setChannelsOpen(true)}
-              className="p-2 rounded-md hover:bg-stitch-surface-container text-text-secondary transition-colors"
-              title="Channels"
-            >
-              <span className="material-symbols-outlined">forum</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="p-2 rounded-md hover:bg-stitch-surface-container text-text-secondary transition-colors"
-              title={sidebarOpen ? 'Hide chat' : 'Show chat'}
-            >
-              <span className="material-symbols-outlined">{sidebarOpen ? 'right_panel_close' : 'right_panel_open'}</span>
-            </button>
-          </div>
-        }
-      />
-      <ProjectChannelsModal
-        open={channelsOpen}
-        projectId={projectId}
-        onClose={() => setChannelsOpen(false)}
-      />
-
-      {/* Tabs */}
-      <div className="px-8 flex items-center gap-1 border-b border-stitch-outline-variant/10 bg-stitch-surface">
-        {TABS.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-bold uppercase tracking-widest transition-colors border-b-2 -mb-px ${
-              activeTab === tab.id
-                ? 'text-stitch-primary border-stitch-primary'
-                : 'text-text-tertiary border-transparent hover:text-text-secondary'
-            }`}
-          >
-            <span className="material-symbols-outlined" style={{ fontSize: '14px' }}>{tab.icon}</span>
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Main content */}
-      <div className="flex h-[calc(100vh-112px)] overflow-hidden">
-        {/* Center */}
-        <div className="flex-1 flex flex-col overflow-hidden">
-          {activeTab === 'plan' && (
-            <div className="flex-1 overflow-hidden">
-              <PlanView projectId={projectId} />
-            </div>
-          )}
-
-          {activeTab === 'files' && (
-            <div className="flex-1 overflow-hidden">
-              <FileBrowser projectId={projectId} />
-            </div>
-          )}
-
-          {activeTab === 'design' && <DesignView projectId={projectId} />}
-          {activeTab === 'agents' && <ProjectAgentsTab />}
-        </div>
-
-        {/* Right sidebar: Unified Chat */}
-        {sidebarOpen && <UnifiedChatSidebar projectId={projectId} />}
-      </div>
-    </>
+    <button
+      type="button"
+      className={`tab ${active ? 'active' : ''}`}
+      onClick={onClick}
+    >
+      {icon}
+      {label}
+      {count != null && (
+        <span className={`tab-count ${toneRose ? 'tab-count-rose' : ''}`}>
+          {count}
+        </span>
+      )}
+    </button>
   )
 }

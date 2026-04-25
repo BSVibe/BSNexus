@@ -18,14 +18,10 @@ from backend.src.storage.database import Base
 
 class ProjectChannel(Base):
     __tablename__ = "project_channels"
-    __table_args__ = (
-        Index("ix_project_channels_project_kind", "project_id", "kind"),
-    )
+    __table_args__ = (Index("ix_project_channels_project_kind", "project_id", "kind"),)
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    project_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
-    )
+    project_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
     kind: Mapped[str] = mapped_column(String(32), nullable=False)  # "slack", "discord", ...
     external_channel_id: Mapped[str] = mapped_column(String(255), nullable=False)
     display_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
