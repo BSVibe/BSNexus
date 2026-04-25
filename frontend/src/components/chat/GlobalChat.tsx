@@ -6,7 +6,7 @@ import remarkGfm from 'remark-gfm'
 
 import { I } from '../../lib/icons'
 import { relTime, truncId } from '../../lib/fmt'
-import { statusTone } from '../../lib/tone'
+import { accentHex, statusTone } from '../../lib/tone'
 import { StatusDot } from '../common/Badge'
 import { conversationApi, type Message, type SendMessageResponse } from '../../api/conversation'
 import type { Project } from '../../api/projects'
@@ -506,6 +506,25 @@ export default function GlobalChat({
   )
 }
 
+function messageKind(m: DisplayMessage): string | null {
+  for (const a of m.actions ?? []) {
+    if (a && typeof a === 'object' && 'kind' in (a as Record<string, unknown>)) {
+      const k = (a as { kind?: unknown }).kind
+      if (typeof k === 'string') return k
+    }
+  }
+  return null
+}
+
+function actionField(m: DisplayMessage, key: string): unknown {
+  for (const a of m.actions ?? []) {
+    if (a && typeof a === 'object' && key in (a as Record<string, unknown>)) {
+      return (a as Record<string, unknown>)[key]
+    }
+  }
+  return undefined
+}
+
 function ChatBubble({
   m,
   projects,
@@ -518,18 +537,73 @@ function ChatBubble({
   onInspectRequest: (id: string) => void
 }) {
   const isUser = m.role === 'user'
+  const kind = messageKind(m)
+
+  // Compact chip for ack / mod_ack / phase_start — they're status
+  // signals, not the founder's primary read.
+  const isChipKind = kind === 'ack' || kind === 'mod_ack' || kind === 'phase_start'
+  // Special accent / framing for terminal events.
+  const isChainDone = kind === 'chain_done'
+  const isDecisionRequest = kind === 'decision_request'
+
+  if (isChipKind && !isUser) {
+    const phaseName = actionField(m, 'phase_name')
+    return (
+      <div className="fade-in" style={{ paddingLeft: 4 }}>
+        <div
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '4px 8px',
+            border: '1px solid var(--border-subtle)',
+            borderRadius: 999,
+            fontSize: 11,
+            color: 'var(--text-secondary)',
+            background: 'var(--bg-elevated)',
+          }}
+          title={typeof phaseName === 'string' ? phaseName : undefined}
+        >
+          {kind === 'phase_start' && phaseName ? (
+            <>
+              <span
+                style={{ fontWeight: 600, color: 'var(--gray-50)' }}
+              >
+                {String(phaseName)}
+              </span>
+              <span style={{ color: 'var(--text-tertiary)' }}>·</span>
+            </>
+          ) : null}
+          <span>{m.content}</span>
+        </div>
+        <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 2 }}>
+          {relTime(m.created_at)}
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div
-      className="fade-in"
-      style={{ display: 'flex', flexDirection: 'column', gap: 4 }}
-    >
-      <div className={isUser ? 'chat-bubble-u' : 'chat-bubble-ai'}>
+    <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <div
+        className={isUser ? 'chat-bubble-u' : 'chat-bubble-ai'}
+        style={
+          isChainDone
+            ? { borderLeft: `3px solid ${accentHex.emerald}` }
+            : isDecisionRequest
+              ? { borderLeft: `3px solid ${accentHex.rose}` }
+              : undefined
+        }
+      >
         {isUser ? (
           m.content
         ) : (
           <div className="md">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
           </div>
+        )}
+        {isDecisionRequest && (
+          <DecisionInline m={m} />
         )}
       </div>
       <div
@@ -588,6 +662,47 @@ function ChatBubble({
     </div>
   )
 }
+
+function DecisionInline({ m }: { m: DisplayMessage }) {
+  const question = actionField(m, 'question')
+  const options = actionField(m, 'options')
+  const opts = Array.isArray(options) ? options.filter((o) => typeof o === 'string') : []
+  return (
+    <div
+      style={{
+        marginTop: 8,
+        paddingTop: 8,
+        borderTop: '1px solid var(--border-subtle)',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 6,
+      }}
+    >
+      {typeof question === 'string' && question && (
+        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--gray-50)' }}>
+          {question}
+        </div>
+      )}
+      {opts.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          {opts.map((o) => (
+            <span
+              key={String(o)}
+              className="route-chip"
+              style={{ fontSize: 11, color: 'var(--gray-100)' }}
+            >
+              {String(o)}
+            </span>
+          ))}
+        </div>
+      )}
+      <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>
+        Resolve in the Decisions tab.
+      </div>
+    </div>
+  )
+}
+
 
 function UnroutedNotice({
   content,
