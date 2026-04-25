@@ -58,6 +58,11 @@ jobs:
           DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/test
           REDIS_URL: redis://localhost:6379/0
           PROMPT_SIGNING_KEY: test-signing-key
+          # Activates the fresh-PG migration smoke test
+          # (tests/test_alembic_fresh_migration.py) — without this the
+          # CI's already-running PG service goes unused for the smoke,
+          # and PG-only migration bugs slip past the SQLite unit tests.
+          BSNEXUS_INTEGRATION_PG_URL: postgresql+asyncpg://test:test@localhost:5432/test
         # fail_under is authoritative via backend/pyproject.toml ([tool.coverage.report])
         # so the CI flag and the repo config do not drift.
         run: uv run pytest tests/ -v --cov=src
@@ -82,6 +87,12 @@ jobs:
 
       - name: Lint
         run: pnpm --dir frontend lint
+
+      - name: Type-check
+        run: pnpm --dir frontend exec tsc -b
+
+      - name: Design-token drift guard
+        run: pnpm --dir frontend tokens:verify
 
       - name: Build
         run: pnpm --dir frontend build
