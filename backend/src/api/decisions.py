@@ -33,9 +33,9 @@ async def _assert_project_belongs(db: AsyncSession, project_id: uuid.UUID, tenan
 )
 async def list_decisions(
     project_id: uuid.UUID,
+    _user=Depends(get_current_user),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
 ) -> list[Decision]:
     """Open decisions first (blocking → non-blocking), then resolved."""
     await _assert_project_belongs(db, project_id, tenant_id)
@@ -62,9 +62,9 @@ async def resolve_decision(
     decision_id: uuid.UUID,
     payload: DecisionResolve,
     request: Request,
+    _user=Depends(get_current_user),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
 ) -> Decision:
     stmt = select(Decision).where(Decision.id == decision_id, Decision.tenant_id == tenant_id)
     decision = (await db.execute(stmt)).scalar_one_or_none()

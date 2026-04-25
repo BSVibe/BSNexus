@@ -68,9 +68,9 @@ async def _load_row(
 
 @router.get("", response_model=IntegrationConfigList)
 async def list_integrations(
+    _user=Depends(get_current_user),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
 ) -> IntegrationConfigList:
     rows = {
         row.provider: row
@@ -88,9 +88,9 @@ async def list_integrations(
 async def update_integration(
     provider: str,
     payload: IntegrationConfigUpdate,
+    _user=Depends(get_current_user),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
 ) -> IntegrationConfigResponse:
     prov = _parse_provider(provider)
     row = await _load_row(db, tenant_id, prov)
@@ -130,9 +130,9 @@ async def update_integration(
 @router.post("/{provider}/test", response_model=IntegrationTestResult)
 async def test_integration(
     provider: str,
+    _user=Depends(get_current_user),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
 ) -> IntegrationTestResult:
     prov = _parse_provider(provider)
     row = await _load_row(db, tenant_id, prov)

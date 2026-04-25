@@ -45,7 +45,14 @@ class Settings(BaseSettings):
     log_dir: str = "logs"
     log_level: str = "INFO"
 
-    # E2E test bypass
+    # Deployment environment — controls security guards that must NOT
+    # be active in production. The string ``"production"`` (case-
+    # insensitive) disables the E2E test-token bypass regardless of
+    # ``e2e_test_token``'s value. Anything else (``"development"``,
+    # ``"staging"``, empty) treats the bypass as acceptable.
+    environment: str = ""
+
+    # E2E test bypass — only honored when ``environment`` is non-prod.
     e2e_test_token: str = ""
     e2e_test_user_id: str = "e2e-test-user"
     e2e_test_user_email: str = "e2e@bsnexus.test"

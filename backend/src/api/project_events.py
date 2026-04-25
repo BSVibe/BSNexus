@@ -83,9 +83,9 @@ async def _stream(project_id: uuid.UUID) -> AsyncIterator[str]:
 @router.get("/{project_id}/events")
 async def project_events(
     project_id: uuid.UUID,
+    _user=Depends(get_current_user),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
 ) -> StreamingResponse:
     await _ensure_owns_project(db, project_id, tenant_id)
     return StreamingResponse(

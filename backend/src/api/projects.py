@@ -30,9 +30,9 @@ async def _get_project_for_tenant(db: AsyncSession, project_id: uuid.UUID, tenan
 
 @router.get("", response_model=list[ProjectResponse])
 async def list_projects(
+    _user=Depends(get_current_user),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
 ) -> list[Project]:
     stmt = select(Project).where(Project.tenant_id == tenant_id).order_by(Project.created_at.desc())
     return list((await db.execute(stmt)).scalars())
@@ -41,9 +41,9 @@ async def list_projects(
 @router.post("", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
 async def create_project(
     payload: ProjectCreate,
+    _user=Depends(get_current_user),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
 ) -> Project:
     project = Project(
         tenant_id=tenant_id,
@@ -62,9 +62,9 @@ async def create_project(
 @router.get("/{project_id}", response_model=ProjectResponse)
 async def get_project(
     project_id: uuid.UUID,
+    _user=Depends(get_current_user),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
 ) -> Project:
     return await _get_project_for_tenant(db, project_id, tenant_id)
 
@@ -73,9 +73,9 @@ async def get_project(
 async def update_project(
     project_id: uuid.UUID,
     payload: ProjectUpdate,
+    _user=Depends(get_current_user),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
 ) -> Project:
     project = await _get_project_for_tenant(db, project_id, tenant_id)
     data = payload.model_dump(exclude_unset=True)
@@ -89,9 +89,9 @@ async def update_project(
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_project(
     project_id: uuid.UUID,
+    _user=Depends(get_current_user),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
 ) -> None:
     project = await _get_project_for_tenant(db, project_id, tenant_id)
     await db.delete(project)

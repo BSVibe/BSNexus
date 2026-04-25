@@ -41,9 +41,9 @@ async def _require_project(db: AsyncSession, project_id: uuid.UUID, tenant_id: u
 @router.get("/{project_id}/files")
 async def list_workspace_files(
     project_id: uuid.UUID,
+    _user=Depends(get_current_user),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
 ) -> list[dict]:
     await _require_project(db, project_id, tenant_id)
     return workspace_store.list_files(project_id)
@@ -53,9 +53,9 @@ async def list_workspace_files(
 async def read_workspace_file(
     project_id: uuid.UUID,
     path: str,
+    _user=Depends(get_current_user),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
 ) -> dict:
     await _require_project(db, project_id, tenant_id)
     content = workspace_store.read_file(project_id, path)

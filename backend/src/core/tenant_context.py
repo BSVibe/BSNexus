@@ -2,8 +2,10 @@
 
 Resolution order (first hit wins):
 
-1. ``request.state.tenant_id`` if a middleware already populated it.
-2. ``user.app_metadata['tenant_id']`` from the BSVibe Auth JWT.
+1. ``request.state.tenant_id`` populated by ``get_current_user`` *after*
+   it has verified the JWT signature via bsvibe-auth.
+2. ``user.app_metadata['tenant_id']`` from the JWT (only consulted by
+   ``_tenant_id_from_user`` after verification).
 3. A deterministic per-user tenant id derived via UUIDv5 from the user
    id. This lets unmigrated environments keep working — every user
    automatically gets a stable personal tenant without anyone having to
@@ -11,9 +13,12 @@ Resolution order (first hit wins):
 4. ``DEFAULT_TENANT_ID`` for unauthenticated callers (e.g. workers
    posting results) so existing seed data is still reachable.
 
-The middleware ``TenantMiddleware`` reads the JWT (if present) and
-stamps ``request.state.tenant_id`` early so downstream code only ever
-needs ``Depends(get_tenant_id)``.
+SECURITY: ``TenantMiddleware`` does NOT parse the JWT — that would
+short-circuit signature verification and let an attacker spoof
+``tenant_id`` via the unverified payload. The middleware only seeds
+``request.state.tenant_id = DEFAULT_TENANT_ID``; the verified value is
+written by ``backend.src.core.auth.get_current_user`` once the token is
+validated.
 """
 
 from __future__ import annotations
@@ -61,11 +66,21 @@ def _tenant_id_from_user(user: BSVibeUser | None) -> uuid.UUID | None:
 
 
 def get_tenant_id(request: Request) -> uuid.UUID:
-    """Return the active tenant id for this request.
+    """Return the verified tenant id for this request.
 
-    Reads the value the middleware stamped on ``request.state``. Falls
-    back to ``DEFAULT_TENANT_ID`` so unauthenticated worker callbacks
-    keep working against the seed data.
+    SECURITY: ``get_current_user`` (in ``backend.src.core.auth``) writes
+    the post-verification tenant id onto ``request.state.tenant_id``.
+    This dependency simply reads that value back. Routes MUST declare
+    ``get_current_user`` as a sub-dependency before — or alongside —
+    ``get_tenant_id`` so auth always runs first; the canonical pattern
+    is to put ``user: BSVibeUser = Depends(get_current_user)`` *before*
+    ``tenant_id: uuid.UUID = Depends(get_tenant_id)`` in the handler
+    signature. FastAPI resolves dependencies in arg order, so this
+    ordering guarantees the verified value is on ``request.state`` by
+    the time we read it here.
+
+    Falls back to ``DEFAULT_TENANT_ID`` only for explicitly
+    unauthenticated paths (worker callbacks against seed data).
     """
     return getattr(request.state, "tenant_id", DEFAULT_TENANT_ID)
 
@@ -146,12 +161,27 @@ async def resolve_user_tenant(
 
 
 class TenantMiddleware:
-    """Stamp ``request.state.tenant_id`` from the JWT before any handler runs.
+    """Initialise ``request.state.tenant_id`` to ``DEFAULT_TENANT_ID``
+    before any handler runs.
 
-    The handler dependency tree still calls ``ensure_personal_tenant``
-    via ``resolve_user_tenant`` (or via the auth dependency below) to
-    create the personal tenant row on first sight; this middleware just
-    avoids handlers having to know about JWT parsing.
+    SECURITY: This middleware deliberately does NOT trust the JWT
+    payload to populate ``tenant_id``. Doing so would short-circuit
+    ``get_current_user``'s signature verification — an attacker could
+    forge a JWT with any ``tenant_id`` claim, the middleware would
+    stamp it, and a handler that resolves ``Depends(get_tenant_id)``
+    *before* ``Depends(get_current_user)`` would read the spoofed
+    value (FastAPI dependencies resolve in arg-order).
+
+    The authoritative ``request.state.tenant_id`` is written by
+    ``backend.src.core.auth.get_current_user`` *after* the bsvibe-auth
+    provider has verified the JWT signature and audience. The personal
+    Tenant row is also upserted there, so the middleware no longer
+    needs to handle that side-effect.
+
+    The only special case is the ``e2e_test_token`` dev bypass — that
+    secret is a build-time constant, not user-controlled, and only
+    valid in non-production environments (see
+    ``backend.src.core.auth.get_current_user``).
     """
 
     def __init__(self, app: Any) -> None:
@@ -165,109 +195,7 @@ class TenantMiddleware:
         request = Request(scope)
         request.state.tenant_id = DEFAULT_TENANT_ID
 
-        auth_header = request.headers.get("authorization", "")
-        if auth_header.lower().startswith("bearer "):
-            token = auth_header.split(" ", 1)[1].strip()
-            user_stub, tenant_id = _identify_from_token(token)
-            if tenant_id is not None and tenant_id != DEFAULT_TENANT_ID:
-                request.state.tenant_id = tenant_id
-                # Upsert the Tenant row so subsequent FK inserts
-                # (projects, requests, ...) just work. Account/tenant
-                # identity lives in bsvibe.dev — our local row is a
-                # derived projection of whatever the JWT (or e2e bypass
-                # token) claims.
-                if user_stub is not None:
-                    await _upsert_tenant_for_request(tenant_id, user_stub)
-
         await self.app(scope, receive, send)
-
-
-async def _upsert_tenant_for_request(tenant_id: uuid.UUID, user: BSVibeUser) -> None:
-    """Open a short-lived DB session and run the tenant upsert."""
-    # Local imports dodge the import cycle between this module and storage.
-    from backend.src.storage.database import async_session
-
-    try:
-        async with async_session() as session:
-            await ensure_personal_tenant(session, tenant_id, user)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("tenant_upsert_middleware_failed", error=str(exc))
-
-
-def _identify_from_token(token: str) -> tuple[BSVibeUser | None, uuid.UUID | None]:
-    """Return ``(user_stub, tenant_id)`` for the supplied bearer token.
-
-    Recognises two token shapes:
-
-    1. The e2e bypass token from ``settings.e2e_test_token`` — only when
-       that env var is non-empty. Returns the synthetic test user.
-    2. A JWT — payload is decoded *without* signature verification, just
-       to extract the tenant id and email/sub. Real signature
-       verification still happens in ``get_current_user`` so a forged
-       token cannot bypass authorization.
-    """
-    from backend.src.config import settings
-
-    bypass_token = settings.e2e_test_token
-    if bypass_token and token == bypass_token:
-        try:
-            tid = uuid.UUID(settings.e2e_test_user_tenant_id)
-        except ValueError:
-            return None, None
-        stub = BSVibeUser(
-            id=settings.e2e_test_user_id,
-            email=settings.e2e_test_user_email,
-            app_metadata={"tenant_id": str(tid), "role": "admin"},
-            user_metadata={},
-        )
-        return stub, tid
-
-    payload = _decode_jwt_payload(token)
-    if payload is None:
-        return None, None
-
-    tenant_id = _tenant_id_from_payload(payload)
-    if tenant_id is None:
-        return None, None
-
-    sub = payload.get("sub")
-    email = payload.get("email")
-    role = (payload.get("app_metadata") or {}).get("role", "viewer")
-    stub = BSVibeUser(
-        id=str(sub) if sub else "unknown",
-        email=str(email) if email else None,
-        app_metadata={"tenant_id": str(tenant_id), "role": role},
-        user_metadata={},
-    )
-    return stub, tenant_id
-
-
-def _decode_jwt_payload(token: str) -> dict[str, Any] | None:
-    try:
-        import base64
-        import json
-
-        parts = token.split(".")
-        if len(parts) != 3:
-            return None
-        payload_b64 = parts[1] + "=" * (-len(parts[1]) % 4)
-        return json.loads(base64.urlsafe_b64decode(payload_b64))
-    except Exception:  # noqa: BLE001
-        return None
-
-
-def _tenant_id_from_payload(payload: dict[str, Any]) -> uuid.UUID | None:
-    app_meta = payload.get("app_metadata") or {}
-    raw = app_meta.get("tenant_id") or app_meta.get("tenantId")
-    if isinstance(raw, str):
-        try:
-            return uuid.UUID(raw)
-        except ValueError:
-            pass
-    sub = payload.get("sub")
-    if isinstance(sub, str) and sub:
-        return derive_personal_tenant_id(sub)
-    return None
 
 
 # Convenience FastAPI dependency that exposes the tenant id without

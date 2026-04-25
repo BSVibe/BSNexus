@@ -36,9 +36,9 @@ async def _require_request(db: AsyncSession, request_id: uuid.UUID, tenant_id: u
 )
 async def list_runs(
     request_id: uuid.UUID,
+    _user=Depends(get_current_user),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
 ) -> list[ExecutionRun]:
     await _require_request(db, request_id, tenant_id)
     stmt = select(ExecutionRun).where(ExecutionRun.request_id == request_id).order_by(ExecutionRun.created_at.asc())
@@ -51,9 +51,9 @@ async def list_runs(
 )
 async def get_composition_snapshot(
     snapshot_id: uuid.UUID,
+    _user=Depends(get_current_user),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
 ) -> CompositionSnapshot:
     stmt = select(CompositionSnapshot).where(
         CompositionSnapshot.id == snapshot_id,

@@ -61,9 +61,9 @@ async def _get_tenant(db: AsyncSession, tenant_id: uuid.UUID) -> Tenant:
 
 @router.get("/install-token", response_model=InstallTokenStatus)
 async def get_install_token_status(
+    _user=Depends(get_current_user),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
 ) -> InstallTokenStatus:
     tenant = await _get_tenant(db, tenant_id)
     return InstallTokenStatus(has_token=bool(tenant.worker_install_token_hash))
@@ -75,9 +75,9 @@ async def get_install_token_status(
     status_code=status.HTTP_201_CREATED,
 )
 async def generate_install_token(
+    _user=Depends(get_current_user),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
 ) -> InstallTokenCreated:
     """Mint a fresh install token. Any previous token is replaced.
 
@@ -94,9 +94,9 @@ async def generate_install_token(
 
 @router.delete("/install-token", status_code=status.HTTP_204_NO_CONTENT)
 async def revoke_install_token(
+    _user=Depends(get_current_user),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
 ) -> None:
     tenant = await _get_tenant(db, tenant_id)
     tenant.worker_install_token_hash = None
@@ -109,9 +109,9 @@ async def revoke_install_token(
 
 @router.get("", response_model=list[WorkerResponse])
 async def list_workers(
+    _user=Depends(get_current_user),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
 ) -> list[Worker]:
     stmt = select(Worker).where(Worker.tenant_id == tenant_id).order_by(Worker.created_at.asc())
     return list((await db.execute(stmt)).scalars())
@@ -120,9 +120,9 @@ async def list_workers(
 @router.delete("/{worker_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_worker(
     worker_id: uuid.UUID,
+    _user=Depends(get_current_user),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
 ) -> None:
     stmt = select(Worker).where(Worker.id == worker_id, Worker.tenant_id == tenant_id)
     worker = (await db.execute(stmt)).scalar_one_or_none()

@@ -1,6 +1,7 @@
 """JWT-based authentication via bsvibe-auth."""
 
 import enum
+import os
 
 from bsvibe_auth import BSVibeUser, BsvibeAuthProvider
 from bsvibe_auth.errors import AuthError
@@ -9,6 +10,30 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.config import settings
 from backend.src.storage.database import get_db
+
+
+def _is_production_environment() -> bool:
+    """Return ``True`` if the runtime environment is production.
+
+    Reads from (in order): ``settings.environment``, then the raw
+    ``ENVIRONMENT`` env var. The env-var fallback exists so tests and
+    operators can flip production-mode without bouncing the process to
+    re-read pydantic settings.
+    """
+    env = (settings.environment or os.getenv("ENVIRONMENT") or "").strip().lower()
+    return env == "production"
+
+
+def _e2e_bypass_enabled() -> bool:
+    """``True`` only if the e2e bypass token is set AND we are not in prod.
+
+    The bypass token short-circuits ``BsvibeAuthProvider.verify_token``
+    and returns a synthetic admin user — invaluable for local dev and
+    Playwright runs, catastrophic if accidentally honored in prod.
+    """
+    if _is_production_environment():
+        return False
+    return bool(settings.e2e_test_token)
 
 
 class Role(str, enum.Enum):
@@ -111,11 +136,17 @@ async def get_current_user(
     this, brand-new users hit ``ForeignKeyViolationError`` on their
     first mutating call.
 
-    When ``settings.e2e_test_token`` is non-empty AND the request carries
-    that exact bearer token, we short-circuit the bsvibe.dev round-trip
-    and return a synthetic admin user. This powers fresh-DB integration
-    tests and the live frontend e2e suite without any code mutating the
-    production path (the env var is never set in production).
+    SECURITY:
+      * The JWT signature is verified by
+        ``BsvibeAuthProvider.verify_token`` — a forged token raises
+        ``AuthError`` and we surface 401.
+      * The verified user's tenant id is re-stamped onto
+        ``request.state.tenant_id``, overriding any unverified value
+        a middleware may have written. ``get_tenant_id`` reads from
+        that state, so handlers always see the post-verification tenant.
+      * The ``E2E_TEST_TOKEN`` bypass is only honored when
+        ``ENVIRONMENT`` is non-production (see ``_e2e_bypass_enabled``).
+        A leaked dev bypass token is inert in prod.
     """
     # Local import to avoid circular dependency between auth and tenant_context.
     from backend.src.core.tenant_context import (
@@ -145,8 +176,7 @@ async def get_current_user(
         )
 
     user: BSVibeUser
-    bypass_token = settings.e2e_test_token
-    if bypass_token and raw_token == bypass_token:
+    if _e2e_bypass_enabled() and raw_token == settings.e2e_test_token:
         user = _build_e2e_test_user()
     else:
         try:
@@ -164,6 +194,10 @@ async def get_current_user(
         # Stamp on request.state so get_tenant_id sees the right value
         # even when the middleware ran with a different/no claim.
         request.state.tenant_id = tenant_id
+    else:
+        # No usable tenant id — make sure request.state reflects that
+        # rather than carrying whatever the middleware seeded.
+        request.state.tenant_id = DEFAULT_TENANT_ID
 
     return user
 
