@@ -282,9 +282,9 @@ def _safe_workspace_listing(project_id: uuid.UUID) -> list[dict]:
     any error so a transient FS hiccup doesn't kill the run.
     """
     try:
-        from backend.src.core import workspace_store  # noqa: PLC0415
+        from backend.src.core import project_workspace  # noqa: PLC0415
 
-        return list(workspace_store.list_files(project_id))
+        return list(project_workspace.list_files(project_id))
     except Exception:  # noqa: BLE001
         logger.exception("workspace_listing_failed", project_id=str(project_id))
         return []

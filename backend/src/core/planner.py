@@ -248,9 +248,9 @@ def _build_replanner_payload(
     # next pick would re-do something already shipped.
     workspace_files: list[str] = []
     try:
-        from backend.src.core import workspace_store  # noqa: PLC0415
+        from backend.src.core import project_workspace  # noqa: PLC0415
 
-        for entry in workspace_store.list_files(request.project_id)[:200]:
+        for entry in project_workspace.list_files(request.project_id)[:200]:
             path = entry.get("path") if isinstance(entry, dict) else None
             if path:
                 workspace_files.append(str(path))

@@ -42,6 +42,24 @@ NO_PROGRESS_TIMEOUT_S = int(os.getenv("LLM_NO_PROGRESS_TIMEOUT_S", "90"))
 # LLM_STREAMING=0 if a provider has poor streaming support.
 STREAMING_ENABLED = os.getenv("LLM_STREAMING", "1") not in ("0", "false", "False")
 
+# Models known to emit malformed JSON in streamed tool_call deltas
+# (multiple objects concatenated in a single chunk, no separator —
+# litellm's parser raises ``APIConnectionError: Extra data ...``). For
+# these we fall back to non-streaming. Empirically: every Ollama model
+# we've tried with tool calling has this issue (glm-4.7-flash,
+# qwen3-coder:30b). Prefix match.
+_NO_STREAM_MODEL_PREFIXES: tuple[str, ...] = (
+    "ollama/",
+    "ollama_chat/",
+)
+
+
+def _model_supports_streaming(model: str) -> bool:
+    if not STREAMING_ENABLED:
+        return False
+    return not model.startswith(_NO_STREAM_MODEL_PREFIXES)
+
+
 # Maximum number of assistant↔tool turns in a single ``execute``. Each
 # iteration lets the model issue another batch of tool calls. Need
 # headroom for: read context files (3-4 turns) → write N files (N turns)
@@ -195,7 +213,7 @@ class LiteLLMOrchestratorAdapter:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
 
-        if not STREAMING_ENABLED:
+        if not _model_supports_streaming(self._model):
             return await litellm.acompletion(**kwargs)
 
         # Streaming: chunks arrive as they're generated. We aggregate

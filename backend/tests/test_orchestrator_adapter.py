@@ -339,7 +339,7 @@ async def test_adapter_aggregates_streamed_content():
     """Tokens arrive in chunks; the adapter must concat them and finish
     cleanly when the stream ends."""
     adapter = LiteLLMOrchestratorAdapter(
-        model="ollama_chat/qwen3-coder:30b",
+        model="openai/gpt-4o",
         project_id=uuid.uuid4(),
     )
     chunks = [
@@ -374,7 +374,7 @@ async def test_adapter_aggregates_streamed_tool_calls(tmp_path, monkeypatch):
         lambda: tmp_path,
     )
     project_id = uuid.uuid4()
-    adapter = LiteLLMOrchestratorAdapter(model="ollama_chat/qwen3-coder:30b", project_id=project_id)
+    adapter = LiteLLMOrchestratorAdapter(model="openai/gpt-4o", project_id=project_id)
 
     streamed_call_chunks = [
         _stream_chunk(tool_calls=[{"index": 0, "id": "call_1", "function": {"name": "file_write"}}]),
@@ -420,7 +420,7 @@ async def test_adapter_streaming_no_progress_aborts_run(monkeypatch):
             await _asyncio.sleep(5)  # never actually delivers
             raise StopAsyncIteration
 
-    adapter = LiteLLMOrchestratorAdapter(model="ollama_chat/qwen3-coder:30b", project_id=uuid.uuid4())
+    adapter = LiteLLMOrchestratorAdapter(model="openai/gpt-4o", project_id=uuid.uuid4())
 
     with (
         patch(
