@@ -415,7 +415,13 @@ async def _persist_snapshot(
 
 
 async def _find_ready_children(db: AsyncSession, parent: ExecutionRun) -> list[ExecutionRun]:
-    """Find blocked/pending children whose all dependencies are now done."""
+    """Find blocked/pending children whose all dependencies are now done.
+
+    Batch-loaded (S2-1 M2): the per-candidate dep-status loop has been
+    replaced with a single grouped query joining the dependencies
+    association table to ``ExecutionRun.status``. Total round-trips per
+    call: ``3`` regardless of candidate count (was ``2 + N``).
+    """
     deps = execution_run_dependencies
     dependent_ids_stmt = select(deps.c.run_id).where(deps.c.dependency_id == parent.id)
     result = await db.execute(dependent_ids_stmt)
@@ -423,25 +429,27 @@ async def _find_ready_children(db: AsyncSession, parent: ExecutionRun) -> list[E
     if not dependent_ids:
         return []
 
-    # For each candidate, confirm all of its dependencies are done.
     candidates_stmt = select(ExecutionRun).where(
         ExecutionRun.id.in_(dependent_ids),
         ExecutionRun.status == RunStatus.blocked,
     )
-    result = await db.execute(candidates_stmt)
-    candidates = list(result.scalars())
+    candidates = list((await db.execute(candidates_stmt)).scalars())
+    if not candidates:
+        return []
 
-    ready: list[ExecutionRun] = []
-    for candidate in candidates:
-        deps_stmt = (
-            select(ExecutionRun.status)
-            .join(deps, deps.c.dependency_id == ExecutionRun.id)
-            .where(deps.c.run_id == candidate.id)
-        )
-        dep_statuses = (await db.execute(deps_stmt)).scalars().all()
-        if all(status == RunStatus.done for status in dep_statuses):
-            ready.append(candidate)
-    return ready
+    # One grouped query: for every (candidate_run_id, dep_status) pair,
+    # count rows where dep_status != done. Candidates with zero such
+    # rows are ready. Avoids the per-candidate query (N+1).
+    candidate_ids = [c.id for c in candidates]
+    pending_stmt = (
+        select(deps.c.run_id)
+        .join(ExecutionRun, ExecutionRun.id == deps.c.dependency_id)
+        .where(deps.c.run_id.in_(candidate_ids))
+        .where(ExecutionRun.status != RunStatus.done)
+        .distinct()
+    )
+    blocked_ids = {row[0] for row in (await db.execute(pending_stmt)).all()}
+    return [c for c in candidates if c.id not in blocked_ids]
 
 
 _singleton: RunOrchestrator | None = None

@@ -8,6 +8,18 @@ class Settings(BaseSettings):
     redis_url: str = "redis://redis:6379"
     database_url: str = "postgresql+asyncpg://bsnexus:bsnexus_dev@postgres:5432/bsnexus"
 
+    # Database connection pool (S2-1 M19/H13). Each long-running
+    # delegated agent can hold a session for the duration of an LLM
+    # call — production deployments need to grow these without
+    # patching source. ``db_pool_recycle_s = -1`` means "no recycle";
+    # set a positive value when running behind a connection-killing
+    # proxy (PgBouncer pause, RDS proxy idle drop) so SQLAlchemy
+    # reconnects before the proxy reaps the socket.
+    db_pool_size: int = 10
+    db_max_overflow: int = 20
+    db_pool_timeout_s: int = 60
+    db_pool_recycle_s: int = -1
+
     # BSVibe Auth
     bsvibe_auth_url: str = "https://auth.bsvibe.dev"
     frontend_url: str = "http://localhost:3000"
