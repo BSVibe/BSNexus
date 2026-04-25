@@ -30,6 +30,14 @@ logger = structlog.get_logger(__name__)
 
 REQUEST_TIMEOUT = int(os.getenv("LLM_REQUEST_TIMEOUT", "600"))
 
+# Wall-clock budget for one ``execute()`` call across all tool-loop
+# iterations. Backstop in case individual ``REQUEST_TIMEOUT`` slips
+# (Ollama via litellm is known to ignore the ``timeout`` kwarg under
+# certain provider/version combos — the run silently hangs forever).
+# 30 minutes is enough for legitimate 8-10 file scaffolds even with a
+# slow local LLM; anything past this is stuck.
+EXECUTE_WALL_CLOCK_S = int(os.getenv("LLM_EXECUTE_WALL_CLOCK_S", "1800"))
+
 # When the model streams tokens, we keep a sliding watchdog: if no new
 # chunk arrives for this many seconds, assume the upstream stalled and
 # abort the iteration. Phase 2 of the previous E2E run hung for 10+
@@ -121,8 +129,35 @@ class LiteLLMOrchestratorAdapter:
         final_text = ""
         stop_reason = "stop"
 
+        deadline = asyncio.get_event_loop().time() + EXECUTE_WALL_CLOCK_S
+
         for iteration in range(MAX_TOOL_ITERATIONS):
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                logger.warning(
+                    "llm_execute_wall_clock_exhausted",
+                    model=self._model,
+                    iteration=iteration,
+                    written=len(tool_log.written),
+                )
+                stop_reason = "wall_clock_exhausted"
+                final_text = final_text or "(execute wall-clock budget hit; partial output persisted)"
+                break
+            logger.info(
+                "llm_iteration_start",
+                model=self._model,
+                project_id=str(self._project_id),
+                iteration=iteration,
+                messages=len(messages),
+                remaining_s=int(remaining),
+            )
             response = await self._complete(messages, tools)
+            logger.info(
+                "llm_iteration_returned",
+                model=self._model,
+                project_id=str(self._project_id),
+                iteration=iteration,
+            )
             total_prompt_tokens += _int_usage(response, "prompt_tokens")
             total_completion_tokens += _int_usage(response, "completion_tokens")
             total_cost_usd += _safe_cost(
@@ -145,10 +180,26 @@ class LiteLLMOrchestratorAdapter:
                 final_text = (assistant_content or "").strip()
                 break
 
-            for call in tool_calls:
+            for tool_idx, call in enumerate(tool_calls):
                 name = _call_name(call)
                 args_raw = _call_arguments(call)
+                logger.info(
+                    "tool_call_start",
+                    project_id=str(self._project_id),
+                    iteration=iteration,
+                    tool_idx=tool_idx,
+                    name=name,
+                    args_size=len(args_raw or ""),
+                )
                 result = await execute_tool_call(name=name, raw_arguments=args_raw, log=tool_log)
+                logger.info(
+                    "tool_call_done",
+                    project_id=str(self._project_id),
+                    iteration=iteration,
+                    tool_idx=tool_idx,
+                    name=name,
+                    result_size=len(result or ""),
+                )
                 messages.append(
                     {
                         "role": "tool",
@@ -213,15 +264,23 @@ class LiteLLMOrchestratorAdapter:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
 
+        # Hard outer-bound timeout — litellm's ``timeout`` kwarg is not
+        # reliably enforced for every backend (notably Ollama via
+        # ``ollama_chat/*``); without this wrapper the coroutine can
+        # silently await forever with no error and no way to recover.
+        # 1.2× the soft timeout gives ~20% headroom over what we expect
+        # litellm to enforce internally.
+        outer_timeout = REQUEST_TIMEOUT * 1.2
+
         if not _model_supports_streaming(self._model):
-            return await litellm.acompletion(**kwargs)
+            return await asyncio.wait_for(litellm.acompletion(**kwargs), timeout=outer_timeout)
 
         # Streaming: chunks arrive as they're generated. We aggregate
         # content + tool_call deltas into the same shape the
         # non-streaming path returns so the caller doesn't care.
         kwargs["stream"] = True
         kwargs["stream_options"] = {"include_usage": True}
-        stream = await litellm.acompletion(**kwargs)
+        stream = await asyncio.wait_for(litellm.acompletion(**kwargs), timeout=outer_timeout)
         # Tests stub ``litellm.acompletion`` to return a plain object that
         # already has the non-streaming shape. Detect that and pass it
         # through unchanged so the adapter stays unit-testable without

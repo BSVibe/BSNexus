@@ -141,13 +141,11 @@ class LiteLLMClassifier:
     Kept thin: caller wires up the model id and base URL.
     """
 
-    SYSTEM_PROMPT = (
-        "Classify the user message into exactly one of: chit_chat, question, "
-        "request, modification. If 'request' or 'modification', also produce "
-        "a concise intent summary (max 200 chars). "
-        "Respond as JSON: "
-        '{"intent":"...","intent_summary":"...","confidence":0.0}'
-    )
+    @property
+    def SYSTEM_PROMPT(self) -> str:  # noqa: N802 — kept upper-case for back-compat
+        from backend.src.core.prompts import load_prompt
+
+        return load_prompt("request-classifier")
 
     def __init__(self, model: str, *, base_url: str | None = None, api_key: str | None = None):
         self._model = model

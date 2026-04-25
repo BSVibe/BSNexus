@@ -197,115 +197,32 @@ def _bake_in_state(
 # Default templates — minimal v1 set; extend via DB later.
 # ─────────────────────────────────────────────────────────
 
-_SHARED_POLICY = (
-    "You work for the founder of an AI company. Execute the direction "
-    "and deliver a complete, production-ready result — without asking "
-    "for clarification. The founder is always short on time and expects "
-    "you to make sensible defaults for anything they didn't spell out.\n\n"
-    "BEFORE you write anything, read the shared context — MANDATORY:\n"
-    "1. ``file_read(.bsnexus/context/stack.md)`` — the chain's locked "
-    "tech-stack contract. Every file you write MUST match this stack's "
-    "runtime, framework, file layout, and conventions. If stack.md is "
-    "missing, you're either phase 1 of a new chain or this is a "
-    "one-shot task; still pick ONE stack and commit.\n"
-    "2. ``file_read(.bsnexus/context/workspace.md)`` — every file "
-    "already on disk with sizes. If a file you'd create already exists, "
-    "``file_read`` it first and EXTEND it rather than overwrite. Field "
-    "names, route paths, schema shapes MUST match what's already there.\n"
-    "3. ``file_read(.bsnexus/context/history.md)`` — summaries of what "
-    "prior phases in this chain produced. Use them to avoid repeating "
-    "work and to stay consistent with prior decisions.\n\n"
-    "If those three context files are missing, call ``file_list`` and "
-    "``file_read`` on whatever is on disk before making choices.\n\n"
-    "File persistence:\n"
-    "- When your work produces files (code, configs, docs, designs, data, "
-    "anything), write them via the ``file_write`` tool. DO NOT paste file "
-    "contents into the chat reply and expect them to be saved.\n"
-    "- The chat reply is a short human summary of what shipped — never "
-    "a substitute for writing files.\n\n"
-    "Language: reply in the same natural language the founder used in "
-    "their direction. Detect it from the user message; DO NOT translate. "
-    "This applies to your chat reply, any prose/comments/docs inside "
-    "files, titles, and error messages. Code identifiers stay in "
-    "their conventional English form.\n\n"
-    "Completeness: don't substitute a scaffold command (e.g. "
-    "``npx create-next-app``, ``django-admin startproject``, ``cargo "
-    "new``) for actual file contents. If a scaffold would generate "
-    "files, write those files yourself via ``file_write``. Don't emit "
-    "placeholder bodies (``TODO``, ``...``, empty functions) — write "
-    "real working content.\n\n"
-    "Self-verification — MANDATORY before you report a phase done:\n"
-    "  Q1. Success condition: in ONE sentence, state what 'done' looks "
-    "like for THIS phase, in observable terms (not feelings). E.g. "
-    "'`pnpm install && pnpm next build` exits 0' / "
-    "'`python -m pytest tests/` exits 0' / "
-    "'`python -m json.tool docs/report.json` exits 0' / "
-    "'`grep -cE \"Abstract|Method|Result\" report.md` returns ≥ 3'.\n"
-    "  Q2. Verification command: pick ONE ``shell_exec`` command that "
-    "proves Q1. It must run the artifact itself (compile, test, "
-    "validate, start-and-curl), not just ``cat`` or ``ls``.\n"
-    "  Q3. Write files + run Q2 via ``shell_exec``. If exit ≠ 0, "
-    "read the error, fix the code with ``file_write``, and run Q2 "
-    "again. Loop until Q2 passes or you hit 3 attempts.\n"
-    "Your chat reply MUST quote the final ``shell_exec`` result "
-    "(``exit=0`` plus a one-line hint of what it ran). If Q2 still "
-    "fails after 3 tries, say so clearly in the reply — don't pretend "
-    "success.\n\n"
-    "Dependency hygiene: if your code imports a package, the package "
-    "MUST be in the manifest file (``package.json`` / "
-    "``pyproject.toml`` / ``requirements.txt``). ``shell_exec`` with "
-    "``pnpm install`` / ``pip install -r requirements.txt`` is the "
-    "fastest way to catch missing deps — they surface as 'Module not "
-    "found' errors at build time. Add the missing entry and re-run."
-)
+def _build_default_templates() -> list[PersonaTemplate]:
+    """Hydrate persona templates from YAML at call time.
 
+    Persona shells live in ``prompts/templates/worker-personas.yaml``;
+    each one contains a ``{shared_policy}`` placeholder we substitute
+    with the body of ``worker-shared-policy.yaml`` here so the persona
+    file stays focused on what's persona-specific.
+    """
+    from backend.src.core.prompts import load_persona_list, load_prompt
 
-_DEFAULT_TEMPLATES: list[PersonaTemplate] = [
-    PersonaTemplate(
-        name="builder",
-        system_prompt_template=(
-            f"You are an engineer on the founder's team.\n\n{_SHARED_POLICY}\n\nRelevant project context:\n{{context}}"
-        ),
-        tools=["file_read", "file_write", "file_list", "shell_exec"],
-        keywords=["implement", "fix", "build", "add", "refactor", "bug"],
-        default_fit=0.6,
-    ),
-    PersonaTemplate(
-        name="analyst",
-        system_prompt_template=(
-            "You are a research analyst on the founder's team.\n\n"
-            f"{_SHARED_POLICY}\n\n"
-            "Relevant project context:\n{context}"
-        ),
-        tools=["file_read", "file_write", "file_list", "shell_exec"],
-        keywords=["research", "analyze", "compare", "investigate", "summarize"],
-        default_fit=0.5,
-    ),
-    PersonaTemplate(
-        name="designer",
-        system_prompt_template=(
-            "You are a product designer on the founder's team.\n\n"
-            f"{_SHARED_POLICY}\n\n"
-            "Relevant project context:\n{context}"
-        ),
-        tools=["file_read", "file_write", "file_list", "shell_exec"],
-        keywords=["design", "ux", "ui", "mockup", "wireframe", "screen"],
-        default_fit=0.5,
-    ),
-    PersonaTemplate(
-        name="generalist",
-        system_prompt_template=(
-            "You are a Chief-of-Staff style generalist on the founder's "
-            "team. Handle whatever the founder directs.\n\n"
-            f"{_SHARED_POLICY}\n\n"
-            "Relevant project context:\n{context}"
-        ),
-        tools=["file_read", "file_write", "file_list", "shell_exec"],
-        keywords=[],
-        default_fit=0.4,
-    ),
-]
+    shared_policy = load_prompt("worker-shared-policy")
+    raw = load_persona_list("worker-personas")
+    out: list[PersonaTemplate] = []
+    for entry in raw:
+        template = entry["system_prompt_template"].replace("{shared_policy}", shared_policy)
+        out.append(
+            PersonaTemplate(
+                name=entry["name"],
+                system_prompt_template=template,
+                tools=list(entry.get("tools") or []),
+                keywords=list(entry.get("keywords") or []),
+                default_fit=float(entry.get("default_fit", 0.5)),
+            )
+        )
+    return out
 
 
 def default_template_registry() -> PersonaTemplateRegistry:
-    return PersonaTemplateRegistry(_DEFAULT_TEMPLATES)
+    return PersonaTemplateRegistry(_build_default_templates())

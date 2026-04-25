@@ -60,13 +60,51 @@ def write_file(
 
 HIDDEN_PREFIXES: tuple[str, ...] = (".bsnexus/",)
 
+# Package-manager / build / cache trees the worker shouldn't see in its
+# context — they balloon a project from "5 source files" to "5000
+# entries", drown out the actual deliverables, and push the meaningful
+# paths past any truncation cap. Filtered out by default for both the
+# UI Files tab and the replanner / worker prompt context. Pass
+# ``include_noise=True`` from internal callers (e.g. when packaging a
+# deliverable archive).
+NOISE_PREFIXES: tuple[str, ...] = (
+    "node_modules/",
+    ".pnpm-store/",
+    ".yarn/",
+    "dist/",
+    "build/",
+    ".next/",
+    ".nuxt/",
+    ".turbo/",
+    ".cache/",
+    "__pycache__/",
+    ".pytest_cache/",
+    ".mypy_cache/",
+    ".ruff_cache/",
+    ".venv/",
+    "venv/",
+    "target/",
+    ".git/",
+)
 
-def list_files(project_id: uuid.UUID, *, include_hidden: bool = False) -> list[dict[str, object]]:
+
+def list_files(
+    project_id: uuid.UUID,
+    *,
+    include_hidden: bool = False,
+    include_noise: bool = False,
+) -> list[dict[str, object]]:
     """Return a flat list of files under the workspace with size bytes.
 
     The ``.bsnexus/`` harness directory is internal plumbing — hidden by
     default so the UI's Files tab shows only founder-facing deliverables.
     Internal callers (the harness itself) pass ``include_hidden=True``.
+
+    Package-manager and build trees (``node_modules/``, ``dist/`` …) are
+    filtered out by default — they're irrelevant to both the UI and to
+    the replanner's "what's been shipped?" question, and they push the
+    actual source files off the bottom of any truncation window. Pass
+    ``include_noise=True`` to disable.
     """
     root = project_workspace_path(project_id)
     out: list[dict[str, object]] = []
@@ -75,6 +113,8 @@ def list_files(project_id: uuid.UUID, *, include_hidden: bool = False) -> list[d
             continue
         rel = path.relative_to(root).as_posix()
         if not include_hidden and rel.startswith(HIDDEN_PREFIXES):
+            continue
+        if not include_noise and rel.startswith(NOISE_PREFIXES):
             continue
         try:
             size = path.stat().st_size

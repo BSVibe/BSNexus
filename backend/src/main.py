@@ -1,6 +1,9 @@
+import faulthandler
 import logging
 import logging.handlers
 import os
+import signal
+import sys
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -66,12 +69,59 @@ _DEV_SIGNING_KEY = Settings.model_fields["prompt_signing_key"].default
 _DEV_ENCRYPTION_KEY = Settings.model_fields["encryption_key"].default
 
 
+_TRACE_DUMP_PATH = os.getenv("BSNEXUS_TRACE_DUMP_PATH", "/tmp/bsnexus-trace.log")
+_trace_dump_fp = None
+
+
+def _install_thread_traceback_signal() -> None:
+    """``kill -USR1 <pid>`` dumps every OS thread's Python stack to
+    ``$BSNEXUS_TRACE_DUMP_PATH``. Synchronous-safe: faulthandler's
+    handler is signal-safe and writes directly to the registered fd."""
+    global _trace_dump_fp  # noqa: PLW0603 — single-shot startup setup
+    _trace_dump_fp = open(_TRACE_DUMP_PATH, "a", buffering=1, encoding="utf-8")
+    faulthandler.register(signal.SIGUSR1, file=_trace_dump_fp, all_threads=True, chain=False)
+
+
+def _install_asyncio_signal(loop) -> None:
+    """``kill -USR2 <pid>`` enumerates every asyncio task on the running
+    loop. Must be installed via ``loop.add_signal_handler`` (not
+    ``signal.signal``) so the callback runs inside the event loop —
+    ``asyncio.all_tasks()`` and ``task.print_stack()`` aren't safe from
+    a raw signal-handler frame."""
+    import datetime as _dt
+    import asyncio as _asyncio
+
+    def _dump():
+        if _trace_dump_fp is None:
+            return
+        tasks = _asyncio.all_tasks(loop)
+        ts = _dt.datetime.now().isoformat(timespec="seconds")
+        _trace_dump_fp.write(f"\n===== {ts} asyncio tasks: {len(tasks)} =====\n")
+        for task in tasks:
+            _trace_dump_fp.write(f"\n[{task.get_name()}] state={task._state}\n")
+            try:
+                task.print_stack(file=_trace_dump_fp)
+            except Exception as exc:  # noqa: BLE001 — best effort
+                _trace_dump_fp.write(f"  print_stack failed: {exc}\n")
+        _trace_dump_fp.write("===== end asyncio tasks =====\n\n")
+        _trace_dump_fp.flush()
+
+    loop.add_signal_handler(signal.SIGUSR2, _dump)
+    # ``sys`` is imported at module top — keep the reference live for
+    # closures that may grow later.
+    _ = sys
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Server lifecycle: startup and shutdown.
 
     P3 TODO: start RunOrchestrator (event-driven, replaces GlobalDispatcher).
     """
+    import asyncio as _asyncio_local
+
+    _install_thread_traceback_signal()
+    _install_asyncio_signal(_asyncio_local.get_running_loop())
     if not app_settings.debug and app_settings.prompt_signing_key == _DEV_SIGNING_KEY:
         raise RuntimeError(
             "FATAL: prompt_signing_key is still the dev default. "

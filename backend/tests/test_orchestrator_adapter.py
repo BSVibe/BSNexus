@@ -434,3 +434,68 @@ async def test_adapter_streaming_no_progress_aborts_run(monkeypatch):
         pytest.raises(TimeoutError),
     ):
         await adapter.execute("sys", "go", tools_allowed=[])
+
+
+@pytest.mark.asyncio
+async def test_adapter_non_streaming_request_timeout_is_enforced(monkeypatch):
+    """Backstop for litellm Ollama: ``timeout`` kwarg is unreliable, so
+    ``_complete`` wraps the call in ``asyncio.wait_for``. If the
+    upstream non-streaming call never returns, the adapter must raise
+    ``TimeoutError`` instead of hanging forever (regression: a
+    qwen3-coder run sat in ``running`` for 71+ minutes with no Ollama
+    connection because litellm silently never resolved the awaitable)."""
+    monkeypatch.setattr("backend.src.core.orchestrator_adapter.REQUEST_TIMEOUT", 1)
+
+    async def _never_resolves(**_kwargs):
+        import asyncio as _asyncio
+
+        await _asyncio.sleep(60)
+        raise AssertionError("should have been cancelled by wait_for")
+
+    adapter = LiteLLMOrchestratorAdapter(
+        model="ollama_chat/qwen3-coder:30b",
+        project_id=uuid.uuid4(),
+        base_url="http://localhost:11434",
+    )
+
+    with (
+        patch(
+            "backend.src.core.orchestrator_adapter.litellm.acompletion",
+            side_effect=_never_resolves,
+        ),
+        patch(
+            "backend.src.core.orchestrator_adapter.litellm.cost_per_token",
+            return_value=0.0,
+        ),
+        pytest.raises(TimeoutError),
+    ):
+        await adapter.execute("sys", "go", tools_allowed=[])
+
+
+@pytest.mark.asyncio
+async def test_adapter_execute_wall_clock_budget_breaks_loop(monkeypatch):
+    """If individual request timeouts somehow slip past, the
+    overall ``execute()`` wall-clock budget must still terminate the
+    tool loop with ``stop_reason='wall_clock_exhausted'`` rather than
+    iterating to MAX_TOOL_ITERATIONS (24 × 600s = 4 hours)."""
+    monkeypatch.setattr(
+        "backend.src.core.orchestrator_adapter.EXECUTE_WALL_CLOCK_S",
+        0,  # already exhausted on first iteration
+    )
+
+    adapter = LiteLLMOrchestratorAdapter(model="openai/gpt-4o", project_id=uuid.uuid4())
+
+    with (
+        patch(
+            "backend.src.core.orchestrator_adapter.litellm.acompletion",
+            AsyncMock(return_value=_fake_response(content="should not be called")),
+        ) as mock_call,
+        patch(
+            "backend.src.core.orchestrator_adapter.litellm.cost_per_token",
+            return_value=0.0,
+        ),
+    ):
+        out = await adapter.execute("sys", "go", tools_allowed=[])
+
+    assert out["stop_reason"] == "wall_clock_exhausted"
+    mock_call.assert_not_awaited()
