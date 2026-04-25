@@ -296,3 +296,141 @@ async def test_adapter_bails_out_when_tool_loop_exceeds_cap(tmp_path, monkeypatc
         out = await adapter.execute("sys", "go", tools_allowed=["file_list"])
 
     assert out["stop_reason"] == "tool_iterations_exhausted"
+
+
+# ────────────────────── streaming ──────────────────────
+
+
+def _stream_chunk(
+    *, content: str = "", tool_calls: list[dict] | None = None, finish: str | None = None, usage: dict | None = None
+):
+    """Build a single OpenAI-style stream chunk."""
+    delta_kwargs: dict = {}
+    if content:
+        delta_kwargs["content"] = content
+    if tool_calls is not None:
+        delta_kwargs["tool_calls"] = tool_calls
+    delta = SimpleNamespace(**delta_kwargs) if delta_kwargs else SimpleNamespace()
+    chunk = SimpleNamespace(
+        choices=[SimpleNamespace(delta=delta, finish_reason=finish)],
+    )
+    if usage is not None:
+        chunk.usage = SimpleNamespace(**usage)
+    return chunk
+
+
+class _FakeStream:
+    """Async iterator over a list of pre-baked chunks."""
+
+    def __init__(self, chunks: list):
+        self._chunks = list(chunks)
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if not self._chunks:
+            raise StopAsyncIteration
+        return self._chunks.pop(0)
+
+
+@pytest.mark.asyncio
+async def test_adapter_aggregates_streamed_content():
+    """Tokens arrive in chunks; the adapter must concat them and finish
+    cleanly when the stream ends."""
+    adapter = LiteLLMOrchestratorAdapter(
+        model="ollama_chat/qwen3-coder:30b",
+        project_id=uuid.uuid4(),
+    )
+    chunks = [
+        _stream_chunk(content="hello "),
+        _stream_chunk(content="world"),
+        _stream_chunk(finish="stop", usage={"prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12}),
+    ]
+    with (
+        patch(
+            "backend.src.core.orchestrator_adapter.litellm.acompletion",
+            AsyncMock(return_value=_FakeStream(chunks)),
+        ),
+        patch(
+            "backend.src.core.orchestrator_adapter.litellm.cost_per_token",
+            return_value=0.0,
+        ),
+    ):
+        out = await adapter.execute("sys", "user", tools_allowed=[])
+    assert out["status"] == "done"
+    assert out["output_ref"]["inline"] == "hello world"
+    assert out["stop_reason"] == "stop"
+    assert out["completion_tokens"] == 2
+
+
+@pytest.mark.asyncio
+async def test_adapter_aggregates_streamed_tool_calls(tmp_path, monkeypatch):
+    """Tool-call deltas arrive piecewise (id on chunk 1, name on 2,
+    arguments split across 3+); the adapter must reassemble into a
+    single executable call."""
+    monkeypatch.setattr(
+        "backend.src.core.project_workspace._root",
+        lambda: tmp_path,
+    )
+    project_id = uuid.uuid4()
+    adapter = LiteLLMOrchestratorAdapter(model="ollama_chat/qwen3-coder:30b", project_id=project_id)
+
+    streamed_call_chunks = [
+        _stream_chunk(tool_calls=[{"index": 0, "id": "call_1", "function": {"name": "file_write"}}]),
+        _stream_chunk(tool_calls=[{"index": 0, "function": {"arguments": '{"path":"a.txt"'}}]),
+        _stream_chunk(tool_calls=[{"index": 0, "function": {"arguments": ',"content":"hi"}'}}]),
+        _stream_chunk(finish="tool_calls"),
+    ]
+    final_text_chunks = [
+        _stream_chunk(content="ok wrote a.txt"),
+        _stream_chunk(finish="stop"),
+    ]
+    with (
+        patch(
+            "backend.src.core.orchestrator_adapter.litellm.acompletion",
+            AsyncMock(side_effect=[_FakeStream(streamed_call_chunks), _FakeStream(final_text_chunks)]),
+        ),
+        patch(
+            "backend.src.core.orchestrator_adapter.litellm.cost_per_token",
+            return_value=0.0,
+        ),
+    ):
+        out = await adapter.execute("sys", "go", tools_allowed=["file_write"])
+    assert out["output_ref"]["inline"] == "ok wrote a.txt"
+    files = out["output_ref"]["files"]
+    assert len(files) == 1
+    assert files[0]["path"] == "a.txt"
+
+
+@pytest.mark.asyncio
+async def test_adapter_streaming_no_progress_aborts_run(monkeypatch):
+    """If the stream stalls (no chunk for NO_PROGRESS_TIMEOUT_S), the
+    adapter raises asyncio.TimeoutError so the orchestrator can mark
+    the run as blocked instead of hanging forever."""
+    monkeypatch.setattr("backend.src.core.orchestrator_adapter.NO_PROGRESS_TIMEOUT_S", 1)
+
+    class _StalledStream:
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            import asyncio as _asyncio
+
+            await _asyncio.sleep(5)  # never actually delivers
+            raise StopAsyncIteration
+
+    adapter = LiteLLMOrchestratorAdapter(model="ollama_chat/qwen3-coder:30b", project_id=uuid.uuid4())
+
+    with (
+        patch(
+            "backend.src.core.orchestrator_adapter.litellm.acompletion",
+            AsyncMock(return_value=_StalledStream()),
+        ),
+        patch(
+            "backend.src.core.orchestrator_adapter.litellm.cost_per_token",
+            return_value=0.0,
+        ),
+        pytest.raises(TimeoutError),
+    ):
+        await adapter.execute("sys", "go", tools_allowed=[])

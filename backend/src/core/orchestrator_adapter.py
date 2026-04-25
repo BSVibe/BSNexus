@@ -14,9 +14,11 @@ having to re-parse the chat reply.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import uuid
+from dataclasses import dataclass, field
 from typing import Any
 
 import litellm
@@ -27,6 +29,18 @@ from backend.src.core.tools import ToolRunLog, execute_tool_call, tool_schemas
 logger = structlog.get_logger(__name__)
 
 REQUEST_TIMEOUT = int(os.getenv("LLM_REQUEST_TIMEOUT", "600"))
+
+# When the model streams tokens, we keep a sliding watchdog: if no new
+# chunk arrives for this many seconds, assume the upstream stalled and
+# abort the iteration. Phase 2 of the previous E2E run hung for 10+
+# minutes after Ollama finished generating because the connection
+# silently stopped without an error frame; the wall-clock timeout
+# masked it. This catches it within 90s.
+NO_PROGRESS_TIMEOUT_S = int(os.getenv("LLM_NO_PROGRESS_TIMEOUT_S", "90"))
+
+# Stream the LLM response by default — see commit message. Disable with
+# LLM_STREAMING=0 if a provider has poor streaming support.
+STREAMING_ENABLED = os.getenv("LLM_STREAMING", "1") not in ("0", "false", "False")
 
 # Maximum number of assistant↔tool turns in a single ``execute``. Each
 # iteration lets the model issue another batch of tool calls. Need
@@ -181,7 +195,153 @@ class LiteLLMOrchestratorAdapter:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
 
-        return await litellm.acompletion(**kwargs)
+        if not STREAMING_ENABLED:
+            return await litellm.acompletion(**kwargs)
+
+        # Streaming: chunks arrive as they're generated. We aggregate
+        # content + tool_call deltas into the same shape the
+        # non-streaming path returns so the caller doesn't care.
+        kwargs["stream"] = True
+        kwargs["stream_options"] = {"include_usage": True}
+        stream = await litellm.acompletion(**kwargs)
+        # Tests stub ``litellm.acompletion`` to return a plain object that
+        # already has the non-streaming shape. Detect that and pass it
+        # through unchanged so the adapter stays unit-testable without
+        # an async-generator stub.
+        if not hasattr(stream, "__aiter__"):
+            return stream
+        return await _consume_stream(stream, model=self._model)
+
+
+# ────────────────────── streaming aggregation ──────────────────────
+
+
+@dataclass
+class _StreamedToolCall:
+    id: str = ""
+    name: str = ""
+    arguments: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "type": "function",
+            "function": {"name": self.name, "arguments": self.arguments},
+        }
+
+
+@dataclass
+class _StreamedChoice:
+    content: str = ""
+    tool_calls: dict[int, _StreamedToolCall] = field(default_factory=dict)
+    finish_reason: str | None = None
+
+
+@dataclass
+class _StreamedResponse:
+    """Non-stream-shaped result built from streamed deltas.
+
+    Has just enough surface (``choices[0].message.content`` /
+    ``choices[0].message.tool_calls`` / ``choices[0].finish_reason`` /
+    ``usage``) to flow through the existing helpers in this module
+    unchanged.
+    """
+
+    choice: _StreamedChoice
+    usage: dict[str, int] = field(default_factory=dict)
+
+    @property
+    def choices(self) -> list[_FakeChoice]:
+        return [_FakeChoice(self.choice)]
+
+
+@dataclass
+class _FakeChoice:
+    inner: _StreamedChoice
+
+    @property
+    def finish_reason(self) -> str | None:
+        return self.inner.finish_reason
+
+    @property
+    def message(self) -> dict[str, Any]:
+        msg: dict[str, Any] = {"role": "assistant", "content": self.inner.content}
+        if self.inner.tool_calls:
+            msg["tool_calls"] = [self.inner.tool_calls[i].to_dict() for i in sorted(self.inner.tool_calls.keys())]
+        return msg
+
+
+async def _consume_stream(stream: Any, *, model: str) -> _StreamedResponse:
+    """Iterate the litellm stream, applying a no-progress watchdog.
+
+    Cancels the underlying generator if no chunk arrives for
+    ``NO_PROGRESS_TIMEOUT_S`` seconds. Raises ``asyncio.TimeoutError``
+    in that case so the orchestrator records the run as blocked
+    instead of hanging the worker forever.
+    """
+    state = _StreamedChoice()
+    usage: dict[str, int] = {}
+
+    aiter_obj = stream.__aiter__()
+    while True:
+        try:
+            chunk = await asyncio.wait_for(aiter_obj.__anext__(), timeout=NO_PROGRESS_TIMEOUT_S)
+        except StopAsyncIteration:
+            break
+        except asyncio.TimeoutError:
+            logger.warning(
+                "llm_stream_no_progress",
+                model=model,
+                timeout_s=NO_PROGRESS_TIMEOUT_S,
+                content_len=len(state.content),
+                tool_calls=len(state.tool_calls),
+            )
+            raise
+
+        # Aggregate this chunk's deltas. litellm normalises chunks to an
+        # OpenAI-shape with .choices[0].delta + optional .usage.
+        choices = getattr(chunk, "choices", None) or []
+        if choices:
+            choice = choices[0]
+            delta = getattr(choice, "delta", None) or {}
+            content_delta = getattr(delta, "content", None) if not isinstance(delta, dict) else delta.get("content")
+            if content_delta:
+                state.content += content_delta
+
+            tool_calls_delta = (
+                getattr(delta, "tool_calls", None) if not isinstance(delta, dict) else delta.get("tool_calls")
+            ) or []
+            for tc in tool_calls_delta:
+                idx = getattr(tc, "index", None) if not isinstance(tc, dict) else tc.get("index")
+                idx = int(idx or 0)
+                bucket = state.tool_calls.setdefault(idx, _StreamedToolCall())
+                tc_id = getattr(tc, "id", None) if not isinstance(tc, dict) else tc.get("id")
+                if tc_id:
+                    bucket.id = str(tc_id)
+                func = getattr(tc, "function", None) if not isinstance(tc, dict) else tc.get("function")
+                if func is not None:
+                    name = getattr(func, "name", None) if not isinstance(func, dict) else func.get("name")
+                    if name:
+                        bucket.name = str(name)
+                    args = getattr(func, "arguments", None) if not isinstance(func, dict) else func.get("arguments")
+                    if args:
+                        bucket.arguments += str(args)
+
+            finish = getattr(choice, "finish_reason", None)
+            if finish:
+                state.finish_reason = str(finish)
+
+        chunk_usage = getattr(chunk, "usage", None)
+        if chunk_usage:
+            for k in ("prompt_tokens", "completion_tokens", "total_tokens"):
+                v = getattr(chunk_usage, k, None) if not isinstance(chunk_usage, dict) else chunk_usage.get(k)
+                if v is not None:
+                    try:
+                        usage[k] = int(v)
+                    except (TypeError, ValueError):
+                        pass
+
+    return _StreamedResponse(choice=state, usage=usage)
 
 
 # ────────────────────── response helpers ──────────────────────
