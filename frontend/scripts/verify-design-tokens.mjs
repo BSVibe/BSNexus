@@ -22,7 +22,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const SPEC_PATH =
   process.env.DESIGN_SYSTEM_SPEC ||
-  resolve(process.env.HOME || '/Users/blasin', 'Docs/design_system.md');
+  (process.env.HOME ? resolve(process.env.HOME, 'Docs/design_system.md') : '');
 const TOKENS_PATH = resolve(REPO_ROOT, 'frontend/src/design-tokens.ts');
 
 function parseSpec(markdown) {

@@ -1,7 +1,10 @@
 /**
- * BSVibe design tokens — source of truth.
- * Mirrors /Users/blasin/Docs/design_system.md v0.1.0.
- * Run `pnpm tokens:verify` to check this stays in sync with the spec.
+ * BSVibe design tokens — source of truth for runtime CSS vars.
+ * Mirrors the canonical ``design_system.md`` v0.1.0 spec (kept in
+ * the maintainer's BSVibe-ecosystem doc vault). Run
+ * ``pnpm tokens:verify`` to check this stays in sync; pass
+ * ``DESIGN_SYSTEM_SPEC=/path/to/spec`` to point the check at a
+ * non-default location.
  */
 
 export const gray = {
