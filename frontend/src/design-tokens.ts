@@ -1,5 +1,21 @@
 /**
  * BSVibe design tokens — source of truth for runtime CSS vars.
+ *
+ * Phase A Batch 5: this file IS the canonical source. The shared
+ * package ``@bsvibe/design-tokens`` (in
+ * https://github.com/BSVibe/bsvibe-frontend-lib) was extracted FROM
+ * this file verbatim — see ``packages/design-tokens/src/index.ts``
+ * header in that repo, which credits BSNexus as the SoT origin.
+ *
+ * Phase A continuation (post-publication of @bsvibe/design-tokens to
+ * GitHub Packages — blocked on Lockin §A0 #12 user action for
+ * NPM_TOKEN): swap this file for a thin re-export
+ *
+ *   export * from '@bsvibe/design-tokens';
+ *
+ * After the swap any drift detection (``pnpm tokens:verify``) moves
+ * to the shared package's CI; BSNexus only consumes.
+ *
  * Mirrors the canonical ``design_system.md`` v0.1.0 spec (kept in
  * the maintainer's BSVibe-ecosystem doc vault). Run
  * ``pnpm tokens:verify`` to check this stays in sync; pass

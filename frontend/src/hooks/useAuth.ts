@@ -1,3 +1,33 @@
+/**
+ * BSNexus auth hook — Phase A Batch 5 status.
+ *
+ * Lockin §A1-A2: ``@bsvibe/auth`` is the canonical extraction target.
+ * That package was published in ``bsvibe-frontend-lib`` (PR
+ * https://github.com/BSVibe/bsvibe-frontend-lib) and its
+ * ``UseAuthValue`` exposes a richer multi-tenant shape:
+ *
+ *   { user, tenants, activeTenant, hasPermission, switchTenant,
+ *     refresh, isLoading, error }
+ *
+ * BSNexus today uses a simpler 4-prop shape (``user``, ``loading``,
+ * ``login``, ``logout``) consumed by all four founder-metaphor surfaces
+ * (Direction / Progress / Decisions / Inside) plus Sidebar +
+ * ProtectedRoute + LandingPage.
+ *
+ * The full swap to ``@bsvibe/auth`` is gated on:
+ *  1. Lockin §A0 #12 — user-action GitHub Packages PAT + Vercel
+ *     ``NPM_TOKEN`` so ``@bsvibe/*`` packages resolve.
+ *  2. A consumer migration that maps BSNexus's
+ *     ``login`` / ``logout`` / ``loading`` props onto
+ *     ``@bsvibe/auth``'s ``isLoading`` + (BSNexus-side) login/logout
+ *     helpers (the multi-tenant hook intentionally leaves redirect
+ *     orchestration to consumers — Auth_Design.md §5).
+ *
+ * Until then this file remains the production hook. New code should
+ * read ``user.email`` and gate via the AuthContext consumer pattern in
+ * ``components/auth/AuthContext.ts`` so the eventual swap is
+ * mechanical.
+ */
 import { useEffect, useState } from 'react'
 
 interface User {
