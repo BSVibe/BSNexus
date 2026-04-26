@@ -53,22 +53,24 @@ async def test_safe_workspace_listing_swallows_oserror():
 
 @pytest.mark.asyncio
 async def test_run_orchestrator_executor_propagates_cancellation():
-    """The executor-boundary catch in ``RunOrchestrator.dispatch_run``
-    must re-raise CancelledError. The implementation now has an
-    explicit ``except CancelledError: raise`` branch as a defensive
-    measure (in case the catch is widened to BaseException by a future
-    refactor).
+    """The executor-boundary catch in ``RunOrchestrator`` must re-raise
+    CancelledError. The implementation has an explicit
+    ``except CancelledError: raise`` branch as a defensive measure (in
+    case the catch is widened to BaseException by a future refactor).
+
+    S3-1 split the dispatch flow into a thin advisory-lock wrapper
+    (``dispatch_run``) plus the original body (``_dispatch_run_locked``).
+    The CancelledError guard lives in the body — we inspect that path
+    here.
     """
     from backend.src.core.run_orchestrator import RunOrchestrator
 
     orch = RunOrchestrator()
-    # We can't run the full dispatch_run path in a unit test without
-    # heavy fixtures. Verify the source contains the explicit raise
-    # branch by checking the module's static structure.
     import inspect
 
-    src = inspect.getsource(orch.dispatch_run)
-    assert "except asyncio.CancelledError" in src, (
-        "RunOrchestrator.dispatch_run lost its explicit CancelledError "
-        "re-raise around the executor.execute call — see S2-1 M9."
+    body_src = inspect.getsource(orch._dispatch_run_locked)
+    assert "except asyncio.CancelledError" in body_src, (
+        "RunOrchestrator._dispatch_run_locked lost its explicit "
+        "CancelledError re-raise around the executor.execute call — "
+        "see S2-1 M9."
     )

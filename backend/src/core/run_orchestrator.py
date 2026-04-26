@@ -34,6 +34,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.core import harness
+from backend.src.core.advisory_lock import (
+    release_run_dispatch_lock,
+    try_run_dispatch_lock,
+)
 from backend.src.core.audit import AuditSink, emit_post_async, resolve_audit_sink
 from backend.src.core.composer import (
     PromptAssembler,
@@ -75,7 +79,7 @@ class RunOrchestrator:
         db: AsyncSession,
         stream_manager: RedisStreamManager | None = None,
         executor: Any | None = None,
-    ) -> ExecutionRun:
+    ) -> ExecutionRun | None:
         """Dispatch one run through compose → audit → execute → audit-post.
 
         ``executor`` is the LLM/tool-call executor (built via
@@ -83,7 +87,40 @@ class RunOrchestrator:
         When None, the run stops at "ready to execute" and stays in
         ``running`` state until the executor callback lands. This keeps
         the orchestrator testable without a full LLM loop.
+
+        S3-1 horizontal-scaling guard: a Postgres advisory lock keyed by
+        ``hash(run_id)`` ensures that when two BSNexus instances race to
+        dispatch the same run (autoscaling, blue/green overlap, watchdog
+        reclaim), only one wins. The loser observes ``acquired=False``
+        and short-circuits as a no-op — leaving the run in whatever
+        state the winner moves it to. The lock is released in
+        ``finally`` so executor failures don't wedge the run.
         """
+        acquired = await try_run_dispatch_lock(db, run_id)
+        if not acquired:
+            logger.info("dispatch_skipped_lock_busy", run_id=str(run_id))
+            return None
+
+        try:
+            return await self._dispatch_run_locked(
+                run_id,
+                db=db,
+                stream_manager=stream_manager,
+                executor=executor,
+            )
+        finally:
+            await release_run_dispatch_lock(db, run_id)
+
+    async def _dispatch_run_locked(
+        self,
+        run_id: uuid.UUID,
+        *,
+        db: AsyncSession,
+        stream_manager: RedisStreamManager | None,
+        executor: Any | None,
+    ) -> ExecutionRun:
+        """Body of ``dispatch_run`` — the caller already holds the
+        advisory lock for ``run_id``."""
         run = await _load_run(db, run_id)
         request = await _load_request(db, run.request_id)
 
