@@ -23,6 +23,7 @@ from typing import Any
 
 import litellm
 import structlog
+from bsvibe_llm import RunAuditMetadata
 
 from backend.src.core.tools import ToolRunLog, execute_tool_call, tool_schemas
 
@@ -88,31 +89,46 @@ def build_run_audit_metadata(
 
     Cross-PR contract (Lockin §Architectural shifts #1) — keys mirror what
     BSGateway's ``async_pre_call_hook`` consumes to forward
-    ``run.pre`` / ``run.post`` events to BSupervisor on BSNexus's behalf:
+    ``run.pre`` / ``run.post`` events to BSupervisor on BSNexus's behalf.
 
-    * ``tenant_id`` — UUID string of the run's tenant
-    * ``run_id`` — UUID string of this ExecutionRun
-    * ``request_id`` — UUID string or None (some runs have no parent Request)
-    * ``parent_run_id`` — UUID string or None (top-level run vs successor)
-    * ``agent_name`` — persona / agent label for observability grouping
-    * ``cost_estimate`` — pre-run cost estimate in USD cents (None when not set)
+    Phase A Batch 5: this function now delegates to
+    :class:`bsvibe_llm.RunAuditMetadata` — the canonical wire-format
+    contract published by BSGateway PR #24 + BSNexus PR #38. The dict
+    returned has the exact shape ``RunAuditMetadata.to_metadata()``
+    emits. Drift between BSNexus and BSGateway is now a
+    ``bsvibe-llm`` release-gate failure rather than a per-product
+    regression test.
 
-    Drift in this dict's shape between BSNexus and BSGateway breaks the
-    audit trail — the regression test
-    ``tests/test_orchestrator_adapter_audit_metadata.py`` pins it.
+    Backwards-compat note: the legacy key ``cost_estimate`` is still
+    populated in the returned dict alongside the canonical
+    ``cost_estimate_cents`` so any consumer pinned to the older shape
+    continues to read a meaningful value while migrating.
     """
     request_id = getattr(run, "request_id", None)
     parent_run_id = getattr(run, "parent_run_id", None)
     agent_name = getattr(snapshot, "persona_label", None) if snapshot is not None else None
-    cost_estimate = getattr(snapshot, "cost_estimate_cents", None) if snapshot is not None else None
-    return {
-        "tenant_id": str(run.tenant_id),
-        "run_id": str(run.id),
-        "request_id": str(request_id) if request_id is not None else None,
-        "parent_run_id": str(parent_run_id) if parent_run_id is not None else None,
-        "agent_name": agent_name,
-        "cost_estimate": cost_estimate,
-    }
+    cost_cents = getattr(snapshot, "cost_estimate_cents", None) if snapshot is not None else None
+
+    metadata = RunAuditMetadata(
+        tenant_id=str(run.tenant_id),
+        run_id=str(run.id),
+        request_id=str(request_id) if request_id is not None else None,
+        parent_run_id=str(parent_run_id) if parent_run_id is not None else None,
+        agent_name=agent_name,
+        cost_estimate_cents=cost_cents,
+    )
+    out = metadata.to_metadata()
+    # ``RunAuditMetadata.to_metadata()`` drops None values; BSGateway's
+    # current parser tolerates that. We re-surface the keys BSNexus
+    # historically emitted as ``None`` so call sites that ``in`` /
+    # ``.get(...)`` on the result keep finding the keys (including
+    # ``cost_estimate`` legacy alias).
+    out.setdefault("request_id", None)
+    out.setdefault("parent_run_id", None)
+    out.setdefault("agent_name", None)
+    out.setdefault("cost_estimate_cents", None)
+    out["cost_estimate"] = out["cost_estimate_cents"]  # legacy alias
+    return out
 
 
 class LiteLLMOrchestratorAdapter:

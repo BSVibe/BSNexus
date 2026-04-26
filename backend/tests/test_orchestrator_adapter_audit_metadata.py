@@ -242,3 +242,62 @@ async def test_build_run_audit_metadata_handles_missing_optional_fields():
     assert md["parent_run_id"] == "00000000-0000-0000-0000-000000000020"
     assert md["agent_name"] is None
     assert md["cost_estimate"] is None
+
+
+@pytest.mark.asyncio
+async def test_build_run_audit_metadata_emits_canonical_cost_key():
+    """Phase A Batch 5 — bsvibe-llm.RunAuditMetadata is the canonical
+    wire-format contract. BSGateway PR #24's parser reads
+    ``cost_estimate_cents`` (NOT the legacy ``cost_estimate``); this
+    test pins that the dict ``build_run_audit_metadata`` returns now
+    carries the canonical key alongside the legacy alias.
+
+    Without this guard a future refactor that renames keys would
+    silently break BSGateway → BSupervisor cost attribution.
+    """
+    run = SimpleNamespace(
+        id=uuid.UUID("00000000-0000-0000-0000-000000000011"),
+        tenant_id=uuid.UUID("00000000-0000-0000-0000-000000000012"),
+        request_id=None,
+        parent_run_id=None,
+    )
+    snapshot = SimpleNamespace(persona_label="builder", cost_estimate_cents=42)
+
+    from backend.src.core.orchestrator_adapter import build_run_audit_metadata
+
+    md = build_run_audit_metadata(run=run, snapshot=snapshot)
+    # canonical bsvibe-llm key
+    assert md["cost_estimate_cents"] == 42
+    # legacy alias preserved for in-flight consumers during the migration
+    assert md["cost_estimate"] == 42
+
+
+@pytest.mark.asyncio
+async def test_build_run_audit_metadata_round_trip_via_run_audit_metadata_dataclass():
+    """The dict produced by ``build_run_audit_metadata`` must round-trip
+    cleanly through ``RunAuditMetadata.from_metadata`` so BSGateway's
+    parser (which uses the same dataclass on its side) reconstructs the
+    same fields. This is the single contract pin for the producer side
+    of the cross-PR audit metadata wire format."""
+    from bsvibe_llm import RunAuditMetadata
+
+    run = SimpleNamespace(
+        id=uuid.UUID("00000000-0000-0000-0000-000000000011"),
+        tenant_id=uuid.UUID("00000000-0000-0000-0000-000000000012"),
+        request_id=uuid.UUID("00000000-0000-0000-0000-000000000013"),
+        parent_run_id=None,
+    )
+    snapshot = SimpleNamespace(persona_label="builder", cost_estimate_cents=15)
+
+    from backend.src.core.orchestrator_adapter import build_run_audit_metadata
+
+    md = build_run_audit_metadata(run=run, snapshot=snapshot)
+    parsed = RunAuditMetadata.from_metadata(md)
+
+    assert parsed is not None
+    assert parsed.tenant_id == "00000000-0000-0000-0000-000000000012"
+    assert parsed.run_id == "00000000-0000-0000-0000-000000000011"
+    assert parsed.request_id == "00000000-0000-0000-0000-000000000013"
+    assert parsed.parent_run_id is None
+    assert parsed.agent_name == "builder"
+    assert parsed.cost_estimate_cents == 15

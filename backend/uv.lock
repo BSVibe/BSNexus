@@ -259,6 +259,8 @@ dependencies = [
     { name = "asyncpg" },
     { name = "bsvibe-auth", extra = ["fastapi"] },
     { name = "bsvibe-authz" },
+    { name = "bsvibe-core" },
+    { name = "bsvibe-llm" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "litellm" },
@@ -303,6 +305,8 @@ requires-dist = [
     { name = "asyncpg", specifier = ">=0.29.0" },
     { name = "bsvibe-auth", extras = ["fastapi"], git = "https://github.com/BSVibe/BSVibe-Auth.git?subdirectory=python&rev=v0.4.0" },
     { name = "bsvibe-authz", git = "https://github.com/BSVibe/bsvibe-python.git?subdirectory=packages%2Fbsvibe-authz&rev=feat%2Fbsvibe-authz-impl" },
+    { name = "bsvibe-core", git = "https://github.com/BSVibe/bsvibe-python.git?subdirectory=packages%2Fbsvibe-core&rev=feat%2Fbsvibe-llm-impl" },
+    { name = "bsvibe-llm", git = "https://github.com/BSVibe/bsvibe-python.git?subdirectory=packages%2Fbsvibe-llm&rev=feat%2Fbsvibe-llm-impl" },
     { name = "fastapi", specifier = ">=0.109.0" },
     { name = "httpx", specifier = ">=0.26.0" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.26.0" },
@@ -361,6 +365,29 @@ dependencies = [
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "pyjwt", extra = ["crypto"] },
+    { name = "structlog" },
+]
+
+[[package]]
+name = "bsvibe-core"
+version = "0.1.0"
+source = { git = "https://github.com/BSVibe/bsvibe-python.git?subdirectory=packages%2Fbsvibe-core&rev=feat%2Fbsvibe-llm-impl#eb594e74f539734c70957091372142d31f9edd2b" }
+dependencies = [
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+    { name = "structlog" },
+]
+
+[[package]]
+name = "bsvibe-llm"
+version = "0.1.0"
+source = { git = "https://github.com/BSVibe/bsvibe-python.git?subdirectory=packages%2Fbsvibe-llm&rev=feat%2Fbsvibe-llm-impl#eb594e74f539734c70957091372142d31f9edd2b" }
+dependencies = [
+    { name = "bsvibe-core" },
+    { name = "httpx" },
+    { name = "litellm" },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
     { name = "structlog" },
 ]
 

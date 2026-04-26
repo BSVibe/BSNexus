@@ -6,6 +6,7 @@ import signal
 import sys
 from contextlib import asynccontextmanager
 
+from bsvibe_core import configure_logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
@@ -36,7 +37,14 @@ from backend.src.storage.redis_client import get_redis, close_redis
 
 
 def _setup_logging() -> None:
-    """Configure logging with both console and rotating file handlers."""
+    """Configure logging with both console and rotating file handlers.
+
+    Phase A Batch 5: structured JSON via ``bsvibe_core.configure_logging``
+    is the canonical channel (production wire format shared with the
+    three sibling products). Stdlib ``logging`` is still configured so
+    third-party libraries (FastAPI, SQLAlchemy, etc.) and the rotating
+    file handler keep working — the two pipelines coexist.
+    """
     log_level = getattr(logging, app_settings.log_level.upper(), logging.INFO)
     log_format = "%(asctime)s %(levelname)s %(name)s: %(message)s"
     formatter = logging.Formatter(log_format)
@@ -47,6 +55,16 @@ def _setup_logging() -> None:
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(formatter)
     root_logger.addHandler(console_handler)
+
+    # Standardised structlog pipeline — JSON in production, ConsoleRenderer
+    # for local dev when LOG_LEVEL=debug or DEBUG=1 to keep `pytest -s`
+    # readable. Tests use TESTING env to keep stdout pristine.
+    json_output = not bool(os.environ.get("DEBUG") or app_settings.debug)
+    configure_logging(
+        level=app_settings.log_level,
+        json_output=json_output,
+        service_name="bsnexus",
+    )
 
     if os.environ.get("TESTING"):
         return

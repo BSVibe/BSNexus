@@ -1,8 +1,17 @@
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from bsvibe_core import BsvibeSettings
+from pydantic_settings import SettingsConfigDict
 
 
-class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+class Settings(BsvibeSettings):
+    """BSNexus settings — extends ``bsvibe_core.BsvibeSettings``.
+
+    Phase A Batch 5: adopt the shared base so the four products share
+    one ``case_sensitive=False`` + ``extra="ignore"`` contract. BSNexus
+    overrides ``env_file`` to load ``.env`` for local dev (parent
+    default is ``None`` because loading is a deployment concern).
+    """
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", case_sensitive=False)
 
     # Infrastructure
     redis_url: str = "redis://redis:6379"

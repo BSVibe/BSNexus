@@ -23,6 +23,23 @@ dependencies = [
     # tracking the feat/bsvibe-authz-impl branch; pin to a release tag once
     # the package lands on bsvibe-python main.
     "bsvibe-authz @ git+https://github.com/BSVibe/bsvibe-python.git@feat/bsvibe-authz-impl#subdirectory=packages/bsvibe-authz",
+    # Phase A Batch 5 — bsvibe-python shared library extraction.
+    # Each package currently lives on its own ``feat/bsvibe-*-impl``
+    # branch; ``feat/bsvibe-llm-impl`` carries both ``bsvibe-core`` and
+    # ``bsvibe-llm`` because the latter is a workspace dependency on the
+    # former — pinning both to the same branch keeps uv from fighting
+    # over conflicting git URLs for the same package name. Pin to a
+    # release tag once they merge to ``main``.
+    #
+    # bsvibe-core: BsvibeSettings + configure_logging + shared exception
+    # types. Adopted by ``backend/src/config.py`` + ``backend/src/main.py``.
+    "bsvibe-core @ git+https://github.com/BSVibe/bsvibe-python.git@feat/bsvibe-llm-impl#subdirectory=packages/bsvibe-core",
+    # bsvibe-llm: RunAuditMetadata is the wire-format contract between
+    # BSGateway PR #24 and BSNexus PR #38. We adopt it for the metadata
+    # dataclass only — the streaming + tool-loop in
+    # orchestrator_adapter.py stays in BSNexus until bsvibe-llm grows
+    # those features (follow-up issue).
+    "bsvibe-llm @ git+https://github.com/BSVibe/bsvibe-python.git@feat/bsvibe-llm-impl#subdirectory=packages/bsvibe-llm",
 ]
 
 [project.optional-dependencies]
