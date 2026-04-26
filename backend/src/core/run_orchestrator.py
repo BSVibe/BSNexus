@@ -5,19 +5,30 @@ event-driven model: new requests / run completions fire
 ``dispatch_run``; completed parents enqueue their children via
 ``on_run_completed``.
 
-The orchestration flow per run:
+The orchestration flow per run (post P0.7):
 
     1. Load tenant integration config (cached, 60s TTL).
     2. Resolve KnowledgeClient (BSage or Noop).
-    3. Resolve AuditSink (BSupervisor or Noop).
-    4. PromptAssembler composes system prompt from knowledge fragments.
-    5. Persist CompositionSnapshot; link to run.
-    6. Sync preflight via BSupervisor (200ms timeout, fail-open).
-    7. State machine: pending → running.
-    8. Hand off to executor (LiteLLM + BSGateway hook, or claude_code).
-    9. Record output; fire-and-forget post-audit.
-    10. State machine: running → done or blocked.
-    11. Enqueue children whose dependencies are met.
+    3. PromptAssembler composes system prompt from knowledge fragments.
+    4. Persist CompositionSnapshot; link to run.
+    5. State machine: pending → running.
+    6. Hand off to executor — BSGateway's LiteLLM hook handles the
+       BSupervisor run.pre / run.post audit calls on BSNexus's behalf
+       (Lockin §Architectural shifts #1, P0.7 PR). The
+       ``orchestrator_adapter.build_run_audit_metadata`` factory plumbs
+       tenant_id / run_id / request_id / parent_run_id / agent_name /
+       cost_estimate via ``litellm.acompletion(metadata=...)``.
+    7. Record output.
+    8. State machine: running → done or blocked.
+    9. Enqueue children whose dependencies are met.
+
+P0.7 retirement
+~~~~~~~~~~~~~~~
+The previous explicit ``audit.preflight()`` and ``emit_post_async()``
+calls have been removed. Non-LLM workflow / budget audit paths
+(future) will resolve audit sinks separately via
+``backend.src.core.audit.resolve_audit_sink`` with a service-JWT
+minter — that path is distinct from this LLM dispatch.
 
 This module does NOT busy-loop. Call ``dispatch_run`` inline from
 request creation or ``on_run_completed`` from a completion handler.
@@ -38,7 +49,6 @@ from backend.src.core.advisory_lock import (
     release_run_dispatch_lock,
     try_run_dispatch_lock,
 )
-from backend.src.core.audit import AuditSink, emit_post_async, resolve_audit_sink
 from backend.src.core.composer import (
     PromptAssembler,
     default_template_registry,
@@ -127,8 +137,27 @@ class RunOrchestrator:
         snapshot_data = get_tenant_integration_snapshot
         integrations = await snapshot_data(db, run.tenant_id)
 
-        knowledge = resolve_knowledge_client(integrations.bsage, auth_token=request.originator_auth)
-        audit = resolve_audit_sink(integrations.bsupervisor, auth_token=request.originator_auth)
+        # P0.7 — when the service-JWT minter is configured (production),
+        # BSage calls authenticate via minted service JWTs (``aud:bsage``,
+        # ``scope:bsage.read``). Without a configured minter (dev), the
+        # factory falls back to the originator user JWT or static
+        # api_key. Adapter code is unchanged either way (Decision #15).
+        from backend.src.core.service_auth import get_service_jwt_minter  # noqa: PLC0415
+
+        service_jwt_minter = get_service_jwt_minter()
+        knowledge = resolve_knowledge_client(
+            integrations.bsage,
+            auth_token=request.originator_auth,
+            service_jwt_minter=service_jwt_minter,
+            tenant_id=str(run.tenant_id),
+        )
+
+        # P0.7 — BSGateway absorbs the BSupervisor run.pre / run.post
+        # calls via its LiteLLM async_pre_call_hook /
+        # async_post_call_hook. The orchestrator no longer resolves an
+        # AuditSink here for LLM runs; ``orchestrator_adapter`` plumbs
+        # the run audit metadata to BSGateway via the LiteLLM
+        # ``metadata`` kwarg.
 
         # Refresh .bsnexus/context/*.md so the composer's pointer to
         # those files resolves to fresh state. Failing to refresh must
@@ -157,16 +186,12 @@ class RunOrchestrator:
         snapshot = await _persist_snapshot(db, run, request, composition)
         run.composition_snapshot_id = snapshot.id
 
-        audit_result = await audit.preflight(run, snapshot)
-        if audit_result.blocked:
-            return await self._state.transition(
-                run,
-                RunStatus.blocked,
-                reason=audit_result.reason or "blocked by audit preflight",
-                actor="audit",
-                db_session=db,
-                stream_manager=stream_manager,
-            )
+        # P0.7 — BSGateway's LiteLLM async_pre_call_hook performs the
+        # BSupervisor run.pre check and rejects the LLM call (raising
+        # an HTTP error that the executor surfaces as an exception)
+        # when audit blocks. The orchestrator no longer short-circuits
+        # here — ``test_executor_failure_transitions_to_blocked``
+        # already pins that path.
 
         await self._state.transition(
             run,
@@ -185,7 +210,7 @@ class RunOrchestrator:
         if executor is None:
             # Caller will invoke the executor and call ``on_run_completed``
             # when done. Orchestrator role ends here for this run.
-            emit_post_async(audit, run, {"status": "running", "stage": "ready"})
+            # (P0.7 — no run.post audit call; BSGateway handles it.)
             return run
 
         history = await _load_chat_history(db, project_id=run.project_id, origin_message_id=request.origin_message_id)
@@ -203,8 +228,11 @@ class RunOrchestrator:
             # must remain killable.
             raise
         except Exception as exc:  # noqa: BLE001 — sink-all at the executor boundary
+            # P0.7 — when BSGateway's hook rejects via 4xx, the
+            # executor raises here and the run goes to blocked. The
+            # run.post BSupervisor event was already sent by
+            # BSGateway; no audit call needed on our side.
             logger.warning("run_executor_failed", run_id=str(run.id), exc_info=True)
-            emit_post_async(audit, run, {"status": "error", "error": str(exc)})
             return await self._state.transition(
                 run,
                 RunStatus.blocked,
@@ -219,7 +247,6 @@ class RunOrchestrator:
         # result-consumer finalises it once the worker reports back. Do
         # not call on_run_completed here or we'd mark it done prematurely.
         if isinstance(result, dict) and result.get("status") == "dispatched":
-            emit_post_async(audit, run, result)
             logger.info(
                 "run_dispatched_awaiting_worker",
                 run_id=str(run.id),
@@ -231,7 +258,6 @@ class RunOrchestrator:
         await self.on_run_completed(
             run,
             result=result,
-            audit=audit,
             db=db,
             stream_manager=stream_manager,
         )
@@ -242,9 +268,9 @@ class RunOrchestrator:
         run: ExecutionRun,
         *,
         result: Any,
-        audit: AuditSink,
         db: AsyncSession,
         stream_manager: RedisStreamManager | None = None,
+        audit: Any | None = None,  # noqa: ARG002 — accepted for backwards compat; P0.7 ignored
     ) -> None:
         """Finalize a completed run, then seed the next iteration.
 
@@ -257,13 +283,19 @@ class RunOrchestrator:
         We do NOT decide here whether the chain is done — that's the
         replanner's call when it sees the latest results. From this
         function's POV it just always schedules the next replanner pass.
+
+        P0.7 — the legacy ``audit`` kwarg is accepted but ignored.
+        BSGateway's LiteLLM async_post_call_hook already sent the
+        run.post BSupervisor event before this function was called.
+        Old callers (worker_result_consumer, dispatcher) keep
+        passing ``audit=...`` until they are migrated; the parameter
+        removal is left for a follow-up commit to keep this PR's
+        diff focused on the audit retirement contract.
         """
         if isinstance(result, dict):
             run.output_type = result.get("output_type")
             run.output_ref = result.get("output_ref")
             run.actual_cost_cents = int(result.get("actual_cost_cents", 0) or 0)
-
-        emit_post_async(audit, run, result if isinstance(result, dict) else {"status": "done"})
 
         await self._state.transition(
             run,

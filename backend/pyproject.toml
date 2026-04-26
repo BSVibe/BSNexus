@@ -19,6 +19,10 @@ dependencies = [
     "pyyaml>=6.0",
     "structlog>=23.0.0",
     "bsvibe-auth[fastapi] @ git+https://github.com/BSVibe/BSVibe-Auth.git@v0.4.0#subdirectory=python",
+    # P0.5 — bsvibe-authz package (Phase 0 P0.4 from bsvibe-python). Currently
+    # tracking the feat/bsvibe-authz-impl branch; pin to a release tag once
+    # the package lands on bsvibe-python main.
+    "bsvibe-authz @ git+https://github.com/BSVibe/bsvibe-python.git@feat/bsvibe-authz-impl#subdirectory=packages/bsvibe-authz",
 ]
 
 [project.optional-dependencies]

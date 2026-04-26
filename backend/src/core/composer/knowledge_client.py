@@ -27,12 +27,15 @@ produce a valid (degraded) result.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 import structlog
 
 from backend.src.core.clients import BaseServiceClient
 from backend.src.core.integrations.config import ProviderConfig
+
+if TYPE_CHECKING:
+    from backend.src.core.service_auth import ServiceJWTMinter
 
 logger = structlog.get_logger(__name__)
 
@@ -349,13 +352,35 @@ def resolve_knowledge_client(
     cfg: ProviderConfig | None,
     *,
     auth_token: str | None = None,
+    service_jwt_minter: "ServiceJWTMinter | None" = None,
+    tenant_id: str | None = None,
 ) -> KnowledgeClient:
     """Factory: return BSage client when configured, Noop otherwise.
 
-    ``auth_token`` forwards the founder's own Bearer JWT so BSage
-    records per-user attribution (same-account SSO). When omitted, the
-    client falls back to the tenant's configured api_key.
+    Auth precedence (P0.7 onwards):
+      1. ``service_jwt_minter`` + ``tenant_id`` — minted service JWT
+         (Lockin §3 #16, audience-scoped). The legacy static api_key
+         on the integration row is NOT consulted when the minter is
+         in play.
+      2. ``auth_token`` — forwarded user SSO JWT (founder same-account
+         attribution).
+      3. ``cfg.api_key`` — legacy static key (Phase A drop).
     """
-    if cfg is not None and cfg.enabled and cfg.base_url:
-        return BSageKnowledgeClient(cfg.base_url, cfg.api_key, auth_token=auth_token)
-    return NoopKnowledgeClient()
+    if cfg is None or not cfg.enabled or not cfg.base_url:
+        return NoopKnowledgeClient()
+
+    # P0.7 — closure-only swap (Decision #15). The adapter signature
+    # is unchanged; we just override the auth_provider on the
+    # underlying BaseServiceClient after construction.
+    if service_jwt_minter is not None and tenant_id is not None:
+        client = BSageKnowledgeClient(cfg.base_url, api_key=None, auth_token=None)
+        client._base.set_auth_provider(
+            service_jwt_minter.make_auth_provider(
+                audience="bsage",
+                tenant_id=tenant_id,
+                scope=["bsage.read"],
+            )
+        )
+        return client
+
+    return BSageKnowledgeClient(cfg.base_url, cfg.api_key, auth_token=auth_token)

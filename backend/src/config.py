@@ -70,5 +70,21 @@ class Settings(BaseSettings):
     e2e_test_user_email: str = "e2e@bsnexus.test"
     e2e_test_user_tenant_id: str = "11111111-1111-4111-8111-111111111111"
 
+    # ── Phase 0 P0.5 + P0.7 ─────────────────────────────────────────
+    # bsvibe-authz / service-JWT integration. ``service_token_signing_secret``
+    # is shared with BSVibe-Auth's ``/api/service-tokens/issue`` endpoint
+    # for HS256 signing in Phase 0 (per ``bsvibe-authz`` package
+    # docs). Empty default so dev environments without OpenFGA can boot;
+    # production must set a real value.
+    service_token_signing_secret: str = ""
+
+    # Long-lived service-account credential (Bearer access token issued
+    # by BSVibe-Auth) used by ``ServiceJWTMinter`` to authenticate
+    # itself to ``/api/service-tokens/issue``. The service-account user
+    # MUST have admin/owner role for the tenants whose tokens this
+    # process mints. Empty in dev → minter falls back to anonymous and
+    # downstream services 401 (Noop fallback in adapters).
+    bsnexus_service_account_token: str = ""
+
 
 settings = Settings()

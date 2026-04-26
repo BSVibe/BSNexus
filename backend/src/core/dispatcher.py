@@ -67,7 +67,11 @@ async def _dispatch_background(
     Phase 3 (short session): re-attach the run in a fresh session and
     finalize via ``on_run_completed`` → ``publish_run_output``.
     """
-    from backend.src.core.audit import resolve_audit_sink  # noqa: PLC0415 — avoid cycle
+    # P0.7 — BSGateway absorbs the BSupervisor run.pre / run.post calls
+    # for LLM runs (Lockin §Architectural shifts #1). The dispatcher no
+    # longer resolves an AuditSink for the LLM completion path; the
+    # ``orchestrator_adapter`` plumbs run audit metadata to BSGateway
+    # via the LiteLLM ``metadata`` kwarg.
     from backend.src.core.planner import replan_next_step  # noqa: PLC0415
 
     try:
@@ -223,6 +227,18 @@ async def _dispatch_background(
                     select(CompositionSnapshot).where(CompositionSnapshot.id == run.composition_snapshot_id)
                 )
             ).scalar_one()
+
+            # P0.7 — plumb run audit metadata into the LiteLLM call so
+            # BSGateway's async_pre_call_hook / async_post_call_hook can
+            # forward run.pre / run.post events to BSupervisor on
+            # BSNexus's behalf (Lockin §Architectural shifts #1).
+            if isinstance(adapter, LiteLLMOrchestratorAdapter):
+                from backend.src.core.orchestrator_adapter import (  # noqa: PLC0415
+                    build_run_audit_metadata,
+                )
+
+                adapter.set_run_audit_metadata(build_run_audit_metadata(run=run, snapshot=snapshot_row))
+
             prepared = {
                 "adapter": adapter,
                 "system_prompt": (snapshot_row.system_prompt_ref or {}).get("inline", ""),
@@ -277,8 +293,6 @@ async def _dispatch_background(
                 if req_row is not None:
                     originator_token = req_row.originator_auth
 
-            audit = resolve_audit_sink(integrations.bsupervisor, auth_token=originator_token)
-
             if isinstance(result, dict) and "_error" in result:
                 from backend.src.models import RunStatus as _RunStatus  # noqa: PLC0415
 
@@ -290,7 +304,6 @@ async def _dispatch_background(
             await get_run_orchestrator().on_run_completed(
                 run,
                 result=result,
-                audit=audit,
                 db=session,
                 stream_manager=stream_manager,
             )

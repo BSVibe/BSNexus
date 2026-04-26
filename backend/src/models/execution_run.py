@@ -4,7 +4,9 @@ An ExecutionRun is the internal decomposition of a Request. Users never
 see runs directly; the Inside panel exposes them for debugging/trust.
 
 Each run is dispatched through the RunOrchestrator:
-  composer.compose → audit.preflight → executor.execute → audit.emit_post
+  composer.compose → executor.execute (BSGateway absorbs the
+  BSupervisor run.pre / run.post audit calls via its LiteLLM hook —
+  Lockin §Architectural shifts #1, P0.7).
 
 Lifecycle states mirror the original Task model:
   pending → running → (blocked ↔ pending) → done

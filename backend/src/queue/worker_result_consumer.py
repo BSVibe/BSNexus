@@ -26,7 +26,11 @@ import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from backend.src.core.audit import resolve_audit_sink
+# P0.7 — Audit run.post for LLM/worker runs is now the responsibility
+# of BSGateway's LiteLLM async_post_call_hook (Lockin §Architectural
+# shifts #1). The worker-result consumer no longer resolves an
+# AuditSink — the run.post BSupervisor event was already sent by
+# BSGateway upstream of the worker-result publish.
 from backend.src.core.integrations import get_tenant_integration_snapshot
 from backend.src.core.run_artifacts import publish_run_output
 from backend.src.core.run_orchestrator import get_run_orchestrator
@@ -172,11 +176,9 @@ class WorkerResultConsumer:
                 "actual_cost_cents": int(msg.get("actual_cost_cents") or 0),
             }
             snapshot = await get_tenant_integration_snapshot(session, run.tenant_id)
-            audit = resolve_audit_sink(snapshot.bsupervisor)
             await get_run_orchestrator().on_run_completed(
                 run,
                 result=result,
-                audit=audit,
                 db=session,
                 stream_manager=self._stream,
             )

@@ -145,42 +145,39 @@ async def test_full_chain_persists_snapshot_history_and_publishes_events(
 
 
 @pytest.mark.asyncio
-async def test_audit_block_short_circuits_before_executor(db_session, mock_tenant_id, seeded_tenant) -> None:
-    """When the BSupervisor preflight returns ``blocked=True``, the run
-    must transition pending→blocked and the executor must never be
-    invoked. This is the single most security-relevant integration
-    scenario — pin it end-to-end."""
+async def test_audit_block_via_executor_exception_transitions_to_blocked(
+    db_session, mock_tenant_id, seeded_tenant
+) -> None:
+    """Phase 0 P0.7 — BSGateway absorbs the BSupervisor run.pre check via
+    its LiteLLM async_pre_call_hook (Lockin §Architectural shifts #1).
+    BSNexus's orchestrator no longer short-circuits on its own.
+
+    When BSGateway rejects the LLM call (because BSupervisor said
+    blocked), the rejection surfaces as an exception from
+    ``executor.execute(...)``. The orchestrator already handles that
+    path (``test_executor_failure_transitions_to_blocked``) — this
+    test pins the renamed equivalent so the security-relevant
+    integration scenario stays covered after the architecture shift.
+    """
     project, _req, run = await _seed_run(db_session, mock_tenant_id)
 
     adapter = MagicMock()
     adapter.tools_supported = ["read", "write"]
-    adapter.execute = AsyncMock()  # should not be called
+    # BSGateway's hook returned 403 → executor surfaces the rejection.
+    adapter.execute = AsyncMock(side_effect=RuntimeError("BSGateway rejected: BSupervisor rule X violated"))
 
     sm = MagicMock()
     sm.publish_project_event = AsyncMock()
 
-    # Stub resolve_audit_sink to a sink that refuses preflight.
-    from unittest.mock import patch
-
-    class _BlockingSink:
-        async def preflight(self, run_, snapshot_):  # noqa: ARG002
-            from backend.src.core.audit import AuditResult
-
-            return AuditResult(blocked=True, reason="rule X violated", degraded=False)
-
-        async def emit_post(self, *args, **kwargs):  # noqa: ARG002
-            pass
-
-    with patch("backend.src.core.run_orchestrator.resolve_audit_sink", return_value=_BlockingSink()):
-        orch = RunOrchestrator()
-        await orch.dispatch_run(run.id, db=db_session, executor=adapter, stream_manager=sm)
-        await db_session.commit()
+    orch = RunOrchestrator()
+    await orch.dispatch_run(run.id, db=db_session, executor=adapter, stream_manager=sm)
+    await db_session.commit()
 
     refreshed = (await db_session.execute(select(ExecutionRun).where(ExecutionRun.id == run.id))).scalar_one()
     assert refreshed.status == RunStatus.blocked
     assert "rule X violated" in (refreshed.error_message or "")
-    # CRITICAL: executor must never run for a blocked preflight.
-    adapter.execute.assert_not_called()
+    # The executor was called (and rejected) — that's the new contract.
+    adapter.execute.assert_awaited_once()
 
 
 @pytest.mark.asyncio

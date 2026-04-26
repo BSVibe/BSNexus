@@ -79,6 +79,42 @@ def _model_supports_streaming(model: str) -> bool:
 MAX_TOOL_ITERATIONS = int(os.getenv("LLM_MAX_TOOL_ITERATIONS", "24"))
 
 
+def build_run_audit_metadata(
+    *,
+    run: Any,
+    snapshot: Any | None,
+) -> dict[str, Any]:
+    """Build the ``metadata`` dict the LiteLLM hook in BSGateway will read.
+
+    Cross-PR contract (Lockin §Architectural shifts #1) — keys mirror what
+    BSGateway's ``async_pre_call_hook`` consumes to forward
+    ``run.pre`` / ``run.post`` events to BSupervisor on BSNexus's behalf:
+
+    * ``tenant_id`` — UUID string of the run's tenant
+    * ``run_id`` — UUID string of this ExecutionRun
+    * ``request_id`` — UUID string or None (some runs have no parent Request)
+    * ``parent_run_id`` — UUID string or None (top-level run vs successor)
+    * ``agent_name`` — persona / agent label for observability grouping
+    * ``cost_estimate`` — pre-run cost estimate in USD cents (None when not set)
+
+    Drift in this dict's shape between BSNexus and BSGateway breaks the
+    audit trail — the regression test
+    ``tests/test_orchestrator_adapter_audit_metadata.py`` pins it.
+    """
+    request_id = getattr(run, "request_id", None)
+    parent_run_id = getattr(run, "parent_run_id", None)
+    agent_name = getattr(snapshot, "persona_label", None) if snapshot is not None else None
+    cost_estimate = getattr(snapshot, "cost_estimate_cents", None) if snapshot is not None else None
+    return {
+        "tenant_id": str(run.tenant_id),
+        "run_id": str(run.id),
+        "request_id": str(request_id) if request_id is not None else None,
+        "parent_run_id": str(parent_run_id) if parent_run_id is not None else None,
+        "agent_name": agent_name,
+        "cost_estimate": cost_estimate,
+    }
+
+
 class LiteLLMOrchestratorAdapter:
     """Orchestrator-facing adapter over ``litellm.acompletion``."""
 
@@ -98,6 +134,7 @@ class LiteLLMOrchestratorAdapter:
         base_url: str | None = None,
         max_tokens: int = 4096,
         temperature: float = 0.7,
+        run_audit_metadata: dict[str, Any] | None = None,
     ):
         self._model = model
         self._project_id = project_id
@@ -105,6 +142,20 @@ class LiteLLMOrchestratorAdapter:
         self._base_url = base_url
         self._max_tokens = max_tokens
         self._temperature = temperature
+        # Phase 0 P0.7 — passed through to ``litellm.acompletion(metadata=...)``
+        # so BSGateway's pre/post hooks can correlate every LLM call with
+        # the originating ExecutionRun (Lockin §Architectural shifts #1).
+        # Adapter is also constructible without metadata so existing tests
+        # and legacy callers keep working.
+        self._run_audit_metadata: dict[str, Any] | None = dict(run_audit_metadata) if run_audit_metadata else None
+
+    def set_run_audit_metadata(self, metadata: dict[str, Any] | None) -> None:
+        """Update the metadata payload sent on subsequent ``execute``
+        calls. Used by the dispatcher after a run+snapshot is loaded —
+        ``build_adapter`` runs before we have a run id, so the metadata
+        is plumbed through here just before ``adapter.execute(...)``.
+        """
+        self._run_audit_metadata = dict(metadata) if metadata else None
 
     async def execute(
         self,
@@ -263,6 +314,13 @@ class LiteLLMOrchestratorAdapter:
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
+        # P0.7 — forward run-audit metadata via litellm's ``metadata`` kwarg
+        # so BSGateway's async_pre_call_hook / async_post_call_hook can
+        # read it. Omit the key entirely (not an empty dict) when the
+        # adapter wasn't constructed with metadata, so legacy paths and
+        # tests that assert on call kwargs don't see a stray field.
+        if self._run_audit_metadata:
+            kwargs["metadata"] = dict(self._run_audit_metadata)
 
         # Hard outer-bound timeout — litellm's ``timeout`` kwarg is not
         # reliably enforced for every backend (notably Ollama via
