@@ -1,22 +1,24 @@
+'use client'
+
 import { useMemo, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { Badge, StatusDot } from '../components/common/Badge'
-import { I } from '../lib/icons'
-import { relTime, truncId } from '../lib/fmt'
-import { statusTone, type Tone } from '../lib/tone'
-import { projectsApi, type Project } from '../api/projects'
-import { requestsApi, deliverablesApi, decisionsApi } from '../api/founder'
-import type { Decision, Deliverable, Request as FounderRequest } from '../types/founder'
+import { Badge, StatusDot } from '../common/Badge'
+import { I } from '../../lib/icons'
+import { relTime, truncId } from '../../lib/fmt'
+import { statusTone, type Tone } from '../../lib/tone'
+import { projectsApi, type Project } from '../../api/projects'
+import { requestsApi, deliverablesApi, decisionsApi } from '../../api/founder'
+import type { Decision, Deliverable, Request as FounderRequest } from '../../types/founder'
 
 const STATUS_FILTERS = ['all', 'active', 'archived'] as const
 type StatusFilter = (typeof STATUS_FILTERS)[number]
 
 export default function DashboardPage() {
   const queryClient = useQueryClient()
-  const navigate = useNavigate()
-  const [search, setSearch] = useSearchParams()
+  const router = useRouter()
+  const search = useSearchParams()
   const newParam = search.get('new') === '1'
   const [createOpen, setCreateOpen] = useState(newParam)
   const [filter, setFilter] = useState<StatusFilter>('all')
@@ -106,10 +108,11 @@ export default function DashboardPage() {
       setCreateOpen(false)
       setCreateName('')
       setCreateDesc('')
-      const next = new URLSearchParams(search)
+      const next = new URLSearchParams(search.toString())
       next.delete('new')
-      setSearch(next, { replace: true })
-      navigate(`/projects/${project.id}`)
+      const qs = next.toString()
+      router.replace(qs ? `/dashboard?${qs}` : '/dashboard')
+      router.push(`/projects/${project.id}`)
     },
   })
 
@@ -157,7 +160,7 @@ export default function DashboardPage() {
           sub={`${openDecisions.length} open`}
           tone={blocking.length > 0 ? 'rose' : 'gray'}
           onClick={() => {
-            if (blocking[0]) navigate(`/projects/${blocking[0].project_id}`)
+            if (blocking[0]) router.push(`/projects/${blocking[0].project_id}`)
           }}
         />
         <Stat
@@ -230,7 +233,7 @@ export default function DashboardPage() {
                     new Date(d.created_at).getTime() >= sevenDaysAgo,
                 ).length ?? 0
               }
-              onOpen={() => navigate(`/projects/${p.id}`)}
+              onOpen={() => router.push(`/projects/${p.id}`)}
             />
           )
         })}
@@ -256,9 +259,10 @@ export default function DashboardPage() {
           onChangeDesc={setCreateDesc}
           onClose={() => {
             setCreateOpen(false)
-            const next = new URLSearchParams(search)
+            const next = new URLSearchParams(search.toString())
             next.delete('new')
-            setSearch(next, { replace: true })
+            const qs = next.toString()
+            router.replace(qs ? `/dashboard?${qs}` : '/dashboard')
           }}
           onSubmit={() => createMutation.mutate()}
           pending={createMutation.isPending}

@@ -13,7 +13,10 @@ interface IconProps {
   children: React.ReactNode
 }
 
-// eslint-disable-next-line react-refresh/only-export-components -- ``I`` below is a glyph-registry const, not a component; co-locating with ``Icon`` keeps the file cohesive.
+// ``I`` below is a glyph-registry const, not a component; co-locating
+// with ``Icon`` keeps the file cohesive. The Vite-only
+// ``react-refresh/only-export-components`` rule is no longer wired in
+// the Next.js eslint config, so the disable directive is dropped.
 function Icon({ size = 16, stroke = 1.75, style, className, title, children }: IconProps) {
   return (
     <svg

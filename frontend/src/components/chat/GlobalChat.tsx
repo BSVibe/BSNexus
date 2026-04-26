@@ -1,5 +1,7 @@
+'use client'
+
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useRouter } from 'next/navigation'
 import { useMutation, useQueries, useQueryClient } from '@tanstack/react-query'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -35,7 +37,8 @@ export default function GlobalChat({
   onToggleCollapsed,
 }: GlobalChatProps) {
   const queryClient = useQueryClient()
-  const navigate = useNavigate()
+  const router = useRouter()
+  const navigate = (href: string) => router.push(href)
   const [draft, setDraft] = useState('')
   const [mentions, setMentions] = useState<Project[]>([])
   // The mention menu's open state is derived from the @-query. A

@@ -1,5 +1,7 @@
+'use client'
+
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useRouter } from 'next/navigation'
 
 import { I } from '../../lib/icons'
 import { truncId } from '../../lib/fmt'
@@ -21,7 +23,8 @@ interface Item {
 }
 
 export default function CommandPalette({ projects, onClose }: CommandPaletteProps) {
-  const navigate = useNavigate()
+  const router = useRouter()
+  const navigate = (href: string) => router.push(href)
   const [q, setQ] = useState('')
   const [idx, setIdx] = useState(0)
   const inputRef = useRef<HTMLInputElement | null>(null)

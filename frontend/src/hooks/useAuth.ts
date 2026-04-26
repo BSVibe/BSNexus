@@ -7,8 +7,14 @@ interface User {
   role: string
 }
 
+// ``NEXT_PUBLIC_AUTH_URL`` is the canonical Next.js form; ``VITE_AUTH_URL``
+// is accepted as a fallback so the auth integration stays usable across
+// Phase Z transition without forcing every consumer to flip envs in
+// lockstep.
 const AUTH_URL =
-  (import.meta.env.VITE_AUTH_URL as string | undefined) || 'https://auth.bsvibe.dev'
+  process.env.NEXT_PUBLIC_AUTH_URL ||
+  process.env.VITE_AUTH_URL ||
+  'https://auth.bsvibe.dev'
 
 // LocalStorage keys for non-cookie-SSO environments (local dev, Tailscale, etc.)
 const LS_ACCESS_TOKEN = 'bsnexus_access_token'

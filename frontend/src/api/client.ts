@@ -1,7 +1,13 @@
 import axios from 'axios'
 import { getAccessToken, clearTokenCache } from '../hooks/useAuth'
 
-export const API_BASE_URL: string = import.meta.env.VITE_API_URL || ''
+// ``NEXT_PUBLIC_API_URL`` (Next.js) is the canonical client-visible env;
+// the legacy ``VITE_API_URL`` form is accepted as a fallback so existing
+// .env files keep working during the Phase Z transition.
+export const API_BASE_URL: string =
+  process.env.NEXT_PUBLIC_API_URL ||
+  process.env.VITE_API_URL ||
+  ''
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,

@@ -1,4 +1,6 @@
-import { useLocation, useNavigate } from 'react-router-dom'
+'use client'
+
+import { usePathname, useRouter } from 'next/navigation'
 
 import { StatusDot } from '../common/Badge'
 import { I } from '../../lib/icons'
@@ -12,15 +14,15 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ projects, onOpenPalette }: SidebarProps) {
-  const navigate = useNavigate()
-  const location = useLocation()
+  const router = useRouter()
+  const pathname = usePathname() ?? ''
   const { user, logout } = useAuthContext()
 
-  const activeProjectId = location.pathname.startsWith('/projects/')
-    ? location.pathname.split('/')[2]
+  const activeProjectId = pathname.startsWith('/projects/')
+    ? pathname.split('/')[2]
     : null
-  const onDashboard = location.pathname === '/dashboard'
-  const onSettings = location.pathname.startsWith('/settings')
+  const onDashboard = pathname === '/dashboard'
+  const onSettings = pathname.startsWith('/settings')
 
   const initials = (user?.email ?? '??').slice(0, 2).toUpperCase()
   const displayName = (user?.email ?? 'guest').split('@')[0]
@@ -30,7 +32,7 @@ export default function Sidebar({ projects, onOpenPalette }: SidebarProps) {
       <button
         type="button"
         className="sb-brand"
-        onClick={() => navigate('/dashboard')}
+        onClick={() => router.push('/dashboard')}
         aria-label="Home"
       >
         <div className="sb-logo">BN</div>
@@ -79,7 +81,7 @@ export default function Sidebar({ projects, onOpenPalette }: SidebarProps) {
               key={p.id}
               type="button"
               className={`sb-item ${isActive ? 'active' : ''}`}
-              onClick={() => navigate(`/projects/${p.id}`)}
+              onClick={() => router.push(`/projects/${p.id}`)}
               title={p.name}
             >
               <StatusDot tone={tone} size={6} />
@@ -102,7 +104,7 @@ export default function Sidebar({ projects, onOpenPalette }: SidebarProps) {
           type="button"
           className="sb-item"
           style={{ color: 'var(--text-tertiary)', marginTop: 8 }}
-          onClick={() => navigate('/dashboard')}
+          onClick={() => router.push('/dashboard')}
         >
           <I.Plus size={14} /> <span className="label">New project</span>
         </button>
@@ -115,14 +117,14 @@ export default function Sidebar({ projects, onOpenPalette }: SidebarProps) {
         <button
           type="button"
           className={`sb-item ${onDashboard ? 'active' : ''}`}
-          onClick={() => navigate('/dashboard')}
+          onClick={() => router.push('/dashboard')}
         >
           <I.Home size={14} /> <span className="label">Dashboard</span>
         </button>
         <button
           type="button"
           className={`sb-item ${onSettings ? 'active' : ''}`}
-          onClick={() => navigate('/settings')}
+          onClick={() => router.push('/settings')}
         >
           <I.Settings size={14} /> <span className="label">Settings</span>
         </button>

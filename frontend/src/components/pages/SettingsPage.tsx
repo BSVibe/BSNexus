@@ -1,8 +1,10 @@
-import { useSearchParams } from 'react-router-dom'
+'use client'
 
-import ExecutorsSection from '../components/settings/ExecutorsSection'
-import IntegrationsTab from '../components/settings/IntegrationsTab'
-import { I } from '../lib/icons'
+import { useRouter, useSearchParams } from 'next/navigation'
+
+import ExecutorsSection from '../settings/ExecutorsSection'
+import IntegrationsTab from '../settings/IntegrationsTab'
+import { I } from '../../lib/icons'
 
 type SectionId = 'integrations' | 'executors'
 
@@ -36,15 +38,17 @@ function parseSection(raw: string | null): SectionId {
 }
 
 export default function SettingsPage() {
-  const [search, setSearch] = useSearchParams()
+  const search = useSearchParams()
+  const router = useRouter()
   const active = parseSection(search.get('section'))
   const activeSection = SECTIONS.find((s) => s.id === active) ?? SECTIONS[0]
 
   function go(id: SectionId) {
-    const next = new URLSearchParams(search)
+    const next = new URLSearchParams(search.toString())
     if (id === 'integrations') next.delete('section')
     else next.set('section', id)
-    setSearch(next, { replace: true })
+    const qs = next.toString()
+    router.replace(qs ? `/settings?${qs}` : '/settings')
   }
 
   return (

@@ -27,3 +27,9 @@ dist-ssr
 playwright-report/
 test-results/
 .vercel
+
+# Next.js
+.next/
+next-env.d.ts
+tsconfig.tsbuildinfo
+*.tsbuildinfo

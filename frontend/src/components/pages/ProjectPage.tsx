@@ -1,16 +1,18 @@
+'use client'
+
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { I } from '../lib/icons'
-import { Modal } from '../components/common/Modal'
-import FilesView from '../components/files/FilesView'
-import ProgressView from '../components/progress/ProgressView'
-import DecisionsView from '../components/decisions/DecisionsView'
-import Inspector from '../components/inside/Inspector'
-import { projectsApi, type Project } from '../api/projects'
-import { workspaceFilesApi } from '../api/workspaceFiles'
-import { decisionsApi, deliverablesApi } from '../api/founder'
+import { I } from '../../lib/icons'
+import { Modal } from '../common/Modal'
+import FilesView from '../files/FilesView'
+import ProgressView from '../progress/ProgressView'
+import DecisionsView from '../decisions/DecisionsView'
+import Inspector from '../inside/Inspector'
+import { projectsApi, type Project } from '../../api/projects'
+import { workspaceFilesApi } from '../../api/workspaceFiles'
+import { decisionsApi, deliverablesApi } from '../../api/founder'
 
 type TabId = 'progress' | 'files' | 'decisions' | 'inspector'
 
@@ -20,13 +22,25 @@ function parseTab(raw: string | null): TabId {
 }
 
 export default function ProjectPage() {
-  const { projectId } = useParams<{ projectId: string }>()
-  const [search, setSearch] = useSearchParams()
+  const params = useParams<{ projectId?: string | string[] }>()
+  // App Router catch-all yields an array; the dynamic segment yields a
+  // string. Normalise to string | undefined.
+  const rawProjectId = params?.projectId
+  const projectId = Array.isArray(rawProjectId) ? rawProjectId[0] : rawProjectId
+  const search = useSearchParams()
   const tab = parseTab(search.get('tab'))
   const focusRequestId = search.get('focusRequest')
   const [confirmDelete, setConfirmDelete] = useState(false)
-  const navigate = useNavigate()
+  const router = useRouter()
   const queryClient = useQueryClient()
+
+  // Build a /projects/:id?tab=…&focusRequest=… URL given a partial
+  // override. Centralised so the inline next/navigation calls below
+  // don't duplicate the assembly.
+  function buildProjectUrl(next: URLSearchParams): string {
+    const qs = next.toString()
+    return qs ? `/projects/${projectId}?${qs}` : `/projects/${projectId}`
+  }
 
   const { data: project } = useQuery<Project>({
     queryKey: ['project', projectId],
@@ -39,7 +53,7 @@ export default function ProjectPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects'] })
       setConfirmDelete(false)
-      navigate('/')
+      router.push('/')
     },
   })
 
@@ -73,22 +87,22 @@ export default function ProjectPage() {
   )
 
   function setTab(id: TabId) {
-    const next = new URLSearchParams(search)
+    const next = new URLSearchParams(search.toString())
     if (id === 'progress') next.delete('tab')
     else next.set('tab', id)
     if (id !== 'inspector') next.delete('focusRequest')
-    setSearch(next, { replace: true })
+    router.replace(buildProjectUrl(next))
   }
 
   useEffect(() => {
     function onOpenInspector(e: Event) {
       const ce = e as CustomEvent<{ requestId?: string }>
       const rid = ce.detail?.requestId
-      const next = new URLSearchParams(search)
+      const next = new URLSearchParams(search.toString())
       next.set('tab', 'inspector')
       if (rid) next.set('focusRequest', rid)
       else next.delete('focusRequest')
-      setSearch(next, { replace: true })
+      router.replace(buildProjectUrl(next))
     }
     document.addEventListener('bsn:open-inspector', onOpenInspector as EventListener)
     return () =>
@@ -96,7 +110,7 @@ export default function ProjectPage() {
         'bsn:open-inspector',
         onOpenInspector as EventListener,
       )
-  }, [search, setSearch])
+  }, [search, router, projectId])
 
   if (!projectId) {
     return (

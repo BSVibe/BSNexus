@@ -1,6 +1,8 @@
+'use client'
+
 import { useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { useAuthContext } from '../components/auth/AuthContext'
+import { useRouter } from 'next/navigation'
+import { useAuthContext } from '../auth/AuthContext'
 
 const features = [
   {
@@ -22,13 +24,13 @@ const features = [
 
 export default function LandingPage() {
   const { user, login } = useAuthContext()
-  const navigate = useNavigate()
+  const router = useRouter()
 
   useEffect(() => {
     if (user) {
-      navigate('/dashboard', { replace: true })
+      router.replace('/dashboard')
     }
-  }, [user, navigate])
+  }, [user, router])
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-stitch-surface relative overflow-hidden">
@@ -70,7 +72,7 @@ export default function LandingPage() {
           <div className="flex flex-col items-center">
             {user ? (
               <button
-                onClick={() => navigate('/dashboard')}
+                onClick={() => router.push('/dashboard')}
                 className="w-full py-3 bg-gradient-to-r from-stitch-primary to-stitch-primary-container text-stitch-on-primary-container rounded-lg text-base font-bold transition-all shadow-lg shadow-stitch-primary/25 hover:opacity-90"
               >
                 Go to Dashboard
