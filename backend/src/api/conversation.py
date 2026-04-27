@@ -99,7 +99,7 @@ async def send_message(
     project_id: uuid.UUID,
     payload: MessageCreate,
     request: Request,
-    _user=Depends(get_current_user),
+    user=Depends(get_current_user),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> SendMessageResponse:
@@ -114,7 +114,7 @@ async def send_message(
     await db.flush()
 
     extractor = RequestExtractor()  # static classifier by default
-    outcome = await extractor.process_message(message, tenant_id=tenant_id, db=db)
+    outcome = await extractor.process_message(message, tenant_id=tenant_id, db=db, actor_user=user)
 
     # Capture the founder's Bearer token so post-run sibling-service
     # calls (BSage index) can forward the same identity. Auto same-

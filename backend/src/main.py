@@ -163,9 +163,22 @@ async def lifespan(app: FastAPI):
     await worker_result_consumer.start()
     app.state.worker_result_consumer = worker_result_consumer
 
+    # Phase Audit Batch 2 — bsvibe-audit OutboxRelay. Reads
+    # ``audit_outbox`` rows that domain code wrote inside their own
+    # transactions and ships them to BSVibe-Auth. Disabled (no-op
+    # singleton) when ``BSVIBE_AUTH_AUDIT_URL`` is empty — dev
+    # environments boot without the audit destination configured and
+    # outbox rows just queue up locally.
+    from backend.src.core.audit import build_relay  # noqa: PLC0415
+
+    audit_relay = build_relay(session_factory=async_session)
+    await audit_relay.start()
+    app.state.audit_relay = audit_relay
+
     try:
         yield
     finally:
+        await audit_relay.stop()
         await worker_result_consumer.stop()
         await close_redis()
 

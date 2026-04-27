@@ -17,12 +17,19 @@ from __future__ import annotations
 import enum
 import uuid
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 import structlog
+from bsvibe_audit.events.nexus import RequestCreated
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.src.core.audit import (
+    actor_from_user,
+    actor_system,
+    resource_request,
+    safe_emit,
+)
 from backend.src.models import ConversationMessage, Request, RequestStatus
 
 logger = structlog.get_logger(__name__)
@@ -214,6 +221,7 @@ class RequestExtractor:
         *,
         tenant_id: uuid.UUID,
         db: AsyncSession,
+        actor_user: Any | None = None,
     ) -> ExtractionOutcome:
         if message.role != "user":
             return ExtractionOutcome(MessageIntent.chit_chat, None, False)
@@ -257,6 +265,28 @@ class RequestExtractor:
             request_id=str(request.id),
             intent=classification.intent.value,
         )
+
+        # Phase Audit Batch 2 — emit ``nexus.request.created`` in the
+        # caller's session. Caller (conversation.send_message) does the
+        # final ``commit()``, which makes this audit row durable along
+        # with the Request + ConversationMessage rows. Actor is the
+        # user when known (most callers thread it through); otherwise
+        # ``system`` for background extractor invocations.
+        await safe_emit(
+            RequestCreated(
+                actor=actor_from_user(actor_user) if actor_user is not None else actor_system(),
+                tenant_id=str(tenant_id),
+                resource=resource_request(request.id),
+                data={
+                    "project_id": str(message.project_id),
+                    "intent": classification.intent.value,
+                    "intent_summary": request.intent_summary,
+                    "origin_message_id": str(message.id),
+                },
+            ),
+            session=db,
+        )
+
         return ExtractionOutcome(classification.intent, request, True)
 
 

@@ -10,8 +10,32 @@ Invariants:
 - ``done`` is terminal.
 - ``blocked`` can only go back through ``pending``.
 - Every transition writes an ExecutionRunHistory row, a milestone
-  ExecutionRunActivity row, and publishes to Redis Streams so SSE
-  subscribers get a live update.
+  ExecutionRunActivity row, publishes to Redis Streams so SSE
+  subscribers get a live update, **and** emits the matching
+  ``nexus.run.*`` audit event (Phase Audit Batch 2).
+
+Audit emit integration (Phase Audit Batch 2)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``RunStateMachine.transition()`` is the single source of truth for
+ExecutionRun status changes (NEVER bypass — see CLAUDE.md NEVER rule).
+We piggyback on that property to fan out audit events without adding
+a second source: the SSE event ``run_transition`` and the audit row
+both originate from this method, in the caller's transaction. This is
+the "automatic" branch of the Audit-3 hybrid policy — every state
+change is audited, no producer can forget.
+
+The four nexus events covered here:
+* ``running``  → ``nexus.run.started``
+* ``done``     → ``nexus.run.completed``
+* ``blocked``  → ``nexus.run.blocked``
+* ``pending``  (retry from blocked / running) → no event emitted; the
+  retry is uninteresting from an audit perspective and emitting it
+  would clutter the timeline. The corresponding ``ExecutionRunHistory``
+  row still records the transition.
+
+The emit is shielded by ``safe_emit`` so an audit-time failure (bad
+payload, closed session) cannot propagate into a domain rollback.
 """
 
 from __future__ import annotations
@@ -23,6 +47,12 @@ from typing import Any
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.src.core.audit import (
+    actor_orchestrator,
+    actor_system,
+    resource_run,
+    safe_emit,
+)
 from backend.src.models import (
     ActivityLevel,
     ExecutionRun,
@@ -119,7 +149,88 @@ class RunStateMachine:
             }
             await stream_manager.publish_project_event(str(run.project_id), "run_transition", event)
 
+        # Phase Audit Batch 2 — emit the matching ``nexus.run.*`` event
+        # in the same transaction as the history/activity rows. The
+        # outbox INSERT is part of the caller's session, so a rollback
+        # of the domain mutation rolls back the audit row too.
+        #
+        # Skipped when ``db_session is None`` — that mode is used in
+        # unit tests of the state-machine with bare ``SimpleNamespace``
+        # runs (no DB at all). Adding an unconditional emit there would
+        # break those tests for no audit value.
+        if db_session is not None:
+            await self._maybe_emit_audit(
+                run,
+                old_status=old_status,
+                new_status=new_status,
+                actor=actor,
+                reason=reason,
+                session=db_session,
+            )
+
         return run
+
+    async def _maybe_emit_audit(
+        self,
+        run: ExecutionRun,
+        *,
+        old_status: RunStatus,
+        new_status: RunStatus,
+        actor: str,
+        reason: str | None,
+        session: AsyncSession,
+    ) -> None:
+        """Emit the ``nexus.run.*`` audit event for terminal transitions.
+
+        Skips the ``→ pending`` retry transition (uninteresting from an
+        audit perspective). All other transitions get exactly one event
+        per state change.
+        """
+        from bsvibe_audit.events.nexus import (  # noqa: PLC0415 — keep cold-imports out of hot loop
+            RunBlocked,
+            RunCompleted,
+            RunStarted,
+        )
+
+        event_cls: type | None
+        if new_status == RunStatus.running:
+            event_cls = RunStarted
+        elif new_status == RunStatus.done:
+            event_cls = RunCompleted
+        elif new_status == RunStatus.blocked:
+            event_cls = RunBlocked
+        else:
+            event_cls = None
+
+        if event_cls is None:
+            return
+
+        # Pick an audit-shape actor that matches the legacy ``actor``
+        # string. ``orchestrator`` is by far the dominant case (real
+        # state changes); anything else falls back to "system" so we
+        # never lose a transition just because the caller passed a
+        # custom label.
+        audit_actor = actor_orchestrator() if actor == "orchestrator" else actor_system()
+
+        data: dict[str, Any] = {
+            "from_status": old_status.value,
+            "to_status": new_status.value,
+            "actor": actor,
+        }
+        if reason:
+            data["reason"] = reason
+        if run.request_id is not None:
+            data["request_id"] = str(run.request_id)
+        if getattr(run, "parent_run_id", None) is not None:
+            data["parent_run_id"] = str(run.parent_run_id)
+
+        event = event_cls(
+            actor=audit_actor,
+            tenant_id=str(run.tenant_id) if run.tenant_id is not None else None,
+            resource=resource_run(run.id),
+            data=data,
+        )
+        await safe_emit(event, session=session)
 
     async def _side_effects(
         self,

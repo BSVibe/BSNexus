@@ -159,6 +159,35 @@ async def _dispatch_background(
                         "decision_id": str(decision.id),
                     },
                 )
+
+                # Phase Audit Batch 2 — emit ``nexus.decision.created``.
+                # Replanner-driven decision creation: the orchestrator
+                # asked the founder a question, no user actor exists at
+                # this point. ``orchestrator`` is the audit actor.
+                from backend.src.core.audit import (  # noqa: PLC0415
+                    actor_orchestrator,
+                    resource_decision,
+                    safe_emit,
+                )
+                from bsvibe_audit.events.nexus import DecisionCreated  # noqa: PLC0415
+
+                await safe_emit(
+                    DecisionCreated(
+                        actor=actor_orchestrator(),
+                        tenant_id=str(tenant_id),
+                        resource=resource_decision(decision.id),
+                        data={
+                            "project_id": str(run_row.project_id),
+                            "request_id": str(req_row.id),
+                            "origin_run_id": str(run_row.id),
+                            "question": decision.question,
+                            "blocking": decision.blocking,
+                            "option_count": len(decision.options or []),
+                        },
+                    ),
+                    session=session,
+                )
+
                 run_row.status = RunStatus.blocked
                 run_row.error_message = "awaiting founder decision"
                 await session.commit()

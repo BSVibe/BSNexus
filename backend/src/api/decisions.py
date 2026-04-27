@@ -5,10 +5,12 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
+from bsvibe_audit.events.nexus import DecisionResolved
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.src.core.audit import actor_from_user, resource_decision, safe_emit
 from backend.src.core.auth import get_current_user
 from backend.src.core.composer import resolve_knowledge_client
 from backend.src.core.integrations import get_tenant_integration_snapshot
@@ -62,7 +64,7 @@ async def resolve_decision(
     decision_id: uuid.UUID,
     payload: DecisionResolve,
     request: Request,
-    _user=Depends(get_current_user),
+    user=Depends(get_current_user),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> Decision:
@@ -74,6 +76,27 @@ async def resolve_decision(
     decision.resolution = payload.resolution
     decision.resolved_by = payload.resolved_by
     decision.resolved_at = datetime.now(timezone.utc)
+
+    # Phase Audit Batch 2 — emit ``nexus.decision.resolved`` in the same
+    # transaction as the resolution UPDATE. Actor is the founder (the
+    # authenticated user) — Decision resolution is always a direct user
+    # action through this endpoint.
+    await safe_emit(
+        DecisionResolved(
+            actor=actor_from_user(user),
+            tenant_id=str(tenant_id),
+            resource=resource_decision(decision.id),
+            data={
+                "project_id": str(decision.project_id),
+                "request_id": str(decision.request_id) if decision.request_id is not None else None,
+                "resolution": payload.resolution,
+                "resolved_by": payload.resolved_by,
+                "blocking": decision.blocking,
+            },
+        ),
+        session=db,
+    )
+
     await db.commit()
     await db.refresh(decision)
 

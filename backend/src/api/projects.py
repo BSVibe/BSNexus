@@ -5,10 +5,12 @@ from __future__ import annotations
 import uuid
 
 import structlog
+from bsvibe_audit.events.nexus import ProjectCreated
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.src.core.audit import actor_from_user, resource_project, safe_emit
 from backend.src.core.auth import get_current_user
 from backend.src.core.tenant_context import get_tenant_id
 from backend.src.models import Project
@@ -41,7 +43,7 @@ async def list_projects(
 @router.post("", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
 async def create_project(
     payload: ProjectCreate,
-    _user=Depends(get_current_user),
+    user=Depends(get_current_user),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> Project:
@@ -53,6 +55,26 @@ async def create_project(
         bsupervisor_policy_id=payload.bsupervisor_policy_id,
     )
     db.add(project)
+    # Flush so ``project.id`` is populated for the audit resource ref,
+    # then emit the audit event in the same transaction as the INSERT.
+    # The single ``commit()`` below makes both rows durable atomically
+    # — exactly the outbox-pattern guarantee BSVibe_Audit_Design.md §3.1
+    # asks for.
+    await db.flush()
+
+    await safe_emit(
+        ProjectCreated(
+            actor=actor_from_user(user),
+            tenant_id=str(tenant_id),
+            resource=resource_project(project.id),
+            data={
+                "name": project.name,
+                "description": project.description,
+            },
+        ),
+        session=db,
+    )
+
     await db.commit()
     await db.refresh(project)
     logger.info("project_created", project_id=str(project.id), tenant_id=str(tenant_id))
