@@ -406,3 +406,89 @@ kbd {
   animation: skel 1.4s infinite;
   border-radius: var(--r-sm);
 }
+
+/* ======================================================================
+ * Phase B Batch 2 — mobile viewport adaptation.
+ *
+ * BSNexus is normally a 3-column app grid (sidebar | main | chat-rail).
+ * Below 768px we collapse to a single-column layout where:
+ *   - Sidebar slides off-canvas to the LEFT (hamburger toggles `.app--mobile-sidebar-open`)
+ *   - Chat rail slides off-canvas to the RIGHT (chat icon toggles `.app--mobile-chat-open`)
+ *   - Main column always fills the viewport
+ *
+ * The state classes are added to `.app` by Layout.tsx; the CSS owns the
+ * actual translation. This preserves the design-tokens.ts SoT (no token
+ * changes) and keeps @tanstack/react-query usage unchanged.
+ *
+ * The four founder-metaphor surfaces (Direction / Progress / Decisions /
+ * Inside) all live inside `.mn` — they get the same mobile main column
+ * automatically. Specific tweaks (chat-bubble width, decision card stack,
+ * inside-tree scroll) are handled below.
+ * ====================================================================== */
+@media (max-width: 767px) {
+  .app {
+    grid-template-columns: 1fr;
+    grid-template-areas: "main";
+  }
+  .sb {
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: 280px;
+    z-index: 50;
+    transform: translateX(-100%);
+    transition: transform 200ms var(--ease);
+  }
+  .app--mobile-sidebar-open .sb {
+    transform: translateX(0);
+  }
+  .cr {
+    position: fixed;
+    inset: 0 0 0 auto;
+    width: min(380px, 92vw);
+    z-index: 50;
+    transform: translateX(100%);
+    transition: transform 200ms var(--ease);
+  }
+  .app--mobile-chat-open .cr {
+    transform: translateX(0);
+  }
+  /* Backdrop sits behind the active panel. */
+  .app--mobile-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 40;
+  }
+  /* Tighter sidebar items so a 280px drawer is readable. */
+  .sb-item {
+    min-height: 44px;
+    padding: 8px 12px;
+  }
+  .sb-brand {
+    min-height: 56px;
+  }
+}
+
+/* Hamburger trigger — only visible at < 768px. Lives in Layout.tsx. */
+.app__hamburger {
+  display: none;
+}
+@media (max-width: 767px) {
+  .app__hamburger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    position: fixed;
+    top: 0.5rem;
+    left: 0.5rem;
+    z-index: 60;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 8px;
+    border-radius: var(--r-md);
+    background: var(--bg-elevated);
+    color: var(--gray-200);
+    border: 1px solid var(--border-default);
+    cursor: pointer;
+  }
+}

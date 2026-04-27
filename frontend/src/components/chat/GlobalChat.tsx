@@ -69,6 +69,12 @@ export default function GlobalChat({
     projectQueries.forEach((q, i) => {
       const pid = projects[i]?.id
       if (!pid || !q.data) return
+      // Defend against API mock fixtures returning `{}` for the per-project
+      // messages endpoint. In dev/test environments the catch-all mock
+      // gives `{}` until a specific route is registered, and `{}.forEach`
+      // throws a Runtime TypeError that the Next.js dev overlay shows on
+      // every page (including /settings) — blocking any e2e flow.
+      if (!Array.isArray(q.data)) return
       q.data.forEach((m) =>
         all.push({
           ...m,

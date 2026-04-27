@@ -74,6 +74,24 @@ export async function injectAuth(page: Page) {
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
+        // Phase B: full SessionEnvelope shape — `@bsvibe/auth`'s useAuth
+        // requires `user`. Without it ProtectedRoute redirects to /login.
+        user: {
+          id: 'user-001',
+          email: 'dev@bsvibe.dev',
+          name: 'Test User',
+        },
+        tenants: [
+          {
+            id: 'tenant-001',
+            name: 'Test Tenant',
+            slug: 'test',
+            plan: 'team',
+            type: 'company',
+            role: 'admin',
+          },
+        ],
+        active_tenant_id: 'tenant-001',
         access_token: mockAccessToken,
         refresh_token: 'mock-refresh-token-def456',
         expires_in: 3600,
