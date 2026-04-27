@@ -1,43 +1,33 @@
 'use client'
 
+import { useTranslations } from 'next-intl'
 import { useRouter, useSearchParams } from 'next/navigation'
 
 import ExecutorsSection from '../settings/ExecutorsSection'
 import IntegrationsTab from '../settings/IntegrationsTab'
+import LanguageSwitcher from '../settings/LanguageSwitcher'
 import { I } from '../../lib/icons'
 
-type SectionId = 'integrations' | 'executors'
+type SectionId = 'integrations' | 'executors' | 'language'
 
 interface Section {
   id: SectionId
-  label: string
   icon: (p: { size?: number }) => React.ReactElement
-  summary: string
 }
 
 const SECTIONS: Section[] = [
-  {
-    id: 'integrations',
-    label: 'Integrations',
-    icon: I.Zap,
-    summary:
-      'Connect BSNexus to sibling services. Keys are stored tenant-scoped and encrypted at rest; only whether a key is present is ever returned.',
-  },
-  {
-    id: 'executors',
-    label: 'Executors',
-    icon: I.Brain,
-    summary:
-      'Register LLM backends and remote workers. LLM executors (LiteLLM / BSGateway / claude-code / codex) handle composition runs; remote workers register with an install token and execute coding tasks with their local CLI.',
-  },
+  { id: 'integrations', icon: I.Zap },
+  { id: 'executors', icon: I.Brain },
+  { id: 'language', icon: I.Settings },
 ]
 
 function parseSection(raw: string | null): SectionId {
-  if (raw === 'executors') return raw
+  if (raw === 'executors' || raw === 'language') return raw
   return 'integrations'
 }
 
 export default function SettingsPage() {
+  const t = useTranslations('nexus.settings')
   const search = useSearchParams()
   const router = useRouter()
   const active = parseSection(search.get('section'))
@@ -75,7 +65,7 @@ export default function SettingsPage() {
             padding: '0 8px 8px',
           }}
         >
-          Settings
+          {t('title')}
         </div>
         {SECTIONS.map((s) => (
           <button
@@ -85,7 +75,7 @@ export default function SettingsPage() {
             onClick={() => go(s.id)}
           >
             <s.icon size={14} />
-            <span className="label">{s.label}</span>
+            <span className="label">{t(`sections.${s.id}.label`)}</span>
           </button>
         ))}
       </nav>
@@ -93,11 +83,12 @@ export default function SettingsPage() {
       <div style={{ overflow: 'auto', padding: 32 }}>
         <div style={{ maxWidth: 820 }}>
           <div style={{ marginBottom: 24 }}>
-            <h1 className="page-title">{activeSection.label}</h1>
-            <div className="page-sub">{activeSection.summary}</div>
+            <h1 className="page-title">{t(`sections.${activeSection.id}.label`)}</h1>
+            <div className="page-sub">{t(`sections.${activeSection.id}.summary`)}</div>
           </div>
           {active === 'integrations' && <IntegrationsTab />}
           {active === 'executors' && <ExecutorsSection />}
+          {active === 'language' && <LanguageSwitcher />}
         </div>
       </div>
     </div>

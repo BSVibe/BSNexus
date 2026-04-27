@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import { useTranslations } from 'next-intl'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 
@@ -19,6 +20,8 @@ export default function DashboardPage() {
   const queryClient = useQueryClient()
   const router = useRouter()
   const search = useSearchParams()
+  const t = useTranslations('nexus.dashboard')
+  const tCommon = useTranslations('nexus.common')
   const newParam = search.get('new') === '1'
   const [createOpen, setCreateOpen] = useState(newParam)
   const [filter, setFilter] = useState<StatusFilter>('all')
@@ -127,14 +130,14 @@ export default function DashboardPage() {
               queryClient.invalidateQueries({ queryKey: ['projects'] })
             }
           >
-            <I.Refresh size={14} /> Refresh
+            <I.Refresh size={14} /> {tCommon('refresh')}
           </button>
           <button
             type="button"
             className="btn btn-primary"
             onClick={() => setCreateOpen(true)}
           >
-            <I.Plus size={14} /> New project
+            <I.Plus size={14} /> {t('newProject')}
           </button>
         </div>
       </div>
@@ -149,30 +152,30 @@ export default function DashboardPage() {
         }}
       >
         <Stat
-          label="Active projects"
+          label={t('stat.activeProjects')}
           value={projects.filter((p) => p.status === 'active').length}
-          sub={`${projects.length} total`}
+          sub={t('stat.activeProjectsSub', { total: projects.length })}
           tone="blue"
         />
         <Stat
-          label="Blocking decisions"
+          label={t('stat.blockingDecisions')}
           value={blocking.length}
-          sub={`${openDecisions.length} open`}
+          sub={t('stat.blockingDecisionsSub', { open: openDecisions.length })}
           tone={blocking.length > 0 ? 'rose' : 'gray'}
           onClick={() => {
             if (blocking[0]) router.push(`/projects/${blocking[0].project_id}`)
           }}
         />
         <Stat
-          label="Active requests"
+          label={t('stat.activeRequests')}
           value={activeRequests.length}
-          sub={`${allRequests.length} total`}
+          sub={t('stat.activeRequestsSub', { total: allRequests.length })}
           tone="emerald"
         />
         <Stat
-          label="Delivered · 7d"
+          label={t('stat.deliveredWindow')}
           value={shipped7d.length}
-          sub="ready to review"
+          sub={t('stat.deliveredWindowSub')}
           tone="amber"
         />
       </div>
@@ -187,7 +190,7 @@ export default function DashboardPage() {
         }}
       >
         <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--gray-100)' }}>
-          Projects
+          {t('projectsHeading')}
         </span>
         <span style={{ flex: 1 }} />
         {STATUS_FILTERS.map((s) => (
@@ -197,7 +200,7 @@ export default function DashboardPage() {
             className={`btn btn-sm ${filter === s ? 'btn-secondary' : 'btn-ghost'}`}
             onClick={() => setFilter(s)}
           >
-            {s === 'all' ? 'All' : s.charAt(0).toUpperCase() + s.slice(1)}
+            {t(`filter.${s}`)}
             <span className="mono faded" style={{ fontSize: 10, marginLeft: 4 }}>
               {s === 'all' ? projects.length : projects.filter((p) => p.status === s).length}
             </span>
@@ -244,8 +247,8 @@ export default function DashboardPage() {
           >
             <div style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>
               {projects.length === 0
-                ? 'No projects yet. Hit "New project" to hire the company on something.'
-                : 'No projects match this filter.'}
+                ? t('empty.noProjects')
+                : t('empty.noFilterMatch')}
             </div>
           </div>
         )}
@@ -266,6 +269,7 @@ export default function DashboardPage() {
           }}
           onSubmit={() => createMutation.mutate()}
           pending={createMutation.isPending}
+          fallbackMentionToken={t('newProject')}
         />
       )}
     </div>
@@ -345,6 +349,14 @@ function ProjectCard({
   deliveredThisWeek: number
   onOpen: () => void
 }) {
+  const tCard = useTranslations('nexus.dashboard.card')
+  const tStatus = useTranslations('nexus.status')
+  const projectStatusLabel = (() => {
+    const s = project.status
+    if (s === 'active') return tStatus('active')
+    if (s === 'archived') return tStatus('archived')
+    return s
+  })()
   return (
     <button
       type="button"
@@ -376,7 +388,7 @@ function ProjectCard({
             }}
           >
             <Badge tone={statusTone(project.status)} dot>
-              {project.status}
+              {projectStatusLabel}
             </Badge>
             <span
               className="mono faded"
@@ -436,19 +448,19 @@ function ProjectCard({
           <span className="hl mono" style={{ fontSize: 12 }}>
             {activeReqCount}
           </span>{' '}
-          requests
+          {tCard('requests')}
         </span>
         <span>
           <span className="hl mono" style={{ fontSize: 12 }}>
             {openDecisions}
           </span>{' '}
-          pending
+          {tCard('pending')}
         </span>
         <span>
           <span className="hl mono" style={{ fontSize: 12 }}>
             {deliveredThisWeek}
           </span>{' '}
-          shipped
+          {tCard('shipped')}
         </span>
         <span style={{ flex: 1 }} />
         <span title={new Date(project.updated_at).toLocaleString()}>
@@ -467,6 +479,7 @@ function CreateProjectModal({
   onClose,
   onSubmit,
   pending,
+  fallbackMentionToken,
 }: {
   name: string
   desc: string
@@ -475,7 +488,14 @@ function CreateProjectModal({
   onClose: () => void
   onSubmit: () => void
   pending: boolean
+  fallbackMentionToken: string
 }) {
+  const tModal = useTranslations('nexus.dashboard.createModal')
+  const tCommon = useTranslations('nexus.common')
+  // Translate the bracketed ``mentionToken`` into a styled inline span
+  // so the placeholder ``@`` chip keeps its monospace highlighting.
+  // We render via ``t.rich`` to preserve the JSX while letting locales
+  // re-order the surrounding text.
   return (
     <div className="cmd-mask" onClick={onClose}>
       <div className="cmd" style={{ width: 520 }} onClick={(e) => e.stopPropagation()}>
@@ -488,7 +508,7 @@ function CreateProjectModal({
             justifyContent: 'space-between',
           }}
         >
-          <div style={{ fontSize: 14, fontWeight: 600 }}>New project</div>
+          <div style={{ fontSize: 14, fontWeight: 600 }}>{tModal('title')}</div>
           <button type="button" className="btn btn-icon" onClick={onClose}>
             <I.X size={14} />
           </button>
@@ -514,14 +534,14 @@ function CreateProjectModal({
                 display: 'block',
               }}
             >
-              Name
+              {tModal('nameLabel')}
             </label>
             <input
               className="input"
               value={name}
               autoFocus
               onChange={(e) => onChangeName(e.target.value)}
-              placeholder="e.g. Pelago Billing Rework"
+              placeholder={tModal('namePlaceholder')}
             />
           </div>
           <div>
@@ -533,13 +553,13 @@ function CreateProjectModal({
                 display: 'block',
               }}
             >
-              One-line description
+              {tModal('descriptionLabel')}
             </label>
             <input
               className="input"
               value={desc}
               onChange={(e) => onChangeDesc(e.target.value)}
-              placeholder="What do you want the agents to build?"
+              placeholder={tModal('descriptionPlaceholder')}
             />
           </div>
           <div
@@ -555,9 +575,10 @@ function CreateProjectModal({
             <I.Sparkle
               size={12}
               style={{ display: 'inline', marginRight: 6, verticalAlign: -2 }}
-            />
-            Once created, you'll land in the project. Talk to the company and mention
-            <span className="mono hl"> @{name || 'project'}</span> to direct it.
+            />{' '}
+            {tModal('hint', {
+              mentionToken: `@${name || fallbackMentionToken}`,
+            })}
           </div>
           <div
             style={{
@@ -569,14 +590,14 @@ function CreateProjectModal({
             }}
           >
             <button type="button" className="btn btn-ghost" onClick={onClose}>
-              Cancel
+              {tCommon('cancel')}
             </button>
             <button
               type="submit"
               className="btn btn-primary"
               disabled={!name.trim() || pending}
             >
-              {pending ? 'Creating…' : 'Create & open'}
+              {pending ? tCommon('creating') : tModal('submit')}
             </button>
           </div>
         </form>

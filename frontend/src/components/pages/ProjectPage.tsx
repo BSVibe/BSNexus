@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { useTranslations } from 'next-intl'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
@@ -22,6 +23,8 @@ function parseTab(raw: string | null): TabId {
 }
 
 export default function ProjectPage() {
+  const t = useTranslations('nexus.project')
+  const tCommon = useTranslations('nexus.common')
   const params = useParams<{ projectId?: string | string[] }>()
   // App Router catch-all yields an array; the dynamic segment yields a
   // string. Normalise to string | undefined.
@@ -121,7 +124,7 @@ export default function ProjectPage() {
           color: 'var(--text-tertiary)',
         }}
       >
-        No project selected.
+        {t('noProjectSelected')}
       </div>
     )
   }
@@ -137,21 +140,21 @@ export default function ProjectPage() {
     >
       <div className="tabs" style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
         <TabButton
-          label="Progress"
+          label={t('tab.progress')}
           icon={<I.Timeline size={14} />}
           active={tab === 'progress'}
           onClick={() => setTab('progress')}
           count={deliverables.length || null}
         />
         <TabButton
-          label="Files"
+          label={t('tab.files')}
           icon={<I.Doc size={14} />}
           active={tab === 'files'}
           onClick={() => setTab('files')}
           count={files.length || null}
         />
         <TabButton
-          label="Decisions"
+          label={t('tab.decisions')}
           icon={<I.Inbox size={14} />}
           active={tab === 'decisions'}
           onClick={() => setTab('decisions')}
@@ -159,7 +162,7 @@ export default function ProjectPage() {
           toneRose={openDecisions > 0}
         />
         <TabButton
-          label="Inspector"
+          label={t('tab.inspector')}
           icon={<I.Eye size={14} />}
           active={tab === 'inspector'}
           onClick={() => setTab('inspector')}
@@ -168,7 +171,7 @@ export default function ProjectPage() {
         <button
           type="button"
           className="btn btn-icon"
-          title="Delete project"
+          title={tCommon('delete')}
           style={{ color: 'var(--color-rose)', marginRight: 8 }}
           onClick={() => setConfirmDelete(true)}
         >
@@ -179,7 +182,7 @@ export default function ProjectPage() {
       <Modal
         open={confirmDelete}
         onClose={() => setConfirmDelete(false)}
-        title="Delete this project?"
+        title={t('deleteModal.title')}
         footer={
           <>
             <button
@@ -188,7 +191,7 @@ export default function ProjectPage() {
               onClick={() => setConfirmDelete(false)}
               disabled={deleteMutation.isPending}
             >
-              Cancel
+              {tCommon('cancel')}
             </button>
             <button
               type="button"
@@ -197,19 +200,19 @@ export default function ProjectPage() {
               onClick={() => deleteMutation.mutate()}
               disabled={deleteMutation.isPending}
             >
-              {deleteMutation.isPending ? 'Deleting…' : 'Delete'}
+              {deleteMutation.isPending ? tCommon('deleting') : t('deleteModal.submit')}
             </button>
           </>
         }
       >
         <p style={{ color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-          <strong style={{ color: 'var(--gray-50)' }}>{project?.name ?? 'This project'}</strong>{' '}
-          and all of its conversations, requests, deliverables, and decisions
-          will be permanently deleted. This cannot be undone.
+          {t('deleteModal.body', {
+            name: project?.name ?? t('deleteModal.fallbackName'),
+          })}
         </p>
         {deleteMutation.isError && (
           <p style={{ color: 'var(--color-rose)', marginTop: 12, fontSize: 13 }}>
-            Failed to delete. {(deleteMutation.error as Error)?.message}
+            {t('deleteModal.errorPrefix')} {(deleteMutation.error as Error)?.message}
           </p>
         )}
       </Modal>
@@ -217,7 +220,7 @@ export default function ProjectPage() {
       <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
         {tab === 'progress' && <ProgressView projectId={projectId} />}
         {tab === 'files' && (
-          <FilesView projectId={projectId} projectName={project?.name ?? 'Project'} />
+          <FilesView projectId={projectId} projectName={project?.name ?? t('fallbackTitle')} />
         )}
         {tab === 'decisions' && <DecisionsView projectId={projectId} />}
         {tab === 'inspector' && (

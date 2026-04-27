@@ -1,3 +1,4 @@
+import { useTranslations } from 'next-intl'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import IntegrationCard from './IntegrationCard'
@@ -12,6 +13,8 @@ import type { IntegrationProvider } from '../../types/founder'
 const PROVIDERS: IntegrationProvider[] = ['bsage', 'bsupervisor']
 
 export default function IntegrationsTab() {
+  const t = useTranslations('nexus.errors')
+  const tCommon = useTranslations('nexus.common')
   const queryClient = useQueryClient()
 
   const { data, isLoading, error } = useQuery<IntegrationConfigList>({
@@ -37,7 +40,7 @@ export default function IntegrationsTab() {
     return (
       <div style={{ padding: 16 }}>
         <p className="faded" style={{ fontSize: 13 }}>
-          Loading…
+          {tCommon('loading')}
         </p>
       </div>
     )
@@ -55,7 +58,7 @@ export default function IntegrationsTab() {
             borderColor: 'rgba(244,63,94,0.3)',
           }}
         >
-          Failed to load integration configs.
+          {t('loadIntegrationsFailed')}
         </div>
       </div>
     )

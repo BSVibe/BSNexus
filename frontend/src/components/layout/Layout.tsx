@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useTranslations } from 'next-intl'
 import { useParams, usePathname } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 
@@ -13,6 +14,7 @@ import { useProjectEvents } from '../../hooks/useProjectEvents'
 const CHAT_COLLAPSED_KEY = 'bsnexus.chat.collapsed'
 
 export default function Layout({ children }: { children: React.ReactNode }) {
+  const t = useTranslations('nexus.layout')
   const [chatCollapsed, setChatCollapsed] = useState(() => {
     if (typeof window === 'undefined') return false
     return localStorage.getItem(CHAT_COLLAPSED_KEY) === '1'
@@ -94,7 +96,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       {/* Phase B Batch 2 — mobile hamburger. Visible only under 768px via CSS. */}
       <button
         type="button"
-        aria-label="Open navigation"
+        aria-label={t('openNavigation')}
         aria-expanded={mobileSidebarOpen}
         className="app__hamburger"
         onClick={() => setMobileSidebarOpen(true)}

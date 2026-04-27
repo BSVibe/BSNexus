@@ -1,0 +1,379 @@
+{
+  "nexus": {
+    "common": {
+      "save": "Save",
+      "saving": "Saving…",
+      "saved": "Saved",
+      "cancel": "Cancel",
+      "delete": "Delete",
+      "deleting": "Deleting…",
+      "edit": "Edit",
+      "create": "Create",
+      "creating": "Creating…",
+      "refresh": "Refresh",
+      "search": "Search",
+      "loading": "Loading…",
+      "noData": "No data available.",
+      "confirm": "Confirm",
+      "close": "Close",
+      "copy": "Copy",
+      "copied": "Copied",
+      "rotate": "Rotate",
+      "rotating": "Rotating…",
+      "regenerate": "Regenerate",
+      "revoke": "Revoke",
+      "register": "Register",
+      "registering": "Registering",
+      "test": "Test connection",
+      "testing": "Testing…",
+      "remove": "Remove",
+      "back": "Back",
+      "open": "Open",
+      "yes": "Yes",
+      "no": "No"
+    },
+    "status": {
+      "active": "active",
+      "archived": "archived",
+      "all": "All",
+      "running": "running",
+      "open": "open",
+      "blocked": "blocked",
+      "blocking": "blocking",
+      "resolved": "resolved",
+      "done": "done",
+      "pending": "pending",
+      "delivered": "delivered",
+      "healthy": "healthy",
+      "unreachable": "unreachable",
+      "unauthorized": "unauthorized",
+      "enabled": "enabled",
+      "disabled": "disabled",
+      "online": "online",
+      "busy": "busy",
+      "offline": "offline",
+      "configured": "configured",
+      "inUse": "in use",
+      "idle": "idle"
+    },
+    "errors": {
+      "loadFailed": "Failed to load data.",
+      "loadIntegrationsFailed": "Failed to load integration configs.",
+      "deleteFailed": "Failed to delete.",
+      "sendFailed": "Send failed: {message}. The message is back in the box — try again.",
+      "genericTryAgain": "Something went wrong. Try again."
+    },
+    "auth": {
+      "signInWithBsvibe": "Sign in with BSVibe",
+      "signUp": "Sign up",
+      "noAccount": "Don't have an account?",
+      "logout": "Log out",
+      "loggingOut": "Logging out…",
+      "callbackTitle": "Completing sign-in…",
+      "guest": "guest",
+      "home": "Home"
+    },
+    "layout": {
+      "brandName": "BSNexus",
+      "projects": "Projects",
+      "workspace": "Workspace",
+      "dashboard": "Dashboard",
+      "settings": "Settings",
+      "newProject": "New project",
+      "noProjects": "No projects yet.",
+      "openNavigation": "Open navigation",
+      "jumpAnywhere": "Jump anywhere",
+      "jumpTo": "Jump to…"
+    },
+    "palette": {
+      "placeholder": "Search projects, actions…",
+      "noMatches": "No matches.",
+      "navigate": "navigate",
+      "openItem": "open",
+      "closePalette": "close",
+      "newProject": "New project",
+      "dashboard": "Dashboard",
+      "settingsIntegrations": "Settings · Integrations",
+      "kindAction": "action",
+      "kindNav": "nav",
+      "kindProject": "project"
+    },
+    "dashboard": {
+      "title": "Dashboard",
+      "newProject": "New project",
+      "stat": {
+        "activeProjects": "Active projects",
+        "activeProjectsSub": "{total} total",
+        "blockingDecisions": "Blocking decisions",
+        "blockingDecisionsSub": "{open} open",
+        "activeRequests": "Active requests",
+        "activeRequestsSub": "{total} total",
+        "deliveredWindow": "Delivered · 7d",
+        "deliveredWindowSub": "ready to review"
+      },
+      "projectsHeading": "Projects",
+      "filter": {
+        "all": "All",
+        "active": "Active",
+        "archived": "Archived"
+      },
+      "empty": {
+        "noProjects": "No projects yet. Hit \"New project\" to hire the company on something.",
+        "noFilterMatch": "No projects match this filter."
+      },
+      "card": {
+        "requests": "requests",
+        "pending": "pending",
+        "shipped": "shipped"
+      },
+      "createModal": {
+        "title": "New project",
+        "nameLabel": "Name",
+        "namePlaceholder": "e.g. Pelago Billing Rework",
+        "descriptionLabel": "One-line description",
+        "descriptionPlaceholder": "What do you want the agents to build?",
+        "hint": "Once created, you'll land in the project. Talk to the company and mention {mentionToken} to direct it.",
+        "submit": "Create & open"
+      }
+    },
+    "project": {
+      "tab": {
+        "progress": "Progress",
+        "files": "Files",
+        "decisions": "Decisions",
+        "inspector": "Inspector"
+      },
+      "deleteModal": {
+        "title": "Delete this project?",
+        "fallbackName": "This project",
+        "body": "{name} and all of its conversations, requests, deliverables, and decisions will be permanently deleted. This cannot be undone.",
+        "submit": "Delete",
+        "errorPrefix": "Failed to delete."
+      },
+      "noProjectSelected": "No project selected.",
+      "fallbackTitle": "Project"
+    },
+    "progress": {
+      "timeline": "Timeline",
+      "itemsSuffix": "items",
+      "filterAll": "All",
+      "empty": "No deliverables yet.",
+      "emptyHint": "Start a request in the chat.",
+      "copyDeliverableId": "Copy deliverable id",
+      "type": {
+        "code": "code",
+        "doc": "doc",
+        "design": "design",
+        "data": "data",
+        "url": "url"
+      }
+    },
+    "decisions": {
+      "loading": "Loading…",
+      "inboxClear": "Inbox clear.",
+      "section": {
+        "blocking": "Blocking",
+        "open": "Open",
+        "resolved": "Resolved"
+      },
+      "nothingBlocking": "Nothing blocking.",
+      "blockingBadge": "blocking",
+      "resolvedBadge": "resolved",
+      "customPlaceholder": "Or write your own answer…",
+      "resolveButton": "Resolve",
+      "resolutionLabel": "Resolution",
+      "byPrefix": "by"
+    },
+    "inside": {
+      "requestsHeading": "Requests",
+      "noRequests": "No requests yet.",
+      "noRunsYet": "No runs yet.",
+      "loading": "Loading…",
+      "pickRun": "Pick a run to inspect.",
+      "noSnapshot": "No composition snapshot for this run yet — it may still be pending.",
+      "source": {
+        "bsage": "bsage (knowledge)",
+        "local": "local (degraded)"
+      },
+      "fitPrefix": "fit",
+      "row": {
+        "toolsAllowed": "Tools allowed",
+        "toolsAllowedNone": "(none)",
+        "systemPrompt": "System prompt",
+        "output": "Output",
+        "contextDocs": "Context docs",
+        "refsSuffix": "refs"
+      }
+    },
+    "chat": {
+      "header": "Talk to the company",
+      "expand": "Expand chat (⌘/)",
+      "collapse": "Collapse (⌘/)",
+      "openShort": "Chat",
+      "scope": "Scope",
+      "scopeAll": "All projects",
+      "emptyScope": "Nothing here in this scope yet.",
+      "routingComposing": "routing · composing…",
+      "placeholderDefault": "Say something. @mention a project or just talk.",
+      "placeholderWithMention": "Add direction…",
+      "mentionProject": "Mention a project",
+      "hintAt": "hint:",
+      "hintTarget": "to target a project",
+      "send": "send",
+      "newline": "newline",
+      "openProjectTitle": "Open {name}",
+      "inspectRequest": "Inspect this request",
+      "noProjectMatched": "No project matched — pick one to route:",
+      "workspaceNoProject": "workspace · no project",
+      "decisionFooter": "Resolve in the Decisions tab.",
+      "phaseChipFallback": "(unnamed phase)"
+    },
+    "settings": {
+      "title": "Settings",
+      "sections": {
+        "integrations": {
+          "label": "Integrations",
+          "summary": "Connect BSNexus to sibling services. Keys are stored tenant-scoped and encrypted at rest; only whether a key is present is ever returned."
+        },
+        "executors": {
+          "label": "Executors",
+          "summary": "Register LLM backends and remote workers. LLM executors (LiteLLM / BSGateway / claude-code / codex) handle composition runs; remote workers register with an install token and execute coding runs with their local CLI."
+        },
+        "language": {
+          "label": "Language",
+          "summary": "Choose the interface language. The selection is stored in your browser and persists across reloads."
+        }
+      },
+      "languageSwitcher": {
+        "label": "Interface language",
+        "ko": "한국어",
+        "en": "English",
+        "currentLabel": "Current"
+      },
+      "integrations": {
+        "bsage": {
+          "label": "BSage",
+          "blurb": "Graph-backed project memory. When enabled, runs pull relevant notes into their composition."
+        },
+        "bsupervisor": {
+          "label": "BSupervisor",
+          "blurb": "Sync pre-run rule evaluation (<50ms target). Fail-open by default; configurable."
+        },
+        "baseUrlLabel": "Base URL",
+        "apiKeyLabel": "API key",
+        "apiKeyStored": "(stored)",
+        "apiKeyPlaceholderEmpty": "bsk_…",
+        "apiKeyPlaceholderStored": "••••••••",
+        "rotateTitle": "Clear stored key",
+        "timeoutLabel": "Timeout (ms)",
+        "timeoutHint": "Default 200ms",
+        "failModeLabel": "Fail mode",
+        "failModeHint": "open = allow on error · closed = deny",
+        "failModeOpen": "open",
+        "failModeClosed": "closed"
+      },
+      "executors": {
+        "registeredCount": "{count} registered · exactly one is in use",
+        "registerButton": "Register executor",
+        "emptyHint": "No executors registered yet. Runs stay queued until one is added here and selected.",
+        "deleteConfirm": "Delete executor \"{name}\"?",
+        "type": {
+          "generic_llm": {
+            "label": "LLM (LiteLLM direct)",
+            "description": "Any LiteLLM provider. Used for coding and non-coding runs alike."
+          },
+          "bsgateway": {
+            "label": "BSGateway (cost-aware routing)",
+            "description": "Proxy all LLM calls through BSGateway for cost-optimized routing."
+          },
+          "claude_code": {
+            "label": "Claude Code worker",
+            "description": "Route runs to any online worker that advertises the claude_code capability."
+          },
+          "codex": {
+            "label": "Codex worker",
+            "description": "Route runs to any online worker that advertises the codex capability."
+          }
+        },
+        "field": {
+          "model": "Model",
+          "modelPlaceholder": "openai/gpt-4o, anthropic/claude-sonnet-4-6, …",
+          "apiKey": "API key",
+          "apiKeyPlaceholder": "sk-…",
+          "baseUrl": "Base URL (optional)",
+          "baseUrlPlaceholder": "https://api.anthropic.com",
+          "gatewayUrl": "Gateway URL",
+          "gatewayUrlPlaceholder": "https://gateway.bsvibe.dev",
+          "gatewayApiKey": "API key",
+          "gatewayApiKeyPlaceholder": "bsg-…"
+        },
+        "modal": {
+          "registerTitle": "Register executor",
+          "editTitle": "Edit — {name}",
+          "typeLabel": "Type",
+          "nameLabel": "Name",
+          "namePlaceholder": "e.g. GPT-4o production",
+          "descriptionLabel": "Description (optional)",
+          "descriptionPlaceholder": "Brief note",
+          "useThis": "Use this one (replaces whichever is currently in use)"
+        },
+        "card": {
+          "selectAria": "Use {name}",
+          "selectedAria": "{name} is in use",
+          "selectedTitle": "In use",
+          "selectableTitle": "Click to use this executor"
+        }
+      },
+      "workers": {
+        "heading": "Remote workers",
+        "subhead": "— hosts running {workerCommand} that execute coding runs (claude-code · codex · opencode)",
+        "installTokenLabel": "Install token",
+        "installTokenScope": "one per tenant · used only during {registerCommand}",
+        "generateButton": "Generate token",
+        "generatingButton": "Generating…",
+        "regenerate": "Regenerate",
+        "rotating": "Rotating…",
+        "revokeConfirm": "Revoke the install token? Existing workers keep running; new workers cannot register.",
+        "revealedHeader": "Copy now — shown only once",
+        "rotateNote": "Raw token is only visible once, immediately after generation. Rotate to mint a new one — old value is discarded.",
+        "registeredHeading": "Registered workers",
+        "noWorkers": "No workers yet. Follow the guide above on any Linux/macOS host.",
+        "deleteConfirm": "Remove worker \"{name}\"?",
+        "guideHeading": "Registration guide",
+        "guideSubhead": "runs on Linux or macOS · needs Python 3.11+",
+        "step": {
+          "prerequisitesTitle": "Prerequisites",
+          "prerequisitesPython": "Python 3.11 or newer",
+          "prerequisitesCli": "At least one coding CLI — {claude}, {codex}, or {opencode} (auto-detected)",
+          "installTitle": "Install the worker",
+          "installHint": "Drops {workerBin} into {workerDir} and adds it to your PATH.",
+          "registerTitle": "Register against this tenant",
+          "registerHint": "Exchanges the install token for a long-lived worker token stored in {envFile}. Add {projectFlag} to bind the worker to a single project.",
+          "runTitle": "Run",
+          "runHint": "Polls {pollEndpoint} every 5s and heartbeats every 30s. The host appears below within a few seconds of the first successful heartbeat."
+        },
+        "tokenPlaceholderHint": "Generate an install token above — the command in step 3 auto-updates with the real value while it's on screen.",
+        "heartbeat": "heartbeat {when}"
+      }
+    },
+    "landing": {
+      "tagline": "Orchestrate AI agents, from design to deployment.",
+      "feature": {
+        "planning": {
+          "title": "Conversational Planning",
+          "description": "Talk to the company in a single chat to direct what gets built."
+        },
+        "live": {
+          "title": "Live Progress",
+          "description": "See deliverables and decisions land in real time as runs complete."
+        },
+        "workers": {
+          "title": "Distributed Workers",
+          "description": "Remote worker nodes execute code on your hosts under your CLIs."
+        }
+      },
+      "ctaGo": "Go to Dashboard",
+      "footer": "Powered by BSVibe"
+    }
+  }
+}

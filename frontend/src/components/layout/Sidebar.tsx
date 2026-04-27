@@ -1,5 +1,6 @@
 'use client'
 
+import { useTranslations } from 'next-intl'
 import { usePathname, useRouter } from 'next/navigation'
 
 import { StatusDot } from '../common/Badge'
@@ -17,6 +18,8 @@ export default function Sidebar({ projects, onOpenPalette }: SidebarProps) {
   const router = useRouter()
   const pathname = usePathname() ?? ''
   const { user, logout } = useAuthContext()
+  const t = useTranslations('nexus.layout')
+  const tAuth = useTranslations('nexus.auth')
 
   const activeProjectId = pathname.startsWith('/projects/')
     ? pathname.split('/')[2]
@@ -25,7 +28,7 @@ export default function Sidebar({ projects, onOpenPalette }: SidebarProps) {
   const onSettings = pathname.startsWith('/settings')
 
   const initials = (user?.email ?? '??').slice(0, 2).toUpperCase()
-  const displayName = (user?.email ?? 'guest').split('@')[0]
+  const displayName = (user?.email ?? tAuth('guest')).split('@')[0]
 
   return (
     <aside className="sb">
@@ -33,11 +36,11 @@ export default function Sidebar({ projects, onOpenPalette }: SidebarProps) {
         type="button"
         className="sb-brand"
         onClick={() => router.push('/dashboard')}
-        aria-label="Home"
+        aria-label={tAuth('home')}
       >
         <div className="sb-logo">BN</div>
         <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1 }}>
-          <span className="sb-brand-name">BSNexus</span>
+          <span className="sb-brand-name">{t('brandName')}</span>
         </div>
       </button>
 
@@ -50,7 +53,7 @@ export default function Sidebar({ projects, onOpenPalette }: SidebarProps) {
           justifyContent: 'space-between',
         }}
         onClick={onOpenPalette}
-        title="Jump anywhere"
+        title={t('jumpAnywhere')}
       >
         <span
           style={{
@@ -60,7 +63,7 @@ export default function Sidebar({ projects, onOpenPalette }: SidebarProps) {
             color: 'var(--text-tertiary)',
           }}
         >
-          <I.Search size={14} /> Jump to…
+          <I.Search size={14} /> {t('jumpTo')}
         </span>
         <span style={{ display: 'inline-flex', gap: 4 }}>
           <kbd>⌘</kbd>
@@ -69,7 +72,7 @@ export default function Sidebar({ projects, onOpenPalette }: SidebarProps) {
       </button>
 
       <div className="sb-section">
-        <span>Projects</span>
+        <span>{t('projects')}</span>
         <span className="sb-count">{projects.length}</span>
       </div>
       <div className="sb-list">
@@ -97,7 +100,7 @@ export default function Sidebar({ projects, onOpenPalette }: SidebarProps) {
               color: 'var(--text-tertiary)',
             }}
           >
-            No projects yet.
+            {t('noProjects')}
           </span>
         )}
         <button
@@ -106,27 +109,27 @@ export default function Sidebar({ projects, onOpenPalette }: SidebarProps) {
           style={{ color: 'var(--text-tertiary)', marginTop: 8 }}
           onClick={() => router.push('/dashboard')}
         >
-          <I.Plus size={14} /> <span className="label">New project</span>
+          <I.Plus size={14} /> <span className="label">{t('newProject')}</span>
         </button>
 
         <div style={{ flex: 1 }} />
 
         <div className="sb-section" style={{ paddingTop: 24 }}>
-          Workspace
+          {t('workspace')}
         </div>
         <button
           type="button"
           className={`sb-item ${onDashboard ? 'active' : ''}`}
           onClick={() => router.push('/dashboard')}
         >
-          <I.Home size={14} /> <span className="label">Dashboard</span>
+          <I.Home size={14} /> <span className="label">{t('dashboard')}</span>
         </button>
         <button
           type="button"
           className={`sb-item ${onSettings ? 'active' : ''}`}
           onClick={() => router.push('/settings')}
         >
-          <I.Settings size={14} /> <span className="label">Settings</span>
+          <I.Settings size={14} /> <span className="label">{t('settings')}</span>
         </button>
       </div>
 
@@ -157,7 +160,7 @@ export default function Sidebar({ projects, onOpenPalette }: SidebarProps) {
         <button
           type="button"
           className="btn btn-icon"
-          title="Log out"
+          title={tAuth('logout')}
           onClick={() => {
             void logout()
           }}

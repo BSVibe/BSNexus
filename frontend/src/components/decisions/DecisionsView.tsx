@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslations } from 'next-intl'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { Badge, StatusDot } from '../common/Badge'
@@ -8,6 +9,7 @@ import { decisionsApi } from '../../api/founder'
 import type { Decision } from '../../types/founder'
 
 export default function DecisionsView({ projectId }: { projectId: string }) {
+  const t = useTranslations('nexus.decisions')
   const queryClient = useQueryClient()
 
   const { data: decisions = [], isLoading } = useQuery<Decision[]>({
@@ -32,14 +34,14 @@ export default function DecisionsView({ projectId }: { projectId: string }) {
       <div style={{ maxWidth: 820, margin: '0 auto' }}>
         {isLoading ? (
           <p className="faded" style={{ fontSize: 13 }}>
-            Loading…
+            {t('loading')}
           </p>
         ) : decisions.length === 0 ? (
-          <EmptyInbox label="Inbox clear." />
+          <EmptyInbox label={t('inboxClear')} />
         ) : (
           <>
-            <Section title="Blocking" count={blocking.length} tone="rose">
-              {blocking.length === 0 && <EmptyInbox label="Nothing blocking." />}
+            <Section title={t('section.blocking')} count={blocking.length} tone="rose">
+              {blocking.length === 0 && <EmptyInbox label={t('nothingBlocking')} />}
               {blocking.map((d) => (
                 <DecisionCard
                   key={d.id}
@@ -52,7 +54,7 @@ export default function DecisionsView({ projectId }: { projectId: string }) {
               ))}
             </Section>
             {open.length > 0 && (
-              <Section title="Open" count={open.length}>
+              <Section title={t('section.open')} count={open.length}>
                 {open.map((d) => (
                   <DecisionCard
                     key={d.id}
@@ -66,7 +68,7 @@ export default function DecisionsView({ projectId }: { projectId: string }) {
               </Section>
             )}
             {resolved.length > 0 && (
-              <Section title="Resolved" count={resolved.length}>
+              <Section title={t('section.resolved')} count={resolved.length}>
                 {resolved.map((d) => (
                   <DecisionCard key={d.id} d={d} onResolve={() => undefined} />
                 ))}
@@ -140,6 +142,7 @@ function DecisionCard({
   onResolve: (resolution: string) => void
   pending?: boolean
 }) {
+  const t = useTranslations('nexus.decisions')
   const [custom, setCustom] = useState('')
   const isResolved = !!d.resolved_at
 
@@ -164,12 +167,12 @@ function DecisionCard({
           >
             {d.blocking && !isResolved && (
               <Badge tone="rose" dot>
-                blocking
+                {t('blockingBadge')}
               </Badge>
             )}
             {isResolved && (
               <Badge tone="emerald" dot>
-                resolved
+                {t('resolvedBadge')}
               </Badge>
             )}
             <span
@@ -233,7 +236,7 @@ function DecisionCard({
           >
             <input
               className="input"
-              placeholder="Or write your own answer…"
+              placeholder={t('customPlaceholder')}
               value={custom}
               onChange={(e) => setCustom(e.target.value)}
             />
@@ -242,7 +245,7 @@ function DecisionCard({
               className="btn btn-primary btn-sm"
               disabled={!custom.trim() || pending}
             >
-              Resolve
+              {t('resolveButton')}
             </button>
           </form>
         </>
@@ -266,7 +269,7 @@ function DecisionCard({
               marginRight: 8,
             }}
           >
-            Resolution
+            {t('resolutionLabel')}
           </span>
           {d.resolution}
           {d.resolved_by && (
@@ -274,7 +277,7 @@ function DecisionCard({
               className="faded mono"
               style={{ fontSize: 11, marginLeft: 8 }}
             >
-              · by {d.resolved_by}
+              · {t('byPrefix')} {d.resolved_by}
             </span>
           )}
           {d.resolved_at && (

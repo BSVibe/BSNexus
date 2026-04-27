@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslations } from 'next-intl'
 import { useRouter } from 'next/navigation'
 import { useMutation, useQueries, useQueryClient } from '@tanstack/react-query'
 import ReactMarkdown from 'react-markdown'
@@ -36,6 +37,8 @@ export default function GlobalChat({
   collapsed,
   onToggleCollapsed,
 }: GlobalChatProps) {
+  const t = useTranslations('nexus.chat')
+  const tErrors = useTranslations('nexus.errors')
   const queryClient = useQueryClient()
   const router = useRouter()
   const navigate = (href: string) => router.push(href)
@@ -259,7 +262,7 @@ export default function GlobalChat({
           <button
             type="button"
             className="btn btn-icon"
-            title="Expand chat (⌘/)"
+            title={t('expand')}
             onClick={onToggleCollapsed}
           >
             <I.ChevLeft size={16} />
@@ -274,7 +277,7 @@ export default function GlobalChat({
           <button
             type="button"
             className="btn btn-icon"
-            title="Chat"
+            title={t('openShort')}
             onClick={onToggleCollapsed}
           >
             <I.Chat size={16} />
@@ -289,7 +292,7 @@ export default function GlobalChat({
               marginTop: 12,
             }}
           >
-            Talk to the company
+            {t('header')}
           </div>
           <div style={{ flex: 1 }} />
           <span className="mono faded" style={{ fontSize: 10 }}>
@@ -309,7 +312,7 @@ export default function GlobalChat({
         <button
           type="button"
           className="btn btn-icon"
-          title="Collapse (⌘/)"
+          title={t('collapse')}
           onClick={onToggleCollapsed}
         >
           <I.ChevRight size={14} />
@@ -318,13 +321,13 @@ export default function GlobalChat({
 
       {currentProject && (
         <div className="chat-route-pick">
-          <span>Scope</span>
+          <span>{t('scope')}</span>
           <button
             type="button"
             className={`seg ${!scopeToCurrent ? 'on' : ''}`}
             onClick={() => setScopeToCurrent(false)}
           >
-            All projects
+            {t('scopeAll')}
           </button>
           <button
             type="button"
@@ -346,7 +349,7 @@ export default function GlobalChat({
               fontSize: 12,
             }}
           >
-            Nothing here in this scope yet.
+            {t('emptyScope')}
           </div>
         )}
         {visible.map((m) => (
@@ -394,7 +397,7 @@ export default function GlobalChat({
                 animation: 'pulse 1.2s infinite',
               }}
             />
-            routing · composing…
+            {t('routingComposing')}
           </div>
         )}
       </div>
@@ -440,7 +443,7 @@ export default function GlobalChat({
                 marginBottom: 4,
               }}
             >
-              Send failed: {sendError.message}. The message is back in the box — try again.
+              {tErrors('sendFailed', { message: sendError.message })}
             </div>
           )}
           <textarea
@@ -457,8 +460,8 @@ export default function GlobalChat({
             rows={1}
             placeholder={
               mentions.length
-                ? 'Add direction…'
-                : 'Say something. @mention a project or just talk.'
+                ? t('placeholderWithMention')
+                : t('placeholderDefault')
             }
             style={{
               width: '100%',
@@ -483,7 +486,7 @@ export default function GlobalChat({
             <button
               type="button"
               className="btn btn-ghost btn-sm"
-              title="Mention a project"
+              title={t('mentionProject')}
               onClick={() => {
                 setDraft((d) => `${d}@`)
                 taRef.current?.focus()
@@ -493,12 +496,12 @@ export default function GlobalChat({
             </button>
             {!mentions.length && currentProject && (
               <span className="faded" style={{ fontSize: 10 }}>
-                hint: <kbd>@</kbd> to target a project
+                {t('hintAt')} <kbd>@</kbd> {t('hintTarget')}
               </span>
             )}
             <span style={{ flex: 1 }} />
             <span className="faded" style={{ fontSize: 10 }}>
-              <kbd>↵</kbd> send · <kbd>⇧↵</kbd> newline
+              <kbd>↵</kbd> {t('send')} · <kbd>⇧↵</kbd> {t('newline')}
             </span>
             <button
               type="button"
@@ -545,6 +548,7 @@ function ChatBubble({
   onOpenProject: (id: string) => void
   onInspectRequest: (id: string) => void
 }) {
+  const t = useTranslations('nexus.chat')
   const isUser = m.role === 'user'
   const kind = messageKind(m)
 
@@ -629,7 +633,7 @@ function ChatBubble({
         </span>
         {m.routed_to.length === 0 && !isUser && (
           <span className="route-chip" style={{ fontSize: 10 }}>
-            workspace · no project
+            {t('workspaceNoProject')}
           </span>
         )}
         {m.routed_to.map((pid) => {
@@ -642,7 +646,7 @@ function ChatBubble({
               className="route-chip"
               style={{ fontSize: 10, cursor: 'pointer' }}
               onClick={() => onOpenProject(p.id)}
-              title={`Open ${p.name}`}
+              title={t('openProjectTitle', { name: p.name })}
             >
               <span style={{ color: 'var(--text-tertiary)' }}>→</span>
               <StatusDot tone={statusTone(p.status)} size={6} />
@@ -662,7 +666,7 @@ function ChatBubble({
               padding: 0,
             }}
             onClick={() => m.request_id && onInspectRequest(m.request_id)}
-            title="Inspect this request"
+            title={t('inspectRequest')}
           >
             · {truncId(m.request_id)}
           </button>
@@ -673,6 +677,7 @@ function ChatBubble({
 }
 
 function DecisionInline({ m }: { m: DisplayMessage }) {
+  const t = useTranslations('nexus.chat')
   const question = actionField(m, 'question')
   const options = actionField(m, 'options')
   const opts = Array.isArray(options) ? options.filter((o) => typeof o === 'string') : []
@@ -706,7 +711,7 @@ function DecisionInline({ m }: { m: DisplayMessage }) {
         </div>
       )}
       <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>
-        Resolve in the Decisions tab.
+        {t('decisionFooter')}
       </div>
     </div>
   )
@@ -722,6 +727,7 @@ function UnroutedNotice({
   onRetry: (projectId: string) => void
   projects: Project[]
 }) {
+  const t = useTranslations('nexus.chat')
   return (
     <div
       style={{
@@ -743,7 +749,7 @@ function UnroutedNotice({
           gap: 6,
         }}
       >
-        <I.Alert size={12} /> No project matched — pick one to route:
+        <I.Alert size={12} /> {t('noProjectMatched')}
       </div>
       <div style={{ fontSize: 12, color: 'var(--gray-100)' }}>{content}</div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>

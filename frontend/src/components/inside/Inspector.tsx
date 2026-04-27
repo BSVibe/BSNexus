@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useTranslations } from 'next-intl'
 import { useQuery } from '@tanstack/react-query'
 
 import { I } from '../../lib/icons'
@@ -18,6 +19,7 @@ interface InspectorProps {
 }
 
 export default function Inspector({ projectId, focusRequestId }: InspectorProps) {
+  const t = useTranslations('nexus.inside')
   // Track the user's explicit pick; the parent's focusRequestId and
   // the request list's first entry act as fallbacks, derived during
   // render to avoid setState-in-effect cascades.
@@ -66,11 +68,11 @@ export default function Inspector({ projectId, focusRequestId }: InspectorProps)
                 letterSpacing: '0.08em',
               }}
             >
-              Requests
+              {t('requestsHeading')}
             </div>
             {requests.length === 0 && (
               <div className="faded" style={{ fontSize: 11, padding: '4px 8px' }}>
-                No requests yet.
+                {t('noRequests')}
               </div>
             )}
             {requests.map((r) => (
@@ -110,7 +112,7 @@ export default function Inspector({ projectId, focusRequestId }: InspectorProps)
                   fontSize: 13,
                 }}
               >
-                Pick a run to inspect.
+                {t('pickRun')}
               </div>
             )}
             {selectedRun && <RunDetail run={selectedRun} />}
@@ -128,6 +130,7 @@ function RunList({
   selectedRunId: string | null
   onSelectRun: (run: ExecutionRun) => void
 }) {
+  const t = useTranslations('nexus.inside')
   const { data: runs = [], isLoading } = useQuery<ExecutionRun[]>({
     queryKey: ['runs', requestId],
     queryFn: () => requestsApi.listRuns(requestId),
@@ -142,7 +145,7 @@ function RunList({
     return (
       <div style={{ padding: '4px 8px 8px 16px' }}>
         <span className="faded" style={{ fontSize: 11 }}>
-          Loading…
+          {t('loading')}
         </span>
       </div>
     )
@@ -151,7 +154,7 @@ function RunList({
     return (
       <div style={{ padding: '4px 8px 8px 16px' }}>
         <span className="faded" style={{ fontSize: 11 }}>
-          No runs yet.
+          {t('noRunsYet')}
         </span>
       </div>
     )
@@ -180,7 +183,20 @@ function RunList({
   )
 }
 
+// Status labels we provide localized strings for; statuses outside this
+// set fall through as raw values so newly-introduced backend statuses
+// stay visible during a hot deploy.
+const KNOWN_RUN_STATUSES = new Set([
+  'pending',
+  'running',
+  'blocked',
+  'done',
+])
+
 function RunDetail({ run }: { run: ExecutionRun }) {
+  const t = useTranslations('nexus.inside')
+  const tCommon = useTranslations('nexus.common')
+  const tStatus = useTranslations('nexus.status')
   const snapshotId = run.composition_snapshot_id
   const { data: snapshot, isLoading } = useQuery<CompositionSnapshot>({
     queryKey: ['composition-snapshot', snapshotId],
@@ -198,7 +214,7 @@ function RunDetail({ run }: { run: ExecutionRun }) {
           fontSize: 13,
         }}
       >
-        No composition snapshot for this run yet — it may still be pending.
+        {t('noSnapshot')}
       </div>
     )
   }
@@ -227,7 +243,7 @@ function RunDetail({ run }: { run: ExecutionRun }) {
           }}
         >
           <Badge tone={snapshot.source === 'bsage' ? 'emerald' : 'gray'}>
-            {snapshot.source === 'bsage' ? 'bsage (knowledge)' : 'local (degraded)'}
+            {snapshot.source === 'bsage' ? t('source.bsage') : t('source.local')}
           </Badge>
           <span className="mono faded" style={{ fontSize: 11 }}>
             {truncId(snapshot.id)}
@@ -236,7 +252,7 @@ function RunDetail({ run }: { run: ExecutionRun }) {
             <>
               <span style={{ flex: 1 }} />
               <span className="mono faded" style={{ fontSize: 11 }}>
-                fit {snapshot.fit_score.toFixed(2)}
+                {t('fitPrefix')} {snapshot.fit_score.toFixed(2)}
               </span>
             </>
           )}
@@ -246,11 +262,11 @@ function RunDetail({ run }: { run: ExecutionRun }) {
         </div>
       </div>
 
-      <DetailRow label="Tools allowed">
+      <DetailRow label={t('row.toolsAllowed')}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
           {snapshot.tools_allowed.length === 0 && (
             <span className="faded" style={{ fontSize: 11 }}>
-              (none)
+              {t('row.toolsAllowedNone')}
             </span>
           )}
           {snapshot.tools_allowed.map((t) => (
@@ -273,14 +289,14 @@ function RunDetail({ run }: { run: ExecutionRun }) {
       </DetailRow>
 
       <DetailRow
-        label="System prompt"
+        label={t('row.systemPrompt')}
         actions={
           <button
             type="button"
             className="btn btn-ghost btn-sm"
             onClick={() => inline && navigator.clipboard.writeText(inline)}
           >
-            <I.Copy size={12} /> Copy
+            <I.Copy size={12} /> {tCommon('copy')}
           </button>
         }
       >
@@ -305,18 +321,18 @@ function RunDetail({ run }: { run: ExecutionRun }) {
 
       {output && (
         <DetailRow
-          label="Output"
+          label={t('row.output')}
           actions={
             <>
               <Badge tone={run.status === 'done' ? 'emerald' : 'gray'}>
-                {run.status}
+                {KNOWN_RUN_STATUSES.has(run.status) ? tStatus(run.status as never) : run.status}
               </Badge>
               <button
                 type="button"
                 className="btn btn-ghost btn-sm"
                 onClick={() => navigator.clipboard.writeText(output)}
               >
-                <I.Copy size={12} /> Copy
+                <I.Copy size={12} /> {tCommon('copy')}
               </button>
             </>
           }
@@ -343,10 +359,10 @@ function RunDetail({ run }: { run: ExecutionRun }) {
 
       {snapshot.context_doc_refs.length > 0 && (
         <DetailRow
-          label="Context docs"
+          label={t('row.contextDocs')}
           actions={
             <span className="mono faded" style={{ fontSize: 11 }}>
-              {snapshot.context_doc_refs.length} refs
+              {snapshot.context_doc_refs.length} {t('row.refsSuffix')}
             </span>
           }
         >
