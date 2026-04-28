@@ -1,9 +1,9 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
   "installCommand": "cd frontend && npx --yes pnpm@10 install --frozen-lockfile",
-  "buildCommand": "cd frontend && npx --yes pnpm@10 run build",
-  "outputDirectory": "frontend/.next",
-  "framework": "nextjs",
+  "buildCommand": "cd frontend && npx --yes pnpm@10 run build && cp -r .next ../.next-out",
+  "outputDirectory": ".next-out",
   "rewrites": [
     {
       "source": "/api/:path*",
