@@ -68,7 +68,13 @@ test.describe('Agent chain flow', () => {
           const chat = await chatResp.json()
           const assistantMsgs = (chat.messages || []).filter((m: { role: string }) => m.role === 'assistant')
           msgs = assistantMsgs.length
-          agentNames = [...new Set(assistantMsgs.map((m: { agent_name: string }) => m.agent_name))]
+          agentNames = Array.from(
+            new Set(
+              (assistantMsgs as Array<{ agent_name?: string | null }>)
+                .map((m: { agent_name?: string | null }) => m.agent_name)
+                .filter((name): name is string => Boolean(name)),
+            ),
+          )
         }
       } catch { /* ignore API errors */ }
 

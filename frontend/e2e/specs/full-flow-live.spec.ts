@@ -31,7 +31,6 @@ test.describe('Full flow — live e2e', () => {
     console.log(`✓ Step 2: Project (${page.url()})`)
 
     // ── Step 3: Verify initial state — empty plan tree ──
-    const planArea = page.locator('main').first()
     await page.screenshot({ path: '/tmp/flow-03-empty-plan.png', fullPage: true })
     console.log('✓ Step 3: Initial empty plan tree')
 
@@ -53,7 +52,11 @@ test.describe('Full flow — live e2e', () => {
       await page.waitForTimeout(10_000)
 
       // Check chat area for new content
-      const chatContent = await page.locator('[class*="overflow-y"]').last().textContent().catch(() => '')
+      const chatContent = (await page
+        .locator('[class*="overflow-y"]')
+        .last()
+        .textContent()
+        .catch(() => '')) ?? ''
       const chatLen = chatContent.length
 
       // Check plan tree for nodes (phases/tasks)

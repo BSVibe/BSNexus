@@ -72,11 +72,6 @@ async function apiCall(method: string, path: string, body?: object) {
   return resp.json()
 }
 
-async function cleanDb() {
-  // Direct DB clean via API — delete all project data
-  // We create fresh projects each cycle, old ones accumulate but don't interfere
-}
-
 interface CycleResult {
   cycle: number
   status: string // OK | NO_TASKS | NO_RESPONSE | NO_DONE | NO_FILES | ERROR
