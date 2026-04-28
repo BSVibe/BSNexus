@@ -33,19 +33,26 @@ dependencies = [
     #
     # bsvibe-core: BsvibeSettings + configure_logging + shared exception
     # types. Adopted by ``backend/src/config.py`` + ``backend/src/main.py``.
-    "bsvibe-core @ git+https://github.com/BSVibe/bsvibe-python.git@integration/phase-audit-batch-2#subdirectory=packages/bsvibe-core",
+    "bsvibe-core @ git+https://github.com/BSVibe/bsvibe-python.git@feat/audit-decorator-extensions#subdirectory=packages/bsvibe-core",
     # bsvibe-llm: RunAuditMetadata is the wire-format contract between
     # BSGateway PR #24 and BSNexus PR #38. We adopt it for the metadata
     # dataclass only — the streaming + tool-loop in
     # orchestrator_adapter.py stays in BSNexus until bsvibe-llm grows
     # those features (follow-up issue).
-    "bsvibe-llm @ git+https://github.com/BSVibe/bsvibe-python.git@integration/phase-audit-batch-2#subdirectory=packages/bsvibe-llm",
+    "bsvibe-llm @ git+https://github.com/BSVibe/bsvibe-python.git@feat/audit-decorator-extensions#subdirectory=packages/bsvibe-llm",
     # Phase Audit Batch 2 — bsvibe-audit (BSVibe_Audit_Design.md §3 outbox
     # pattern). Provides AuditEmitter (in-transaction emit), OutboxRelay
     # (async polling shipper to BSVibe-Auth /api/audit/events), and the
-    # 8 nexus.* event Pydantic schemas used by BSNexus surfaces. Pinned
-    # to integration/phase-audit-batch-2 until it lands on bsvibe-python main.
-    "bsvibe-audit @ git+https://github.com/BSVibe/bsvibe-python.git@integration/phase-audit-batch-2#subdirectory=packages/bsvibe-audit",
+    # 8 nexus.* event Pydantic schemas used by BSNexus surfaces.
+    #
+    # Phase Audit Batch 3 — pinned to ``feat/audit-decorator-extensions``
+    # (bsvibe-python PR #9) for the @audit_emit ``safe=True`` +
+    # ``actor_factory`` knobs consumed by api/projects.py +
+    # api/decisions.py. The branch is additive on top of
+    # integration/phase-audit-batch-2 (which still carries the rest of
+    # bsvibe-core / bsvibe-llm / bsvibe-audit Audit-1). Re-pin to a
+    # release tag once both branches land on main.
+    "bsvibe-audit @ git+https://github.com/BSVibe/bsvibe-python.git@feat/audit-decorator-extensions#subdirectory=packages/bsvibe-audit",
 ]
 
 [project.optional-dependencies]

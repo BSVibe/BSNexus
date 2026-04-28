@@ -304,11 +304,11 @@ requires-dist = [
     { name = "aiosqlite", marker = "extra == 'dev'", specifier = ">=0.22.0" },
     { name = "alembic", specifier = ">=1.13.0" },
     { name = "asyncpg", specifier = ">=0.29.0" },
-    { name = "bsvibe-audit", git = "https://github.com/BSVibe/bsvibe-python.git?subdirectory=packages%2Fbsvibe-audit&rev=integration%2Fphase-audit-batch-2" },
+    { name = "bsvibe-audit", git = "https://github.com/BSVibe/bsvibe-python.git?subdirectory=packages%2Fbsvibe-audit&rev=feat%2Faudit-decorator-extensions" },
     { name = "bsvibe-auth", extras = ["fastapi"], git = "https://github.com/BSVibe/BSVibe-Auth.git?subdirectory=python&rev=v0.4.0" },
     { name = "bsvibe-authz", git = "https://github.com/BSVibe/bsvibe-python.git?subdirectory=packages%2Fbsvibe-authz&rev=feat%2Fbsvibe-authz-impl" },
-    { name = "bsvibe-core", git = "https://github.com/BSVibe/bsvibe-python.git?subdirectory=packages%2Fbsvibe-core&rev=integration%2Fphase-audit-batch-2" },
-    { name = "bsvibe-llm", git = "https://github.com/BSVibe/bsvibe-python.git?subdirectory=packages%2Fbsvibe-llm&rev=integration%2Fphase-audit-batch-2" },
+    { name = "bsvibe-core", git = "https://github.com/BSVibe/bsvibe-python.git?subdirectory=packages%2Fbsvibe-core&rev=feat%2Faudit-decorator-extensions" },
+    { name = "bsvibe-llm", git = "https://github.com/BSVibe/bsvibe-python.git?subdirectory=packages%2Fbsvibe-llm&rev=feat%2Faudit-decorator-extensions" },
     { name = "fastapi", specifier = ">=0.109.0" },
     { name = "httpx", specifier = ">=0.26.0" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.26.0" },
@@ -345,7 +345,7 @@ dev = [
 [[package]]
 name = "bsvibe-audit"
 version = "0.1.0"
-source = { git = "https://github.com/BSVibe/bsvibe-python.git?subdirectory=packages%2Fbsvibe-audit&rev=integration%2Fphase-audit-batch-2#ec7fa8dbf0424a017bc7bd867eb6039b40fc93f9" }
+source = { git = "https://github.com/BSVibe/bsvibe-python.git?subdirectory=packages%2Fbsvibe-audit&rev=feat%2Faudit-decorator-extensions#4d16eb314b5e6d0e94c28f659e3a4c9296da6c0f" }
 dependencies = [
     { name = "bsvibe-core" },
     { name = "httpx" },
@@ -386,7 +386,7 @@ dependencies = [
 [[package]]
 name = "bsvibe-core"
 version = "0.1.0"
-source = { git = "https://github.com/BSVibe/bsvibe-python.git?subdirectory=packages%2Fbsvibe-core&rev=integration%2Fphase-audit-batch-2#ec7fa8dbf0424a017bc7bd867eb6039b40fc93f9" }
+source = { git = "https://github.com/BSVibe/bsvibe-python.git?subdirectory=packages%2Fbsvibe-core&rev=feat%2Faudit-decorator-extensions#4d16eb314b5e6d0e94c28f659e3a4c9296da6c0f" }
 dependencies = [
     { name = "pydantic" },
     { name = "pydantic-settings" },
@@ -396,7 +396,7 @@ dependencies = [
 [[package]]
 name = "bsvibe-llm"
 version = "0.1.0"
-source = { git = "https://github.com/BSVibe/bsvibe-python.git?subdirectory=packages%2Fbsvibe-llm&rev=integration%2Fphase-audit-batch-2#ec7fa8dbf0424a017bc7bd867eb6039b40fc93f9" }
+source = { git = "https://github.com/BSVibe/bsvibe-python.git?subdirectory=packages%2Fbsvibe-llm&rev=feat%2Faudit-decorator-extensions#4d16eb314b5e6d0e94c28f659e3a4c9296da6c0f" }
 dependencies = [
     { name = "bsvibe-core" },
     { name = "httpx" },
