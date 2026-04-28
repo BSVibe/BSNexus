@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -40,10 +40,10 @@ export default function ProjectPage() {
   // Build a /projects/:id?tab=…&focusRequest=… URL given a partial
   // override. Centralised so the inline next/navigation calls below
   // don't duplicate the assembly.
-  function buildProjectUrl(next: URLSearchParams): string {
+  const buildProjectUrl = useCallback((next: URLSearchParams): string => {
     const qs = next.toString()
     return qs ? `/projects/${projectId}?${qs}` : `/projects/${projectId}`
-  }
+  }, [projectId])
 
   const { data: project } = useQuery<Project>({
     queryKey: ['project', projectId],
@@ -113,7 +113,7 @@ export default function ProjectPage() {
         'bsn:open-inspector',
         onOpenInspector as EventListener,
       )
-  }, [search, router, projectId])
+  }, [search, router, buildProjectUrl])
 
   if (!projectId) {
     return (

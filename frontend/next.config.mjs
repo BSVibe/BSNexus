@@ -12,14 +12,6 @@ const apiUrl =
 
 const nextConfig = {
   reactStrictMode: true,
-  // Phase Z migration scope is framework-only: legacy
-  // Vite/React-Router lint config didn't expose ``next/core-web-vitals``
-  // / React 19 strict rules, so the existing component code carries
-  // pre-existing warnings (e.g. setState-in-effect in IntegrationCard)
-  // that surface as ``next build`` lint errors. Skipping ESLint at
-  // build time keeps the framework swap atomic; the rules still run
-  // via ``pnpm lint`` and will be cleaned up in a follow-up.
-  eslint: { ignoreDuringBuilds: true },
   // Migrated from vite.config.ts ``server.proxy.'/api'`` — Next.js
   // rewrites give the same dev-server proxy semantics so cookies stay
   // first-party and the SPA can hit relative ``/api`` paths.

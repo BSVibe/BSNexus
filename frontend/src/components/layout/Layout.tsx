@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useTranslations } from 'next-intl'
-import { useParams, usePathname } from 'next/navigation'
+import { useParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 
 import Sidebar from './Sidebar'
@@ -25,7 +25,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [mobileChatOpen, setMobileChatOpen] = useState(false)
   const params = useParams<{ projectId?: string | string[] }>()
-  const pathname = usePathname()
   const rawProjectId = params?.projectId
   const projectId = Array.isArray(rawProjectId) ? rawProjectId[0] : rawProjectId
 
@@ -51,13 +50,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     document.addEventListener('keydown', h)
     return () => document.removeEventListener('keydown', h)
   }, [paletteOpen])
-
-  // Phase B: close mobile sidebar drawer on any nav. Sidebar items use
-  // `router.push()` from button onClicks; we react to pathname changes.
-  useEffect(() => {
-    setMobileSidebarOpen(false)
-    setMobileChatOpen(false)
-  }, [pathname])
 
   const { data: projects = [] } = useQuery<Project[]>({
     queryKey: ['projects'],
@@ -106,7 +98,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </svg>
       </button>
 
-      <Sidebar projects={projects} onOpenPalette={() => setPaletteOpen(true)} />
+      <Sidebar
+        projects={projects}
+        onOpenPalette={() => setPaletteOpen(true)}
+        onNavigate={closeMobilePanels}
+      />
       <main className="mn">{children}</main>
       <GlobalChat
         projects={projects}

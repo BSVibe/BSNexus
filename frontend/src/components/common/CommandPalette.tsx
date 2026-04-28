@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { useRouter } from 'next/navigation'
 
@@ -28,7 +28,7 @@ interface Item {
 export default function CommandPalette({ projects, onClose }: CommandPaletteProps) {
   const router = useRouter()
   const t = useTranslations('nexus.palette')
-  const navigate = (href: string) => router.push(href)
+  const navigate = useCallback((href: string) => router.push(href), [router])
   const [q, setQ] = useState('')
   const [idx, setIdx] = useState(0)
   const inputRef = useRef<HTMLInputElement | null>(null)

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useTranslations } from 'next-intl'
 
 import { Badge } from '../common/Badge'
@@ -50,37 +50,42 @@ export default function IntegrationCard({
   const tStatus = useTranslations('nexus.status')
   const tCommon = useTranslations('nexus.common')
   const visual = VISUAL[provider]
-  const [enabled, setEnabled] = useState(config?.enabled ?? false)
-  const [baseUrl, setBaseUrl] = useState(config?.base_url ?? '')
+  const configKey = `${provider}:${config?.enabled ?? false}:${config?.base_url ?? ''}:${
+    (config?.extra_config?.timeout_ms as number | undefined) ?? 200
+  }:${(config?.extra_config?.fail_mode as string | undefined) ?? 'open'}`
+  const [draft, setDraft] = useState({
+    key: configKey,
+    enabled: config?.enabled ?? false,
+    baseUrl: config?.base_url ?? '',
+    timeoutMs: (config?.extra_config?.timeout_ms as number | undefined) ?? 200,
+    failMode:
+      (config?.extra_config?.fail_mode as string | undefined) === 'closed'
+        ? 'closed'
+        : 'open',
+  })
+  if (draft.key !== configKey) {
+    setDraft({
+      key: configKey,
+      enabled: config?.enabled ?? false,
+      baseUrl: config?.base_url ?? '',
+      timeoutMs: (config?.extra_config?.timeout_ms as number | undefined) ?? 200,
+      failMode:
+        (config?.extra_config?.fail_mode as string | undefined) === 'closed'
+          ? 'closed'
+          : 'open',
+    })
+  }
+  const { enabled, baseUrl, timeoutMs, failMode } = draft
   const [apiKey, setApiKey] = useState('')
-  const [timeoutMs, setTimeoutMs] = useState<number>(
-    (config?.extra_config?.timeout_ms as number | undefined) ?? 200,
-  )
-  const [failMode, setFailMode] = useState<'open' | 'closed'>(
-    ((config?.extra_config?.fail_mode as string | undefined) === 'closed'
-      ? 'closed'
-      : 'open') as 'open' | 'closed',
-  )
   const [testStatus, setTestStatus] = useState<TestStatus>('idle')
   const [testDetail, setTestDetail] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
 
-  useEffect(() => {
-    setEnabled(config?.enabled ?? false)
-    setBaseUrl(config?.base_url ?? '')
-    setTimeoutMs(((config?.extra_config?.timeout_ms as number | undefined) ?? 200))
-    setFailMode(
-      ((config?.extra_config?.fail_mode as string | undefined) === 'closed'
-        ? 'closed'
-        : 'open') as 'open' | 'closed',
-    )
-  }, [config])
-
   async function handleToggle(next: boolean) {
     // Auto-save the toggle — flipping a switch should persist immediately.
     // URL / API key still require the Save button since they need input.
-    setEnabled(next)
+    setDraft((current) => ({ ...current, enabled: next }))
     setSaving(true)
     setSaved(false)
     try {
@@ -88,7 +93,7 @@ export default function IntegrationCard({
       setSaved(true)
       setTimeout(() => setSaved(false), 1800)
     } catch {
-      setEnabled(!next) // revert optimistic UI
+      setDraft((current) => ({ ...current, enabled: !next }))
     } finally {
       setSaving(false)
     }
@@ -191,7 +196,9 @@ export default function IntegrationCard({
           <input
             className="input"
             value={baseUrl}
-            onChange={(e) => setBaseUrl(e.target.value)}
+            onChange={(e) =>
+              setDraft((current) => ({ ...current, baseUrl: e.target.value }))
+            }
             disabled={!enabled}
             placeholder={`https://${provider === 'bsage' ? 'sage' : 'supervisor'}.bsvibe.dev`}
           />
@@ -235,7 +242,12 @@ export default function IntegrationCard({
                 className="input mono"
                 type="number"
                 value={timeoutMs}
-                onChange={(e) => setTimeoutMs(Number(e.target.value))}
+                onChange={(e) =>
+                  setDraft((current) => ({
+                    ...current,
+                    timeoutMs: Number(e.target.value),
+                  }))
+                }
                 disabled={!enabled}
               />
             </Field>
@@ -263,7 +275,9 @@ export default function IntegrationCard({
                       color:
                         failMode === m ? 'var(--gray-50)' : 'var(--gray-400)',
                     }}
-                    onClick={() => setFailMode(m)}
+                    onClick={() =>
+                      setDraft((current) => ({ ...current, failMode: m }))
+                    }
                     disabled={!enabled}
                   >
                     {m === 'open' ? t('failModeOpen') : t('failModeClosed')}

@@ -60,9 +60,18 @@ export default function DashboardPage() {
     })),
   })
 
-  const allRequests = reqQueries.flatMap((q) => q.data ?? [])
-  const allDeliverables = delQueries.flatMap((q) => q.data ?? [])
-  const allDecisions = decQueries.flatMap((q) => q.data ?? [])
+  const allRequests = useMemo(
+    () => reqQueries.flatMap((q) => q.data ?? []),
+    [reqQueries],
+  )
+  const allDeliverables = useMemo(
+    () => delQueries.flatMap((q) => q.data ?? []),
+    [delQueries],
+  )
+  const allDecisions = useMemo(
+    () => decQueries.flatMap((q) => q.data ?? []),
+    [decQueries],
+  )
 
   const openDecisions = allDecisions.filter((d) => !d.resolved_at)
   const blocking = openDecisions.filter((d) => d.blocking)
@@ -88,12 +97,13 @@ export default function DashboardPage() {
       string,
       { requests: FounderRequest[]; decisions: Decision[]; deliverables: Deliverable[] }
     >()
-    projects.forEach((p) =>
-      byProject.set(p.id, { requests: [], decisions: [], deliverables: [] }),
-    )
-    allRequests.forEach((r) => byProject.get(r.project_id)?.requests.push(r))
-    allDecisions.forEach((d) => byProject.get(d.project_id)?.decisions.push(d))
-    allDeliverables.forEach((d) => byProject.get(d.project_id)?.deliverables.push(d))
+    for (const p of projects) {
+      byProject.set(p.id, {
+        requests: allRequests.filter((r) => r.project_id === p.id),
+        decisions: allDecisions.filter((d) => d.project_id === p.id),
+        deliverables: allDeliverables.filter((d) => d.project_id === p.id),
+      })
+    }
     return byProject
   }, [projects, allRequests, allDecisions, allDeliverables])
 

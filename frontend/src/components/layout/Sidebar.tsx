@@ -12,9 +12,10 @@ import type { Project } from '../../api/projects'
 interface SidebarProps {
   projects: Project[]
   onOpenPalette: () => void
+  onNavigate?: () => void
 }
 
-export default function Sidebar({ projects, onOpenPalette }: SidebarProps) {
+export default function Sidebar({ projects, onOpenPalette, onNavigate }: SidebarProps) {
   const router = useRouter()
   const pathname = usePathname() ?? ''
   const { user, logout } = useAuthContext()
@@ -27,6 +28,11 @@ export default function Sidebar({ projects, onOpenPalette }: SidebarProps) {
   const onDashboard = pathname === '/dashboard'
   const onSettings = pathname.startsWith('/settings')
 
+  const navigate = (href: string) => {
+    onNavigate?.()
+    router.push(href)
+  }
+
   const initials = (user?.email ?? '??').slice(0, 2).toUpperCase()
   const displayName = (user?.email ?? tAuth('guest')).split('@')[0]
 
@@ -35,7 +41,7 @@ export default function Sidebar({ projects, onOpenPalette }: SidebarProps) {
       <button
         type="button"
         className="sb-brand"
-        onClick={() => router.push('/dashboard')}
+        onClick={() => navigate('/dashboard')}
         aria-label={tAuth('home')}
       >
         <div className="sb-logo">BN</div>
@@ -84,7 +90,7 @@ export default function Sidebar({ projects, onOpenPalette }: SidebarProps) {
               key={p.id}
               type="button"
               className={`sb-item ${isActive ? 'active' : ''}`}
-              onClick={() => router.push(`/projects/${p.id}`)}
+              onClick={() => navigate(`/projects/${p.id}`)}
               title={p.name}
             >
               <StatusDot tone={tone} size={6} />
@@ -107,7 +113,7 @@ export default function Sidebar({ projects, onOpenPalette }: SidebarProps) {
           type="button"
           className="sb-item"
           style={{ color: 'var(--text-tertiary)', marginTop: 8 }}
-          onClick={() => router.push('/dashboard')}
+          onClick={() => navigate('/dashboard')}
         >
           <I.Plus size={14} /> <span className="label">{t('newProject')}</span>
         </button>
@@ -120,14 +126,14 @@ export default function Sidebar({ projects, onOpenPalette }: SidebarProps) {
         <button
           type="button"
           className={`sb-item ${onDashboard ? 'active' : ''}`}
-          onClick={() => router.push('/dashboard')}
+          onClick={() => navigate('/dashboard')}
         >
           <I.Home size={14} /> <span className="label">{t('dashboard')}</span>
         </button>
         <button
           type="button"
           className={`sb-item ${onSettings ? 'active' : ''}`}
-          onClick={() => router.push('/settings')}
+          onClick={() => navigate('/settings')}
         >
           <I.Settings size={14} /> <span className="label">{t('settings')}</span>
         </button>
