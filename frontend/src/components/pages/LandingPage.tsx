@@ -79,7 +79,7 @@ export default function LandingPage() {
                   {tAuth('noAccount')}{' '}
                   <button
                     onClick={login}
-                    className="text-stitch-primary hover:text-stitch-primary-container font-medium transition-colors"
+                    className="inline-flex min-h-11 items-center text-stitch-primary hover:text-stitch-primary-container font-medium transition-colors"
                   >
                     {tAuth('signUp')}
                   </button>
