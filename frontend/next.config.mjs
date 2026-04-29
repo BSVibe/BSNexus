@@ -12,6 +12,7 @@ const apiUrl =
 
 const nextConfig = {
   reactStrictMode: true,
+  allowedDevOrigins: ['bsserver'],
   // Migrated from vite.config.ts ``server.proxy.'/api'`` — Next.js
   // rewrites give the same dev-server proxy semantics so cookies stay
   // first-party and the SPA can hit relative ``/api`` paths.
