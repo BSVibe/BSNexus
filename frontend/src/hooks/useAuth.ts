@@ -59,6 +59,10 @@ interface SessionResponse {
 
 let cachedToken: { value: string; expiresAt: number } | null = null
 
+interface AccessTokenOptions {
+  probeRemoteSession?: boolean
+}
+
 function loadTokenFromLocalStorage(): { value: string; expiresAt: number } | null {
   const value = localStorage.getItem(LS_ACCESS_TOKEN)
   const expiresAtStr = localStorage.getItem(LS_EXPIRES_AT)
@@ -85,7 +89,9 @@ function clearLocalStorageTokens(): void {
   localStorage.removeItem(LS_EXPIRES_AT)
 }
 
-export async function getAccessToken(): Promise<string | null> {
+export async function getAccessToken({
+  probeRemoteSession = true,
+}: AccessTokenOptions = {}): Promise<string | null> {
   if (cachedToken && Date.now() < cachedToken.expiresAt - 30_000) {
     return cachedToken.value
   }
@@ -95,6 +101,10 @@ export async function getAccessToken(): Promise<string | null> {
   if (stored && Date.now() < stored.expiresAt - 30_000) {
     cachedToken = stored
     return stored.value
+  }
+
+  if (!probeRemoteSession) {
+    return null
   }
 
   // Production path: cross-subdomain cookie SSO via auth.bsvibe.dev.
@@ -155,7 +165,9 @@ function decodeJwt(token: string): Record<string, unknown> {
   return JSON.parse(atob(base64))
 }
 
-export function useAuth() {
+export function useAuth({
+  probeRemoteSession = true,
+}: AccessTokenOptions = {}) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -172,7 +184,7 @@ export function useAuth() {
       window.history.replaceState(null, '', landing)
     }
     ;(async () => {
-      const token = await getAccessToken()
+      const token = await getAccessToken({ probeRemoteSession })
       if (!token) {
         setLoading(false)
         return
@@ -194,7 +206,7 @@ export function useAuth() {
       }
       setLoading(false)
     })()
-  }, [])
+  }, [probeRemoteSession])
 
   function callbackUrl(): string {
     // Hash-route callback so the auth service's redirect-allowlist match

@@ -66,7 +66,11 @@ const MOCK_JWT_PAYLOAD = {
 export async function injectAuth(page: Page) {
   const mockAccessToken = buildMockJwt(MOCK_JWT_PAYLOAD)
   await page.addInitScript(
-    ({ token }) => localStorage.setItem('bsnexus_access_token', token),
+    ({ token }) => {
+      localStorage.setItem('bsnexus_access_token', token)
+      localStorage.setItem('bsnexus_refresh_token', 'mock-refresh-token-def456')
+      localStorage.setItem('bsnexus_expires_at', String(Date.now() + 3600 * 1000))
+    },
     { token: mockAccessToken },
   )
   await page.route('**/auth.bsvibe.dev/api/session', (route) => {

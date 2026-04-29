@@ -26,33 +26,35 @@ export default function LandingPage() {
   }, [user, router])
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-stitch-surface relative overflow-hidden">
+    <div className="flex flex-col items-center justify-center min-h-screen bg-stitch-surface relative overflow-hidden px-4 py-6 sm:px-6">
       <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] rounded-full pointer-events-none"
         style={{ background: 'radial-gradient(circle, rgba(77,142,255,0.08) 0%, rgba(77,142,255,0.02) 40%, transparent 70%)' }}
       />
 
-      <div className="relative z-10 w-full max-w-xl mx-auto px-6">
-        <div className="bg-stitch-surface-container border border-stitch-outline-variant/10 rounded-xl p-10 shadow-2xl shadow-black/40">
-          <div className="flex flex-col items-center mb-8">
-            <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-stitch-primary to-stitch-primary-container flex items-center justify-center shadow-lg shadow-stitch-primary/20 mb-5">
+      <div className="relative z-10 w-full max-w-xl mx-auto">
+        <div className="bg-stitch-surface-container border border-stitch-outline-variant/10 rounded-xl p-5 shadow-2xl shadow-black/40 sm:p-10">
+          <div className="flex flex-col items-center mb-6 sm:mb-8">
+            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-stitch-primary to-stitch-primary-container flex items-center justify-center shadow-lg shadow-stitch-primary/20 mb-4 sm:w-14 sm:h-14 sm:mb-5">
               <span className="material-symbols-outlined text-stitch-on-primary-container text-3xl" style={{ fontVariationSettings: "'FILL' 1" }}>
                 architecture
               </span>
             </div>
-            <h1 className="text-4xl font-extrabold text-white tracking-[-0.04em]">{tLayout('brandName')}</h1>
-            <p className="text-text-secondary mt-2 text-center text-base">
+            <h1 className="text-4xl font-extrabold text-white">{tLayout('brandName')}</h1>
+            <p className="text-text-secondary mt-2 text-center text-sm leading-6 sm:text-base">
               {t('tagline')}
             </p>
           </div>
 
-          <div className="grid grid-cols-3 gap-4 mb-8">
+          <div className="grid grid-cols-1 gap-3 mb-6 sm:grid-cols-3 sm:gap-4 sm:mb-8">
             {FEATURE_KEYS.map((key) => (
-              <div key={key} className="flex flex-col items-center text-center p-3 rounded-lg bg-stitch-surface-low">
-                <div className="w-10 h-10 rounded-lg bg-stitch-primary/10 flex items-center justify-center mb-2">
+              <div key={key} className="flex items-center gap-3 text-left p-3 rounded-lg bg-stitch-surface-low sm:flex-col sm:text-center">
+                <div className="w-10 h-10 rounded-lg bg-stitch-primary/10 flex shrink-0 items-center justify-center sm:mb-2">
                   <span className="material-symbols-outlined text-stitch-primary" style={{ fontSize: '20px' }}>{FEATURE_ICONS[key]}</span>
                 </div>
-                <span className="text-sm font-medium text-white mb-1">{t(`feature.${key}.title`)}</span>
-                <span className="text-xs text-text-tertiary leading-relaxed">{t(`feature.${key}.description`)}</span>
+                <div className="min-w-0">
+                  <span className="block text-sm font-medium text-white mb-1">{t(`feature.${key}.title`)}</span>
+                  <span className="block text-xs text-text-tertiary leading-relaxed">{t(`feature.${key}.description`)}</span>
+                </div>
               </div>
             ))}
           </div>
