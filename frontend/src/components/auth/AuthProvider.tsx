@@ -4,7 +4,8 @@ import { usePathname } from 'next/navigation'
 
 export default function AuthProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
-  const auth = useAuth({ probeRemoteSession: pathname !== '/' })
+  const isLocalAuthEntry = pathname === '/' || pathname === '/auth/callback'
+  const auth = useAuth({ probeRemoteSession: !isLocalAuthEntry })
 
   if (auth.loading) {
     return (

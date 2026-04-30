@@ -41,7 +41,7 @@ interface User {
 // is accepted as a fallback so the auth integration stays usable across
 // Phase Z transition without forcing every consumer to flip envs in
 // lockstep.
-const AUTH_URL =
+export const AUTH_URL =
   process.env.NEXT_PUBLIC_AUTH_URL ||
   process.env.VITE_AUTH_URL ||
   'https://auth.bsvibe.dev'

@@ -1,5 +1,5 @@
 import axios from 'axios'
-import { getAccessToken, clearTokenCache } from '../hooks/useAuth'
+import { AUTH_URL, getAccessToken, clearTokenCache } from '../hooks/useAuth'
 
 // ``NEXT_PUBLIC_API_URL`` (Next.js) is the canonical client-visible env;
 // the legacy ``VITE_API_URL`` form is accepted as a fallback so existing
@@ -32,7 +32,7 @@ apiClient.interceptors.response.use(
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true
       clearTokenCache()
-      window.location.href = 'https://auth.bsvibe.dev/login'
+      window.location.href = `${AUTH_URL}/login`
     }
     return Promise.reject(error)
   },

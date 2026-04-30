@@ -45,14 +45,15 @@ export default function Inspector({ projectId, focusRequestId }: InspectorProps)
 
   return (
     <div
+      className="project-inspector"
       style={{
         height: '100%',
         display: 'grid',
-        gridTemplateColumns: '240px 1fr',
         minHeight: 0,
       }}
     >
           <div
+            className="project-inspector__requests"
             style={{
               borderRight: '1px solid var(--border-subtle)',
               overflow: 'auto',
@@ -102,7 +103,7 @@ export default function Inspector({ projectId, focusRequestId }: InspectorProps)
             ))}
           </div>
 
-          <div style={{ overflow: 'auto', padding: 16 }}>
+          <div className="project-inspector__detail" style={{ overflow: 'auto', padding: 16 }}>
             {!selectedRun && (
               <div
                 style={{

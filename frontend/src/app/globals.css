@@ -270,6 +270,9 @@ kbd {
 .page-sub   { font-size: 13px; color: var(--text-secondary); margin-top: 4px; }
 
 /* ────────── Inspector drawer ────────── */
+.project-inspector {
+  grid-template-columns: 240px minmax(0, 1fr);
+}
 .insp-mask {
   position: fixed; inset: 0; background: rgba(10,11,15,0.5);
   backdrop-filter: blur(2px); z-index: 40;
@@ -469,6 +472,32 @@ kbd {
   }
   .sb-brand {
     min-height: 56px;
+  }
+  .tabs {
+    padding: 0 8px 0 56px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .tabs::-webkit-scrollbar {
+    display: none;
+  }
+  .tab {
+    flex: 0 0 auto;
+    min-height: 44px;
+    padding: 10px 9px;
+    white-space: nowrap;
+  }
+  .project-inspector {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(96px, auto) minmax(0, 1fr);
+  }
+  .project-inspector__requests {
+    border-right: 0 !important;
+    border-bottom: 1px solid var(--border-subtle);
+    max-height: 164px;
+  }
+  .project-inspector__detail {
+    min-width: 0;
   }
 }
 
