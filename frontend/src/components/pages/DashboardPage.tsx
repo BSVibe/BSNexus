@@ -14,6 +14,7 @@ import { requestsApi, deliverablesApi, decisionsApi } from '../../api/founder'
 import type { Decision, Deliverable, Request as FounderRequest } from '../../types/founder'
 
 const STATUS_FILTERS = ['all', 'active', 'archived'] as const
+const DASHBOARD_AGGREGATE_PROJECT_LIMIT = 8
 type StatusFilter = (typeof STATUS_FILTERS)[number]
 
 export default function DashboardPage() {
@@ -40,21 +41,27 @@ export default function DashboardPage() {
     queryFn: projectsApi.list,
   })
 
-  // Aggregate across all projects.
+  const aggregateProjects = useMemo(
+    () => projects.slice(0, DASHBOARD_AGGREGATE_PROJECT_LIMIT),
+    [projects],
+  )
+
+  // Aggregate a bounded set of recent projects. Fetching every project's
+  // child resources on page load trips API rate limits as workspaces grow.
   const reqQueries = useQueries({
-    queries: projects.map((p) => ({
+    queries: aggregateProjects.map((p) => ({
       queryKey: ['requests', p.id],
       queryFn: () => requestsApi.listForProject(p.id),
     })),
   })
   const delQueries = useQueries({
-    queries: projects.map((p) => ({
+    queries: aggregateProjects.map((p) => ({
       queryKey: ['deliverables', p.id],
       queryFn: () => deliverablesApi.listForProject(p.id),
     })),
   })
   const decQueries = useQueries({
-    queries: projects.map((p) => ({
+    queries: aggregateProjects.map((p) => ({
       queryKey: ['decisions', p.id],
       queryFn: () => decisionsApi.listForProject(p.id),
     })),

@@ -57,8 +57,12 @@ export default function GlobalChat({
   // commits the candidate — must NOT send the message.
   const isComposingRef = useRef(false)
 
+  const messageProjects = useMemo(
+    () => (currentProject ? [currentProject] : []),
+    [currentProject],
+  )
   const projectQueries = useQueries({
-    queries: projects.map((p) => ({
+    queries: messageProjects.map((p) => ({
       queryKey: ['messages', p.id],
       queryFn: () => conversationApi.list(p.id),
       // Orchestrator writes assistant replies asynchronously — keep the
@@ -70,7 +74,7 @@ export default function GlobalChat({
   const messages: DisplayMessage[] = useMemo(() => {
     const all: DisplayMessage[] = []
     projectQueries.forEach((q, i) => {
-      const pid = projects[i]?.id
+      const pid = messageProjects[i]?.id
       if (!pid || !q.data) return
       // Defend against API mock fixtures returning `{}` for the per-project
       // messages endpoint. In dev/test environments the catch-all mock
@@ -89,7 +93,7 @@ export default function GlobalChat({
       (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
     )
     return all
-  }, [projectQueries, projects])
+  }, [projectQueries, messageProjects])
 
   const visible = useMemo(() => {
     if (!scopeToCurrent || !currentProject) return messages
