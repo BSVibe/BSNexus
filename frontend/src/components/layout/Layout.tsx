@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useTranslations } from 'next-intl'
 import { useParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 
@@ -14,14 +13,16 @@ import { useProjectEvents } from '../../hooks/useProjectEvents'
 const CHAT_COLLAPSED_KEY = 'bsnexus.chat.collapsed'
 
 export default function Layout({ children }: { children: React.ReactNode }) {
-  const t = useTranslations('nexus.layout')
   const [chatCollapsed, setChatCollapsed] = useState(() => {
     if (typeof window === 'undefined') return false
     return localStorage.getItem(CHAT_COLLAPSED_KEY) === '1'
   })
   const [paletteOpen, setPaletteOpen] = useState(false)
-  // Phase B Batch 2: mobile drawer state. Hamburger toggles the sidebar
-  // off-canvas under 768px. Backdrop tap closes both panels.
+  // Phase B Batch 2: mobile drawer state.
+  // Sidebar drawer is owned by `@bsvibe/layout`'s ResponsiveSidebar (it
+  // ships its own hamburger, backdrop and Escape handling). We keep the
+  // chat-rail drawer state local because GlobalChat does not yet share
+  // that contract.
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [mobileChatOpen, setMobileChatOpen] = useState(false)
   const params = useParams<{ projectId?: string | string[] }>()
@@ -66,18 +67,16 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   // ``useQueries`` for cross-project visibility).
   useProjectEvents(projectId ?? null)
 
-  const closeMobilePanels = () => {
-    setMobileSidebarOpen(false)
+  const closeMobileChat = () => {
     setMobileChatOpen(false)
   }
 
-  // CSS-class composition keeps the main render tree pure — no extra
-  // wrappers are introduced, so existing tests anchored on `.app .sb .mn`
-  // continue to work.
+  // CSS-class composition keeps the main render tree pure. The sidebar
+  // drawer styling now ships from `@bsvibe/layout`; only the chat-rail
+  // drawer needs a state hook on `.app`.
   const appClass = [
     'app',
     chatCollapsed ? 'chat-collapsed' : '',
-    mobileSidebarOpen ? 'app--mobile-sidebar-open' : '',
     mobileChatOpen ? 'app--mobile-chat-open' : '',
   ]
     .filter(Boolean)
@@ -85,23 +84,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className={appClass}>
-      {/* Phase B Batch 2 — mobile hamburger. Visible only under 768px via CSS. */}
-      <button
-        type="button"
-        aria-label={t('openNavigation')}
-        aria-expanded={mobileSidebarOpen}
-        className="app__hamburger"
-        onClick={() => setMobileSidebarOpen(true)}
-      >
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M4 6h16M4 12h16M4 18h16" />
-        </svg>
-      </button>
-
       <Sidebar
         projects={projects}
         onOpenPalette={() => setPaletteOpen(true)}
-        onNavigate={closeMobilePanels}
+        open={mobileSidebarOpen}
+        onOpenChange={setMobileSidebarOpen}
       />
       <main className="mn">{children}</main>
       <GlobalChat
@@ -111,13 +98,14 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         onToggleCollapsed={() => setChatCollapsed((c) => !c)}
       />
 
-      {/* Mobile-only backdrop — closes either drawer on tap. */}
-      {(mobileSidebarOpen || mobileChatOpen) && (
+      {/* Mobile-only backdrop — closes the chat drawer on tap.
+          The sidebar drawer ships its own backdrop via @bsvibe/layout. */}
+      {mobileChatOpen && (
         <div
           data-testid="bsnexus-mobile-backdrop"
           className="app--mobile-backdrop"
           role="presentation"
-          onClick={closeMobilePanels}
+          onClick={closeMobileChat}
         />
       )}
 

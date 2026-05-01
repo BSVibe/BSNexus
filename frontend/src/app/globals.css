@@ -37,6 +37,14 @@
   --accent: var(--blue-500);
   --accent-glow: color-mix(in oklab, var(--blue-500) 25%, transparent);
 
+  /* @bsvibe/layout semantic accent — BSNexus signature blue.
+     Matches the default in @bsvibe/design-tokens but is declared
+     explicitly so future overrides (theming, A/B brand) flow through
+     a single var. */
+  --color-accent: #3b82f6;
+  --color-accent-hover: color-mix(in srgb, var(--color-accent) 80%, white);
+  --color-accent-bg-soft: color-mix(in srgb, var(--color-accent) 10%, transparent);
+
   /* radius */
   --r-sm:4px; --r-md:8px; --r-lg:12px; --r-xl:16px; --r-full:9999px;
 
@@ -105,30 +113,14 @@ kbd {
 }
 .app.chat-collapsed { --chat-w: 48px; }
 
-.sb { grid-area: sidebar; border-right: 1px solid var(--border-subtle); background: var(--bg-base); display: flex; flex-direction: column; min-height: 0; }
 .mn { grid-area: main; overflow: auto; position: relative; background: var(--bg-base); }
 .cr { grid-area: chat; border-left: 1px solid var(--border-subtle); background: var(--bg-base); display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 
-/* ────────── Sidebar ────────── */
-.sb-brand { display: flex; align-items: center; gap: 8px; padding: 12px; border-bottom: 1px solid var(--border-subtle); min-height: 48px; cursor: pointer; }
-.sb-logo {
-  width: 24px; height: 24px; border-radius: 6px;
-  background: linear-gradient(135deg, var(--blue-500), #1e40af);
-  display: flex; align-items: center; justify-content: center;
-  font-weight: 700; color: #fff; font-size: 11px; letter-spacing: 0.5px;
-}
-.sb-brand-name { font-size: 13px; font-weight: 600; color: var(--gray-100); }
-.sb-brand-sub  { font-size: 11px; color: var(--text-tertiary); margin-top: 3px; font-family: var(--font-mono); }
-
-.sb-section {
-  padding: 16px 8px 4px;
-  font-size: 11px; font-weight: 500; color: var(--text-tertiary);
-  text-transform: uppercase; letter-spacing: 0.08em;
-  display: flex; justify-content: space-between; align-items: center;
-}
-.sb-count { font-family: var(--font-mono); font-size: 10px; color: var(--text-disabled); }
-.sb-list  { padding: 0 8px; display: flex; flex-direction: column; gap: 2px; flex: 1; overflow: auto; min-height: 0; }
-
+/* ────────── Generic list-item style ──────────
+   `.sb-item` is now a generic compact list-button utility used by the
+   Inspector / FilesView / SettingsPage tab lists. The primary navigation
+   sidebar moved to `@bsvibe/layout`'s `ResponsiveSidebar`, so the brand
+   / footer / section selectors that used to live here have been removed. */
 .sb-item {
   display: flex; align-items: center; gap: 8px;
   padding: 6px 8px; border-radius: var(--r-md);
@@ -145,16 +137,6 @@ kbd {
   width: 2px; background: var(--accent); border-radius: var(--r-full);
 }
 .sb-item .label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-.sb-footer { padding: 8px; border-top: 1px solid var(--border-subtle); display: flex; align-items: center; gap: 8px; }
-.sb-avatar {
-  width: 24px; height: 24px; border-radius: var(--r-full);
-  background: linear-gradient(135deg, #8b5cf6, var(--blue-500));
-  display: flex; align-items: center; justify-content: center;
-  font-size: 11px; font-weight: 600; color: #fff; flex: none;
-}
-.sb-user-name { font-size: 12px; color: var(--gray-200); }
-.sb-user-mail { font-size: 11px; color: var(--text-tertiary); }
 
 /* ────────── Topbar ────────── */
 .crumbs { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-secondary); }
@@ -418,7 +400,8 @@ kbd {
  *
  * BSNexus is normally a 3-column app grid (sidebar | main | chat-rail).
  * Below 768px we collapse to a single-column layout where:
- *   - Sidebar slides off-canvas to the LEFT (hamburger toggles `.app--mobile-sidebar-open`)
+ *   - Sidebar slides off-canvas to the LEFT (managed by `@bsvibe/layout`'s
+ *     ResponsiveSidebar — drawer + hamburger + backdrop ship in the package)
  *   - Chat rail slides off-canvas to the RIGHT (chat icon toggles `.app--mobile-chat-open`)
  *   - Main column always fills the viewport
  *
@@ -436,17 +419,10 @@ kbd {
     grid-template-columns: 1fr;
     grid-template-areas: "main";
   }
-  .sb {
-    position: fixed;
-    inset: 0 auto 0 0;
-    width: 280px;
-    z-index: 50;
-    transform: translateX(-100%);
-    transition: transform 200ms var(--ease);
-  }
-  .app--mobile-sidebar-open .sb {
-    transform: translateX(0);
-  }
+  /* The primary nav drawer is owned by `@bsvibe/layout`'s
+     ResponsiveSidebar — it ships its own fixed-position drawer + backdrop
+     + hamburger. Only the chat rail still uses the .app--mobile-chat-open
+     local state below. */
   .cr {
     position: fixed;
     inset: 0 0 0 auto;
@@ -458,20 +434,18 @@ kbd {
   .app--mobile-chat-open .cr {
     transform: translateX(0);
   }
-  /* Backdrop sits behind the active panel. */
+  /* Backdrop sits behind the active chat-rail panel. */
   .app--mobile-backdrop {
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.5);
     z-index: 40;
   }
-  /* Tighter sidebar items so a 280px drawer is readable. */
+  /* Tighter list-item style for inspector / files / settings tab lists
+     when the viewport collapses to a single column. */
   .sb-item {
     min-height: 44px;
     padding: 8px 12px;
-  }
-  .sb-brand {
-    min-height: 56px;
   }
   .tabs {
     padding: 0 8px 0 56px;
@@ -498,29 +472,5 @@ kbd {
   }
   .project-inspector__detail {
     min-width: 0;
-  }
-}
-
-/* Hamburger trigger — only visible at < 768px. Lives in Layout.tsx. */
-.app__hamburger {
-  display: none;
-}
-@media (max-width: 767px) {
-  .app__hamburger {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    position: fixed;
-    top: 0.5rem;
-    left: 0.5rem;
-    z-index: 60;
-    min-width: 44px;
-    min-height: 44px;
-    padding: 8px;
-    border-radius: var(--r-md);
-    background: var(--bg-elevated);
-    color: var(--gray-200);
-    border: 1px solid var(--border-default);
-    cursor: pointer;
   }
 }

@@ -1,6 +1,13 @@
 /** @type {import('tailwindcss').Config} */
 export default {
-  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
+  content: [
+    './index.html',
+    './src/**/*.{js,ts,jsx,tsx}',
+    // Scan @bsvibe/layout (ResponsiveSidebar / SidebarBrand / SidebarUserCard
+    // ship Tailwind utility classes inline) so the generated CSS contains
+    // their `border-l-4`, `min-h-[44px]`, `bg-gray-950`, etc. utilities.
+    './node_modules/@bsvibe/layout/dist/**/*.{js,jsx,ts,tsx}',
+  ],
   theme: {
     extend: {
       fontFamily: {

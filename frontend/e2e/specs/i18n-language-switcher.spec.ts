@@ -31,18 +31,18 @@ test.describe('i18n language switcher (next-intl)', () => {
     await page.getByTestId('language-switcher-en').click()
     // Sidebar uses the layout namespace — Dashboard / Settings labels
     // must reflect the English bundle once the switcher commits.
-    await expect(page.locator('.sb').getByText('Dashboard')).toBeVisible()
-    await expect(page.locator('.sb').getByText('Settings')).toBeVisible()
+    await expect(page.locator('aside').first().getByText('Dashboard')).toBeVisible()
+    await expect(page.locator('aside').first().getByText('Settings')).toBeVisible()
   })
 
   test('switching to Korean persists across navigation', async ({ page }) => {
     await setupPage(page, '/settings?section=language')
     await page.getByTestId('language-switcher-ko').click()
     // Sidebar Workspace section header is translated.
-    await expect(page.locator('.sb').getByText('워크스페이스')).toBeVisible()
+    await expect(page.locator('aside').first().getByText('워크스페이스')).toBeVisible()
     // Reload — locale must survive a refresh because we persist to
     // localStorage (no [locale] segment in the route, by design).
     await page.reload({ waitUntil: 'networkidle' })
-    await expect(page.locator('.sb').getByText('워크스페이스')).toBeVisible()
+    await expect(page.locator('aside').first().getByText('워크스페이스')).toBeVisible()
   })
 })

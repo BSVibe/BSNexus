@@ -46,10 +46,10 @@ test.describe('Mobile viewport: BSNexus core flow', () => {
     const hamburger = page.getByRole('button', { name: /open navigation/i })
     await expect(hamburger).toBeVisible()
     await hamburger.click()
-    // Backdrop is now present.
-    await expect(page.getByTestId('bsnexus-mobile-backdrop')).toBeVisible()
-    // Sidebar is now visible — Dashboard nav button reachable.
-    await expect(page.locator('.sb').getByRole('button', { name: /^Dashboard$/ }).first()).toBeVisible()
+    // Backdrop is now present (ships from `@bsvibe/layout`).
+    await expect(page.getByTestId('bsvibe-sidebar-backdrop')).toBeVisible()
+    // Sidebar is now visible — Dashboard nav link reachable.
+    await expect(page.locator('aside').getByRole('link', { name: /Dashboard/ }).first()).toBeVisible()
   })
 
   test('hamburger trigger meets 44px touch-target minimum', async ({ page }) => {
@@ -61,7 +61,7 @@ test.describe('Mobile viewport: BSNexus core flow', () => {
 
   test('backdrop click closes the drawer', async ({ page }) => {
     await page.getByRole('button', { name: /open navigation/i }).click()
-    const backdrop = page.getByTestId('bsnexus-mobile-backdrop')
+    const backdrop = page.getByTestId('bsvibe-sidebar-backdrop')
     await expect(backdrop).toBeVisible()
     await backdrop.click()
     await expect(backdrop).toHaveCount(0)
@@ -69,9 +69,9 @@ test.describe('Mobile viewport: BSNexus core flow', () => {
 
   test('escape key closes the drawer', async ({ page }) => {
     await page.getByRole('button', { name: /open navigation/i }).click()
-    await expect(page.getByTestId('bsnexus-mobile-backdrop')).toBeVisible()
+    await expect(page.getByTestId('bsvibe-sidebar-backdrop')).toBeVisible()
     await page.keyboard.press('Escape')
-    await expect(page.getByTestId('bsnexus-mobile-backdrop')).toHaveCount(0)
+    await expect(page.getByTestId('bsvibe-sidebar-backdrop')).toHaveCount(0)
   })
 
   test('app uses single-column grid on mobile (sidebar off-canvas by default)', async ({ page }) => {
