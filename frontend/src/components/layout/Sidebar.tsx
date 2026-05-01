@@ -53,7 +53,7 @@ export default function Sidebar({
       groupLabel: t('projects'),
     })),
     {
-      href: '/dashboard',
+      href: '/projects/new',
       label: (
         <span style={{ color: 'var(--text-tertiary)' }}>
           + {t('newProject')}
