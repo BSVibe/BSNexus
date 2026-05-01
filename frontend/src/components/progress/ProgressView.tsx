@@ -41,13 +41,23 @@ export default function ProgressView({ projectId }: { projectId: string }) {
   return (
     <div style={{ overflow: 'auto', height: '100%', padding: '24px 32px' }}>
       <div style={{ maxWidth: 900, margin: '0 auto' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: 8,
+            marginBottom: 20,
+          }}
+        >
           <h2
             style={{
               fontSize: 16,
               fontWeight: 600,
               color: 'var(--gray-100)',
               margin: 0,
+              flexShrink: 0,
+              whiteSpace: 'nowrap',
             }}
           >
             {t('timeline')}

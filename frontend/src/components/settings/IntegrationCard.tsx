@@ -233,7 +233,7 @@ export default function IntegrationCard({
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
               gap: 12,
             }}
           >
@@ -430,7 +430,7 @@ function Field({
         }}
       >
         <label
-          style={{ fontSize: 12, color: 'var(--text-secondary)' }}
+          style={{ fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}
         >
           {label}
         </label>
