@@ -376,23 +376,40 @@ function Toggle({
   onChange: (v: boolean) => void
   disabled?: boolean
 }) {
+  // Touch target = 44x44 (WCAG 2.5.5 / iOS HIG). Visual switch stays
+  // 32x18 via the inner pseudo-track — the outer button just provides
+  // the larger hit area and centers the track. Without this, the
+  // button measured 32x18 directly and tripped the e2e tap-target check.
   return (
     <button
       type="button"
       disabled={disabled}
       onClick={() => onChange(!checked)}
       style={{
+        minWidth: 44,
+        minHeight: 44,
+        padding: 0,
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'transparent',
+        border: 'none',
+        cursor: disabled ? 'wait' : 'pointer',
+        opacity: disabled ? 0.7 : 1,
+      }}
+      aria-pressed={checked}
+    >
+    <span
+      aria-hidden="true"
+      style={{
         width: 32,
         height: 18,
         borderRadius: 99,
         background: checked ? 'var(--blue-500)' : 'var(--gray-700)',
         position: 'relative',
-        border: 'none',
-        cursor: disabled ? 'wait' : 'pointer',
+        display: 'inline-block',
         transition: 'background var(--t-fast) var(--ease)',
-        opacity: disabled ? 0.7 : 1,
       }}
-      aria-pressed={checked}
     >
       <span
         style={{
@@ -406,6 +423,7 @@ function Toggle({
           transition: 'left var(--t-fast) var(--ease)',
         }}
       />
+    </span>
     </button>
   )
 }
