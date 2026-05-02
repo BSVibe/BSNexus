@@ -1,13 +1,15 @@
 'use client'
 
 import { useTranslations } from 'next-intl'
-import { ResponsiveSidebar, SidebarBrand, SidebarUserCard } from '@bsvibe/layout'
+import { LanguageToggle, ResponsiveSidebar, SidebarBrand, SidebarUserCard } from '@bsvibe/layout'
 import type { SidebarItem } from '@bsvibe/layout'
 
 import { StatusDot } from '../common/Badge'
 import { I } from '../../lib/icons'
 import { statusTone } from '../../lib/tone'
 import { useAuthContext } from '../auth/AuthContext'
+import { SUPPORTED_LOCALES, type Locale } from '../../i18n'
+import { useLocale } from '../../i18n/LocaleContext'
 import type { Project } from '../../api/projects'
 
 interface SidebarProps {
@@ -38,6 +40,7 @@ export default function Sidebar({
   onOpenChange,
 }: SidebarProps) {
   const { user, logout } = useAuthContext()
+  const { locale, setLocale } = useLocale()
   const t = useTranslations('nexus.layout')
   const tAuth = useTranslations('nexus.auth')
 
@@ -123,12 +126,21 @@ export default function Sidebar({
         </button>
       }
       footer={
-        <SidebarUserCard
-          email={user?.email ?? tAuth('guest')}
-          role={user?.role}
-          onSignOut={handleSignOut}
-          signOutLabel={tAuth('logout')}
-        />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <LanguageToggle
+            value={locale}
+            options={SUPPORTED_LOCALES.map((l) => ({ value: l, label: l.toUpperCase() }))}
+            onChange={(next) => setLocale(next as Locale)}
+            ariaLabel={t('language')}
+            dataTestId="sidebar-language-switcher"
+          />
+          <SidebarUserCard
+            email={user?.email ?? tAuth('guest')}
+            role={user?.role}
+            onSignOut={handleSignOut}
+            signOutLabel={tAuth('logout')}
+          />
+        </div>
       }
     />
   )

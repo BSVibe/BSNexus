@@ -102,6 +102,30 @@ kbd {
 }
 ::-webkit-scrollbar-thumb:hover { background: var(--gray-700); }
 
+/* ────────── @bsvibe/layout class hooks ──────────
+   ResponsiveSidebar ships Tailwind utilities only (`md:static md:flex
+   md:flex-col`) and leaves height bounding to the consumer. Our `.app`
+   grid row is 100vh, but grid items default to `min-height: auto` so
+   the sidebar grows with N projects and pushes the document past the
+   viewport — that's why the e2e screenshot was 11k px tall. Pinning
+   `min-height: 0` on the aside lets the inner `<nav>`'s `flex: 1;
+   overflow-y: auto` actually scroll inside the row. */
+.bsvibe-sidebar {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.bsvibe-sidebar__nav {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.bsvibe-sidebar__footer {
+  margin-top: auto;
+  flex-shrink: 0;
+}
+
 /* ────────── App grid ────────── */
 .app {
   display: grid;

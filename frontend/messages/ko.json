@@ -83,7 +83,8 @@
       "noProjects": "아직 프로젝트가 없습니다.",
       "openNavigation": "네비게이션 열기",
       "jumpAnywhere": "어디로든 이동",
-      "jumpTo": "이동…"
+      "jumpTo": "이동…",
+      "language": "언어"
     },
     "palette": {
       "placeholder": "프로젝트, 작업 검색…",

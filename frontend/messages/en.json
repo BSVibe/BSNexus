@@ -83,7 +83,8 @@
       "noProjects": "No projects yet.",
       "openNavigation": "Open navigation",
       "jumpAnywhere": "Jump anywhere",
-      "jumpTo": "Jump to…"
+      "jumpTo": "Jump to…",
+      "language": "Language"
     },
     "palette": {
       "placeholder": "Search projects, actions…",
