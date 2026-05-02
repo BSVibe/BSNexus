@@ -443,6 +443,13 @@ kbd {
     grid-template-columns: 1fr;
     grid-template-areas: "main";
   }
+  /* Mobile top padding (3.5rem) makes room for the floating hamburger
+     shipped by @bsvibe/layout v0.5.0 (`fixed top-3 left-3 z-50`).
+     Without this, page content like the Project Inspector title sits
+     directly under the trigger and the two visually overlap. */
+  .mn {
+    padding-top: 3.5rem;
+  }
   /* The primary nav drawer is owned by `@bsvibe/layout`'s
      ResponsiveSidebar — it ships its own fixed-position drawer + backdrop
      + hamburger. Only the chat rail still uses the .app--mobile-chat-open
