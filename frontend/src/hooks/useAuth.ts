@@ -205,19 +205,27 @@ export function useAuth({
           app_metadata?: { tenant_id?: string; role?: string }
         }
         const tenantId = payload.app_metadata?.tenant_id ?? ''
-        // Tenant name lives in the auth-app session response (`tenants`
-        // array), not the JWT. Best-effort fetch — leave null on failure
-        // so the sidebar tagline simply collapses.
+        // Tenant name lives in the auth-app session response (tenants[]),
+        // which only accepts the cross-subdomain cookie — bearer tokens
+        // are ignored. Skip the call entirely in localStorage-token mode
+        // (no cookie present) so we don't generate spurious 401s that
+        // trip the e2e no-console-errors assertion. Fall back to
+        // tenantName=null; the sidebar tagline simply collapses.
         let tenantName: string | null = null
-        try {
-          const res = await fetch(`${AUTH_URL}/api/session`, { credentials: 'include' })
-          if (res.ok) {
-            const data: SessionResponse = await res.json()
-            const activeId = data.active_tenant_id ?? tenantId
-            tenantName = data.tenants?.find((t) => t.id === activeId)?.name ?? null
+        const hasSessionCookie =
+          typeof document !== 'undefined' &&
+          /(?:^|;\s*)bsvibe_session=/.test(document.cookie)
+        if (hasSessionCookie) {
+          try {
+            const res = await fetch(`${AUTH_URL}/api/session`, { credentials: 'include' })
+            if (res.ok) {
+              const data: SessionResponse = await res.json()
+              const activeId = data.active_tenant_id ?? tenantId
+              tenantName = data.tenants?.find((t) => t.id === activeId)?.name ?? null
+            }
+          } catch {
+            // ignore
           }
-        } catch {
-          // ignore
         }
         setUser({
           id: payload.sub,
