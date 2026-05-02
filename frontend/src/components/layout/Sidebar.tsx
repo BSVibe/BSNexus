@@ -1,7 +1,13 @@
 'use client'
 
 import { useTranslations } from 'next-intl'
-import { LanguageToggle, ResponsiveSidebar, SidebarBrand, SidebarUserCard } from '@bsvibe/layout'
+import {
+  LanguageToggle,
+  ResponsiveSidebar,
+  SidebarBrand,
+  SidebarTenantSwitcher,
+  SidebarUserCard,
+} from '@bsvibe/layout'
 import type { SidebarItem } from '@bsvibe/layout'
 
 import { StatusDot } from '../common/Badge'
@@ -39,7 +45,7 @@ export default function Sidebar({
   open,
   onOpenChange,
 }: SidebarProps) {
-  const { user, logout } = useAuthContext()
+  const { user, logout, tenants, switchTenant } = useAuthContext()
   const { locale, setLocale } = useLocale()
   const t = useTranslations('nexus.layout')
   const tAuth = useTranslations('nexus.auth')
@@ -129,6 +135,12 @@ export default function Sidebar({
       }
       footer={
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <SidebarTenantSwitcher
+            tenants={tenants}
+            activeTenantId={user?.tenantId ?? null}
+            onSwitchTenant={(id) => void switchTenant(id)}
+            dataTestId="sidebar-tenant-switcher"
+          />
           <LanguageToggle
             value={locale}
             options={SUPPORTED_LOCALES.map((l) => ({ value: l, label: l.toUpperCase() }))}
