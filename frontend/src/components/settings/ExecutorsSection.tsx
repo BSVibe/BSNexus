@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslations } from 'next-intl'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { Badge } from '../common/Badge'
@@ -12,50 +13,72 @@ import {
 } from '../../api/executorConfigs'
 import RemoteWorkersSection from './RemoteWorkersSection'
 
+// Static field metadata only — labels/descriptions/placeholders come
+// from the i18n bundle (``nexus.settings.executors.field.*`` and
+// ``nexus.settings.executors.type.*``).
+type ExecFieldKey =
+  | 'model'
+  | 'api_key'
+  | 'base_url'
+  | 'gateway_url'
+  | 'gateway_api_key'
+
+type ExecField = {
+  key: string
+  fieldKey: ExecFieldKey
+  secret?: boolean
+}
+
 type ExecTypeMeta = {
   value: ExecutorType
-  label: string
-  description: string
-  fields: Array<{ key: string; label: string; placeholder?: string; secret?: boolean }>
+  fields: ExecField[]
 }
 
 const EXEC_TYPES: ExecTypeMeta[] = [
   {
     value: 'generic_llm',
-    label: 'LLM (LiteLLM direct)',
-    description: 'Any LiteLLM provider. Used for coding and non-coding runs alike.',
     fields: [
-      { key: 'model', label: 'Model', placeholder: 'openai/gpt-4o, anthropic/claude-sonnet-4-6, …' },
-      { key: 'api_key', label: 'API key', placeholder: 'sk-…', secret: true },
-      { key: 'base_url', label: 'Base URL (optional)', placeholder: 'https://api.anthropic.com' },
+      { key: 'model', fieldKey: 'model' },
+      { key: 'api_key', fieldKey: 'api_key', secret: true },
+      { key: 'base_url', fieldKey: 'base_url' },
     ],
   },
   {
     value: 'bsgateway',
-    label: 'BSGateway (cost-aware routing)',
-    description: 'Proxy all LLM calls through BSGateway for cost-optimized routing.',
     fields: [
-      { key: 'bsgateway_url', label: 'Gateway URL', placeholder: 'https://gateway.bsvibe.dev' },
-      { key: 'bsgateway_api_key', label: 'API key', placeholder: 'bsg-…', secret: true },
+      { key: 'bsgateway_url', fieldKey: 'gateway_url' },
+      { key: 'bsgateway_api_key', fieldKey: 'gateway_api_key', secret: true },
     ],
   },
   {
     value: 'claude_code',
-    label: 'Claude Code worker',
-    description:
-      'Route runs to any online worker that advertises the claude_code capability.',
     fields: [],
   },
   {
     value: 'codex',
-    label: 'Codex worker',
-    description:
-      'Route runs to any online worker that advertises the codex capability.',
     fields: [],
   },
 ]
 
+const EXEC_FIELD_LABEL: Record<ExecFieldKey, string> = {
+  model: 'model',
+  api_key: 'apiKey',
+  base_url: 'baseUrl',
+  gateway_url: 'gatewayUrl',
+  gateway_api_key: 'gatewayApiKey',
+}
+
+const EXEC_FIELD_PLACEHOLDER: Record<ExecFieldKey, string> = {
+  model: 'modelPlaceholder',
+  api_key: 'apiKeyPlaceholder',
+  base_url: 'baseUrlPlaceholder',
+  gateway_url: 'gatewayUrlPlaceholder',
+  gateway_api_key: 'gatewayApiKeyPlaceholder',
+}
+
 export default function ExecutorsSection() {
+  const t = useTranslations('nexus.settings.executors')
+  const tCommon = useTranslations('nexus.common')
   const queryClient = useQueryClient()
   const [createOpen, setCreateOpen] = useState(false)
   const [editing, setEditing] = useState<ExecutorConfig | null>(null)
@@ -90,7 +113,7 @@ export default function ExecutorsSection() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span className="faded" style={{ fontSize: 12 }}>
-          {configs.length} registered · exactly one is in use
+          {t('registeredCount', { count: configs.length })}
         </span>
         <span style={{ flex: 1 }} />
         <button
@@ -98,13 +121,13 @@ export default function ExecutorsSection() {
           className="btn btn-primary btn-sm"
           onClick={() => setCreateOpen(true)}
         >
-          <I.Plus size={12} /> Register executor
+          <I.Plus size={12} /> {t('registerButton')}
         </button>
       </div>
 
       {isLoading && (
         <p className="faded" style={{ fontSize: 13 }}>
-          Loading…
+          {tCommon('loading')}
         </p>
       )}
 
@@ -118,8 +141,7 @@ export default function ExecutorsSection() {
             color: 'var(--text-tertiary)',
           }}
         >
-          No executors registered yet. Runs stay queued until one is added
-          here and selected.
+          {t('emptyHint')}
         </div>
       )}
 
@@ -184,7 +206,10 @@ function ExecutorCard({
   onSelect: () => void
   onEdit: () => void
 }) {
-  const meta = EXEC_TYPES.find((t) => t.value === config.executor_type)
+  const t = useTranslations('nexus.settings.executors')
+  const tStatus = useTranslations('nexus.status')
+  const tCommon = useTranslations('nexus.common')
+  const meta = EXEC_TYPES.find((tt) => tt.value === config.executor_type)
   return (
     <div
       className="card"
@@ -212,7 +237,7 @@ function ExecutorCard({
           </span>
           {config.is_selected && (
             <Badge tone="blue" dot>
-              in use
+              {tStatus('inUse')}
             </Badge>
           )}
           <span className="mono faded" style={{ fontSize: 11 }}>
@@ -229,7 +254,7 @@ function ExecutorCard({
           </Badge>
           {meta && (
             <span className="faded" style={{ fontSize: 12 }}>
-              {meta.description}
+              {t(`type.${meta.value}.description`)}
             </span>
           )}
         </div>
@@ -248,18 +273,18 @@ function ExecutorCard({
           }}
         >
           <button type="button" className="btn btn-ghost btn-sm" onClick={onEdit}>
-            <I.Settings size={12} /> Edit
+            <I.Settings size={12} /> {tCommon('edit')}
           </button>
           <span style={{ flex: 1 }} />
           <button
             type="button"
             className="btn btn-ghost btn-sm"
             onClick={() => {
-              if (confirm(`Delete executor "${config.name}"?`)) onDelete()
+              if (confirm(t('deleteConfirm', { name: config.name }))) onDelete()
             }}
             style={{ color: 'var(--brand-rose, #f43f5e)' }}
           >
-            <I.X size={12} /> Delete
+            <I.X size={12} /> {tCommon('delete')}
           </button>
         </div>
       </div>
@@ -276,13 +301,14 @@ function SelectDot({
   onSelect: () => void
   label: string
 }) {
+  const t = useTranslations('nexus.settings.executors.card')
   return (
     <button
       type="button"
       role="radio"
       aria-checked={selected}
-      aria-label={selected ? `${label} is in use` : `Use ${label}`}
-      title={selected ? 'In use' : 'Click to use this executor'}
+      aria-label={selected ? t('selectedAria', { name: label }) : t('selectAria', { name: label })}
+      title={selected ? t('selectedTitle') : t('selectableTitle')}
       onClick={() => {
         if (!selected) onSelect()
       }}
@@ -329,6 +355,10 @@ function ExecutorModal({
   pending: boolean
   error: string | null
 }) {
+  const tModal = useTranslations('nexus.settings.executors.modal')
+  const tType = useTranslations('nexus.settings.executors.type')
+  const tField = useTranslations('nexus.settings.executors.field')
+  const tCommon = useTranslations('nexus.common')
   const [type, setType] = useState<ExecutorType>(
     existing?.executor_type ?? 'generic_llm',
   )
@@ -345,7 +375,7 @@ function ExecutorModal({
     return initial
   })
 
-  const meta = EXEC_TYPES.find((t) => t.value === type)
+  const meta = EXEC_TYPES.find((tt) => tt.value === type)
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -375,7 +405,7 @@ function ExecutorModal({
           }}
         >
           <div style={{ fontSize: 14, fontWeight: 600 }}>
-            {existing ? `Edit — ${existing.name}` : 'Register executor'}
+            {existing ? tModal('editTitle', { name: existing.name }) : tModal('registerTitle')}
           </div>
           <button type="button" className="btn btn-icon" onClick={onClose}>
             <I.X size={14} />
@@ -393,7 +423,7 @@ function ExecutorModal({
           {!existing && (
             <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                Type
+                {tModal('typeLabel')}
               </span>
               <select
                 className="input"
@@ -403,28 +433,28 @@ function ExecutorModal({
                   setCfg({})
                 }}
               >
-                {EXEC_TYPES.map((t) => (
-                  <option key={t.value} value={t.value}>
-                    {t.label}
+                {EXEC_TYPES.map((tt) => (
+                  <option key={tt.value} value={tt.value}>
+                    {tType(`${tt.value}.label`)}
                   </option>
                 ))}
               </select>
               {meta && (
                 <span className="faded" style={{ fontSize: 11 }}>
-                  {meta.description}
+                  {tType(`${meta.value}.description`)}
                 </span>
               )}
             </label>
           )}
 
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Name</span>
+            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{tModal('nameLabel')}</span>
             <input
               className="input"
               autoFocus
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. GPT-4o production"
+              placeholder={tModal('namePlaceholder')}
             />
           </label>
 
@@ -434,7 +464,7 @@ function ExecutorModal({
               style={{ display: 'flex', flexDirection: 'column', gap: 4 }}
             >
               <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                {f.label}
+                {tField(EXEC_FIELD_LABEL[f.fieldKey])}
               </span>
               <input
                 className="input mono"
@@ -443,7 +473,7 @@ function ExecutorModal({
                 onChange={(e) =>
                   setCfg((prev) => ({ ...prev, [f.key]: e.target.value }))
                 }
-                placeholder={f.placeholder}
+                placeholder={tField(EXEC_FIELD_PLACEHOLDER[f.fieldKey])}
                 style={{ fontSize: 12 }}
               />
             </label>
@@ -451,13 +481,13 @@ function ExecutorModal({
 
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-              Description (optional)
+              {tModal('descriptionLabel')}
             </span>
             <input
               className="input"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Brief note"
+              placeholder={tModal('descriptionPlaceholder')}
             />
           </label>
 
@@ -475,7 +505,7 @@ function ExecutorModal({
               checked={useThis}
               onChange={(e) => setUseThis(e.target.checked)}
             />
-            Use this one (replaces whichever is currently in use)
+            {tModal('useThis')}
           </label>
 
           {error && (
@@ -503,14 +533,14 @@ function ExecutorModal({
             }}
           >
             <button type="button" className="btn btn-ghost" onClick={onClose}>
-              Cancel
+              {tCommon('cancel')}
             </button>
             <button
               type="submit"
               className="btn btn-primary"
               disabled={!name.trim() || pending}
             >
-              {pending ? 'Saving…' : existing ? 'Save' : 'Register'}
+              {pending ? tCommon('saving') : existing ? tCommon('save') : tCommon('register')}
             </button>
           </div>
         </form>

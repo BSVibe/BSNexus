@@ -1,168 +1,161 @@
-import { useLocation, useNavigate } from 'react-router-dom'
+'use client'
+
+import { useTranslations } from 'next-intl'
+import {
+  LanguageToggle,
+  ResponsiveSidebar,
+  SidebarBrand,
+  SidebarTenantSwitcher,
+  SidebarUserCard,
+} from '@bsvibe/layout'
+import type { SidebarItem } from '@bsvibe/layout'
 
 import { StatusDot } from '../common/Badge'
 import { I } from '../../lib/icons'
 import { statusTone } from '../../lib/tone'
 import { useAuthContext } from '../auth/AuthContext'
+import { SUPPORTED_LOCALES, type Locale } from '../../i18n'
+import { useLocale } from '../../i18n/LocaleContext'
 import type { Project } from '../../api/projects'
 
 interface SidebarProps {
   projects: Project[]
   onOpenPalette: () => void
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
 }
 
-export default function Sidebar({ projects, onOpenPalette }: SidebarProps) {
-  const navigate = useNavigate()
-  const location = useLocation()
-  const { user, logout } = useAuthContext()
+/**
+ * BSNexus sidebar — built on `@bsvibe/layout`'s ResponsiveSidebar.
+ *
+ * The Projects list (dynamic, with status dots) and the static
+ * Workspace items (Dashboard, Settings) all live in `items`. The
+ * `Projects` group is materialised via `groupLabel: 'Projects'`,
+ * which the library auto-renders as a small uppercase header above
+ * the first item of each contiguous group.
+ *
+ * The ⌘K command palette trigger is rendered as `topAction` until a
+ * `<Header>` component lands; per Phase B handoff §6 Stage N the
+ * search slot is meant to live in the header — this is a transitional
+ * placement that keeps the palette reachable on every page.
+ */
+export default function Sidebar({
+  projects,
+  onOpenPalette,
+  open,
+  onOpenChange,
+}: SidebarProps) {
+  const { user, logout, tenants, switchTenant } = useAuthContext()
+  const { locale, setLocale } = useLocale()
+  const t = useTranslations('nexus.layout')
+  const tAuth = useTranslations('nexus.auth')
 
-  const activeProjectId = location.pathname.startsWith('/projects/')
-    ? location.pathname.split('/')[2]
-    : null
-  const onDashboard = location.pathname === '/dashboard'
-  const onSettings = location.pathname.startsWith('/settings')
+  const items: SidebarItem[] = [
+    ...projects.map<SidebarItem>((p) => ({
+      href: `/projects/${p.id}`,
+      label: (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+          <StatusDot tone={statusTone(p.status)} size={6} />
+          <span>{p.name}</span>
+        </span>
+      ),
+      groupLabel: t('projects'),
+    })),
+    {
+      href: '/projects/new',
+      label: (
+        <span style={{ color: 'var(--text-tertiary)' }}>
+          + {t('newProject')}
+        </span>
+      ),
+      groupLabel: t('projects'),
+    },
+    {
+      href: '/dashboard',
+      label: t('dashboard'),
+      icon: <I.Home size={14} />,
+      groupLabel: t('workspace'),
+    },
+    {
+      href: '/settings',
+      label: t('settings'),
+      icon: <I.Settings size={14} />,
+      groupLabel: t('workspace'),
+    },
+  ]
 
-  const initials = (user?.email ?? '??').slice(0, 2).toUpperCase()
-  const displayName = (user?.email ?? 'guest').split('@')[0]
+  const handleSignOut = () => {
+    void logout()
+  }
 
   return (
-    <aside className="sb">
-      <button
-        type="button"
-        className="sb-brand"
-        onClick={() => navigate('/dashboard')}
-        aria-label="Home"
-      >
-        <div className="sb-logo">BN</div>
-        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1 }}>
-          <span className="sb-brand-name">BSNexus</span>
-        </div>
-      </button>
-
-      <button
-        type="button"
-        className="chip"
-        style={{
-          margin: '12px 12px 4px',
-          padding: '8px 10px',
-          justifyContent: 'space-between',
-        }}
-        onClick={onOpenPalette}
-        title="Jump anywhere"
-      >
-        <span
+    <ResponsiveSidebar
+      items={items}
+      ariaLabel={t('openNavigation')}
+      open={open}
+      onOpenChange={onOpenChange}
+      logo={
+        <SidebarBrand
+          icon={<span style={{ fontWeight: 700, fontSize: 11 }}>BN</span>}
+          name={t('brandName')}
+          // Active workspace (tenant) name. Collapses when not known —
+          // unified with Gateway / Supervisor / Sage.
+          tagline={user?.tenantName ?? undefined}
+          href="/dashboard"
+        />
+      }
+      topAction={
+        <button
+          type="button"
+          className="chip"
           style={{
+            width: '100%',
+            padding: '8px 10px',
+            justifyContent: 'space-between',
             display: 'inline-flex',
-            alignItems: 'center',
-            gap: 8,
-            color: 'var(--text-tertiary)',
           }}
+          onClick={onOpenPalette}
+          title={t('jumpAnywhere')}
         >
-          <I.Search size={14} /> Jump to…
-        </span>
-        <span style={{ display: 'inline-flex', gap: 4 }}>
-          <kbd>⌘</kbd>
-          <kbd>K</kbd>
-        </span>
-      </button>
-
-      <div className="sb-section">
-        <span>Projects</span>
-        <span className="sb-count">{projects.length}</span>
-      </div>
-      <div className="sb-list">
-        {projects.map((p) => {
-          const tone = statusTone(p.status)
-          const isActive = activeProjectId === p.id
-          return (
-            <button
-              key={p.id}
-              type="button"
-              className={`sb-item ${isActive ? 'active' : ''}`}
-              onClick={() => navigate(`/projects/${p.id}`)}
-              title={p.name}
-            >
-              <StatusDot tone={tone} size={6} />
-              <span className="label">{p.name}</span>
-            </button>
-          )
-        })}
-        {projects.length === 0 && (
           <span
             style={{
-              padding: '6px 8px',
-              fontSize: 11,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
               color: 'var(--text-tertiary)',
             }}
           >
-            No projects yet.
+            <I.Search size={14} /> {t('jumpTo')}
           </span>
-        )}
-        <button
-          type="button"
-          className="sb-item"
-          style={{ color: 'var(--text-tertiary)', marginTop: 8 }}
-          onClick={() => navigate('/dashboard')}
-        >
-          <I.Plus size={14} /> <span className="label">New project</span>
+          <span style={{ display: 'inline-flex', gap: 4 }}>
+            <kbd>⌘</kbd>
+            <kbd>K</kbd>
+          </span>
         </button>
-
-        <div style={{ flex: 1 }} />
-
-        <div className="sb-section" style={{ paddingTop: 24 }}>
-          Workspace
+      }
+      footer={
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <SidebarTenantSwitcher
+            tenants={tenants}
+            activeTenantId={user?.tenantId ?? null}
+            onSwitchTenant={(id) => void switchTenant(id)}
+            dataTestId="sidebar-tenant-switcher"
+          />
+          <LanguageToggle
+            value={locale}
+            options={SUPPORTED_LOCALES.map((l) => ({ value: l, label: l.toUpperCase() }))}
+            onChange={(next) => setLocale(next as Locale)}
+            ariaLabel={t('language')}
+            dataTestId="sidebar-language-switcher"
+          />
+          <SidebarUserCard
+            email={user?.email ?? tAuth('guest')}
+            role={user?.role}
+            onSignOut={handleSignOut}
+            signOutLabel={tAuth('logout')}
+          />
         </div>
-        <button
-          type="button"
-          className={`sb-item ${onDashboard ? 'active' : ''}`}
-          onClick={() => navigate('/dashboard')}
-        >
-          <I.Home size={14} /> <span className="label">Dashboard</span>
-        </button>
-        <button
-          type="button"
-          className={`sb-item ${onSettings ? 'active' : ''}`}
-          onClick={() => navigate('/settings')}
-        >
-          <I.Settings size={14} /> <span className="label">Settings</span>
-        </button>
-      </div>
-
-      <div className="sb-footer">
-        <div className="sb-avatar">{initials}</div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div
-            className="sb-user-name"
-            style={{
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {displayName}
-          </div>
-          <div
-            className="sb-user-mail"
-            style={{
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {user?.email}
-          </div>
-        </div>
-        <button
-          type="button"
-          className="btn btn-icon"
-          title="Log out"
-          onClick={() => {
-            void logout()
-          }}
-        >
-          <I.Logout size={14} />
-        </button>
-      </div>
-    </aside>
+      }
+    />
   )
 }

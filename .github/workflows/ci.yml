@@ -84,6 +84,8 @@ jobs:
 
       - name: Install dependencies
         run: pnpm --dir frontend install --frozen-lockfile
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Lint
         run: pnpm --dir frontend lint

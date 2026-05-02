@@ -68,9 +68,9 @@ async def _load_row(
 
 @router.get("", response_model=IntegrationConfigList)
 async def list_integrations(
+    _user=Depends(get_current_user),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
 ) -> IntegrationConfigList:
     rows = {
         row.provider: row
@@ -88,9 +88,9 @@ async def list_integrations(
 async def update_integration(
     provider: str,
     payload: IntegrationConfigUpdate,
+    _user=Depends(get_current_user),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
 ) -> IntegrationConfigResponse:
     prov = _parse_provider(provider)
     row = await _load_row(db, tenant_id, prov)
@@ -130,9 +130,9 @@ async def update_integration(
 @router.post("/{provider}/test", response_model=IntegrationTestResult)
 async def test_integration(
     provider: str,
+    _user=Depends(get_current_user),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
 ) -> IntegrationTestResult:
     prov = _parse_provider(provider)
     row = await _load_row(db, tenant_id, prov)
@@ -141,25 +141,33 @@ async def test_integration(
         return IntegrationTestResult(ok=False, status="disabled", detail="Enable + set base URL first")
 
     probe_path = _probe_path_for(prov)
-    # Explicit service UA to clear Cloudflare Bot Fight Mode on the
-    # *.bsvibe.dev frontends (httpx's default python-httpx UA gets 403'd).
-    headers: dict[str, str] = {
-        "User-Agent": "BSNexus/0.2 (+https://nexus.bsvibe.dev)",
-    }
+
+    token = ""
     if row.api_key_encrypted:
         try:
             token = _encryption().decrypt_value(row.api_key_encrypted)
-            headers["Authorization"] = f"Bearer {token}"
         except ValueError:
             logger.error("integration_api_key_decrypt_failed", provider=prov.value)
 
-    url = f"{row.base_url.rstrip('/')}{probe_path}"
+    # Compose BaseServiceClient (S2-1-X) so the integration probe shares
+    # the same Bearer + UA + 3s-timeout scaffolding as knowledge_client
+    # and audit_sink. Phase 0 P0.7 will swap the closure to a service-JWT
+    # minter without touching this code.
+    from backend.src.core.clients import BaseServiceClient  # noqa: PLC0415 — avoid module-load coupling
+
+    captured_token = token
+
+    client = BaseServiceClient(
+        base_url=row.base_url,
+        auth_provider=lambda: captured_token,
+        user_agent="BSNexus/0.2 (+https://nexus.bsvibe.dev)",
+        timeout_s=3.0,
+    )
     try:
-        async with httpx.AsyncClient(timeout=3.0) as client:
-            resp = await client.get(url, headers=headers)
+        resp = await client.request("GET", probe_path)
     except httpx.TimeoutException:
         return IntegrationTestResult(ok=False, status="unreachable", detail="timeout")
-    except Exception as exc:  # noqa: BLE001
+    except httpx.HTTPError as exc:
         return IntegrationTestResult(ok=False, status="unreachable", detail=str(exc))
 
     if resp.status_code in (401, 403):

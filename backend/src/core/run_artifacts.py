@@ -20,9 +20,15 @@ import hashlib
 from typing import TYPE_CHECKING, Any
 
 import structlog
+from bsvibe_audit.events.nexus import DeliverableCreated
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.src.core.audit import (
+    actor_orchestrator,
+    resource_deliverable,
+    safe_emit,
+)
 from backend.src.models import (
     ConversationMessage,
     Deliverable,
@@ -293,6 +299,29 @@ async def _ensure_deliverable(
         type=deliverable.type.value,
         files=len(files),
     )
+
+    # Phase Audit Batch 2 — emit ``nexus.deliverable.created``. The
+    # caller (``publish_run_output``) commits at the end, so the audit
+    # row commits with the Deliverable + DeliverableVersion rows
+    # atomically. Actor is the orchestrator: deliverables materialise
+    # from a run completion, never directly from a user action.
+    await safe_emit(
+        DeliverableCreated(
+            actor=actor_orchestrator(),
+            tenant_id=str(run.tenant_id) if run.tenant_id is not None else None,
+            resource=resource_deliverable(deliverable.id),
+            data={
+                "project_id": str(run.project_id),
+                "request_id": str(run.request_id) if run.request_id is not None else None,
+                "run_id": str(run.id),
+                "type": deliverable.type.value,
+                "title": deliverable.title,
+                "file_count": len(files),
+            },
+        ),
+        session=session,
+    )
+
     return deliverable
 
 

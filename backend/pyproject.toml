@@ -19,6 +19,40 @@ dependencies = [
     "pyyaml>=6.0",
     "structlog>=23.0.0",
     "bsvibe-auth[fastapi] @ git+https://github.com/BSVibe/BSVibe-Auth.git@v0.4.0#subdirectory=python",
+    # P0.5 — bsvibe-authz package (Phase 0 P0.4 from bsvibe-python). Currently
+    # tracking the feat/bsvibe-authz-impl branch; pin to a release tag once
+    # the package lands on bsvibe-python main.
+    "bsvibe-authz @ git+https://github.com/BSVibe/bsvibe-python.git@feat/bsvibe-authz-impl#subdirectory=packages/bsvibe-authz",
+    # Phase A Batch 5 + Phase Audit Batch 2 — all bsvibe-python packages
+    # consumed by BSNexus are pinned to a single integration branch
+    # (``integration/phase-audit-batch-2``) that carries
+    # ``bsvibe-core`` + ``bsvibe-llm`` + ``bsvibe-audit`` together.
+    # Pinning to one branch is what keeps uv from fighting over
+    # conflicting transitive URLs for ``bsvibe-core``. Move to a
+    # release tag once these packages merge to ``main``.
+    #
+    # bsvibe-core: BsvibeSettings + configure_logging + shared exception
+    # types. Adopted by ``backend/src/config.py`` + ``backend/src/main.py``.
+    "bsvibe-core @ git+https://github.com/BSVibe/bsvibe-python.git@feat/audit-decorator-extensions#subdirectory=packages/bsvibe-core",
+    # bsvibe-llm: RunAuditMetadata is the wire-format contract between
+    # BSGateway PR #24 and BSNexus PR #38. We adopt it for the metadata
+    # dataclass only — the streaming + tool-loop in
+    # orchestrator_adapter.py stays in BSNexus until bsvibe-llm grows
+    # those features (follow-up issue).
+    "bsvibe-llm @ git+https://github.com/BSVibe/bsvibe-python.git@feat/audit-decorator-extensions#subdirectory=packages/bsvibe-llm",
+    # Phase Audit Batch 2 — bsvibe-audit (BSVibe_Audit_Design.md §3 outbox
+    # pattern). Provides AuditEmitter (in-transaction emit), OutboxRelay
+    # (async polling shipper to BSVibe-Auth /api/audit/events), and the
+    # 8 nexus.* event Pydantic schemas used by BSNexus surfaces.
+    #
+    # Phase Audit Batch 3 — pinned to ``feat/audit-decorator-extensions``
+    # (bsvibe-python PR #9) for the @audit_emit ``safe=True`` +
+    # ``actor_factory`` knobs consumed by api/projects.py +
+    # api/decisions.py. The branch is additive on top of
+    # integration/phase-audit-batch-2 (which still carries the rest of
+    # bsvibe-core / bsvibe-llm / bsvibe-audit Audit-1). Re-pin to a
+    # release tag once both branches land on main.
+    "bsvibe-audit @ git+https://github.com/BSVibe/bsvibe-python.git@feat/audit-decorator-extensions#subdirectory=packages/bsvibe-audit",
 ]
 
 [project.optional-dependencies]
@@ -49,11 +83,11 @@ source = ["src"]
 omit = ["*/migrations/*"]
 
 [tool.coverage.report]
-# 75 during the iterative-replanner migration. The new dispatcher
-# Phase 0 paths need an in-process session-sharing test harness before
-# they can be exercised end-to-end; the SSE follow-up bundles that
-# infra and restores 80.
-fail_under = 75
+# 81 — Sprint 4 PR #37 baseline preserved through Phase Audit Batch 2.
+# (Previously 75 during the iterative-replanner migration; restored
+# once the SSE follow-up landed and Phase Audit Batch 2 covers the
+# new emit surfaces.)
+fail_under = 81
 show_missing = true
 
 [dependency-groups]

@@ -1,19 +1,38 @@
 from collections.abc import AsyncGenerator
 
-from backend.src.config import settings
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
-# pool_size=10, max_overflow=20 → 30 concurrent connections. The
-# delegation chain can dispatch 10+ agents simultaneously, each holding
-# a session while waiting for a worker result (up to 30 min).
-engine = create_async_engine(
-    settings.database_url,
-    echo=settings.debug,
-    pool_size=10,
-    max_overflow=20,
-    pool_timeout=60,
-)
+from backend.src.config import Settings, settings
+
+
+def create_db_engine(cfg: Settings) -> AsyncEngine:
+    """Build the async SQLAlchemy engine from settings.
+
+    Pool knobs are configurable via env (S2-1 M19/H13):
+      * ``DB_POOL_SIZE`` (default 10)
+      * ``DB_MAX_OVERFLOW`` (default 20)
+      * ``DB_POOL_TIMEOUT_S`` (default 60)
+      * ``DB_POOL_RECYCLE_S`` (default -1 = no recycle)
+
+    The delegation chain can dispatch many agents simultaneously, each
+    holding a session for an entire LLM call (up to 30 min). When that
+    pressure exceeds 30 concurrent sessions the previous hardcoded
+    pool starved the request path. Operators now bump these without
+    patching source.
+    """
+    return create_async_engine(
+        cfg.database_url,
+        echo=cfg.debug,
+        pool_size=cfg.db_pool_size,
+        max_overflow=cfg.db_max_overflow,
+        pool_timeout=cfg.db_pool_timeout_s,
+        pool_recycle=cfg.db_pool_recycle_s,
+        pool_pre_ping=True,
+    )
+
+
+engine = create_db_engine(settings)
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 

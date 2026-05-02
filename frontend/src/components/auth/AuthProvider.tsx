@@ -1,8 +1,11 @@
 import { useAuth } from '../../hooks/useAuth'
 import { AuthContext } from './AuthContext'
+import { usePathname } from 'next/navigation'
 
 export default function AuthProvider({ children }: { children: React.ReactNode }) {
-  const auth = useAuth()
+  const pathname = usePathname()
+  const isLocalAuthEntry = pathname === '/' || pathname === '/auth/callback'
+  const auth = useAuth({ probeRemoteSession: !isLocalAuthEntry })
 
   if (auth.loading) {
     return (

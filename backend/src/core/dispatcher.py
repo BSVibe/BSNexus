@@ -67,7 +67,11 @@ async def _dispatch_background(
     Phase 3 (short session): re-attach the run in a fresh session and
     finalize via ``on_run_completed`` → ``publish_run_output``.
     """
-    from backend.src.core.audit import resolve_audit_sink  # noqa: PLC0415 — avoid cycle
+    # P0.7 — BSGateway absorbs the BSupervisor run.pre / run.post calls
+    # for LLM runs (Lockin §Architectural shifts #1). The dispatcher no
+    # longer resolves an AuditSink for the LLM completion path; the
+    # ``orchestrator_adapter`` plumbs run audit metadata to BSGateway
+    # via the LiteLLM ``metadata`` kwarg.
     from backend.src.core.planner import replan_next_step  # noqa: PLC0415
 
     try:
@@ -155,6 +159,35 @@ async def _dispatch_background(
                         "decision_id": str(decision.id),
                     },
                 )
+
+                # Phase Audit Batch 2 — emit ``nexus.decision.created``.
+                # Replanner-driven decision creation: the orchestrator
+                # asked the founder a question, no user actor exists at
+                # this point. ``orchestrator`` is the audit actor.
+                from backend.src.core.audit import (  # noqa: PLC0415
+                    actor_orchestrator,
+                    resource_decision,
+                    safe_emit,
+                )
+                from bsvibe_audit.events.nexus import DecisionCreated  # noqa: PLC0415
+
+                await safe_emit(
+                    DecisionCreated(
+                        actor=actor_orchestrator(),
+                        tenant_id=str(tenant_id),
+                        resource=resource_decision(decision.id),
+                        data={
+                            "project_id": str(run_row.project_id),
+                            "request_id": str(req_row.id),
+                            "origin_run_id": str(run_row.id),
+                            "question": decision.question,
+                            "blocking": decision.blocking,
+                            "option_count": len(decision.options or []),
+                        },
+                    ),
+                    session=session,
+                )
+
                 run_row.status = RunStatus.blocked
                 run_row.error_message = "awaiting founder decision"
                 await session.commit()
@@ -223,6 +256,18 @@ async def _dispatch_background(
                     select(CompositionSnapshot).where(CompositionSnapshot.id == run.composition_snapshot_id)
                 )
             ).scalar_one()
+
+            # P0.7 — plumb run audit metadata into the LiteLLM call so
+            # BSGateway's async_pre_call_hook / async_post_call_hook can
+            # forward run.pre / run.post events to BSupervisor on
+            # BSNexus's behalf (Lockin §Architectural shifts #1).
+            if isinstance(adapter, LiteLLMOrchestratorAdapter):
+                from backend.src.core.orchestrator_adapter import (  # noqa: PLC0415
+                    build_run_audit_metadata,
+                )
+
+                adapter.set_run_audit_metadata(build_run_audit_metadata(run=run, snapshot=snapshot_row))
+
             prepared = {
                 "adapter": adapter,
                 "system_prompt": (snapshot_row.system_prompt_ref or {}).get("inline", ""),
@@ -241,8 +286,12 @@ async def _dispatch_background(
                 tools_allowed=prepared["tools_allowed"],
                 history=prepared["history"],
             )
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("llm_execute_failed", run_id=str(run_id))
+        except asyncio.CancelledError:
+            # Cooperative cancellation: don't swallow — let the
+            # supervising task finalize the run as cancelled.
+            raise
+        except Exception as exc:  # noqa: BLE001 — sink-all at the LLM boundary
+            logger.warning("llm_execute_failed", run_id=str(run_id), exc_info=True)
             result = {"_error": str(exc)}
 
         # Async / worker executors return a "dispatched" sentinel —
@@ -273,8 +322,6 @@ async def _dispatch_background(
                 if req_row is not None:
                     originator_token = req_row.originator_auth
 
-            audit = resolve_audit_sink(integrations.bsupervisor, auth_token=originator_token)
-
             if isinstance(result, dict) and "_error" in result:
                 from backend.src.models import RunStatus as _RunStatus  # noqa: PLC0415
 
@@ -286,7 +333,6 @@ async def _dispatch_background(
             await get_run_orchestrator().on_run_completed(
                 run,
                 result=result,
-                audit=audit,
                 db=session,
                 stream_manager=stream_manager,
             )
@@ -295,8 +341,11 @@ async def _dispatch_background(
                 knowledge = resolve_knowledge_client(integrations.bsage, auth_token=originator_token)
                 await publish_run_output(run, session, knowledge=knowledge)
             await session.commit()
-    except Exception:
-        logger.exception("background_dispatch_failed", run_id=str(run_id))
+    except asyncio.CancelledError:
+        logger.info("background_dispatch_cancelled", run_id=str(run_id))
+        raise
+    except Exception:  # noqa: BLE001 — top-level guard for the fire-and-forget task
+        logger.error("background_dispatch_failed", run_id=str(run_id), exc_info=True)
 
 
 async def _load_prior_completed_runs(session: AsyncSession, request_id: uuid.UUID) -> list[Any]:

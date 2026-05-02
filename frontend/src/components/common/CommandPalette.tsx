@@ -1,5 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+'use client'
+
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslations } from 'next-intl'
+import { useRouter } from 'next/navigation'
 
 import { I } from '../../lib/icons'
 import { truncId } from '../../lib/fmt'
@@ -12,8 +15,10 @@ interface CommandPaletteProps {
   onClose: () => void
 }
 
+type ItemKind = 'action' | 'nav' | 'project'
+
 interface Item {
-  kind: 'action' | 'nav' | 'project'
+  kind: ItemKind
   label: string
   sub?: string
   icon: React.ReactNode
@@ -21,14 +26,14 @@ interface Item {
 }
 
 export default function CommandPalette({ projects, onClose }: CommandPaletteProps) {
-  const navigate = useNavigate()
+  const router = useRouter()
+  const t = useTranslations('nexus.palette')
+  const navigate = useCallback((href: string) => router.push(href), [router])
   const [q, setQ] = useState('')
   const [idx, setIdx] = useState(0)
   const inputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
-    // Only the imperative focus call belongs in an effect — q/idx
-    // already start at their defaults via useState initializer.
     const t = setTimeout(() => inputRef.current?.focus(), 10)
     return () => clearTimeout(t)
   }, [])
@@ -37,19 +42,19 @@ export default function CommandPalette({ projects, onClose }: CommandPaletteProp
     const base: Item[] = [
       {
         kind: 'action',
-        label: 'New project',
+        label: t('newProject'),
         icon: <I.Plus size={14} />,
         run: () => navigate('/dashboard?new=1'),
       },
       {
         kind: 'nav',
-        label: 'Dashboard',
+        label: t('dashboard'),
         icon: <I.Home size={14} />,
         run: () => navigate('/dashboard'),
       },
       {
         kind: 'nav',
-        label: 'Settings · Integrations',
+        label: t('settingsIntegrations'),
         icon: <I.Settings size={14} />,
         run: () => navigate('/settings'),
       },
@@ -64,7 +69,7 @@ export default function CommandPalette({ projects, onClose }: CommandPaletteProp
     if (!q) return base
     const needle = q.toLowerCase()
     return base.filter((i) => i.label.toLowerCase().includes(needle))
-  }, [q, projects, navigate])
+  }, [q, projects, navigate, t])
 
   const run = (it: Item | undefined) => {
     if (!it) return
@@ -93,13 +98,19 @@ export default function CommandPalette({ projects, onClose }: CommandPaletteProp
     }
   }
 
+  const kindLabel = (kind: ItemKind): string => {
+    if (kind === 'action') return t('kindAction')
+    if (kind === 'nav') return t('kindNav')
+    return t('kindProject')
+  }
+
   return (
     <div className="cmd-mask" onClick={onClose}>
       <div className="cmd" onClick={(e) => e.stopPropagation()} onKeyDown={onKey}>
         <input
           ref={inputRef}
           className="cmd-input"
-          placeholder="Search projects, actions…"
+          placeholder={t('placeholder')}
           value={q}
           onChange={(e) => {
             setQ(e.target.value)
@@ -109,7 +120,7 @@ export default function CommandPalette({ projects, onClose }: CommandPaletteProp
         <div className="cmd-list">
           {items.length === 0 && (
             <div style={{ padding: 16, color: 'var(--text-tertiary)', fontSize: 13 }}>
-              No matches.
+              {t('noMatches')}
             </div>
           )}
           {items.map((it, i) => (
@@ -126,20 +137,20 @@ export default function CommandPalette({ projects, onClose }: CommandPaletteProp
                   {it.sub}
                 </span>
               )}
-              <span className="cmd-kind">{it.kind}</span>
+              <span className="cmd-kind">{kindLabel(it.kind)}</span>
             </div>
           ))}
         </div>
         <div className="cmd-hint">
           <span>
             <kbd>↑</kbd>
-            <kbd>↓</kbd> navigate
+            <kbd>↓</kbd> {t('navigate')}
           </span>
           <span>
-            <kbd>↵</kbd> open
+            <kbd>↵</kbd> {t('openItem')}
           </span>
           <span>
-            <kbd>esc</kbd> close
+            <kbd>esc</kbd> {t('closePalette')}
           </span>
           <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-mono)' }}>⌘K</span>
         </div>

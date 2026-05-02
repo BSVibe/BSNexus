@@ -1,11 +1,8 @@
-"""TenantMiddleware + resolve_user_tenant + identify_from_token."""
+"""TenantMiddleware + resolve_user_tenant + tenant-id helpers."""
 
 from __future__ import annotations
 
-import base64
-import json
 import uuid
-from unittest.mock import AsyncMock, patch
 
 import pytest
 from bsvibe_auth import BSVibeUser
@@ -15,9 +12,6 @@ from sqlalchemy import select
 from backend.src.core.tenant_context import (
     DEFAULT_TENANT_ID,
     TenantMiddleware,
-    _decode_jwt_payload,
-    _identify_from_token,
-    _tenant_id_from_payload,
     _tenant_id_from_user,
     derive_personal_tenant_id,
     ensure_personal_tenant,
@@ -25,12 +19,6 @@ from backend.src.core.tenant_context import (
     resolve_user_tenant,
 )
 from backend.src.models import Tenant
-
-
-def _make_jwt(payload: dict) -> str:
-    header = base64.urlsafe_b64encode(b'{"alg":"HS256"}').rstrip(b"=").decode()
-    body = base64.urlsafe_b64encode(json.dumps(payload).encode()).rstrip(b"=").decode()
-    return f"{header}.{body}.signature"
 
 
 def _user(id_="u1", email="u@example.com", tenant_id=None, role="viewer") -> BSVibeUser:
@@ -74,65 +62,6 @@ def test_tenant_id_from_user_returns_none_when_no_id():
 
 def test_tenant_id_from_user_none_input():
     assert _tenant_id_from_user(None) is None
-
-
-def test_decode_jwt_payload_rejects_malformed():
-    assert _decode_jwt_payload("not.a.jwt.extra") is None
-    assert _decode_jwt_payload("single-segment") is None
-
-
-def test_decode_jwt_payload_happy_path():
-    token = _make_jwt({"sub": "abc", "email": "x@y"})
-    payload = _decode_jwt_payload(token)
-    assert payload == {"sub": "abc", "email": "x@y"}
-
-
-def test_tenant_id_from_payload_explicit_claim():
-    tid = uuid.uuid4()
-    out = _tenant_id_from_payload({"app_metadata": {"tenant_id": str(tid)}})
-    assert out == tid
-
-
-def test_tenant_id_from_payload_derives_from_sub():
-    out = _tenant_id_from_payload({"sub": "user-x"})
-    assert out == derive_personal_tenant_id("user-x")
-
-
-def test_tenant_id_from_payload_none_when_no_info():
-    assert _tenant_id_from_payload({}) is None
-    assert _tenant_id_from_payload({"app_metadata": {"tenant_id": "bad"}, "sub": None}) is None
-
-
-def test_identify_from_token_invalid_token():
-    with patch("backend.src.config.settings") as s:
-        s.e2e_test_token = ""
-        user, tid = _identify_from_token("malformed")
-        assert user is None
-        assert tid is None
-
-
-def test_identify_from_token_e2e_bypass():
-    with patch("backend.src.config.settings") as s:
-        s.e2e_test_token = "dev-token"
-        s.e2e_test_user_tenant_id = "11111111-1111-4111-8111-111111111111"
-        s.e2e_test_user_id = "tester"
-        s.e2e_test_user_email = "t@e"
-        user, tid = _identify_from_token("dev-token")
-        assert user is not None
-        assert user.id == "tester"
-        assert str(tid) == "11111111-1111-4111-8111-111111111111"
-
-
-def test_identify_from_token_jwt_path():
-    tid = uuid.uuid4()
-    token = _make_jwt({"sub": "real-user", "app_metadata": {"tenant_id": str(tid), "role": "admin"}})
-    with patch("backend.src.config.settings") as s:
-        s.e2e_test_token = ""
-        user, found_tid = _identify_from_token(token)
-        assert user is not None
-        assert user.id == "real-user"
-        assert user.app_metadata["role"] == "admin"
-        assert found_tid == tid
 
 
 def test_get_tenant_id_reads_request_state():
@@ -210,10 +139,26 @@ async def test_middleware_stamps_default_without_authorization():
 
 
 @pytest.mark.asyncio
-async def test_middleware_stamps_tenant_from_bearer_token():
+async def test_middleware_does_not_trust_unverified_jwt_payload():
+    """SECURITY: even when the request carries a syntactically-valid
+    bearer token, the middleware must NOT use the unverified payload to
+    populate ``request.state.tenant_id``. The verified value is set by
+    ``get_current_user`` after signature verification.
+    """
+    import base64
+    import json
+
     captured = {}
-    tid = uuid.uuid4()
-    token = _make_jwt({"sub": "u1", "app_metadata": {"tenant_id": str(tid)}})
+    spoofed_tid = uuid.uuid4()
+    header = base64.urlsafe_b64encode(b'{"alg":"HS256"}').rstrip(b"=").decode()
+    body = (
+        base64.urlsafe_b64encode(
+            json.dumps({"sub": "attacker", "app_metadata": {"tenant_id": str(spoofed_tid)}}).encode()
+        )
+        .rstrip(b"=")
+        .decode()
+    )
+    token = f"{header}.{body}.junk"
 
     async def app(scope, receive, send):
         req = Request(scope)
@@ -225,12 +170,10 @@ async def test_middleware_stamps_tenant_from_bearer_token():
         "headers": [(b"authorization", f"Bearer {token}".encode())],
         "state": {},
     }
-    with patch(
-        "backend.src.core.tenant_context._upsert_tenant_for_request",
-        AsyncMock(),
-    ):
-        await mw(scope, lambda: None, lambda m: None)
-    assert captured["tid"] == tid
+    await mw(scope, lambda: None, lambda m: None)
+    # Spoofed tenant_id from the payload must NOT have been stamped.
+    assert captured["tid"] == DEFAULT_TENANT_ID
+    assert captured["tid"] != spoofed_tid
 
 
 @pytest.mark.asyncio

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useTranslations } from 'next-intl'
 import { useQuery } from '@tanstack/react-query'
 
 import { Badge } from '../common/Badge'
@@ -16,6 +17,7 @@ type TypeFilter = (typeof TYPE_FILTERS)[number]
  * the topbar pills already, so there are no "trust cards" here.
  */
 export default function ProgressView({ projectId }: { projectId: string }) {
+  const t = useTranslations('nexus.progress')
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
 
   const { data: deliverables = [] } = useQuery<Deliverable[]>({
@@ -39,29 +41,39 @@ export default function ProgressView({ projectId }: { projectId: string }) {
   return (
     <div style={{ overflow: 'auto', height: '100%', padding: '24px 32px' }}>
       <div style={{ maxWidth: 900, margin: '0 auto' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: 8,
+            marginBottom: 20,
+          }}
+        >
           <h2
             style={{
               fontSize: 16,
               fontWeight: 600,
               color: 'var(--gray-100)',
               margin: 0,
+              flexShrink: 0,
+              whiteSpace: 'nowrap',
             }}
           >
-            Timeline
+            {t('timeline')}
           </h2>
           <span className="faded mono" style={{ fontSize: 11 }}>
-            {filtered.length} items
+            {filtered.length} {t('itemsSuffix')}
           </span>
           <span style={{ flex: 1 }} />
-          {TYPE_FILTERS.map((t) => (
+          {TYPE_FILTERS.map((tt) => (
             <button
-              key={t}
+              key={tt}
               type="button"
-              className={`btn btn-sm ${typeFilter === t ? 'btn-secondary' : 'btn-ghost'}`}
-              onClick={() => setTypeFilter(t)}
+              className={`btn btn-sm ${typeFilter === tt ? 'btn-secondary' : 'btn-ghost'}`}
+              onClick={() => setTypeFilter(tt)}
             >
-              {t === 'all' ? 'All' : t}
+              {tt === 'all' ? t('filterAll') : t(`type.${tt}`)}
             </button>
           ))}
         </div>
@@ -69,10 +81,10 @@ export default function ProgressView({ projectId }: { projectId: string }) {
         {filtered.length === 0 && (
           <div className="card" style={{ padding: 48, textAlign: 'center' }}>
             <div style={{ fontSize: 14, color: 'var(--gray-200)', marginBottom: 4 }}>
-              No deliverables yet.
+              {t('empty')}
             </div>
             <div className="faded" style={{ fontSize: 12 }}>
-              Start a request in the chat.
+              {t('emptyHint')}
             </div>
           </div>
         )}
@@ -98,7 +110,37 @@ export default function ProgressView({ projectId }: { projectId: string }) {
 }
 
 function TimelineItem({ d }: { d: Deliverable }) {
+  const tProgress = useTranslations('nexus.progress')
+  const tStatus = useTranslations('nexus.status')
   const tone: Tone = statusTone(d.status)
+  // Use the localized status when one exists; fall back to the raw
+  // value for unmapped statuses so deliveries from new states stay
+  // visible during a hot deploy.
+  const knownStatuses = new Set([
+    'active',
+    'archived',
+    'all',
+    'running',
+    'open',
+    'blocked',
+    'blocking',
+    'resolved',
+    'done',
+    'pending',
+    'delivered',
+    'healthy',
+    'unreachable',
+    'unauthorized',
+    'enabled',
+    'disabled',
+    'online',
+    'busy',
+    'offline',
+    'configured',
+    'inUse',
+    'idle',
+  ])
+  const statusLabel = knownStatuses.has(d.status) ? tStatus(d.status as never) : d.status
   return (
     <div style={{ position: 'relative', paddingBottom: 20 }}>
       <div
@@ -139,7 +181,7 @@ function TimelineItem({ d }: { d: Deliverable }) {
             {d.title}
           </span>
           <Badge tone={tone} dot>
-            {d.status}
+            {statusLabel}
           </Badge>
         </div>
         <div
@@ -165,7 +207,7 @@ function TimelineItem({ d }: { d: Deliverable }) {
             type="button"
             className="btn btn-ghost btn-sm"
             onClick={() => navigator.clipboard.writeText(d.id)}
-            title="Copy deliverable id"
+            title={tProgress('copyDeliverableId')}
           >
             <I.Copy size={12} />
           </button>

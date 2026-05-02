@@ -50,13 +50,13 @@ test.describe('Manual chat test', () => {
 
       // Look for assistant message in chat — any element with agent name + substantial text
       const chatArea = page.locator('[class*="overflow-y"]').last()
-      const allText = await chatArea.textContent().catch(() => '')
+      const allText = (await chatArea.textContent().catch(() => '')) ?? ''
 
       // Check if there's text after the user message that's not just UI chrome
       const hasResponse = allText.includes('프로젝트') || allText.includes('조사') || allText.includes('Phase')
       const msgCount = (allText.match(/CMO|CEO/g) || []).length
 
-      console.log(`  [${(i+1)*10}s] Chat text length: ${allText.length}, Agent mentions: ${msgCount}`)
+      console.log(`  [${(i+1)*10}s] Chat text length: ${allText.length}, Agent mentions: ${msgCount}, keyword response: ${hasResponse}`)
 
       if (allText.length > 200 && msgCount >= 2) {
         foundResponse = true

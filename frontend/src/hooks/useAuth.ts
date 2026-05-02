@@ -1,27 +1,76 @@
+/**
+ * BSNexus auth hook — Phase A Batch 5 status.
+ *
+ * Lockin §A1-A2: ``@bsvibe/auth`` is the canonical extraction target.
+ * That package was published in ``bsvibe-frontend-lib`` (PR
+ * https://github.com/BSVibe/bsvibe-frontend-lib) and its
+ * ``UseAuthValue`` exposes a richer multi-tenant shape:
+ *
+ *   { user, tenants, activeTenant, hasPermission, switchTenant,
+ *     refresh, isLoading, error }
+ *
+ * BSNexus today uses a simpler 4-prop shape (``user``, ``loading``,
+ * ``login``, ``logout``) consumed by all four founder-metaphor surfaces
+ * (Direction / Progress / Decisions / Inside) plus Sidebar +
+ * ProtectedRoute + LandingPage.
+ *
+ * The full swap to ``@bsvibe/auth`` is gated on:
+ *  1. Lockin §A0 #12 — user-action GitHub Packages PAT + Vercel
+ *     ``NPM_TOKEN`` so ``@bsvibe/*`` packages resolve.
+ *  2. A consumer migration that maps BSNexus's
+ *     ``login`` / ``logout`` / ``loading`` props onto
+ *     ``@bsvibe/auth``'s ``isLoading`` + (BSNexus-side) login/logout
+ *     helpers (the multi-tenant hook intentionally leaves redirect
+ *     orchestration to consumers — Auth_Design.md §5).
+ *
+ * Until then this file remains the production hook. New code should
+ * read ``user.email`` and gate via the AuthContext consumer pattern in
+ * ``components/auth/AuthContext.ts`` so the eventual swap is
+ * mechanical.
+ */
 import { useEffect, useState } from 'react'
 
 interface User {
   id: string
   email: string
   tenantId: string
+  tenantName: string | null
   role: string
 }
 
-const AUTH_URL =
-  (import.meta.env.VITE_AUTH_URL as string | undefined) || 'https://auth.bsvibe.dev'
+// ``NEXT_PUBLIC_AUTH_URL`` is the canonical Next.js form; ``VITE_AUTH_URL``
+// is accepted as a fallback so the auth integration stays usable across
+// Phase Z transition without forcing every consumer to flip envs in
+// lockstep.
+export const AUTH_URL =
+  process.env.NEXT_PUBLIC_AUTH_URL ||
+  process.env.VITE_AUTH_URL ||
+  'https://auth.bsvibe.dev'
 
 // LocalStorage keys for non-cookie-SSO environments (local dev, Tailscale, etc.)
 const LS_ACCESS_TOKEN = 'bsnexus_access_token'
 const LS_REFRESH_TOKEN = 'bsnexus_refresh_token'
 const LS_EXPIRES_AT = 'bsnexus_expires_at'
 
+interface SessionTenant {
+  id: string
+  name: string
+  role?: string
+}
+
 interface SessionResponse {
   access_token: string
   refresh_token: string
   expires_in: number
+  tenants?: SessionTenant[]
+  active_tenant_id?: string
 }
 
 let cachedToken: { value: string; expiresAt: number } | null = null
+
+interface AccessTokenOptions {
+  probeRemoteSession?: boolean
+}
 
 function loadTokenFromLocalStorage(): { value: string; expiresAt: number } | null {
   const value = localStorage.getItem(LS_ACCESS_TOKEN)
@@ -49,7 +98,9 @@ function clearLocalStorageTokens(): void {
   localStorage.removeItem(LS_EXPIRES_AT)
 }
 
-export async function getAccessToken(): Promise<string | null> {
+export async function getAccessToken({
+  probeRemoteSession = true,
+}: AccessTokenOptions = {}): Promise<string | null> {
   if (cachedToken && Date.now() < cachedToken.expiresAt - 30_000) {
     return cachedToken.value
   }
@@ -59,6 +110,10 @@ export async function getAccessToken(): Promise<string | null> {
   if (stored && Date.now() < stored.expiresAt - 30_000) {
     cachedToken = stored
     return stored.value
+  }
+
+  if (!probeRemoteSession) {
+    return null
   }
 
   // Production path: cross-subdomain cookie SSO via auth.bsvibe.dev.
@@ -119,9 +174,12 @@ function decodeJwt(token: string): Record<string, unknown> {
   return JSON.parse(atob(base64))
 }
 
-export function useAuth() {
+export function useAuth({
+  probeRemoteSession = true,
+}: AccessTokenOptions = {}) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
+  const [tenants, setTenants] = useState<SessionTenant[]>([])
 
   useEffect(() => {
     // If we just returned from auth.bsvibe.dev with tokens in the hash,
@@ -136,7 +194,7 @@ export function useAuth() {
       window.history.replaceState(null, '', landing)
     }
     ;(async () => {
-      const token = await getAccessToken()
+      const token = await getAccessToken({ probeRemoteSession })
       if (!token) {
         setLoading(false)
         return
@@ -147,10 +205,33 @@ export function useAuth() {
           email: string
           app_metadata?: { tenant_id?: string; role?: string }
         }
+        const tenantId = payload.app_metadata?.tenant_id ?? ''
+        // Tenant name + full tenants list from /api/session.tenants —
+        // cookie or bearer accepted, send both for portability.
+        let tenantName: string | null = null
+        let tenantList: SessionTenant[] = []
+        let activeTenantId: string = tenantId
+        try {
+          const res = await fetch(`${AUTH_URL}/api/session`, {
+            credentials: 'include',
+            headers: { Authorization: `Bearer ${token}` },
+          })
+          if (res.ok) {
+            const data: SessionResponse = await res.json()
+            tenantList = data.tenants ?? []
+            activeTenantId = data.active_tenant_id ?? tenantId
+            tenantName =
+              tenantList.find((t) => t.id === activeTenantId)?.name ?? null
+          }
+        } catch {
+          // ignore
+        }
+        setTenants(tenantList)
         setUser({
           id: payload.sub,
           email: payload.email,
-          tenantId: payload.app_metadata?.tenant_id ?? '',
+          tenantId: activeTenantId,
+          tenantName,
           role: payload.app_metadata?.role ?? 'member',
         })
       } catch {
@@ -158,7 +239,33 @@ export function useAuth() {
       }
       setLoading(false)
     })()
-  }, [])
+  }, [probeRemoteSession])
+
+  // Switch active workspace via /api/session/switch_tenant. The endpoint
+  // sets a server-side cookie + writes new active_tenant_id; reload so
+  // every consumer (frontend + backend) picks up the new context.
+  async function switchTenant(nextTenantId: string): Promise<void> {
+    if (nextTenantId === user?.tenantId) return
+    const token = await getAccessToken({ probeRemoteSession })
+    if (!token) return
+    try {
+      const res = await fetch(`${AUTH_URL}/api/session/switch_tenant`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ tenant_id: nextTenantId }),
+      })
+      if (res.ok) {
+        clearTokenCache()
+        window.location.reload()
+      }
+    } catch {
+      // ignore
+    }
+  }
 
   function callbackUrl(): string {
     // Hash-route callback so the auth service's redirect-allowlist match
@@ -188,5 +295,5 @@ export function useAuth() {
     window.location.href = '/'
   }
 
-  return { user, loading, login, signup, logout }
+  return { user, loading, login, signup, logout, tenants, switchTenant }
 }

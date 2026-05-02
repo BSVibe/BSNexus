@@ -1,5 +1,7 @@
 """BSNexus domain models."""
 
+from bsvibe_audit import register_audit_outbox_with
+
 from backend.src.models.budget import CostRecord
 from backend.src.models.composition_snapshot import CompositionSnapshot, CompositionSource
 from backend.src.models.conversation import ConversationMessage
@@ -30,6 +32,15 @@ from backend.src.models.tenant_integration_config import (
     TenantIntegrationConfig,
 )
 from backend.src.models.worker import Worker
+from backend.src.storage.database import Base
+
+# Phase Audit Batch 2 — register the bsvibe-audit ``audit_outbox`` table
+# onto BSNexus's declarative ``Base.metadata`` so a single Alembic
+# ``target_metadata`` covers both domain rows and the outbox. The helper
+# is idempotent (no-op on second call) which makes it safe even if a
+# test imports models twice. See BSVibe_Audit_Design.md §3.1 + §6.1.
+register_audit_outbox_with(Base.metadata)
+
 
 __all__ = [
     # Enums

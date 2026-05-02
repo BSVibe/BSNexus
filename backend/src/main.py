@@ -6,6 +6,7 @@ import signal
 import sys
 from contextlib import asynccontextmanager
 
+from bsvibe_core import configure_logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
@@ -24,9 +25,10 @@ from backend.src.api import (
     workers as workers_api,
     workspace_files,
 )
-from backend.src.config import Settings, settings as app_settings
+from backend.src.config import settings as app_settings
 from backend.src.core.rate_limiter import RateLimitMiddleware
 from backend.src.core.security_headers import SecurityHeadersMiddleware
+from backend.src.core.startup_guards import enforce_production_security_guards
 from backend.src.core.tenant_context import TenantMiddleware
 from backend.src.queue.background import start_background_consumer
 from backend.src.queue.streams import RedisStreamManager
@@ -35,7 +37,14 @@ from backend.src.storage.redis_client import get_redis, close_redis
 
 
 def _setup_logging() -> None:
-    """Configure logging with both console and rotating file handlers."""
+    """Configure logging with both console and rotating file handlers.
+
+    Phase A Batch 5: structured JSON via ``bsvibe_core.configure_logging``
+    is the canonical channel (production wire format shared with the
+    three sibling products). Stdlib ``logging`` is still configured so
+    third-party libraries (FastAPI, SQLAlchemy, etc.) and the rotating
+    file handler keep working — the two pipelines coexist.
+    """
     log_level = getattr(logging, app_settings.log_level.upper(), logging.INFO)
     log_format = "%(asctime)s %(levelname)s %(name)s: %(message)s"
     formatter = logging.Formatter(log_format)
@@ -46,6 +55,16 @@ def _setup_logging() -> None:
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(formatter)
     root_logger.addHandler(console_handler)
+
+    # Standardised structlog pipeline — JSON in production, ConsoleRenderer
+    # for local dev when LOG_LEVEL=debug or DEBUG=1 to keep `pytest -s`
+    # readable. Tests use TESTING env to keep stdout pristine.
+    json_output = not bool(os.environ.get("DEBUG") or app_settings.debug)
+    configure_logging(
+        level=app_settings.log_level,
+        json_output=json_output,
+        service_name="bsnexus",
+    )
 
     if os.environ.get("TESTING"):
         return
@@ -63,10 +82,6 @@ def _setup_logging() -> None:
 
 
 _setup_logging()
-
-
-_DEV_SIGNING_KEY = Settings.model_fields["prompt_signing_key"].default
-_DEV_ENCRYPTION_KEY = Settings.model_fields["encryption_key"].default
 
 
 _TRACE_DUMP_PATH = os.getenv("BSNEXUS_TRACE_DUMP_PATH", "/tmp/bsnexus-trace.log")
@@ -123,15 +138,12 @@ async def lifespan(app: FastAPI):
 
     _install_thread_traceback_signal()
     _install_asyncio_signal(_asyncio_local.get_running_loop())
-    if not app_settings.debug and app_settings.prompt_signing_key == _DEV_SIGNING_KEY:
-        raise RuntimeError(
-            "FATAL: prompt_signing_key is still the dev default. "
-            "Set a secure PROMPT_SIGNING_KEY env var for production."
-        )
-    if not app_settings.debug and app_settings.encryption_key == _DEV_ENCRYPTION_KEY:
-        raise RuntimeError(
-            "FATAL: encryption_key is still the dev default. Set a secure ENCRYPTION_KEY env var for production."
-        )
+
+    # S1-3 H9 / M19: refuse to start when ENVIRONMENT=production but dev
+    # defaults (signing key, encryption key, frontend_url) are still in
+    # place. Replaces the prior ``not debug`` heuristic — see
+    # ``core/startup_guards.py`` for the rationale.
+    enforce_production_security_guards(app_settings)
 
     await init_db()
     redis = await get_redis()
@@ -151,9 +163,22 @@ async def lifespan(app: FastAPI):
     await worker_result_consumer.start()
     app.state.worker_result_consumer = worker_result_consumer
 
+    # Phase Audit Batch 2 — bsvibe-audit OutboxRelay. Reads
+    # ``audit_outbox`` rows that domain code wrote inside their own
+    # transactions and ships them to BSVibe-Auth. Disabled (no-op
+    # singleton) when ``BSVIBE_AUTH_AUDIT_URL`` is empty — dev
+    # environments boot without the audit destination configured and
+    # outbox rows just queue up locally.
+    from backend.src.core.audit import build_relay  # noqa: PLC0415
+
+    audit_relay = build_relay(session_factory=async_session)
+    await audit_relay.start()
+    app.state.audit_relay = audit_relay
+
     try:
         yield
     finally:
+        await audit_relay.stop()
         await worker_result_consumer.stop()
         await close_redis()
 

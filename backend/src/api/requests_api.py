@@ -29,9 +29,9 @@ async def _assert_project_belongs(db: AsyncSession, project_id: uuid.UUID, tenan
 )
 async def list_requests(
     project_id: uuid.UUID,
+    _user=Depends(get_current_user),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
 ) -> list[Request]:
     await _assert_project_belongs(db, project_id, tenant_id)
     stmt = (

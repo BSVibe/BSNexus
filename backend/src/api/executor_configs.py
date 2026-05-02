@@ -68,9 +68,9 @@ async def _get_for_tenant(db: AsyncSession, config_id: uuid.UUID, tenant_id: uui
 
 @router.get("", response_model=list[ExecutorConfigResponse])
 async def list_configs(
+    _user=Depends(get_current_user),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
 ) -> list[ExecutorConfig]:
     stmt = select(ExecutorConfig).where(ExecutorConfig.tenant_id == tenant_id).order_by(ExecutorConfig.created_at.asc())
     return list((await db.execute(stmt)).scalars())
@@ -83,9 +83,9 @@ async def list_configs(
 )
 async def create_config(
     payload: ExecutorConfigCreate,
+    _user=Depends(get_current_user),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
 ) -> ExecutorConfig:
     _validate_executor_type(payload.executor_type)
 
@@ -115,9 +115,9 @@ async def create_config(
 @router.get("/{config_id}", response_model=ExecutorConfigResponse)
 async def get_config(
     config_id: uuid.UUID,
+    _user=Depends(get_current_user),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
 ) -> ExecutorConfig:
     return await _get_for_tenant(db, config_id, tenant_id)
 
@@ -126,9 +126,9 @@ async def get_config(
 async def update_config(
     config_id: uuid.UUID,
     payload: ExecutorConfigUpdate,
+    _user=Depends(get_current_user),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
 ) -> ExecutorConfig:
     row = await _get_for_tenant(db, config_id, tenant_id)
 
@@ -148,9 +148,9 @@ async def update_config(
 @router.delete("/{config_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_config(
     config_id: uuid.UUID,
+    _user=Depends(get_current_user),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
 ) -> None:
     row = await _get_for_tenant(db, config_id, tenant_id)
     await db.delete(row)

@@ -5,11 +5,14 @@ interface AuthContextValue {
     id: string
     email: string
     tenantId: string
+    tenantName: string | null
     role: string
   } | null
   loading: boolean
   login: () => void
   logout: () => Promise<void>
+  tenants: Array<{ id: string; name: string; role?: string }>
+  switchTenant: (id: string) => Promise<void>
 }
 
 export const AuthContext = createContext<AuthContextValue | null>(null)

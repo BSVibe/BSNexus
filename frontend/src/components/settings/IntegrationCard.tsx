@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
+import { useTranslations } from 'next-intl'
 
 import { Badge } from '../common/Badge'
 import { I } from '../../lib/icons'
@@ -19,26 +20,23 @@ interface IntegrationCardProps {
   onTest: () => Promise<IntegrationTestResult>
 }
 
-const META: Record<
+// Static (non-translatable) per-provider visual chrome. Translated
+// label / blurb live on ``nexus.settings.integrations.*`` and are
+// resolved inside the component via ``useTranslations``.
+const VISUAL: Record<
   IntegrationProvider,
   {
-    label: string
     accent: string
     Icon: (p: { size?: number }) => React.ReactElement
-    blurb: string
   }
 > = {
   bsage: {
-    label: 'BSage',
     accent: accentHex.emerald,
     Icon: I.Brain,
-    blurb: 'Graph-backed project memory. When enabled, runs pull relevant notes into their composition.',
   },
   bsupervisor: {
-    label: 'BSupervisor',
     accent: accentHex.rose,
     Icon: I.Shield,
-    blurb: 'Sync pre-run rule evaluation (<50ms target). Fail-open by default; configurable.',
   },
 }
 
@@ -48,38 +46,46 @@ export default function IntegrationCard({
   onSave,
   onTest,
 }: IntegrationCardProps) {
-  const meta = META[provider]
-  const [enabled, setEnabled] = useState(config?.enabled ?? false)
-  const [baseUrl, setBaseUrl] = useState(config?.base_url ?? '')
+  const t = useTranslations('nexus.settings.integrations')
+  const tStatus = useTranslations('nexus.status')
+  const tCommon = useTranslations('nexus.common')
+  const visual = VISUAL[provider]
+  const configKey = `${provider}:${config?.enabled ?? false}:${config?.base_url ?? ''}:${
+    (config?.extra_config?.timeout_ms as number | undefined) ?? 200
+  }:${(config?.extra_config?.fail_mode as string | undefined) ?? 'open'}`
+  const [draft, setDraft] = useState({
+    key: configKey,
+    enabled: config?.enabled ?? false,
+    baseUrl: config?.base_url ?? '',
+    timeoutMs: (config?.extra_config?.timeout_ms as number | undefined) ?? 200,
+    failMode:
+      (config?.extra_config?.fail_mode as string | undefined) === 'closed'
+        ? 'closed'
+        : 'open',
+  })
+  if (draft.key !== configKey) {
+    setDraft({
+      key: configKey,
+      enabled: config?.enabled ?? false,
+      baseUrl: config?.base_url ?? '',
+      timeoutMs: (config?.extra_config?.timeout_ms as number | undefined) ?? 200,
+      failMode:
+        (config?.extra_config?.fail_mode as string | undefined) === 'closed'
+          ? 'closed'
+          : 'open',
+    })
+  }
+  const { enabled, baseUrl, timeoutMs, failMode } = draft
   const [apiKey, setApiKey] = useState('')
-  const [timeoutMs, setTimeoutMs] = useState<number>(
-    (config?.extra_config?.timeout_ms as number | undefined) ?? 200,
-  )
-  const [failMode, setFailMode] = useState<'open' | 'closed'>(
-    ((config?.extra_config?.fail_mode as string | undefined) === 'closed'
-      ? 'closed'
-      : 'open') as 'open' | 'closed',
-  )
   const [testStatus, setTestStatus] = useState<TestStatus>('idle')
   const [testDetail, setTestDetail] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
 
-  useEffect(() => {
-    setEnabled(config?.enabled ?? false)
-    setBaseUrl(config?.base_url ?? '')
-    setTimeoutMs(((config?.extra_config?.timeout_ms as number | undefined) ?? 200))
-    setFailMode(
-      ((config?.extra_config?.fail_mode as string | undefined) === 'closed'
-        ? 'closed'
-        : 'open') as 'open' | 'closed',
-    )
-  }, [config])
-
   async function handleToggle(next: boolean) {
     // Auto-save the toggle — flipping a switch should persist immediately.
     // URL / API key still require the Save button since they need input.
-    setEnabled(next)
+    setDraft((current) => ({ ...current, enabled: next }))
     setSaving(true)
     setSaved(false)
     try {
@@ -87,7 +93,7 @@ export default function IntegrationCard({
       setSaved(true)
       setTimeout(() => setSaved(false), 1800)
     } catch {
-      setEnabled(!next) // revert optimistic UI
+      setDraft((current) => ({ ...current, enabled: !next }))
     } finally {
       setSaving(false)
     }
@@ -132,7 +138,7 @@ export default function IntegrationCard({
   }
 
   return (
-    <div className="card" style={{ borderLeft: `3px solid ${meta.accent}` }}>
+    <div className="card" style={{ borderLeft: `3px solid ${visual.accent}` }}>
       <div className="card-hd">
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <div
@@ -140,18 +146,18 @@ export default function IntegrationCard({
               width: 32,
               height: 32,
               borderRadius: 'var(--r-md)',
-              background: `${meta.accent}20`,
-              color: meta.accent,
+              background: `${visual.accent}20`,
+              color: visual.accent,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
             }}
           >
-            <meta.Icon size={16} />
+            <visual.Icon size={16} />
           </div>
           <div>
             <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--gray-50)' }}>
-              {meta.label}
+              {t(`${provider}.label`)}
             </div>
             <div className="faded mono" style={{ fontSize: 11 }}>
               {provider}
@@ -162,13 +168,13 @@ export default function IntegrationCard({
           <Badge tone={tone} dot>
             {enabled
               ? testStatus === 'healthy'
-                ? 'healthy'
+                ? tStatus('healthy')
                 : testStatus === 'unreachable'
-                ? 'unreachable'
+                ? tStatus('unreachable')
                 : testStatus === 'unauthorized'
-                ? 'unauthorized'
-                : 'enabled'
-              : 'disabled'}
+                ? tStatus('unauthorized')
+                : tStatus('enabled')
+              : tStatus('disabled')}
           </Badge>
           <Toggle checked={enabled} onChange={handleToggle} disabled={saving} />
         </div>
@@ -183,27 +189,29 @@ export default function IntegrationCard({
         }}
       >
         <p className="faded" style={{ fontSize: 12, margin: 0 }}>
-          {meta.blurb}
+          {t(`${provider}.blurb`)}
         </p>
 
-        <Field label="Base URL">
+        <Field label={t('baseUrlLabel')}>
           <input
             className="input"
             value={baseUrl}
-            onChange={(e) => setBaseUrl(e.target.value)}
+            onChange={(e) =>
+              setDraft((current) => ({ ...current, baseUrl: e.target.value }))
+            }
             disabled={!enabled}
             placeholder={`https://${provider === 'bsage' ? 'sage' : 'supervisor'}.bsvibe.dev`}
           />
         </Field>
 
-        <Field label={`API key ${hasApiKey ? '(stored)' : ''}`}>
+        <Field label={`${t('apiKeyLabel')} ${hasApiKey ? t('apiKeyStored') : ''}`}>
           <div style={{ display: 'flex', gap: 8 }}>
             <input
               className="input mono"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
               disabled={!enabled}
-              placeholder={hasApiKey ? '••••••••' : 'bsk_...'}
+              placeholder={hasApiKey ? t('apiKeyPlaceholderStored') : t('apiKeyPlaceholderEmpty')}
               type="password"
               style={{ fontSize: 12 }}
             />
@@ -213,9 +221,9 @@ export default function IntegrationCard({
                 className="btn btn-secondary btn-sm"
                 disabled={!enabled}
                 onClick={() => setApiKey('')}
-                title="Clear stored key"
+                title={t('rotateTitle')}
               >
-                Rotate
+                {tCommon('rotate')}
               </button>
             )}
           </div>
@@ -225,20 +233,25 @@ export default function IntegrationCard({
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
               gap: 12,
             }}
           >
-            <Field label="Timeout (ms)" hint="Default 200ms">
+            <Field label={t('timeoutLabel')} hint={t('timeoutHint')}>
               <input
                 className="input mono"
                 type="number"
                 value={timeoutMs}
-                onChange={(e) => setTimeoutMs(Number(e.target.value))}
+                onChange={(e) =>
+                  setDraft((current) => ({
+                    ...current,
+                    timeoutMs: Number(e.target.value),
+                  }))
+                }
                 disabled={!enabled}
               />
             </Field>
-            <Field label="Fail mode" hint="open = allow on error · closed = deny">
+            <Field label={t('failModeLabel')} hint={t('failModeHint')}>
               <div
                 style={{
                   display: 'flex',
@@ -262,10 +275,12 @@ export default function IntegrationCard({
                       color:
                         failMode === m ? 'var(--gray-50)' : 'var(--gray-400)',
                     }}
-                    onClick={() => setFailMode(m)}
+                    onClick={() =>
+                      setDraft((current) => ({ ...current, failMode: m }))
+                    }
                     disabled={!enabled}
                   >
-                    {m}
+                    {m === 'open' ? t('failModeOpen') : t('failModeClosed')}
                   </button>
                 ))}
               </div>
@@ -299,11 +314,11 @@ export default function IntegrationCard({
                     animation: 'pulse 1s infinite',
                   }}
                 />
-                Testing…
+                {tCommon('testing')}
               </>
             ) : (
               <>
-                <I.Zap size={12} /> Test connection
+                <I.Zap size={12} /> {tCommon('test')}
               </>
             )}
           </button>
@@ -321,7 +336,7 @@ export default function IntegrationCard({
               }}
               title={testDetail ?? undefined}
             >
-              {testStatus}
+              {tStatus(testStatus as never)}
             </span>
           )}
           <span style={{ flex: 1 }} />
@@ -335,7 +350,7 @@ export default function IntegrationCard({
                 gap: 4,
               }}
             >
-              <I.Check size={12} /> Saved
+              <I.Check size={12} /> {tCommon('saved')}
             </span>
           )}
           <button
@@ -344,7 +359,7 @@ export default function IntegrationCard({
             onClick={handleSave}
             disabled={saving}
           >
-            {saving ? 'Saving…' : 'Save'}
+            {saving ? tCommon('saving') : tCommon('save')}
           </button>
         </div>
       </div>
@@ -361,23 +376,40 @@ function Toggle({
   onChange: (v: boolean) => void
   disabled?: boolean
 }) {
+  // Touch target = 44x44 (WCAG 2.5.5 / iOS HIG). Visual switch stays
+  // 32x18 via the inner pseudo-track — the outer button just provides
+  // the larger hit area and centers the track. Without this, the
+  // button measured 32x18 directly and tripped the e2e tap-target check.
   return (
     <button
       type="button"
       disabled={disabled}
       onClick={() => onChange(!checked)}
       style={{
+        minWidth: 44,
+        minHeight: 44,
+        padding: 0,
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'transparent',
+        border: 'none',
+        cursor: disabled ? 'wait' : 'pointer',
+        opacity: disabled ? 0.7 : 1,
+      }}
+      aria-pressed={checked}
+    >
+    <span
+      aria-hidden="true"
+      style={{
         width: 32,
         height: 18,
         borderRadius: 99,
         background: checked ? 'var(--blue-500)' : 'var(--gray-700)',
         position: 'relative',
-        border: 'none',
-        cursor: disabled ? 'wait' : 'pointer',
+        display: 'inline-block',
         transition: 'background var(--t-fast) var(--ease)',
-        opacity: disabled ? 0.7 : 1,
       }}
-      aria-pressed={checked}
     >
       <span
         style={{
@@ -391,6 +423,7 @@ function Toggle({
           transition: 'left var(--t-fast) var(--ease)',
         }}
       />
+    </span>
     </button>
   )
 }
@@ -415,7 +448,7 @@ function Field({
         }}
       >
         <label
-          style={{ fontSize: 12, color: 'var(--text-secondary)' }}
+          style={{ fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}
         >
           {label}
         </label>

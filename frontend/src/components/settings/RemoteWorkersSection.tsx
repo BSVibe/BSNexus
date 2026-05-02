@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslations } from 'next-intl'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { Badge, StatusDot } from '../common/Badge'
@@ -12,6 +13,8 @@ import {
 } from '../../api/workers'
 
 export default function RemoteWorkersSection() {
+  const t = useTranslations('nexus.settings.workers')
+  const tCommon = useTranslations('nexus.common')
   const queryClient = useQueryClient()
   const [revealedToken, setRevealedToken] = useState<string | null>(null)
 
@@ -60,14 +63,13 @@ export default function RemoteWorkersSection() {
             letterSpacing: '0.06em',
           }}
         >
-          Remote workers
+          {t('heading')}
         </h3>
         <span className="mono faded" style={{ fontSize: 11 }}>
           {workers.length}
         </span>
         <span className="faded" style={{ fontSize: 12 }}>
-          — hosts running <code className="mono hl">bsnexus-worker</code> that
-          execute coding runs (claude-code · codex · opencode)
+          {t('subhead', { workerCommand: 'bsnexus-worker' })}
         </span>
       </div>
 
@@ -92,11 +94,11 @@ export default function RemoteWorkersSection() {
             letterSpacing: '0.08em',
           }}
         >
-          Registered workers
+          {t('registeredHeading')}
         </div>
         {workersLoading ? (
           <p className="faded" style={{ fontSize: 13 }}>
-            Loading…
+            {tCommon('loading')}
           </p>
         ) : workers.length === 0 ? (
           <div
@@ -108,7 +110,7 @@ export default function RemoteWorkersSection() {
               fontSize: 13,
             }}
           >
-            No workers yet. Follow the guide above on any Linux/macOS host.
+            {t('noWorkers')}
           </div>
         ) : (
           workers.map((w) => (
@@ -116,7 +118,7 @@ export default function RemoteWorkersSection() {
               key={w.id}
               worker={w}
               onDelete={() => {
-                if (confirm(`Remove worker "${w.name}"?`))
+                if (confirm(t('deleteConfirm', { name: w.name })))
                   deleteWorkerMutation.mutate(w.id)
               }}
             />
@@ -144,6 +146,9 @@ function InstallTokenCard({
   generating: boolean
   revoking: boolean
 }) {
+  const t = useTranslations('nexus.settings.workers')
+  const tCommon = useTranslations('nexus.common')
+  const tStatus = useTranslations('nexus.status')
   return (
     <section className="card" style={{ padding: 14 }}>
       <div
@@ -156,15 +161,15 @@ function InstallTokenCard({
       >
         <I.GitBranch size={14} />
         <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--gray-50)' }}>
-          Install token
+          {t('installTokenLabel')}
         </span>
         <span className="faded" style={{ fontSize: 11 }}>
-          one per tenant · used only during <code className="mono">register</code>
+          {t('installTokenScope', { registerCommand: 'register' })}
         </span>
         <span style={{ flex: 1 }} />
         {loading ? (
           <span className="faded" style={{ fontSize: 12 }}>
-            Loading…
+            {tCommon('loading')}
           </span>
         ) : hasToken ? (
           <>
@@ -177,7 +182,7 @@ function InstallTokenCard({
                 color: 'var(--text-secondary)',
               }}
             >
-              <StatusDot tone="emerald" size={6} /> configured
+              <StatusDot tone="emerald" size={6} /> {tStatus('configured')}
             </span>
             <button
               type="button"
@@ -185,23 +190,18 @@ function InstallTokenCard({
               onClick={onGenerate}
               disabled={generating}
             >
-              {generating ? 'Rotating…' : 'Regenerate'}
+              {generating ? t('rotating') : t('regenerate')}
             </button>
             <button
               type="button"
               className="btn btn-ghost btn-sm"
               onClick={() => {
-                if (
-                  confirm(
-                    'Revoke the install token? Existing workers keep running; new workers cannot register.',
-                  )
-                )
-                  onRevoke()
+                if (confirm(t('revokeConfirm'))) onRevoke()
               }}
               disabled={revoking}
               style={{ color: '#fda4af' }}
             >
-              Revoke
+              {tCommon('revoke')}
             </button>
           </>
         ) : (
@@ -211,7 +211,7 @@ function InstallTokenCard({
             onClick={onGenerate}
             disabled={generating}
           >
-            {generating ? 'Generating…' : 'Generate token'}
+            {generating ? t('generatingButton') : t('generateButton')}
           </button>
         )}
       </div>
@@ -235,7 +235,7 @@ function InstallTokenCard({
               marginBottom: 4,
             }}
           >
-            Copy now — shown only once
+            {t('revealedHeader')}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <code
@@ -254,7 +254,7 @@ function InstallTokenCard({
               className="btn btn-ghost btn-sm"
               onClick={() => navigator.clipboard.writeText(revealedToken)}
             >
-              <I.Copy size={12} /> Copy
+              <I.Copy size={12} /> {tCommon('copy')}
             </button>
           </div>
         </div>
@@ -262,8 +262,7 @@ function InstallTokenCard({
 
       {!revealedToken && hasToken && (
         <div className="faded" style={{ fontSize: 11, marginTop: -4 }}>
-          Raw token is only visible once, immediately after generation. Rotate
-          to mint a new one — old value is discarded.
+          {t('rotateNote')}
         </div>
       )}
     </section>
@@ -271,6 +270,8 @@ function InstallTokenCard({
 }
 
 function RegistrationGuide({ installToken }: { installToken: string | null }) {
+  const t = useTranslations('nexus.settings.workers')
+  const tStep = useTranslations('nexus.settings.workers.step')
   const origin =
     typeof window !== 'undefined' ? window.location.origin : 'https://nexus.bsvibe.dev'
   const token = installToken ?? '<INSTALL_TOKEN>'
@@ -280,16 +281,16 @@ function RegistrationGuide({ installToken }: { installToken: string | null }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
         <I.Doc size={14} />
         <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--gray-50)' }}>
-          Registration guide
+          {t('guideHeading')}
         </span>
         <span className="faded" style={{ fontSize: 11 }}>
-          runs on Linux or macOS · needs Python 3.11+
+          {t('guideSubhead')}
         </span>
       </div>
 
       <Step
         n={1}
-        title="Prerequisites"
+        title={tStep('prerequisitesTitle')}
         body={
           <ul
             style={{
@@ -300,11 +301,13 @@ function RegistrationGuide({ installToken }: { installToken: string | null }) {
               lineHeight: '20px',
             }}
           >
-            <li>Python 3.11 or newer</li>
+            <li>{tStep('prerequisitesPython')}</li>
             <li>
-              At least one coding CLI — <code className="mono hl">claude</code>,{' '}
-              <code className="mono hl">codex</code>, or{' '}
-              <code className="mono hl">opencode</code> (auto-detected)
+              {tStep('prerequisitesCli', {
+                claude: 'claude',
+                codex: 'codex',
+                opencode: 'opencode',
+              })}
             </li>
           </ul>
         }
@@ -312,22 +315,19 @@ function RegistrationGuide({ installToken }: { installToken: string | null }) {
 
       <Step
         n={2}
-        title="Install the worker"
+        title={tStep('installTitle')}
         body={
           <CodeBlock text={`curl -fsSL ${origin}/worker/install.sh | bash`} />
         }
-        hint={
-          <>
-            Drops <code className="mono">bsnexus-worker</code> into{' '}
-            <code className="mono">~/.bsnexus-worker/</code> and adds it to your
-            PATH.
-          </>
-        }
+        hint={tStep('installHint', {
+          workerBin: 'bsnexus-worker',
+          workerDir: '~/.bsnexus-worker/',
+        })}
       />
 
       <Step
         n={3}
-        title="Register against this tenant"
+        title={tStep('registerTitle')}
         body={
           <CodeBlock
             text={[
@@ -338,27 +338,17 @@ function RegistrationGuide({ installToken }: { installToken: string | null }) {
             ].join('\n')}
           />
         }
-        hint={
-          <>
-            Exchanges the install token for a long-lived worker token stored in{' '}
-            <code className="mono">~/.bsnexus-worker/.env</code>. Add{' '}
-            <code className="mono">--project &lt;id&gt;</code> to bind the worker
-            to a single project.
-          </>
-        }
+        hint={tStep('registerHint', {
+          envFile: '~/.bsnexus-worker/.env',
+          projectFlag: '--project <id>',
+        })}
       />
 
       <Step
         n={4}
-        title="Run"
+        title={tStep('runTitle')}
         body={<CodeBlock text="cd /path/to/your/project\nbsnexus-worker run" />}
-        hint={
-          <>
-            Polls <code className="mono">/api/v1/workers/poll</code> every 5s
-            and heartbeats every 30s. The host appears below within a few
-            seconds of the first successful heartbeat.
-          </>
-        }
+        hint={tStep('runHint', { pollEndpoint: '/api/v1/workers/poll' })}
       />
 
       {!installToken && (
@@ -373,8 +363,7 @@ function RegistrationGuide({ installToken }: { installToken: string | null }) {
             borderRadius: 'var(--r-sm)',
           }}
         >
-          Generate an install token above — the command in step 3 auto-updates
-          with the real value while it's on screen.
+          {t('tokenPlaceholderHint')}
         </div>
       )}
     </section>
@@ -388,7 +377,7 @@ function Step({
   hint,
 }: {
   n: number
-  title: string
+  title: React.ReactNode
   body: React.ReactNode
   hint?: React.ReactNode
 }) {
@@ -436,6 +425,7 @@ function Step({
 }
 
 function CodeBlock({ text }: { text: string }) {
+  const tCommon = useTranslations('nexus.common')
   const [copied, setCopied] = useState(false)
   return (
     <div
@@ -470,7 +460,7 @@ function CodeBlock({ text }: { text: string }) {
           fontSize: 11,
         }}
       >
-        {copied ? 'Copied' : <><I.Copy size={11} /> Copy</>}
+        {copied ? tCommon('copied') : <><I.Copy size={11} /> {tCommon('copy')}</>}
       </button>
     </div>
   )
@@ -483,12 +473,22 @@ function WorkerRow({
   worker: WorkerInfo
   onDelete: () => void
 }) {
+  const t = useTranslations('nexus.settings.workers')
+  const tStatus = useTranslations('nexus.status')
   const tone: 'emerald' | 'amber' | 'gray' =
     worker.status === 'online'
       ? 'emerald'
       : worker.status === 'busy'
       ? 'amber'
       : 'gray'
+  const knownStatus = (
+    [
+      'online',
+      'busy',
+      'offline',
+    ] as const
+  ).includes(worker.status as 'online' | 'busy' | 'offline')
+  const statusLabel = knownStatus ? tStatus(worker.status as never) : worker.status
   return (
     <div className="card" style={{ padding: 12 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -497,7 +497,7 @@ function WorkerRow({
           {worker.name}
         </span>
         <Badge tone={tone} square>
-          {worker.status}
+          {statusLabel}
         </Badge>
         <span className="mono faded" style={{ fontSize: 11 }}>
           {truncId(worker.id)}
@@ -509,7 +509,7 @@ function WorkerRow({
             style={{ fontSize: 11 }}
             title={new Date(worker.last_heartbeat).toLocaleString()}
           >
-            heartbeat {relTime(worker.last_heartbeat)}
+            {t('heartbeat', { when: relTime(worker.last_heartbeat) })}
           </span>
         )}
         <button

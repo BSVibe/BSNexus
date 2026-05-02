@@ -5,19 +5,30 @@ event-driven model: new requests / run completions fire
 ``dispatch_run``; completed parents enqueue their children via
 ``on_run_completed``.
 
-The orchestration flow per run:
+The orchestration flow per run (post P0.7):
 
     1. Load tenant integration config (cached, 60s TTL).
     2. Resolve KnowledgeClient (BSage or Noop).
-    3. Resolve AuditSink (BSupervisor or Noop).
-    4. PromptAssembler composes system prompt from knowledge fragments.
-    5. Persist CompositionSnapshot; link to run.
-    6. Sync preflight via BSupervisor (200ms timeout, fail-open).
-    7. State machine: pending → running.
-    8. Hand off to executor (LiteLLM + BSGateway hook, or claude_code).
-    9. Record output; fire-and-forget post-audit.
-    10. State machine: running → done or blocked.
-    11. Enqueue children whose dependencies are met.
+    3. PromptAssembler composes system prompt from knowledge fragments.
+    4. Persist CompositionSnapshot; link to run.
+    5. State machine: pending → running.
+    6. Hand off to executor — BSGateway's LiteLLM hook handles the
+       BSupervisor run.pre / run.post audit calls on BSNexus's behalf
+       (Lockin §Architectural shifts #1, P0.7 PR). The
+       ``orchestrator_adapter.build_run_audit_metadata`` factory plumbs
+       tenant_id / run_id / request_id / parent_run_id / agent_name /
+       cost_estimate via ``litellm.acompletion(metadata=...)``.
+    7. Record output.
+    8. State machine: running → done or blocked.
+    9. Enqueue children whose dependencies are met.
+
+P0.7 retirement
+~~~~~~~~~~~~~~~
+The previous explicit ``audit.preflight()`` and ``emit_post_async()``
+calls have been removed. Non-LLM workflow / budget audit paths
+(future) will resolve audit sinks separately via
+``backend.src.core.audit.resolve_audit_sink`` with a service-JWT
+minter — that path is distinct from this LLM dispatch.
 
 This module does NOT busy-loop. Call ``dispatch_run`` inline from
 request creation or ``on_run_completed`` from a completion handler.
@@ -25,6 +36,7 @@ request creation or ``on_run_completed`` from a completion handler.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from typing import Any
 
@@ -33,7 +45,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.core import harness
-from backend.src.core.audit import AuditSink, emit_post_async, resolve_audit_sink
+from backend.src.core.advisory_lock import (
+    release_run_dispatch_lock,
+    try_run_dispatch_lock,
+)
 from backend.src.core.composer import (
     PromptAssembler,
     default_template_registry,
@@ -74,7 +89,7 @@ class RunOrchestrator:
         db: AsyncSession,
         stream_manager: RedisStreamManager | None = None,
         executor: Any | None = None,
-    ) -> ExecutionRun:
+    ) -> ExecutionRun | None:
         """Dispatch one run through compose → audit → execute → audit-post.
 
         ``executor`` is the LLM/tool-call executor (built via
@@ -82,23 +97,80 @@ class RunOrchestrator:
         When None, the run stops at "ready to execute" and stays in
         ``running`` state until the executor callback lands. This keeps
         the orchestrator testable without a full LLM loop.
+
+        S3-1 horizontal-scaling guard: a Postgres advisory lock keyed by
+        ``hash(run_id)`` ensures that when two BSNexus instances race to
+        dispatch the same run (autoscaling, blue/green overlap, watchdog
+        reclaim), only one wins. The loser observes ``acquired=False``
+        and short-circuits as a no-op — leaving the run in whatever
+        state the winner moves it to. The lock is released in
+        ``finally`` so executor failures don't wedge the run.
         """
+        acquired = await try_run_dispatch_lock(db, run_id)
+        if not acquired:
+            logger.info("dispatch_skipped_lock_busy", run_id=str(run_id))
+            return None
+
+        try:
+            return await self._dispatch_run_locked(
+                run_id,
+                db=db,
+                stream_manager=stream_manager,
+                executor=executor,
+            )
+        finally:
+            await release_run_dispatch_lock(db, run_id)
+
+    async def _dispatch_run_locked(
+        self,
+        run_id: uuid.UUID,
+        *,
+        db: AsyncSession,
+        stream_manager: RedisStreamManager | None,
+        executor: Any | None,
+    ) -> ExecutionRun:
+        """Body of ``dispatch_run`` — the caller already holds the
+        advisory lock for ``run_id``."""
         run = await _load_run(db, run_id)
         request = await _load_request(db, run.request_id)
 
         snapshot_data = get_tenant_integration_snapshot
         integrations = await snapshot_data(db, run.tenant_id)
 
-        knowledge = resolve_knowledge_client(integrations.bsage, auth_token=request.originator_auth)
-        audit = resolve_audit_sink(integrations.bsupervisor, auth_token=request.originator_auth)
+        # P0.7 — when the service-JWT minter is configured (production),
+        # BSage calls authenticate via minted service JWTs (``aud:bsage``,
+        # ``scope:bsage.read``). Without a configured minter (dev), the
+        # factory falls back to the originator user JWT or static
+        # api_key. Adapter code is unchanged either way (Decision #15).
+        from backend.src.core.service_auth import get_service_jwt_minter  # noqa: PLC0415
+
+        service_jwt_minter = get_service_jwt_minter()
+        knowledge = resolve_knowledge_client(
+            integrations.bsage,
+            auth_token=request.originator_auth,
+            service_jwt_minter=service_jwt_minter,
+            tenant_id=str(run.tenant_id),
+        )
+
+        # P0.7 — BSGateway absorbs the BSupervisor run.pre / run.post
+        # calls via its LiteLLM async_pre_call_hook /
+        # async_post_call_hook. The orchestrator no longer resolves an
+        # AuditSink here for LLM runs; ``orchestrator_adapter`` plumbs
+        # the run audit metadata to BSGateway via the LiteLLM
+        # ``metadata`` kwarg.
 
         # Refresh .bsnexus/context/*.md so the composer's pointer to
         # those files resolves to fresh state. Failing to refresh must
         # not break the run — log and continue with stale context.
+        # ``CancelledError`` is BaseException in 3.11+ so it propagates
+        # past this Exception catch automatically; the noqa stays on
+        # purpose because harness internals can raise OSError, FS race
+        # conditions, jinja errors, etc., none of which are worth
+        # listing exhaustively.
         try:
             await harness.refresh_context(run.project_id, request=request, db=db)
-        except Exception:  # noqa: BLE001
-            logger.exception("harness_refresh_failed", run_id=str(run.id))
+        except Exception:  # noqa: BLE001 — sink-all: never block a run on context refresh
+            logger.warning("harness_refresh_failed", run_id=str(run.id), exc_info=True)
 
         tools_available = _tools_from_executor_hint(executor)
         workspace_state = _safe_workspace_listing(run.project_id)
@@ -114,16 +186,12 @@ class RunOrchestrator:
         snapshot = await _persist_snapshot(db, run, request, composition)
         run.composition_snapshot_id = snapshot.id
 
-        audit_result = await audit.preflight(run, snapshot)
-        if audit_result.blocked:
-            return await self._state.transition(
-                run,
-                RunStatus.blocked,
-                reason=audit_result.reason or "blocked by audit preflight",
-                actor="audit",
-                db_session=db,
-                stream_manager=stream_manager,
-            )
+        # P0.7 — BSGateway's LiteLLM async_pre_call_hook performs the
+        # BSupervisor run.pre check and rejects the LLM call (raising
+        # an HTTP error that the executor surfaces as an exception)
+        # when audit blocks. The orchestrator no longer short-circuits
+        # here — ``test_executor_failure_transitions_to_blocked``
+        # already pins that path.
 
         await self._state.transition(
             run,
@@ -142,7 +210,7 @@ class RunOrchestrator:
         if executor is None:
             # Caller will invoke the executor and call ``on_run_completed``
             # when done. Orchestrator role ends here for this run.
-            emit_post_async(audit, run, {"status": "running", "stage": "ready"})
+            # (P0.7 — no run.post audit call; BSGateway handles it.)
             return run
 
         history = await _load_chat_history(db, project_id=run.project_id, origin_message_id=request.origin_message_id)
@@ -155,9 +223,16 @@ class RunOrchestrator:
                 tools_allowed=composition.tools_allowed,
                 history=history,
             )
+        except asyncio.CancelledError:
+            # Allow cooperative cancellation to propagate — a hung run
+            # must remain killable.
+            raise
         except Exception as exc:  # noqa: BLE001 — sink-all at the executor boundary
-            logger.exception("run_executor_failed", run_id=str(run.id))
-            emit_post_async(audit, run, {"status": "error", "error": str(exc)})
+            # P0.7 — when BSGateway's hook rejects via 4xx, the
+            # executor raises here and the run goes to blocked. The
+            # run.post BSupervisor event was already sent by
+            # BSGateway; no audit call needed on our side.
+            logger.warning("run_executor_failed", run_id=str(run.id), exc_info=True)
             return await self._state.transition(
                 run,
                 RunStatus.blocked,
@@ -172,7 +247,6 @@ class RunOrchestrator:
         # result-consumer finalises it once the worker reports back. Do
         # not call on_run_completed here or we'd mark it done prematurely.
         if isinstance(result, dict) and result.get("status") == "dispatched":
-            emit_post_async(audit, run, result)
             logger.info(
                 "run_dispatched_awaiting_worker",
                 run_id=str(run.id),
@@ -184,7 +258,6 @@ class RunOrchestrator:
         await self.on_run_completed(
             run,
             result=result,
-            audit=audit,
             db=db,
             stream_manager=stream_manager,
         )
@@ -195,9 +268,9 @@ class RunOrchestrator:
         run: ExecutionRun,
         *,
         result: Any,
-        audit: AuditSink,
         db: AsyncSession,
         stream_manager: RedisStreamManager | None = None,
+        audit: Any | None = None,  # noqa: ARG002 — accepted for backwards compat; P0.7 ignored
     ) -> None:
         """Finalize a completed run, then seed the next iteration.
 
@@ -210,13 +283,19 @@ class RunOrchestrator:
         We do NOT decide here whether the chain is done — that's the
         replanner's call when it sees the latest results. From this
         function's POV it just always schedules the next replanner pass.
+
+        P0.7 — the legacy ``audit`` kwarg is accepted but ignored.
+        BSGateway's LiteLLM async_post_call_hook already sent the
+        run.post BSupervisor event before this function was called.
+        Old callers (worker_result_consumer, dispatcher) keep
+        passing ``audit=...`` until they are migrated; the parameter
+        removal is left for a follow-up commit to keep this PR's
+        diff focused on the audit retirement contract.
         """
         if isinstance(result, dict):
             run.output_type = result.get("output_type")
             run.output_ref = result.get("output_ref")
             run.actual_cost_cents = int(result.get("actual_cost_cents", 0) or 0)
-
-        emit_post_async(audit, run, result if isinstance(result, dict) else {"status": "done"})
 
         await self._state.transition(
             run,
@@ -278,15 +357,24 @@ async def _find_blocked_successor(db: AsyncSession, parent_run_id: uuid.UUID) ->
 
 
 def _safe_workspace_listing(project_id: uuid.UUID) -> list[dict]:
-    """Workspace files for the prompt — never raises, returns ``[]`` on
-    any error so a transient FS hiccup doesn't kill the run.
+    """Workspace files for the prompt — fail-soft on FS errors.
+
+    ``CancelledError`` is BaseException in 3.11+ so cooperative
+    cancellation passes through this catch. ``OSError`` covers the
+    realistic failure modes (missing dir, permission denied, broken
+    pipe). Any other exception still falls through ``Exception`` to
+    keep prompt assembly resilient — the noqa is intentional, the
+    workspace listing is purely advisory context.
     """
     try:
         from backend.src.core import project_workspace  # noqa: PLC0415
 
         return list(project_workspace.list_files(project_id))
-    except Exception:  # noqa: BLE001
-        logger.exception("workspace_listing_failed", project_id=str(project_id))
+    except OSError:
+        logger.warning("workspace_listing_failed", project_id=str(project_id), reason="os_error", exc_info=True)
+        return []
+    except Exception:  # noqa: BLE001 — never break compose on workspace listing
+        logger.warning("workspace_listing_failed", project_id=str(project_id), exc_info=True)
         return []
 
 
@@ -415,7 +503,13 @@ async def _persist_snapshot(
 
 
 async def _find_ready_children(db: AsyncSession, parent: ExecutionRun) -> list[ExecutionRun]:
-    """Find blocked/pending children whose all dependencies are now done."""
+    """Find blocked/pending children whose all dependencies are now done.
+
+    Batch-loaded (S2-1 M2): the per-candidate dep-status loop has been
+    replaced with a single grouped query joining the dependencies
+    association table to ``ExecutionRun.status``. Total round-trips per
+    call: ``3`` regardless of candidate count (was ``2 + N``).
+    """
     deps = execution_run_dependencies
     dependent_ids_stmt = select(deps.c.run_id).where(deps.c.dependency_id == parent.id)
     result = await db.execute(dependent_ids_stmt)
@@ -423,25 +517,27 @@ async def _find_ready_children(db: AsyncSession, parent: ExecutionRun) -> list[E
     if not dependent_ids:
         return []
 
-    # For each candidate, confirm all of its dependencies are done.
     candidates_stmt = select(ExecutionRun).where(
         ExecutionRun.id.in_(dependent_ids),
         ExecutionRun.status == RunStatus.blocked,
     )
-    result = await db.execute(candidates_stmt)
-    candidates = list(result.scalars())
+    candidates = list((await db.execute(candidates_stmt)).scalars())
+    if not candidates:
+        return []
 
-    ready: list[ExecutionRun] = []
-    for candidate in candidates:
-        deps_stmt = (
-            select(ExecutionRun.status)
-            .join(deps, deps.c.dependency_id == ExecutionRun.id)
-            .where(deps.c.run_id == candidate.id)
-        )
-        dep_statuses = (await db.execute(deps_stmt)).scalars().all()
-        if all(status == RunStatus.done for status in dep_statuses):
-            ready.append(candidate)
-    return ready
+    # One grouped query: for every (candidate_run_id, dep_status) pair,
+    # count rows where dep_status != done. Candidates with zero such
+    # rows are ready. Avoids the per-candidate query (N+1).
+    candidate_ids = [c.id for c in candidates]
+    pending_stmt = (
+        select(deps.c.run_id)
+        .join(ExecutionRun, ExecutionRun.id == deps.c.dependency_id)
+        .where(deps.c.run_id.in_(candidate_ids))
+        .where(ExecutionRun.status != RunStatus.done)
+        .distinct()
+    )
+    blocked_ids = {row[0] for row in (await db.execute(pending_stmt)).all()}
+    return [c for c in candidates if c.id not in blocked_ids]
 
 
 _singleton: RunOrchestrator | None = None

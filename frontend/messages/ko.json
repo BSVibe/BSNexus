@@ -1,0 +1,381 @@
+{
+  "nexus": {
+    "common": {
+      "save": "저장",
+      "saving": "저장 중…",
+      "saved": "저장됨",
+      "cancel": "취소",
+      "delete": "삭제",
+      "deleting": "삭제 중…",
+      "edit": "편집",
+      "create": "생성",
+      "creating": "생성 중…",
+      "refresh": "새로고침",
+      "search": "검색",
+      "loading": "로딩 중…",
+      "noData": "데이터가 없습니다.",
+      "confirm": "확인",
+      "close": "닫기",
+      "copy": "복사",
+      "copied": "복사됨",
+      "rotate": "재발급",
+      "rotating": "재발급 중…",
+      "regenerate": "다시 생성",
+      "revoke": "폐기",
+      "register": "등록",
+      "registering": "등록 중",
+      "test": "연결 테스트",
+      "testing": "테스트 중…",
+      "remove": "제거",
+      "back": "뒤로",
+      "open": "열기",
+      "yes": "예",
+      "no": "아니오"
+    },
+    "status": {
+      "active": "활성",
+      "archived": "보관",
+      "all": "전체",
+      "running": "진행 중",
+      "open": "열림",
+      "blocked": "차단됨",
+      "blocking": "차단 중",
+      "resolved": "해결됨",
+      "done": "완료",
+      "pending": "대기",
+      "delivered": "납품됨",
+      "healthy": "정상",
+      "unreachable": "연결 불가",
+      "unauthorized": "인증 실패",
+      "enabled": "사용 중",
+      "disabled": "사용 안 함",
+      "online": "온라인",
+      "busy": "사용 중",
+      "offline": "오프라인",
+      "configured": "설정됨",
+      "inUse": "사용 중",
+      "idle": "대기"
+    },
+    "errors": {
+      "loadFailed": "데이터를 불러오지 못했습니다.",
+      "loadIntegrationsFailed": "통합 설정을 불러오지 못했습니다.",
+      "deleteFailed": "삭제에 실패했습니다.",
+      "sendFailed": "전송 실패: {message}. 메시지가 입력창으로 복원되었습니다 — 다시 시도하세요.",
+      "genericTryAgain": "문제가 발생했습니다. 다시 시도하세요."
+    },
+    "auth": {
+      "signInWithBsvibe": "BSVibe로 로그인",
+      "signUp": "가입하기",
+      "noAccount": "계정이 없으신가요?",
+      "logout": "로그아웃",
+      "loggingOut": "로그아웃 중…",
+      "callbackTitle": "로그인 처리 중…",
+      "guest": "게스트",
+      "home": "홈"
+    },
+    "layout": {
+      "brandName": "BSNexus",
+      "projects": "프로젝트",
+      "workspace": "워크스페이스",
+      "dashboard": "대시보드",
+      "settings": "설정",
+      "newProject": "새 프로젝트",
+      "noProjects": "아직 프로젝트가 없습니다.",
+      "openNavigation": "네비게이션 열기",
+      "jumpAnywhere": "어디로든 이동",
+      "jumpTo": "이동…",
+      "language": "언어"
+    },
+    "palette": {
+      "placeholder": "프로젝트, 작업 검색…",
+      "noMatches": "일치하는 항목이 없습니다.",
+      "navigate": "이동",
+      "openItem": "열기",
+      "closePalette": "닫기",
+      "newProject": "새 프로젝트",
+      "dashboard": "대시보드",
+      "settingsIntegrations": "설정 · 통합",
+      "kindAction": "작업",
+      "kindNav": "이동",
+      "kindProject": "프로젝트"
+    },
+    "dashboard": {
+      "title": "대시보드",
+      "newProject": "새 프로젝트",
+      "stat": {
+        "activeProjects": "진행 중인 프로젝트",
+        "activeProjectsSub": "전체 {total}개",
+        "blockingDecisions": "차단 의사결정",
+        "blockingDecisionsSub": "{open}개 열림",
+        "activeRequests": "진행 중인 요청",
+        "activeRequestsSub": "전체 {total}개",
+        "deliveredWindow": "납품 · 7일",
+        "deliveredWindowSub": "검토 대기"
+      },
+      "projectsHeading": "프로젝트",
+      "filter": {
+        "all": "전체",
+        "active": "활성",
+        "archived": "보관"
+      },
+      "empty": {
+        "noProjects": "아직 프로젝트가 없습니다. \"새 프로젝트\"를 눌러 회사에 일을 맡기세요.",
+        "noFilterMatch": "이 필터에 해당하는 프로젝트가 없습니다."
+      },
+      "card": {
+        "requests": "요청",
+        "pending": "대기",
+        "shipped": "납품"
+      },
+      "createModal": {
+        "title": "새 프로젝트",
+        "nameLabel": "이름",
+        "namePlaceholder": "예: Pelago Billing Rework",
+        "descriptionLabel": "한 줄 설명",
+        "descriptionPlaceholder": "에이전트가 무엇을 만들길 원하나요?",
+        "hint": "생성 후 해당 프로젝트로 이동합니다. 회사에 말을 걸 때 {mentionToken}을(를) 멘션하세요.",
+        "submit": "생성 후 열기"
+      }
+    },
+    "project": {
+      "tab": {
+        "progress": "진행",
+        "files": "파일",
+        "decisions": "의사결정",
+        "inspector": "내부"
+      },
+      "deleteModal": {
+        "title": "이 프로젝트를 삭제할까요?",
+        "fallbackName": "이 프로젝트",
+        "body": "{name}와(과) 모든 대화, 요청, 납품물, 의사결정이 영구 삭제됩니다. 되돌릴 수 없습니다.",
+        "submit": "삭제",
+        "errorPrefix": "삭제에 실패했습니다."
+      },
+      "noProjectSelected": "선택된 프로젝트가 없습니다.",
+      "fallbackTitle": "프로젝트"
+    },
+    "progress": {
+      "timeline": "타임라인",
+      "itemsSuffix": "건",
+      "filterAll": "전체",
+      "empty": "아직 납품물이 없습니다.",
+      "emptyHint": "채팅에서 요청을 시작하세요.",
+      "copyDeliverableId": "납품물 ID 복사",
+      "type": {
+        "code": "코드",
+        "doc": "문서",
+        "design": "디자인",
+        "data": "데이터",
+        "url": "링크"
+      }
+    },
+    "decisions": {
+      "loading": "로딩 중…",
+      "inboxClear": "받은편지함 비어 있음.",
+      "section": {
+        "blocking": "차단",
+        "open": "열림",
+        "resolved": "해결됨"
+      },
+      "nothingBlocking": "차단된 항목이 없습니다.",
+      "blockingBadge": "차단",
+      "resolvedBadge": "해결됨",
+      "customPlaceholder": "직접 답변을 입력하세요…",
+      "resolveButton": "해결",
+      "resolutionLabel": "결정",
+      "byPrefix": "by"
+    },
+    "inside": {
+      "requestsHeading": "요청",
+      "noRequests": "아직 요청이 없습니다.",
+      "noRunsYet": "아직 실행이 없습니다.",
+      "loading": "로딩 중…",
+      "pickRun": "검사할 실행을 선택하세요.",
+      "noSnapshot": "이 실행에 대한 컴포지션 스냅샷이 아직 없습니다 — 진행 중일 수 있습니다.",
+      "source": {
+        "bsage": "bsage (지식)",
+        "local": "로컬 (degraded)"
+      },
+      "fitPrefix": "적합도",
+      "row": {
+        "toolsAllowed": "허용된 도구",
+        "toolsAllowedNone": "(없음)",
+        "systemPrompt": "시스템 프롬프트",
+        "output": "출력",
+        "contextDocs": "컨텍스트 문서",
+        "refsSuffix": "건"
+      }
+    },
+    "chat": {
+      "header": "회사와 대화",
+      "expand": "채팅 펼치기 (⌘/)",
+      "collapse": "접기 (⌘/)",
+      "openShort": "채팅",
+      "scope": "범위",
+      "scopeAll": "모든 프로젝트",
+      "emptyScope": "이 범위에 아직 대화가 없습니다.",
+      "routingComposing": "라우팅 · 작성 중…",
+      "placeholderDefault": "말을 걸어보세요. 프로젝트를 @멘션하거나 그냥 대화하세요.",
+      "placeholderWithMention": "방향을 더 입력하세요…",
+      "mentionProject": "프로젝트 멘션",
+      "hintAt": "힌트:",
+      "hintTarget": "프로젝트 지정",
+      "send": "전송",
+      "newline": "줄바꿈",
+      "openProjectTitle": "{name} 열기",
+      "inspectRequest": "이 요청 검사",
+      "noProjectMatched": "일치하는 프로젝트가 없습니다 — 라우팅할 프로젝트를 선택하세요:",
+      "workspaceNoProject": "워크스페이스 · 프로젝트 없음",
+      "decisionFooter": "의사결정 탭에서 해결하세요.",
+      "phaseChipFallback": "(이름 없음)"
+    },
+    "settings": {
+      "title": "설정",
+      "sections": {
+        "integrations": {
+          "label": "통합",
+          "summary": "BSNexus를 형제 서비스에 연결합니다. 키는 테넌트 단위로 암호화 저장되며, 키 보유 여부만 응답으로 노출됩니다."
+        },
+        "executors": {
+          "label": "실행기",
+          "summary": "LLM 백엔드와 원격 워커를 등록합니다. LLM 실행기(LiteLLM / BSGateway / claude-code / codex)가 컴포지션 실행을 처리하고, 원격 워커는 설치 토큰으로 등록 후 로컬 CLI로 코딩 실행을 수행합니다."
+        },
+        "language": {
+          "label": "언어",
+          "summary": "인터페이스 언어를 선택합니다. 선택은 브라우저에 저장되며 새로고침 후에도 유지됩니다."
+        }
+      },
+      "languageSwitcher": {
+        "label": "인터페이스 언어",
+        "ko": "한국어",
+        "en": "English",
+        "currentLabel": "현재"
+      },
+      "integrations": {
+        "bsage": {
+          "label": "BSage",
+          "blurb": "그래프 기반 프로젝트 메모리. 활성화 시 실행이 관련 노트를 컴포지션에 가져옵니다."
+        },
+        "bsupervisor": {
+          "label": "BSupervisor",
+          "blurb": "동기 사전 규칙 평가 (목표 <50ms). 기본 fail-open이며 설정 가능."
+        },
+        "baseUrlLabel": "베이스 URL",
+        "apiKeyLabel": "API 키",
+        "apiKeyStored": "(저장됨)",
+        "apiKeyPlaceholderEmpty": "bsk_…",
+        "apiKeyPlaceholderStored": "••••••••",
+        "rotateTitle": "저장된 키 비우기",
+        "timeoutLabel": "타임아웃 (ms)",
+        "timeoutHint": "기본 200ms",
+        "failModeLabel": "실패 모드",
+        "failModeHint": "open = 오류 시 허용 · closed = 거부",
+        "failModeOpen": "open",
+        "failModeClosed": "closed"
+      },
+      "executors": {
+        "registeredCount": "{count}개 등록됨 · 정확히 한 개가 사용 중",
+        "registerButton": "실행기 등록",
+        "emptyHint": "등록된 실행기가 없습니다. 여기서 등록하고 선택할 때까지 실행이 큐에 머뭅니다.",
+        "deleteConfirm": "실행기 \"{name}\"을(를) 삭제할까요?",
+        "type": {
+          "generic_llm": {
+            "label": "LLM (LiteLLM 직접)",
+            "description": "어떤 LiteLLM 공급자든 가능. 코딩 및 비코딩 실행에 모두 사용됩니다."
+          },
+          "bsgateway": {
+            "label": "BSGateway (비용 인식 라우팅)",
+            "description": "모든 LLM 호출을 BSGateway로 프록시하여 비용을 최적화합니다."
+          },
+          "claude_code": {
+            "label": "Claude Code 워커",
+            "description": "claude_code 능력을 가진 온라인 워커로 실행을 라우팅합니다."
+          },
+          "codex": {
+            "label": "Codex 워커",
+            "description": "codex 능력을 가진 온라인 워커로 실행을 라우팅합니다."
+          }
+        },
+        "field": {
+          "model": "모델",
+          "modelPlaceholder": "openai/gpt-4o, anthropic/claude-sonnet-4-6, …",
+          "apiKey": "API 키",
+          "apiKeyPlaceholder": "sk-…",
+          "baseUrl": "베이스 URL (선택)",
+          "baseUrlPlaceholder": "https://api.anthropic.com",
+          "gatewayUrl": "게이트웨이 URL",
+          "gatewayUrlPlaceholder": "https://gateway.bsvibe.dev",
+          "gatewayApiKey": "API 키",
+          "gatewayApiKeyPlaceholder": "bsg-…"
+        },
+        "modal": {
+          "registerTitle": "실행기 등록",
+          "editTitle": "편집 — {name}",
+          "typeLabel": "타입",
+          "nameLabel": "이름",
+          "namePlaceholder": "예: GPT-4o production",
+          "descriptionLabel": "설명 (선택)",
+          "descriptionPlaceholder": "간단한 메모"
+        ,
+          "useThis": "이것을 사용 (현재 사용 중인 항목을 대체)"
+        },
+        "card": {
+          "selectAria": "{name} 사용",
+          "selectedAria": "{name} 사용 중",
+          "selectedTitle": "사용 중",
+          "selectableTitle": "이 실행기를 사용하려면 클릭"
+        }
+      },
+      "workers": {
+        "heading": "원격 워커",
+        "subhead": "— {workerCommand}을(를) 실행하는 호스트가 코딩 실행을 수행합니다 (claude-code · codex · opencode)",
+        "installTokenLabel": "설치 토큰",
+        "installTokenScope": "테넌트당 1개 · {registerCommand} 시에만 사용",
+        "generateButton": "토큰 생성",
+        "generatingButton": "생성 중…",
+        "regenerate": "다시 생성",
+        "rotating": "재발급 중…",
+        "revokeConfirm": "설치 토큰을 폐기할까요? 기존 워커는 계속 동작하지만 새 워커는 등록할 수 없습니다.",
+        "revealedHeader": "지금 복사하세요 — 한 번만 표시됩니다",
+        "rotateNote": "원시 토큰은 생성 직후 한 번만 보입니다. 다시 만들면 이전 값은 폐기됩니다.",
+        "registeredHeading": "등록된 워커",
+        "noWorkers": "워커가 없습니다. 위 가이드에 따라 Linux/macOS 호스트에서 등록하세요.",
+        "deleteConfirm": "워커 \"{name}\"을(를) 제거할까요?",
+        "guideHeading": "등록 가이드",
+        "guideSubhead": "Linux 또는 macOS에서 실행 · Python 3.11+ 필요",
+        "step": {
+          "prerequisitesTitle": "사전 요구사항",
+          "prerequisitesPython": "Python 3.11 이상",
+          "prerequisitesCli": "코딩 CLI 1개 이상 — {claude}, {codex}, 또는 {opencode} (자동 감지)",
+          "installTitle": "워커 설치",
+          "installHint": "{workerBin}을(를) {workerDir}에 배치하고 PATH에 추가합니다.",
+          "registerTitle": "이 테넌트에 등록",
+          "registerHint": "설치 토큰을 장기 워커 토큰으로 교환하여 {envFile}에 저장합니다. 단일 프로젝트에 묶으려면 {projectFlag}를 추가하세요.",
+          "runTitle": "실행",
+          "runHint": "{pollEndpoint}을(를) 5초마다 폴링하고 30초마다 하트비트를 보냅니다. 첫 하트비트 직후 호스트가 아래에 표시됩니다."
+        },
+        "tokenPlaceholderHint": "위에서 설치 토큰을 생성하세요 — 화면에 표시되는 동안 step 3 명령이 실제 값으로 자동 갱신됩니다.",
+        "heartbeat": "하트비트 {when}"
+      }
+    },
+    "landing": {
+      "tagline": "AI 에이전트를 디자인부터 배포까지 오케스트레이션하세요.",
+      "feature": {
+        "planning": {
+          "title": "대화형 플래닝",
+          "description": "단일 채팅으로 회사에 무엇을 만들지 지시하세요."
+        },
+        "live": {
+          "title": "실시간 진행",
+          "description": "실행이 끝나는 순간 납품물과 의사결정이 실시간으로 도착합니다."
+        },
+        "workers": {
+          "title": "분산 워커",
+          "description": "원격 워커 노드가 자체 호스트의 CLI로 코드를 실행합니다."
+        }
+      },
+      "ctaGo": "대시보드로 이동",
+      "footer": "Powered by BSVibe"
+    }
+  }
+}

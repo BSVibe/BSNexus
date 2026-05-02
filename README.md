@@ -81,12 +81,15 @@ uv run --project . uvicorn backend.src.main:app --host 0.0.0.0 --port 18100 --ap
 cd frontend
 pnpm install
 VITE_API_URL=http://localhost:18100 \
-VITE_DEV_BYPASS_TOKEN=dev-token \
+VITE_AUTH_URL=https://auth.bsvibe.dev \
 pnpm dev --host 0.0.0.0 --port 13100
 ```
 
-Open http://localhost:13100 — dev mode bypasses auth via
-`VITE_DEV_BYPASS_TOKEN=dev-token`.
+Open http://localhost:13100 — the frontend authenticates via
+BSVibe-Auth (`auth.bsvibe.dev`) cross-subdomain cookie SSO, or by
+landing on `#/auth/callback` with tokens in the URL fragment. There
+is no client-side dev-bypass token — local Playwright runs send the
+backend's `E2E_TEST_TOKEN` directly as the `Authorization` header.
 
 ## Tech Stack
 
