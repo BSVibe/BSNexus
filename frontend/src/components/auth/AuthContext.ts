@@ -5,6 +5,7 @@ interface AuthContextValue {
     id: string
     email: string
     tenantId: string
+    tenantName: string | null
     role: string
   } | null
   loading: boolean

@@ -34,6 +34,7 @@ interface User {
   id: string
   email: string
   tenantId: string
+  tenantName: string | null
   role: string
 }
 
@@ -51,10 +52,18 @@ const LS_ACCESS_TOKEN = 'bsnexus_access_token'
 const LS_REFRESH_TOKEN = 'bsnexus_refresh_token'
 const LS_EXPIRES_AT = 'bsnexus_expires_at'
 
+interface SessionTenant {
+  id: string
+  name: string
+  role?: string
+}
+
 interface SessionResponse {
   access_token: string
   refresh_token: string
   expires_in: number
+  tenants?: SessionTenant[]
+  active_tenant_id?: string
 }
 
 let cachedToken: { value: string; expiresAt: number } | null = null
@@ -195,10 +204,26 @@ export function useAuth({
           email: string
           app_metadata?: { tenant_id?: string; role?: string }
         }
+        const tenantId = payload.app_metadata?.tenant_id ?? ''
+        // Tenant name lives in the auth-app session response (`tenants`
+        // array), not the JWT. Best-effort fetch — leave null on failure
+        // so the sidebar tagline simply collapses.
+        let tenantName: string | null = null
+        try {
+          const res = await fetch(`${AUTH_URL}/api/session`, { credentials: 'include' })
+          if (res.ok) {
+            const data: SessionResponse = await res.json()
+            const activeId = data.active_tenant_id ?? tenantId
+            tenantName = data.tenants?.find((t) => t.id === activeId)?.name ?? null
+          }
+        } catch {
+          // ignore
+        }
         setUser({
           id: payload.sub,
           email: payload.email,
-          tenantId: payload.app_metadata?.tenant_id ?? '',
+          tenantId,
+          tenantName,
           role: payload.app_metadata?.role ?? 'member',
         })
       } catch {

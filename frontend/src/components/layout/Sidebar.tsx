@@ -92,7 +92,9 @@ export default function Sidebar({
         <SidebarBrand
           icon={<span style={{ fontWeight: 700, fontSize: 11 }}>BN</span>}
           name={t('brandName')}
-          tagline="Company OS"
+          // Active workspace (tenant) name. Collapses when not known —
+          // unified with Gateway / Supervisor / Sage.
+          tagline={user?.tenantName ?? undefined}
           href="/dashboard"
         />
       }
