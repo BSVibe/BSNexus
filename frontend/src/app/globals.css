@@ -126,6 +126,32 @@ kbd {
   flex-shrink: 0;
 }
 
+/* ────────── Settings page (responsive grid) ────────── */
+.settings-grid {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  height: 100%;
+  min-height: 0;
+}
+.settings-nav {
+  border-right: 1px solid var(--border-subtle);
+  padding: 24px 16px;
+}
+.settings-nav__title {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 0 8px 8px;
+}
+.settings-main {
+  overflow: auto;
+  padding: 32px;
+}
+.settings-main__inner {
+  max-width: 820px;
+}
+
 /* ────────── App grid ────────── */
 .app {
   display: grid;
@@ -450,6 +476,35 @@ kbd {
   .mn {
     padding-top: 3.5rem;
   }
+  /* SettingsPage: collapse the 220px sidebar + main grid into a single
+     column. Nav becomes a horizontal scroll strip above the content so
+     all three sections (통합/실행기/언어) stay reachable without eating
+     ~half the viewport width. Without this the right pane drops to
+     ~150px on a 390px viewport and IntegrationCard content overflows. */
+  .settings-grid {
+    grid-template-columns: 1fr !important;
+    grid-template-rows: auto 1fr;
+  }
+  .settings-nav {
+    border-right: 0 !important;
+    border-bottom: 1px solid var(--border-subtle);
+    padding: 12px 12px !important;
+    display: flex;
+    overflow-x: auto;
+    gap: 4px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .settings-nav__title {
+    display: none; /* Section header label takes its place at the top of main. */
+  }
+  .settings-nav .sb-item {
+    flex-shrink: 0;
+    width: auto;
+  }
+  .settings-main {
+    padding: 16px !important;
+  }
+}
   /* The primary nav drawer is owned by `@bsvibe/layout`'s
      ResponsiveSidebar — it ships its own fixed-position drawer + backdrop
      + hamburger. Only the chat rail still uses the .app--mobile-chat-open

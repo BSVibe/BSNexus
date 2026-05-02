@@ -42,31 +42,9 @@ export default function SettingsPage() {
   }
 
   return (
-    <div
-      style={{
-        display: 'grid',
-        gridTemplateColumns: '220px 1fr',
-        height: '100%',
-        minHeight: 0,
-      }}
-    >
-      <nav
-        style={{
-          borderRight: '1px solid var(--border-subtle)',
-          padding: '24px 16px',
-        }}
-      >
-        <div
-          style={{
-            fontSize: 11,
-            color: 'var(--text-tertiary)',
-            textTransform: 'uppercase',
-            letterSpacing: '0.08em',
-            padding: '0 8px 8px',
-          }}
-        >
-          {t('title')}
-        </div>
+    <div className="settings-grid">
+      <nav className="settings-nav">
+        <div className="settings-nav__title">{t('title')}</div>
         {SECTIONS.map((s) => (
           <button
             key={s.id}
@@ -80,8 +58,8 @@ export default function SettingsPage() {
         ))}
       </nav>
 
-      <div style={{ overflow: 'auto', padding: 32 }}>
-        <div style={{ maxWidth: 820 }}>
+      <div className="settings-main">
+        <div className="settings-main__inner">
           <div style={{ marginBottom: 24 }}>
             <h1 className="page-title">{t(`sections.${activeSection.id}.label`)}</h1>
             <div className="page-sub">{t(`sections.${activeSection.id}.summary`)}</div>
