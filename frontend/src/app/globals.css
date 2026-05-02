@@ -504,7 +504,6 @@ kbd {
   .settings-main {
     padding: 16px !important;
   }
-}
   /* The primary nav drawer is owned by `@bsvibe/layout`'s
      ResponsiveSidebar — it ships its own fixed-position drawer + backdrop
      + hamburger. Only the chat rail still uses the .app--mobile-chat-open
