@@ -23,8 +23,6 @@ from backend.src.core.integrations import get_tenant_integration_snapshot
 from backend.src.core.orchestrator_adapter import LiteLLMOrchestratorAdapter
 from backend.src.core.run_artifacts import publish_run_output
 from backend.src.core.run_orchestrator import get_run_orchestrator
-from backend.src.core.worker_adapter import WorkerDispatchAdapter
-from backend.src.core.worker_dispatch import WorkerDispatcher
 from backend.src.models import ExecutorConfig, RunStatus
 from backend.src.storage.database import async_session
 

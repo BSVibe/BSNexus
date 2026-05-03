@@ -22,7 +22,6 @@ from backend.src.api import (
     project_events,
     projects,
     requests_api,
-    workers as workers_api,
     workspace_files,
 )
 from backend.src.config import settings as app_settings
@@ -153,15 +152,12 @@ async def lifespan(app: FastAPI):
     app.state.stream_manager = stream_manager
     await start_background_consumer(app)
 
-    # Drain runs:results → orchestrator.on_run_completed. Closes the
-    # loop for worker-executed runs so they don't stay stuck in
-    # ``running`` forever.
-    from backend.src.queue.worker_result_consumer import WorkerResultConsumer
     from backend.src.storage.database import async_session
 
-    worker_result_consumer = WorkerResultConsumer(stream_manager=stream_manager, session_maker=async_session)
-    await worker_result_consumer.start()
-    app.state.worker_result_consumer = worker_result_consumer
+    # Direction reset 2026-05-03 — BSNexus no longer hosts workers; the
+    # worker_result_consumer that drained runs:results into
+    # on_run_completed is gone. BSGateway-dispatched runs complete
+    # synchronously via the chat completion stream (BSGatewayClient).
 
     # Phase Audit Batch 2 — bsvibe-audit OutboxRelay. Reads
     # ``audit_outbox`` rows that domain code wrote inside their own
@@ -179,7 +175,6 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         await audit_relay.stop()
-        await worker_result_consumer.stop()
         await close_redis()
 
 
@@ -195,7 +190,6 @@ _ROUTERS = [
     inside.snapshot_router,
     integrations.router,
     executor_configs.router,
-    workers_api.router,
     workspace_files.router,
     project_events.router,
 ]
