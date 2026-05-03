@@ -83,6 +83,10 @@ services:
     restart: unless-stopped
     ports:
       - "8100:8000"
+    # env_file forwards the entire .env so newly-added vars (e.g. USER_JWT_*
+    # for cross-app session JWT verification) reach the container without
+    # needing a per-key entry in the `environment:` block below.
+    env_file: .env
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-bsnexus}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-bsnexus}
       REDIS_URL: redis://redis:6379
