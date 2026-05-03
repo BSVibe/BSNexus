@@ -306,7 +306,7 @@ requires-dist = [
     { name = "asyncpg", specifier = ">=0.29.0" },
     { name = "bsvibe-audit", git = "https://github.com/BSVibe/bsvibe-python.git?subdirectory=packages%2Fbsvibe-audit&rev=feat%2Faudit-decorator-extensions" },
     { name = "bsvibe-auth", extras = ["fastapi"], git = "https://github.com/BSVibe/BSVibe-Auth.git?subdirectory=python&rev=v0.5.0" },
-    { name = "bsvibe-authz", git = "https://github.com/BSVibe/bsvibe-python.git?subdirectory=packages%2Fbsvibe-authz&rev=feat%2Fbsvibe-authz-impl" },
+    { name = "bsvibe-authz", git = "https://github.com/BSVibe/bsvibe-python.git?subdirectory=packages%2Fbsvibe-authz&rev=main" },
     { name = "bsvibe-core", git = "https://github.com/BSVibe/bsvibe-python.git?subdirectory=packages%2Fbsvibe-core&rev=feat%2Faudit-decorator-extensions" },
     { name = "bsvibe-llm", git = "https://github.com/BSVibe/bsvibe-python.git?subdirectory=packages%2Fbsvibe-llm&rev=feat%2Faudit-decorator-extensions" },
     { name = "fastapi", specifier = ">=0.109.0" },
@@ -373,7 +373,7 @@ fastapi = [
 [[package]]
 name = "bsvibe-authz"
 version = "0.1.0"
-source = { git = "https://github.com/BSVibe/bsvibe-python.git?subdirectory=packages%2Fbsvibe-authz&rev=feat%2Fbsvibe-authz-impl#faff9e171aa8e60750cd9354a4918bf9c6cd259b" }
+source = { git = "https://github.com/BSVibe/bsvibe-python.git?subdirectory=packages%2Fbsvibe-authz&rev=main#92770da53c93df060631c4ba711690e32fe9ca32" }
 dependencies = [
     { name = "fastapi" },
     { name = "httpx" },
