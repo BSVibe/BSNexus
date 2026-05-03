@@ -435,41 +435,38 @@ async def build_adapter(
     exec_type = (row.executor_type or "").lower()
     cfg = row.config or {}
 
-    if exec_type == "generic_llm":
-        model = cfg.get("model")
-        if not model:
-            return None
-        return LiteLLMOrchestratorAdapter(
-            model=model,
-            project_id=project_id,
-            api_key=cfg.get("api_key") or "unused",
-            base_url=cfg.get("base_url"),
-        )
+    # Direction reset 2026-05-03 — all executor types route through
+    # BSGateway via BSGatewayAdapter. The differentiator is the ``model``
+    # string sent to BSGateway:
+    #   - claude_code / codex / opencode ⇒ literal as the model name
+    #   - bsgateway / generic_llm        ⇒ cfg.model (LiteLLM-routed)
+    # gateway_url + bsgateway_api_key live on the ExecutorConfig row.
+    # ``stream_manager`` and ``run_id`` are kept in the signature for the
+    # cutover window — old callers / tests still pass them.
+    _ = stream_manager  # noqa: F841 — retained for caller-compat
+    _ = run_id  # noqa: F841
 
-    if exec_type == "bsgateway":
-        gateway_url = cfg.get("bsgateway_url")
-        if not gateway_url:
-            return None
-        return LiteLLMOrchestratorAdapter(
-            model=cfg.get("model") or "openai/gpt-4o-mini",
-            project_id=project_id,
-            api_key=cfg.get("bsgateway_api_key") or "unused",
-            base_url=gateway_url,
-        )
+    gateway_url = cfg.get("bsgateway_url") or cfg.get("base_url")
+    if not gateway_url:
+        return None
+    api_key = cfg.get("bsgateway_api_key") or cfg.get("api_key") or "unused"
 
-    if exec_type in {"worker", "claude_code", "codex"}:
-        if stream_manager is None:
-            return None
-        required = None if exec_type == "worker" else [exec_type]
-        dispatcher = WorkerDispatcher(stream_manager)
-        worker = await dispatcher.find_available_worker(session, tenant_id=tenant_id, required_capabilities=required)
-        if worker is None:
-            return None
-        return WorkerDispatchAdapter(
-            stream_manager=stream_manager,
-            worker_id=worker.id,
-            run_id=run_id,
-            project_id=project_id,
-        )
+    if exec_type in {"claude_code", "codex", "opencode"}:
+        model = exec_type
+    elif exec_type in {"bsgateway", "generic_llm", "worker"}:
+        model = cfg.get("model") or "claude_code"
+    else:
+        return None
 
-    return None
+    from backend.src.core.bsgateway import BSGatewayAdapter, BSGatewayClient  # noqa: PLC0415
+    from backend.src.core.project_workspace import project_workspace_path  # noqa: PLC0415
+
+    client = BSGatewayClient(base_url=gateway_url, api_key=api_key)
+    workspace_dir = str(project_workspace_path(project_id))
+    return BSGatewayAdapter(
+        client=client,
+        model=model,
+        project_id=project_id,
+        run_audit_metadata=None,  # dispatcher patches via set_run_audit_metadata
+        workspace_dir=workspace_dir,
+    )
