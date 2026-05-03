@@ -160,6 +160,25 @@ async def _dispatch_background(
                     }
                 )
 
+            # Direction reset 2026-05-03 — Inside panel live streaming.
+            # Each delta.content chunk from BSGateway becomes a run_output
+            # event on the project SSE bus so the founder watches claude
+            # type in real time.
+            if hasattr(adapter, "set_on_chunk"):
+                from backend.src.core.project_events import (  # noqa: PLC0415
+                    publish_run_output as _publish_run_output_event,
+                )
+
+                _captured_run_id = run.id
+                _captured_project_id = run.project_id
+
+                async def _on_chunk(text: str) -> None:
+                    await _publish_run_output_event(
+                        _captured_project_id, run_id=_captured_run_id, chunk=text
+                    )
+
+                adapter.set_on_chunk(_on_chunk)
+
             prepared = {
                 "adapter": adapter,
                 "system_prompt": (snapshot_row.system_prompt_ref or {}).get("inline", ""),

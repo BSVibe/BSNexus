@@ -127,6 +127,7 @@ async def resolve_decision(
     # Direction reset 2026-05-03 — unblock any MCP ``decision.wait``
     # callers parked on this decision_id. The BSGateway worker's claude
     # CLI resumes its run with the founder's choice as the tool result.
+    from backend.src.core.project_events import publish_decision_resolved  # noqa: PLC0415
     from backend.src.mcp import get_decision_queue  # noqa: PLC0415
 
     get_decision_queue().notify(
@@ -135,6 +136,15 @@ async def resolve_decision(
             "choice": decision.resolution or "",
             "notes": "",
         },
+    )
+
+    # SSE fan-out so the Decisions tab can dismiss the row immediately
+    # and the Inside panel can flip its blocked banner.
+    await publish_decision_resolved(
+        decision.project_id,
+        decision_id=decision.id,
+        resolution=decision.resolution or "",
+        resolved_by=decision.resolved_by,
     )
 
     integrations = await get_tenant_integration_snapshot(db, tenant_id)

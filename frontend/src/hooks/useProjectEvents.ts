@@ -79,6 +79,34 @@ export function useProjectEvents(projectId: string | null): ConnectionStatus {
         queryClient.invalidateQueries({ queryKey: ['decisions', projectId] })
       })
 
+      es.addEventListener('decision_resolved', () => {
+        // Resolve API already calls publish_decision_resolved; the
+        // Decisions tab must dismiss the row immediately and the
+        // Inside panel flips its blocked banner.
+        queryClient.invalidateQueries({ queryKey: ['decisions', projectId] })
+        queryClient.invalidateQueries({ queryKey: ['runs', projectId] })
+      })
+
+      es.addEventListener('run_output', (e: MessageEvent) => {
+        // Direction reset 2026-05-03 — Inside panel live streaming.
+        // BSGatewayAdapter pushes each delta.content chunk as a
+        // run_output event. Append onto the per-run output cache.
+        try {
+          const data: { run_id: string; content: string; finish_reason: string | null } =
+            JSON.parse(e.data)
+          queryClient.setQueryData<Record<string, string>>(
+            ['run-output', projectId],
+            (old) => {
+              const next = { ...(old ?? {}) }
+              next[data.run_id] = (next[data.run_id] ?? '') + data.content
+              return next
+            },
+          )
+        } catch {
+          /* ignore parse errors */
+        }
+      })
+
       es.onerror = () => {
         // EventSource auto-reconnects on its own using the server's
         // ``retry:`` directive; we just surface the state.

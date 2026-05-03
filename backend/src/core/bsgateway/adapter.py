@@ -53,6 +53,7 @@ class BSGatewayAdapter:
         run_audit_metadata: dict[str, Any] | None = None,
         workspace_dir: str | None = None,
         mcp_servers: dict[str, Any] | None = None,
+        on_chunk: Any | None = None,
     ) -> None:
         self._client = client
         self._model = model
@@ -60,6 +61,7 @@ class BSGatewayAdapter:
         self._run_audit_metadata: dict[str, Any] = dict(run_audit_metadata) if run_audit_metadata else {}
         self._workspace_dir = workspace_dir
         self._mcp_servers = mcp_servers
+        self._on_chunk = on_chunk
 
     def set_run_audit_metadata(self, metadata: dict[str, Any] | None) -> None:
         """Replace the metadata bag sent to BSGateway on subsequent ``execute``."""
@@ -70,6 +72,11 @@ class BSGatewayAdapter:
 
     def set_mcp_servers(self, mcp_servers: dict[str, Any] | None) -> None:
         self._mcp_servers = mcp_servers
+
+    def set_on_chunk(self, on_chunk: Any | None) -> None:
+        """Callback fired for every ``delta.content`` chunk. Used by the
+        dispatcher to publish run_output events to the Inside panel SSE."""
+        self._on_chunk = on_chunk
 
     async def execute(
         self,
@@ -87,10 +94,13 @@ class BSGatewayAdapter:
                 messages.append({"role": role, "content": content})
         messages.append({"role": "user", "content": user_prompt})
 
-        return await self._client.execute(
+        kwargs: dict[str, Any] = dict(
             messages=messages,
             metadata=self._run_audit_metadata,
             model=self._model,
             workspace_dir=self._workspace_dir,
             mcp_servers=self._mcp_servers,
         )
+        if self._on_chunk is not None:
+            kwargs["on_chunk"] = self._on_chunk
+        return await self._client.execute(**kwargs)
