@@ -131,6 +131,35 @@ async def _dispatch_background(
             if hasattr(adapter, "set_run_audit_metadata"):
                 adapter.set_run_audit_metadata(build_run_audit_metadata(run=run, snapshot=snapshot_row))
 
+            # Direction reset 2026-05-03 — mint a run-scoped MCP token
+            # and inject the BSNexus MCP server URL so the BSGateway
+            # worker's claude CLI can call back via decision.create /
+            # decision.wait / artifact.list / knowledge.search.
+            if hasattr(adapter, "set_mcp_servers"):
+                from backend.src.config import settings as _settings  # noqa: PLC0415
+                from backend.src.mcp import issue_run_scoped_token  # noqa: PLC0415
+
+                token = issue_run_scoped_token(
+                    {
+                        "run_id": str(run.id),
+                        "tenant_id": str(run.tenant_id),
+                        "project_id": str(run.project_id),
+                    },
+                    signing_key=_settings.mcp_signing_key,
+                    # exp = run timeout + 5 min grace (BSGateway per-call
+                    # timeout default is 3600s).
+                    ttl_seconds=3600 + 300,
+                )
+                base = _settings.mcp_internal_url.rstrip("/")
+                adapter.set_mcp_servers(
+                    {
+                        "bsnexus": {
+                            "url": f"{base}/mcp/sse?token={token}",
+                            "headers": {},
+                        }
+                    }
+                )
+
             prepared = {
                 "adapter": adapter,
                 "system_prompt": (snapshot_row.system_prompt_ref or {}).get("inline", ""),

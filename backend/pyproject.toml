@@ -52,6 +52,7 @@ dependencies = [
     # bsvibe-core / bsvibe-llm / bsvibe-audit Audit-1). Re-pin to a
     # release tag once both branches land on main.
     "bsvibe-audit @ git+https://github.com/BSVibe/bsvibe-python.git@feat/audit-decorator-extensions#subdirectory=packages/bsvibe-audit",
+    "mcp>=1.0",
 ]
 
 [project.optional-dependencies]

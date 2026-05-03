@@ -258,6 +258,14 @@ def create_app(
     for router in _ROUTERS:
         _app.include_router(router)
 
+    # Direction reset 2026-05-03 — BSNexus MCP server. ``/mcp/health``
+    # is registered as a normal router; ``/mcp/sse`` is a Starlette
+    # ASGI mount because FastMCP returns its own ASGI app.
+    from backend.src.mcp.server import attach_to_app, router as mcp_router  # noqa: PLC0415
+
+    _app.include_router(mcp_router)
+    attach_to_app(_app)
+
     return _app
 
 

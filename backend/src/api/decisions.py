@@ -124,6 +124,19 @@ async def resolve_decision(
     await db.commit()
     await db.refresh(decision)
 
+    # Direction reset 2026-05-03 — unblock any MCP ``decision.wait``
+    # callers parked on this decision_id. The BSGateway worker's claude
+    # CLI resumes its run with the founder's choice as the tool result.
+    from backend.src.mcp import get_decision_queue  # noqa: PLC0415
+
+    get_decision_queue().notify(
+        decision.id,
+        result={
+            "choice": decision.resolution or "",
+            "notes": "",
+        },
+    )
+
     integrations = await get_tenant_integration_snapshot(db, tenant_id)
     knowledge = resolve_knowledge_client(integrations.bsage)
     project = (await db.execute(select(Project).where(Project.id == decision.project_id))).scalar_one_or_none()
