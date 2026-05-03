@@ -122,8 +122,21 @@ async def ensure_personal_tenant(db: AsyncSession, tenant_id: uuid.UUID, user: B
                 set_={"name": name, "owner_user_id": owner},
             )
         )
-        await db.execute(stmt)
-        await db.commit()
+        try:
+            await db.execute(stmt)
+            await db.commit()
+        except IntegrityError:
+            # ``ON CONFLICT (id)`` does not cover the ``slug`` unique
+            # constraint. A stale row from a prior partial write can hold
+            # this user's slug under a different tenant_id; swallow the
+            # collision so the request can continue using the stale row.
+            await db.rollback()
+            logger.warning(
+                "tenant_slug_conflict_swallowed",
+                slug=slug,
+                attempted_id=str(tenant_id),
+                exc_info=True,
+            )
         return
 
     # Dialect-agnostic fallback (SQLite tests, etc.)
