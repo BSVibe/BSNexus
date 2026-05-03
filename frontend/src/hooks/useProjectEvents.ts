@@ -66,9 +66,31 @@ export function useProjectEvents(projectId: string | null): ConnectionStatus {
         }
       })
 
-      es.addEventListener('run_transition', () => {
+      es.addEventListener('run_transition', (e: MessageEvent) => {
         // ExecutionRun status / Inspector view care about these.
         queryClient.invalidateQueries({ queryKey: ['runs', projectId] })
+
+        // Prune the run-output live cache once the run reaches a
+        // terminal state — the persisted ``run.output_ref`` takes over
+        // rendering and the streamed text is no longer needed. Without
+        // this, every completed run leaks its full streamed text into
+        // the react-query cache forever (Inside-session LRU only).
+        try {
+          const data: { run_id?: string; to?: string } = JSON.parse(e.data ?? '{}')
+          if (data.run_id && (data.to === 'done' || data.to === 'blocked')) {
+            queryClient.setQueryData<Record<string, string>>(
+              ['run-output', projectId],
+              (old) => {
+                if (!old || !data.run_id || !(data.run_id in old)) return old
+                const next = { ...old }
+                delete next[data.run_id]
+                return next
+              },
+            )
+          }
+        } catch {
+          /* ignore parse errors */
+        }
       })
 
       es.addEventListener('deliverable', () => {

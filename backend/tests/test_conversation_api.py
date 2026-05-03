@@ -219,6 +219,53 @@ async def test_send_request_captures_originator_auth(client, db_session):
 
 
 @pytest.mark.asyncio
+async def test_send_request_emits_nexus_request_created_audit(client, db_session, mock_tenant_id):
+    """Direction reset 2026-05-03 — the inline rule that replaced
+    RequestExtractor must still emit ``nexus.request.created`` to the
+    audit outbox so downstream services see the founder's intent."""
+    from bsvibe_audit import AuditOutboxRecord
+    from sqlalchemy import select
+
+    project_id = await _make_project(client)
+    resp = await client.post(
+        f"/api/v1/projects/{project_id}/messages",
+        json={"content": "Implement the login screen"},
+        headers={"Authorization": "Bearer fake"},
+    )
+    assert resp.status_code == 201
+    request_id = uuid.UUID(resp.json()["request_id"])
+
+    rows = (await db_session.execute(select(AuditOutboxRecord))).scalars().all()
+    request_rows = [r for r in rows if r.event_type == "nexus.request.created"]
+    assert len(request_rows) == 1
+    payload = request_rows[0].payload
+    assert payload["actor"]["type"] == "user"
+    assert payload["tenant_id"] == str(mock_tenant_id)
+    assert payload["resource"]["type"] == "request"
+    assert payload["resource"]["id"] == str(request_id)
+    assert payload["data"]["intent_summary"] == "Implement the login screen"
+
+
+@pytest.mark.asyncio
+async def test_send_blank_content_does_not_emit_audit(client, db_session):
+    """Whitespace-only content takes the no-Request branch — no audit
+    emit, no outbox row."""
+    from bsvibe_audit import AuditOutboxRecord
+    from sqlalchemy import select
+
+    project_id = await _make_project(client)
+    await client.post(
+        f"/api/v1/projects/{project_id}/messages",
+        json={"content": "   "},
+        headers={"Authorization": "Bearer fake"},
+    )
+
+    rows = (await db_session.execute(select(AuditOutboxRecord))).scalars().all()
+    types = [r.event_type for r in rows]
+    assert "nexus.request.created" not in types
+
+
+@pytest.mark.asyncio
 async def test_each_user_message_creates_its_own_request(client, _stub_background_dispatch):
     """Direction reset 2026-05-03: every non-empty user message opens
     a fresh Request and seeds a fresh ExecutionRun. The previous

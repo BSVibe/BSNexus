@@ -32,7 +32,16 @@ class BSGatewayError(Exception):
     The orchestrator catches this at the executor boundary and
     transitions the run to ``blocked`` — no in-band retry logic here
     (rate-limit / timeout retries belong inside the BSGateway worker).
+
+    ``partial_output`` carries the text streamed before the failure
+    happened so the founder still sees what claude produced (the
+    Inside panel reads ``run.output_ref.inline``). May be empty if the
+    failure occurred before any delta arrived.
     """
+
+    def __init__(self, message: str, *, partial_output: str = "") -> None:
+        super().__init__(message)
+        self.partial_output = partial_output
 
 
 class BSGatewayClient:
@@ -131,7 +140,7 @@ class BSGatewayClient:
                         err = chunk.get("error")
                         if err:
                             msg = err.get("message") or "BSGateway executor error"
-                            raise BSGatewayError(msg)
+                            raise BSGatewayError(msg, partial_output="".join(parts))
 
                         choices = chunk.get("choices") or []
                         if not choices:

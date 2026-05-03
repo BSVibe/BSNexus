@@ -203,7 +203,13 @@ async def _dispatch_background(
             raise
         except Exception as exc:  # noqa: BLE001 — sink-all at the LLM boundary
             logger.warning("llm_execute_failed", run_id=str(run_id), exc_info=True)
+            # Preserve any partial output the BSGatewayClient buffered
+            # before the terminal error chunk. ``BSGatewayError.partial_output``
+            # is empty for non-streaming or pre-stream HTTP failures.
+            partial = getattr(exc, "partial_output", "") or ""
             result = {"_error": str(exc)}
+            if partial:
+                result["output_ref"] = {"inline": partial}
 
         # Async / worker executors return a "dispatched" sentinel —
         # they'll finalize via the worker-result consumer, not here.
@@ -234,10 +240,28 @@ async def _dispatch_background(
                     originator_token = req_row.originator_auth
 
             if isinstance(result, dict) and "_error" in result:
-                from backend.src.models import RunStatus as _RunStatus  # noqa: PLC0415
+                # Route through RunStateMachine.transition so the run-history
+                # row, milestone activity row, ``run_transition`` SSE event,
+                # and ``nexus.run.blocked`` audit emit all fire (CLAUDE.md
+                # NEVER rule). Direct status assignment used to skip all four
+                # — pre-merge review caught the regression.
+                from backend.src.core.state_machine import RunStateMachine  # noqa: PLC0415
 
-                run.status = _RunStatus.blocked
-                run.error_message = result["_error"]
+                # Persist any partial output streamed before the failure so
+                # the founder sees what claude actually produced rather than
+                # a blank Inside panel after the stream cuts out.
+                if isinstance(result.get("output_ref"), dict) and result["output_ref"].get("inline"):
+                    run.output_type = "text"
+                    run.output_ref = result["output_ref"]
+                state_machine = RunStateMachine()
+                await state_machine.transition(
+                    run,
+                    RunStatus.blocked,
+                    reason=result["_error"],
+                    actor="orchestrator",
+                    db_session=session,
+                    stream_manager=stream_manager,
+                )
                 await session.commit()
                 return
 
