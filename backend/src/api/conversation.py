@@ -1,14 +1,14 @@
 """Conversation API — list + send project chat messages.
 
-Each user message is run through ``RequestExtractor``:
+Direction reset 2026-05-03 — request extraction is now a single rule:
 
-- ``chit_chat`` / ``question`` → message persists, no Request side effect.
-- ``request``                  → new Request row created.
-- ``modification``             → appended to the latest open Request, or
-                                 a new Request if none exists.
+- non-empty user content ⇒ new Request row, dispatch one ExecutionRun.
+- empty user content     ⇒ message persists, no Request side effect.
 
-Response exposes the classification so the frontend can render a
-"요청이 열렸어요" chip.
+The previous LLM-driven chit_chat / question / request / modification
+classifier is retired with ``request_extractor.py``. Modifications-on-
+in-flight-Request UX is folded into the next Request (BSGateway's CLI
+agent reads chat history on each turn).
 """
 
 from __future__ import annotations
@@ -21,14 +21,21 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.src.core.audit import (
+    actor_from_user,
+    actor_system,
+    resource_request,
+    safe_emit,
+)
 from backend.src.core.auth import get_current_user
 from backend.src.core.dispatcher import _dispatch_background, build_adapter
-from backend.src.core.request_extractor import RequestExtractor
 from backend.src.core.tenant_context import get_tenant_id
 from backend.src.models import (
     ConversationMessage,
     ExecutionRun,
     Project,
+    Request as RequestModel,
+    RequestStatus,
     RunPriority,
     RunStatus,
 )
@@ -53,14 +60,6 @@ def _build_ack_content(intent_summary: str) -> str:
     if snippet:
         return f"⚡ Starting work on: **{snippet}**"
     return "⚡ On it."
-
-
-async def _request_has_active_run(db: AsyncSession, request_id: uuid.UUID) -> bool:
-    stmt = select(ExecutionRun.id).where(
-        ExecutionRun.request_id == request_id,
-        ExecutionRun.status.in_((RunStatus.pending, RunStatus.running)),
-    )
-    return (await db.execute(stmt)).first() is not None
 
 
 async def _require_project(db: AsyncSession, project_id: uuid.UUID, tenant_id: uuid.UUID) -> Project:
@@ -113,8 +112,40 @@ async def send_message(
     db.add(message)
     await db.flush()
 
-    extractor = RequestExtractor()  # static classifier by default
-    outcome = await extractor.process_message(message, tenant_id=tenant_id, db=db, actor_user=user)
+    # Direction reset 2026-05-03 — inline rule replaces RequestExtractor.
+    # Non-empty user content opens a new Request and seeds one Run.
+    request_obj: RequestModel | None = None
+    created_new = False
+    content_stripped = (payload.content or "").strip()
+    if content_stripped:
+        request_obj = RequestModel(
+            tenant_id=tenant_id,
+            project_id=project_id,
+            origin_message_id=message.id,
+            intent_summary=content_stripped[:240],
+            status=RequestStatus.open,
+        )
+        db.add(request_obj)
+        await db.flush()
+        message.request_id = request_obj.id
+        created_new = True
+
+        # Phase Audit Batch 2 — emit ``nexus.request.created`` so
+        # downstream services see the founder's intent.
+        from bsvibe_audit.events.nexus import RequestCreated  # noqa: PLC0415
+
+        await safe_emit(
+            RequestCreated(
+                actor=actor_from_user(user) if user is not None else actor_system(),
+                tenant_id=str(tenant_id),
+                resource=resource_request(request_obj.id),
+                data={
+                    "project_id": str(project_id),
+                    "intent_summary": request_obj.intent_summary,
+                },
+            ),
+            session=db,
+        )
 
     # Capture the founder's Bearer token so post-run sibling-service
     # calls (BSage index) can forward the same identity. Auto same-
@@ -123,72 +154,47 @@ async def send_message(
     originator_token: str | None = None
     if auth_header.lower().startswith("bearer "):
         originator_token = auth_header.split(" ", 1)[1].strip() or None
-    if outcome.request is not None and originator_token:
-        outcome.request.originator_auth = originator_token
+    if request_obj is not None and originator_token:
+        request_obj.originator_auth = originator_token
 
-    # Run dispatch policy:
-    #
-    # - chit_chat / question → no run, no ack. Just the user message.
-    # - request (new Request created) → seed one ExecutionRun pending; the
-    #   background dispatcher's Phase 0 calls the replanner for the
-    #   first iteration. Insert a chip-style ack so the chat doesn't
-    #   look frozen during the replanner LLM round-trip.
-    # - modification on an already-running Request → DO NOT seed a new
-    #   run. The replanner pulls recent founder messages on every
-    #   iteration; the modification will land in the next iteration's
-    #   plan automatically. Insert a small mod_ack so the founder sees
-    #   the steer was received.
     run_to_dispatch: uuid.UUID | None = None
-    if outcome.request is not None:
-        active_run_exists = await _request_has_active_run(db, outcome.request.id)
-        if active_run_exists and not outcome.created_new:
-            # Modification riding on an in-flight chain — let it ride.
-            mod_ack = ConversationMessage(
-                project_id=project_id,
-                role="assistant",
-                content=("확인했어요. 진행 중인 작업이 끝나면 이 변경사항 반영해서 다음 단계 잡을게요."),
-                request_id=outcome.request.id,
-                actions=[{"kind": "mod_ack"}],
-            )
-            db.add(mod_ack)
-        else:
-            seeded_run = ExecutionRun(
-                tenant_id=tenant_id,
-                project_id=project_id,
-                request_id=outcome.request.id,
-                status=RunStatus.pending,
-                priority=RunPriority.medium,
-            )
-            db.add(seeded_run)
-            await db.flush()
-            run_to_dispatch = seeded_run.id
+    if request_obj is not None:
+        seeded_run = ExecutionRun(
+            tenant_id=tenant_id,
+            project_id=project_id,
+            request_id=request_obj.id,
+            status=RunStatus.pending,
+            priority=RunPriority.medium,
+        )
+        db.add(seeded_run)
+        await db.flush()
+        run_to_dispatch = seeded_run.id
 
-            ack_msg = ConversationMessage(
-                project_id=project_id,
-                role="assistant",
-                content=_build_ack_content(outcome.request.intent_summary),
-                request_id=outcome.request.id,
-                actions=[{"kind": "ack", "run_id": str(seeded_run.id)}],
-            )
-            db.add(ack_msg)
+        ack_msg = ConversationMessage(
+            project_id=project_id,
+            role="assistant",
+            content=_build_ack_content(request_obj.intent_summary),
+            request_id=request_obj.id,
+            actions=[{"kind": "ack", "run_id": str(seeded_run.id)}],
+        )
+        db.add(ack_msg)
 
     await db.commit()
     await db.refresh(message)
-    if outcome.request is not None:
-        await db.refresh(outcome.request)
+    if request_obj is not None:
+        await db.refresh(request_obj)
 
     logger.info(
         "message_sent",
         project_id=str(project_id),
         message_id=str(message.id),
-        intent=outcome.intent.value,
-        request_created=outcome.created_new,
+        request_created=created_new,
         run_dispatched=bool(run_to_dispatch),
     )
 
     # SSE fan-out for the chat rail. Re-fetch the assistant rows the
-    # handler may have inserted (ack / mod_ack) so subscribers see them
-    # without waiting for a poll.
+    # handler may have inserted (ack) so subscribers see them without
+    # waiting for a poll.
     from backend.src.core.project_events import publish_message  # noqa: PLC0415
 
     await publish_message(
@@ -200,13 +206,13 @@ async def send_message(
         actions=list(message.actions or []),
         created_at=(message.created_at.isoformat() if message.created_at else ""),
     )
-    if outcome.request is not None:
+    if request_obj is not None:
         recent_assistant_stmt = (
             select(ConversationMessage)
             .where(
                 ConversationMessage.project_id == project_id,
                 ConversationMessage.role == "assistant",
-                ConversationMessage.request_id == outcome.request.id,
+                ConversationMessage.request_id == request_obj.id,
             )
             .order_by(ConversationMessage.created_at.desc())
             .limit(1)
@@ -229,10 +235,10 @@ async def send_message(
 
     return SendMessageResponse(
         message=MessageResponse.model_validate(message, from_attributes=True),
-        intent=outcome.intent.value,
-        request_id=outcome.request.id if outcome.request else None,
-        request_created=outcome.created_new,
-        intent_summary=(outcome.request.intent_summary if outcome.request else None),
+        intent="request" if created_new else "chit_chat",
+        request_id=request_obj.id if request_obj else None,
+        request_created=created_new,
+        intent_summary=(request_obj.intent_summary if request_obj else None),
     )
 
 

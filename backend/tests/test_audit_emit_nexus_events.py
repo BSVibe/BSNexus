@@ -44,7 +44,6 @@ from backend.src.core.audit import (
     resource_run,
     safe_emit,
 )
-from backend.src.core.request_extractor import RequestExtractor
 from backend.src.core.state_machine import RunStateMachine
 from backend.src.models import (
     ConversationMessage,
@@ -334,59 +333,9 @@ async def test_run_state_machine_does_not_emit_on_pending_retry(db_session, mock
     assert sorted(nexus_run_events) == ["nexus.run.blocked", "nexus.run.started"]
 
 
-# ── nexus.request.created via RequestExtractor ──────────────────────
-
-
-@pytest.mark.asyncio
-async def test_request_extractor_emits_request_created(db_session, mock_tenant_id, seeded_tenant):
-    project = Project(tenant_id=mock_tenant_id, name="Test")
-    db_session.add(project)
-    await db_session.flush()
-
-    msg = ConversationMessage(
-        project_id=project.id,
-        role="user",
-        content="please implement a login form",
-    )
-    db_session.add(msg)
-    await db_session.flush()
-
-    user = MagicMock()
-    user.id = "u-1"
-    user.email = "founder@test.dev"
-
-    extractor = RequestExtractor()
-    outcome = await extractor.process_message(msg, tenant_id=mock_tenant_id, db=db_session, actor_user=user)
-    await db_session.commit()
-
-    assert outcome.created_new is True
-
-    rows = [r for r in await _outbox_rows(db_session) if r.event_type == "nexus.request.created"]
-    assert len(rows) == 1
-    payload = rows[0].payload
-    assert payload["actor"]["type"] == "user"
-    assert payload["actor"]["email"] == "founder@test.dev"
-    assert payload["resource"]["type"] == "request"
-    assert payload["data"]["intent"] == "request"
-
-
-@pytest.mark.asyncio
-async def test_request_extractor_chit_chat_emits_no_event(db_session, mock_tenant_id, seeded_tenant):
-    project = Project(tenant_id=mock_tenant_id, name="Test")
-    db_session.add(project)
-    await db_session.flush()
-
-    msg = ConversationMessage(project_id=project.id, role="user", content="hi")
-    db_session.add(msg)
-    await db_session.flush()
-
-    extractor = RequestExtractor()
-    outcome = await extractor.process_message(msg, tenant_id=mock_tenant_id, db=db_session)
-    await db_session.commit()
-
-    assert outcome.created_new is False
-    types = await _types_in_outbox(db_session)
-    assert "nexus.request.created" not in types
+# ── nexus.request.created via conversation API inline rule ─────────
+# Coverage moved to test_conversation_api.py — the inline rule that
+# replaced RequestExtractor lives in api/conversation.send_message.
 
 
 # ── nexus.deliverable.created via run_artifacts ─────────────────────
