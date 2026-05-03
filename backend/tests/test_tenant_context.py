@@ -92,6 +92,35 @@ async def test_ensure_personal_tenant_inserts_and_updates(db_session):
 
 
 @pytest.mark.asyncio
+async def test_ensure_personal_tenant_swallows_slug_conflict(db_session):
+    """A stale row holding the same slug under a different tenant_id must
+    not crash ensure_personal_tenant.
+
+    Production hit this when prior partial e2e runs left tenant rows
+    with slug=user_id but a different generated tenant_id; the next
+    authenticated request from that user blew up with IntegrityError
+    on the slug unique constraint. Both the SQLite fallback (this test)
+    and the PostgreSQL path (mirrored try/except in
+    backend/src/core/tenant_context.py) must swallow the conflict and
+    leave the stale row alone.
+    """
+    user_id = "u-conflict"
+    target_tid = derive_personal_tenant_id(user_id)
+    other_tid = uuid.uuid4()
+    assert other_tid != target_tid
+
+    db_session.add(Tenant(id=other_tid, name="legacy", slug=user_id, owner_user_id="legacy"))
+    await db_session.commit()
+
+    user = _user(id_=user_id, email="u@e")
+    await ensure_personal_tenant(db_session, target_tid, user)
+
+    rows = (await db_session.execute(select(Tenant).where(Tenant.slug == user_id))).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].id == other_tid
+
+
+@pytest.mark.asyncio
 async def test_resolve_user_tenant_stamps_request_and_upserts(db_session):
     tid = uuid.uuid4()
     user = _user(id_="u1", email="u@e", tenant_id=tid)
