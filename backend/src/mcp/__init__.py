@@ -30,6 +30,8 @@ from backend.src.mcp.tools import (
     MCPToolError,
     create_decision,
     list_run_artifacts,
+    read_artifact,
+    report_deliverable,
     search_knowledge,
     wait_for_decision,
 )
@@ -43,6 +45,8 @@ __all__ = [
     "get_decision_queue",
     "issue_run_scoped_token",
     "list_run_artifacts",
+    "read_artifact",
+    "report_deliverable",
     "search_knowledge",
     "verify_run_scoped_token",
     "wait_for_decision",

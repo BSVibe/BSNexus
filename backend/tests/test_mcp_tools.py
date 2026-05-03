@@ -16,6 +16,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from sqlalchemy import select
 
 from backend.src.mcp.decision_queue import DecisionQueue
 from backend.src.mcp.tools import (
@@ -289,3 +290,219 @@ async def test_search_knowledge_delegates_to_client_search() -> None:
 
     items = await search_knowledge(query="auth flow", knowledge_client=_FakeKnowledge())
     assert items == [{"title": "auth.md", "excerpt": "JWT flow"}]
+
+
+# ─── report_deliverable ───────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_report_deliverable_persists_row_and_version(
+    db_session, mock_tenant_id, seeded_tenant
+):
+    from backend.src.mcp.tools import report_deliverable
+    from backend.src.models import DeliverableVersion
+
+    project = Project(tenant_id=mock_tenant_id, name="t")
+    db_session.add(project)
+    await db_session.flush()
+    request = Request(
+        tenant_id=mock_tenant_id,
+        project_id=project.id,
+        intent_summary="x",
+        status=RequestStatus.open,
+    )
+    db_session.add(request)
+    await db_session.flush()
+    run = ExecutionRun(
+        tenant_id=mock_tenant_id,
+        project_id=project.id,
+        request_id=request.id,
+        status=RunStatus.running,
+        priority=RunPriority.medium,
+    )
+    db_session.add(run)
+    await db_session.commit()
+    await db_session.refresh(run)
+
+    deliv_id = await report_deliverable(
+        title="login screen scaffold",
+        body="```tsx\nexport default function Login() {}\n```",
+        links=["https://repo/PR/1"],
+        run_id=run.id,
+        tenant_id=mock_tenant_id,
+        project_id=project.id,
+        db=db_session,
+    )
+    await db_session.commit()
+
+    row = await db_session.get(Deliverable, deliv_id)
+    assert row is not None
+    assert row.title == "login screen scaffold"
+    assert row.tenant_id == mock_tenant_id
+    assert row.project_id == project.id
+    assert row.request_id == request.id
+
+    version = (
+        await db_session.execute(
+            select(DeliverableVersion).where(DeliverableVersion.deliverable_id == row.id)
+        )
+    ).scalar_one()
+    assert "login screen scaffold" in (version.content_ref or {}).get("inline", "") or (
+        "Login" in (version.content_ref or {}).get("inline", "")
+    )
+    # Links are persisted alongside the inline body so they're round-trippable
+    # by ``artifact.read``.
+    assert version.content_ref.get("links") == ["https://repo/PR/1"]
+    assert version.content_hash  # non-empty
+    assert row.current_version_id == version.id
+
+
+@pytest.mark.asyncio
+async def test_report_deliverable_rejects_wrong_tenant(
+    db_session, mock_tenant_id, seeded_tenant
+):
+    from backend.src.mcp.tools import report_deliverable
+
+    project = Project(tenant_id=mock_tenant_id, name="t")
+    db_session.add(project)
+    await db_session.flush()
+    request = Request(
+        tenant_id=mock_tenant_id,
+        project_id=project.id,
+        intent_summary="x",
+        status=RequestStatus.open,
+    )
+    db_session.add(request)
+    await db_session.flush()
+    run = ExecutionRun(
+        tenant_id=mock_tenant_id,
+        project_id=project.id,
+        request_id=request.id,
+        status=RunStatus.running,
+        priority=RunPriority.medium,
+    )
+    db_session.add(run)
+    await db_session.commit()
+    await db_session.refresh(run)
+
+    with pytest.raises(MCPToolError, match="tenant"):
+        await report_deliverable(
+            title="x",
+            body="y",
+            links=None,
+            run_id=run.id,
+            tenant_id=uuid.uuid4(),  # cross-tenant
+            project_id=project.id,
+            db=db_session,
+        )
+
+
+# ─── artifact.read ────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_read_artifact_returns_inline_body(
+    db_session, mock_tenant_id, seeded_tenant
+):
+    """The default StorageBackend is ``object`` (MinIO/R2). For inline-
+    only deliverables the version's ``content_ref.inline`` field carries
+    the body claude wrote — return it directly without touching S3."""
+    from backend.src.mcp.tools import read_artifact
+    from backend.src.models import DeliverableVersion, StorageBackend
+
+    project = Project(tenant_id=mock_tenant_id, name="t")
+    db_session.add(project)
+    await db_session.flush()
+    deliv = Deliverable(
+        tenant_id=mock_tenant_id,
+        project_id=project.id,
+        type=DeliverableType.doc,
+        title="readme",
+    )
+    db_session.add(deliv)
+    await db_session.flush()
+    version = DeliverableVersion(
+        deliverable_id=deliv.id,
+        version_int=1,
+        storage_backend=StorageBackend.object,
+        content_ref={"inline": "hello inline body"},
+        content_hash="x" * 64,
+        size_bytes=18,
+        created_by_run_id=None,
+    )
+    db_session.add(version)
+    await db_session.flush()
+    deliv.current_version_id = version.id
+    await db_session.commit()
+
+    body = await read_artifact(
+        deliverable_id=deliv.id, tenant_id=mock_tenant_id, db=db_session
+    )
+    assert body == "hello inline body"
+
+
+@pytest.mark.asyncio
+async def test_read_artifact_cross_tenant_raises(
+    db_session, mock_tenant_id, seeded_tenant
+):
+    from backend.src.mcp.tools import read_artifact
+
+    project = Project(tenant_id=mock_tenant_id, name="t")
+    db_session.add(project)
+    await db_session.flush()
+    deliv = Deliverable(
+        tenant_id=mock_tenant_id,
+        project_id=project.id,
+        type=DeliverableType.doc,
+        title="x",
+    )
+    db_session.add(deliv)
+    await db_session.commit()
+    await db_session.refresh(deliv)
+
+    with pytest.raises(MCPToolError):
+        await read_artifact(
+            deliverable_id=deliv.id, tenant_id=uuid.uuid4(), db=db_session
+        )
+
+
+@pytest.mark.asyncio
+async def test_read_artifact_missing_returns_error(
+    db_session, mock_tenant_id, seeded_tenant
+):
+    from backend.src.mcp.tools import read_artifact
+
+    with pytest.raises(MCPToolError, match="not found"):
+        await read_artifact(
+            deliverable_id=uuid.uuid4(),
+            tenant_id=mock_tenant_id,
+            db=db_session,
+        )
+
+
+@pytest.mark.asyncio
+async def test_read_artifact_no_current_version_returns_empty(
+    db_session, mock_tenant_id, seeded_tenant
+):
+    """A Deliverable with no published version (versioning glitch or
+    placeholder row) returns an empty string rather than raising —
+    claude can decide whether to retry / move on."""
+    from backend.src.mcp.tools import read_artifact
+
+    project = Project(tenant_id=mock_tenant_id, name="t")
+    db_session.add(project)
+    await db_session.flush()
+    deliv = Deliverable(
+        tenant_id=mock_tenant_id,
+        project_id=project.id,
+        type=DeliverableType.doc,
+        title="empty",
+    )
+    db_session.add(deliv)
+    await db_session.commit()
+    await db_session.refresh(deliv)
+
+    body = await read_artifact(
+        deliverable_id=deliv.id, tenant_id=mock_tenant_id, db=db_session
+    )
+    assert body == ""

@@ -42,6 +42,8 @@ from backend.src.mcp.tools import (
     MCPToolError,
     create_decision,
     list_run_artifacts,
+    read_artifact,
+    report_deliverable,
     search_knowledge,
     wait_for_decision,
 )
@@ -131,6 +133,41 @@ def _build_fastmcp() -> Any:
                 tenant_id=UUID(ctx["tenant_id"]),
                 db=session,
             )
+
+    @app.tool()
+    async def deliverable_report(
+        title: str, body: str, links: list[str] | None = None
+    ) -> dict[str, str]:
+        """Persist a Deliverable + DeliverableVersion. Returns ``{deliverable_id}``."""
+        ctx = _auth_ctx.get()
+        async with async_session() as session:
+            deliv_id = await report_deliverable(
+                title=title,
+                body=body,
+                links=links,
+                run_id=UUID(ctx["run_id"]),
+                tenant_id=UUID(ctx["tenant_id"]),
+                project_id=UUID(ctx["project_id"]),
+                db=session,
+            )
+            await session.commit()
+        return {"deliverable_id": str(deliv_id)}
+
+    @app.tool()
+    async def artifact_read(deliverable_id: str) -> dict[str, str]:
+        """Return the inline body of a Deliverable's current version.
+        Returns ``{body}`` (may be empty for non-inline / unversioned)."""
+        ctx = _auth_ctx.get()
+        async with async_session() as session:
+            try:
+                body = await read_artifact(
+                    deliverable_id=UUID(deliverable_id),
+                    tenant_id=UUID(ctx["tenant_id"]),
+                    db=session,
+                )
+            except MCPToolError as exc:
+                return {"error": str(exc), "body": ""}
+        return {"body": body}
 
     @app.tool()
     async def knowledge_search(query: str, top_k: int = 10) -> list[dict[str, str]]:

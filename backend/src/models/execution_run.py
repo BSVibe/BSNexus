@@ -115,12 +115,6 @@ class ExecutionRun(Base):
     estimated_cost_cents: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     actual_cost_cents: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
 
-    # Direction reset 2026-05-03 — workers table dropped (BSNexus no
-    # longer hosts workers). The column itself stays for now since
-    # legacy rows may reference defunct worker_ids; the FK constraint
-    # is removed alongside the model. An alembic migration to drop the
-    # column entirely is a follow-up.
-    worker_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
     branch_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     commit_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
 

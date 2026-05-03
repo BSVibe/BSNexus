@@ -18,6 +18,7 @@ content fetch) and ride a follow-up PR.
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from typing import Any
 
@@ -30,8 +31,12 @@ from backend.src.mcp.decision_queue import DecisionQueue, DecisionWaitTimeout
 from backend.src.models import (
     Decision,
     Deliverable,
+    DeliverableStatus,
+    DeliverableType,
+    DeliverableVersion,
     ExecutionRun,
     Request,
+    StorageBackend,
 )
 
 logger = structlog.get_logger(__name__)
@@ -196,3 +201,118 @@ async def search_knowledge(
         return []
     fragments = await knowledge_client.search(query, top_k=top_k)
     return [{"title": f.title, "excerpt": f.excerpt} for f in fragments]
+
+
+# ─── report_deliverable ───────────────────────────────────────────────
+
+
+_TYPE_KEYWORDS: tuple[tuple[DeliverableType, tuple[str, ...]], ...] = (
+    (DeliverableType.code, ("```", ".py", ".ts", ".tsx", ".js", ".jsx", ".rs", ".go")),
+    (DeliverableType.design, ("figma", ".fig", ".bsd", "wireframe")),
+    (DeliverableType.data, (".csv", ".json", ".parquet")),
+)
+
+
+def _infer_deliverable_type(title: str, body: str) -> DeliverableType:
+    """Guess the deliverable type from title+body. Defaults to ``doc``."""
+    haystack = f"{title}\n{body}".lower()
+    for typ, keywords in _TYPE_KEYWORDS:
+        if any(k in haystack for k in keywords):
+            return typ
+    return DeliverableType.doc
+
+
+async def report_deliverable(
+    *,
+    title: str,
+    body: str,
+    links: list[str] | None,
+    run_id: uuid.UUID,
+    tenant_id: uuid.UUID,
+    project_id: uuid.UUID,
+    db: AsyncSession,
+) -> uuid.UUID:
+    """Persist a Deliverable + DeliverableVersion claude wrote during a run.
+
+    Mirrors the orchestrator-driven ``run_artifacts._ensure_deliverable``
+    path but for the MCP-driven case (claude announces "here's what I
+    produced" mid-run). The caller (the MCP server) issues the commit.
+
+    Cross-tenant: the ``run_id`` must belong to ``tenant_id``. Same
+    defence-in-depth as ``create_decision``.
+    """
+    run = await db.get(ExecutionRun, run_id)
+    if run is None or run.tenant_id != tenant_id:
+        raise MCPToolError("run_id not in tenant scope")
+
+    deliverable = Deliverable(
+        tenant_id=tenant_id,
+        project_id=project_id,
+        request_id=run.request_id,
+        type=_infer_deliverable_type(title, body),
+        title=title[:500],
+        status=DeliverableStatus.delivered,
+    )
+    db.add(deliverable)
+    await db.flush()
+
+    content_ref: dict[str, Any] = {"inline": body}
+    if links:
+        content_ref["links"] = list(links)
+    payload_for_hash = (title + "\n" + body + "\n" + "\n".join(links or [])).encode("utf-8")
+    version = DeliverableVersion(
+        deliverable_id=deliverable.id,
+        version_int=1,
+        storage_backend=StorageBackend.object,
+        content_ref=content_ref,
+        content_hash=hashlib.sha256(payload_for_hash).hexdigest(),
+        size_bytes=len(payload_for_hash),
+        created_by_run_id=run_id,
+    )
+    db.add(version)
+    await db.flush()
+    deliverable.current_version_id = version.id
+    await db.flush()
+    logger.info(
+        "mcp_deliverable_reported",
+        deliverable_id=str(deliverable.id),
+        run_id=str(run_id),
+        tenant_id=str(tenant_id),
+        type=deliverable.type.value,
+    )
+    return deliverable.id
+
+
+# ─── artifact.read ────────────────────────────────────────────────────
+
+
+async def read_artifact(
+    *,
+    deliverable_id: uuid.UUID,
+    tenant_id: uuid.UUID,
+    db: AsyncSession,
+) -> str:
+    """Return the inline body of a Deliverable's current version.
+
+    For object/git storage backends with non-inline content_ref shapes,
+    we return the raw inline string when present, else ``""``. Storage-
+    backend-specific fetching (S3 GET, git show) is a follow-up — the
+    primary path during M0 is inline content claude wrote via
+    ``report_deliverable``.
+
+    Cross-tenant raises ``MCPToolError``; missing deliverable raises
+    ``MCPToolError`` with ``"not found"`` so the SSE handler can map
+    cleanly to a tool-call error result.
+    """
+    deliverable = await db.get(Deliverable, deliverable_id)
+    if deliverable is None:
+        raise MCPToolError("deliverable not found")
+    if deliverable.tenant_id != tenant_id:
+        raise MCPToolError("deliverable not in tenant scope")
+    if deliverable.current_version_id is None:
+        return ""
+    version = await db.get(DeliverableVersion, deliverable.current_version_id)
+    if version is None or not isinstance(version.content_ref, dict):
+        return ""
+    inline = version.content_ref.get("inline")
+    return inline if isinstance(inline, str) else ""

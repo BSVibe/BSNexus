@@ -79,7 +79,6 @@ export interface ExecutionRun {
   output_ref: Record<string, unknown> | null
   estimated_cost_cents: number
   actual_cost_cents: number
-  worker_id: string | null
   branch_name: string | null
   commit_hash: string | null
   error_message: string | null

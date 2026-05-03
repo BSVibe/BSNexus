@@ -47,6 +47,7 @@ export interface MockExecutionRun {
   actual_cost_cents: number
   branch_name: string | null
   commit_hash: string | null
+  // worker_id retired with the workers table; field absent.
   error_message: string | null
   retry_count: number
   max_retries: number
