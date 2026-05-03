@@ -6,6 +6,7 @@ module is the only place in BSNexus that issues outbound LLM HTTP
 requests — ``litellm`` is intentionally *not* a dependency.
 """
 
+from backend.src.core.bsgateway.adapter import BSGatewayAdapter
 from backend.src.core.bsgateway.client import BSGatewayClient, BSGatewayError
 
-__all__ = ["BSGatewayClient", "BSGatewayError"]
+__all__ = ["BSGatewayAdapter", "BSGatewayClient", "BSGatewayError"]
