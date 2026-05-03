@@ -221,7 +221,40 @@ export function sseEvent(eventType: string, payload: Record<string, unknown>): s
 export async function installFounderMocks(page: Page, state: FounderMockState): Promise<void> {
   const pid = state.projectId
 
-  // Project metadata
+  const projectShape = () => ({
+    id: pid,
+    tenant_id: TENANT,
+    name: state.projectName ?? 'Test Project',
+    description: null,
+    status: 'active',
+    workspace_type: 'local_managed',
+    github_repo_url: null,
+    github_branch: null,
+    repo_path: null,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  })
+
+  // List projects — must include this state's project so GlobalChat's
+  // `useQuery(['projects'])` finds the current project. Without this,
+  // ``currentProject`` resolves to null and the chat textarea silently
+  // does nothing on Enter (mutation never fires).
+  await page.route('**/api/v1/projects', (route: Route) => {
+    if (route.request().method() === 'POST') {
+      return route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify(projectShape()),
+      })
+    }
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([projectShape()]),
+    })
+  })
+
+  // Single project metadata
   await page.route(`**/api/v1/projects/${pid}`, (route: Route) => {
     if (route.request().method() === 'DELETE') {
       return route.fulfill({ status: 204, body: '' })

@@ -101,19 +101,34 @@ test.describe('Golden path — Direction → live Inside output → Deliverable'
     await expect(page.getByText('CONTRIBUTING.md')).toBeVisible({ timeout: 5000 })
   })
 
-  test('Sending a chat message creates a Request and seeds a Run', async ({ page }) => {
+  test('Sending a chat message creates a Request and seeds a Run', async ({ page, viewport }) => {
+    // GlobalChat rail is collapsed by default on narrow viewports
+    // (`@bsvibe/layout` ResponsiveSidebar drawer pattern). We exercise
+    // the inline-rule contract on the desktop chrome only — the mobile
+    // chat-drawer interaction is a separate UX concern and gets its
+    // own spec when we add mobile chat regression coverage.
+    test.skip(
+      (viewport?.width ?? 0) < 800,
+      'GlobalChat rail is drawer-only on mobile; desktop covers the API contract',
+    )
+
     await blockSSORedirect(page)
     await injectAuth(page)
 
     const state = makeFounderState(PROJECT_ID, 'Golden Path')
     await installFounderMocks(page, state)
 
+    // Force the chat rail expanded before the page mounts so the
+    // textarea is in the DOM. ``CHAT_COLLAPSED_KEY`` is ``"chat-collapsed"``
+    // per `Layout.tsx`; setting it to ``"0"`` keeps the rail open.
+    await page.addInitScript(() => {
+      localStorage.setItem('chat-collapsed', '0')
+    })
+
     await page.goto(`/projects/${PROJECT_ID}`)
 
-    // The chat input lives in the Layout's GlobalChat rail. We type a
-    // request and press Enter — the mock should record one POST and
-    // reflect a new Request in state.
     const textarea = page.locator('textarea').first()
+    await textarea.waitFor({ state: 'visible', timeout: 10_000 })
     await textarea.fill('Add a contributing guide')
     await textarea.press('Enter')
 

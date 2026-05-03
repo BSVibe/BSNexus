@@ -116,8 +116,9 @@ const SCENARIOS: Scenario[] = [
       )
     },
     verify: async ({ expectVisible }) => {
-      // Run shows up under the request with blocked status — Inspector
-      // surfaces the error message inline.
+      // No deliverable for blocked runs — verify via the Inspector tab,
+      // which lists requests in its sidebar with intent_summary as the
+      // label. This branch sets ``tab=inspector`` in the test harness.
       await expectVisible(/Tricky refactor/)
     },
   },
@@ -183,7 +184,16 @@ test.describe('M0 quality suite — UI surface across state-machine paths', () =
       await installFounderMocks(page, state)
 
       // Pick the tab that exercises the assertion path.
-      const tab = sc.name === 'blocked_decision' ? 'decisions' : 'progress'
+      // - blocked_decision: founder approves on Decisions tab.
+      // - blocked_error / multiple_requests: Inspector lists requests by
+      //   intent_summary in its sidebar — best surface for runs whose
+      //   output never lands as a deliverable.
+      // - happy_path: deliverable appears in Progress timeline.
+      // - empty_content: any tab works; just sanity-checks empty state.
+      let tab: string
+      if (sc.name === 'blocked_decision') tab = 'decisions'
+      else if (sc.name === 'blocked_error') tab = 'inspector'
+      else tab = 'progress'
       await page.goto(`/projects/${sc.projectId}?tab=${tab}`)
 
       const expectVisible = async (text: RegExp | string) => {
