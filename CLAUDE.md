@@ -29,8 +29,9 @@ founder-metaphor migration.
 - **Python 3.11+** / **FastAPI** (async monolith)
 - **PostgreSQL 16** + SQLAlchemy 2.0 (async) + Alembic
 - **Redis Streams** (consumer groups, NOT Pub/Sub)
-- **LiteLLM** (provider-agnostic LLM integration — with BSGateway hook
-  when enabled)
+- **BSGateway client** for all LLM/CLI dispatch (`core/bsgateway/client.py`).
+  BSNexus core does not import `litellm` / `openai` / `anthropic` —
+  BSGateway is the single LLM/CLI router (Direction reset 2026-05-03).
 - **React 19** + TypeScript + Vite + Tailwind CSS + `@tanstack/react-query`
 - **Package managers**: `uv` (Python), `pnpm` (Node.js)
 - **Linting**: `ruff` (line-length 120)
@@ -51,9 +52,9 @@ backend/src/
   core/
     state_machine.py     # RunStateMachine (4-state ExecutionRun)
     run_orchestrator.py  # event-driven per-run dispatch (replaces GlobalDispatcher)
-    worker_watchdog.py   # opt-in polling reconciler for remote workers
-    worker_dispatch.py   # Redis Streams run dispatch
-    request_extractor.py # chit_chat|question|request|modification classifier
+    bsgateway/
+      client.py          # httpx wrapper over /api/v1/chat/completions
+      adapter.py         # BSGatewayAdapter — orchestrator-facing executor
     composer/
       knowledge_client.py  # BSage thin wrapper / Noop fallback
       prompt_assembler.py  # pure composer over templates + fragments
@@ -135,8 +136,10 @@ cd frontend && pnpm tokens:verify       # Design-token drift guard
 - **Pydantic models**: For all request/response schemas.
 - **Redis Streams**: Consumer group pattern with JSON serialization and
   `XACK`. Never use Redis Pub/Sub.
-- **LiteLLM only**: All LLM calls go through LiteLLM. No direct
-  `openai`/`anthropic` SDK imports.
+- **BSGateway only**: All LLM/CLI dispatch goes through
+  `core.bsgateway.BSGatewayClient` (HTTP `/api/v1/chat/completions`).
+  No direct `litellm` / `openai` / `anthropic` SDK imports — those
+  belong inside BSGateway.
 - **Tenant scoping**: Routes take `tenant_id: uuid.UUID = Depends(get_tenant_id)`
   and filter every query by it. Cross-tenant rows 404, never leak.
 - **Dependency Injection**: Use FastAPI `Depends()` for DB sessions,
