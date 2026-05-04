@@ -1,7 +1,7 @@
 """ExecutorConfigs API — tenant-scoped CRUD.
 
 An ``ExecutorConfig`` is a registered executor that runs LLM calls for
-the tenant: a LiteLLM-direct config (``generic_llm``), a BSGateway
+the tenant: a LiteLLM-direct config (``llm_api``), a BSGateway
 proxy config (``bsgateway``), a worker adapter (``worker`` /
 ``claude_code`` / ``codex``), etc. Tenants can register many configs
 but exactly one carries ``is_selected = true`` — that's the one the

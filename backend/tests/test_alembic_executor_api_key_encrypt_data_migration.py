@@ -173,7 +173,7 @@ def test_data_migration_skips_rows_without_sensitive_keys(in_memory_engine_with_
             sa.text(
                 "INSERT INTO executor_configs "
                 "(id, tenant_id, name, executor_type, config) "
-                "VALUES (:id, :tid, 'NoKey', 'generic_llm', :cfg)"
+                "VALUES (:id, :tid, 'NoKey', 'llm_api', :cfg)"
             ),
             {
                 "id": rid,

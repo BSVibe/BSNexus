@@ -1,6 +1,6 @@
 """``DirectLLMAdapter`` — direct-LLM path with MCP tool loop.
 
-The BSVibe-optional dispatch path (``executor_type=generic_llm``).
+The BSVibe-optional dispatch path (``executor_type=llm_api``).
 Calls the LLM provider directly via litellm and runs an MCP-aware
 tool loop client-side: connect to BSNexus's MCP server over
 streamable-HTTP, list its tools, translate to OpenAI tool schema,

@@ -36,9 +36,9 @@ type ExecTypeMeta = {
 
 // Two top-level kinds — taxonomy collapse, 2026-05-04. Distinguished
 // by *infra dependency*, not capability:
-//   bsgateway   = BSVibe infra path (BSGateway worker pool routes the
-//                 underlying CLI agent / model)
-//   generic_llm = BSVibe-optional path (direct litellm + MCP tool loop)
+//   bsgateway = BSVibe infra path (BSGateway worker pool routes the
+//               underlying CLI agent / model)
+//   llm_api   = BSVibe-optional path (direct litellm + MCP tool loop)
 // Both honor full MCP / Decisions / artifact UX.
 const EXEC_TYPES: ExecTypeMeta[] = [
   {
@@ -50,7 +50,7 @@ const EXEC_TYPES: ExecTypeMeta[] = [
     ],
   },
   {
-    value: 'generic_llm',
+    value: 'llm_api',
     fields: [
       { key: 'model', fieldKey: 'model' },
       { key: 'api_key', fieldKey: 'api_key', secret: true },
@@ -441,11 +441,6 @@ function ExecutorModal({
                   </option>
                 ))}
               </select>
-              {meta && (
-                <span className="faded" style={{ fontSize: 11 }}>
-                  {tType(`${meta.value}.description`)}
-                </span>
-              )}
             </label>
           )}
 

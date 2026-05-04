@@ -325,14 +325,14 @@ async def build_adapter(
     # Two top-level executor kinds, distinguished by *infra dependency*
     # not by *capability* — both honor MCP / Decisions / artifact UX:
     #
-    #   bsgateway   — through BSVibe's BSGateway worker pool. Model
-    #                 string in ``cfg.model`` is whatever BSGateway
-    #                 routes (``claude_code``, ``openai/gpt-4o``, ...).
-    #   generic_llm — direct LLM call from BSNexus (BSVibe optional).
-    #                 ``cfg.model`` is a litellm-style identifier
-    #                 (``anthropic/claude-3-7-sonnet`` etc.). MCP wired
-    #                 client-side through the tool loop in
-    #                 ``core.llm.direct_client``.
+    #   bsgateway — through BSVibe's BSGateway worker pool. Model
+    #               string in ``cfg.model`` is whatever BSGateway
+    #               routes (``claude_code``, ``openai/gpt-4o``, ...).
+    #   llm_api   — direct LLM call from BSNexus (BSVibe optional).
+    #               ``cfg.model`` is a litellm-style identifier
+    #               (``anthropic/claude-3-7-sonnet`` etc.). MCP wired
+    #               client-side through the tool loop in
+    #               ``core.llm.direct_client``.
     _ = stream_manager  # noqa: F841 — retained for caller-compat
     _ = run_id  # noqa: F841
 
@@ -342,8 +342,8 @@ async def build_adapter(
 
     if exec_type == "bsgateway":
         return _build_bsgateway_adapter(row, cfg, tenant_id, project_id, api_key)
-    if exec_type == "generic_llm":
-        return _build_generic_llm_adapter(row, cfg, tenant_id, project_id, api_key)
+    if exec_type == "llm_api":
+        return _build_llm_api_adapter(row, cfg, tenant_id, project_id, api_key)
     logger.warning(
         "executor_config_unknown_type",
         config_id=str(row.id),
@@ -426,41 +426,39 @@ def _build_bsgateway_adapter(
     )
 
 
-def _build_generic_llm_adapter(
+def _build_llm_api_adapter(
     row: ExecutorConfig,
     cfg: dict[str, Any],
     tenant_id: uuid.UUID,
     project_id: uuid.UUID,
     api_key: str,
 ) -> Any | None:
-    """Build the direct-LLM adapter for ``executor_type=generic_llm``.
-
-    Lands in Phase 2b along with ``core.llm.direct_client``. Until
-    that ships, return None with a WARN so the orchestrator transitions
-    the run to blocked instead of silently failing.
+    """Build the direct-LLM adapter for ``executor_type=llm_api`` —
+    BSVibe-optional path that calls the LLM provider directly via
+    litellm + a client-side MCP tool loop.
     """
     try:
         from backend.src.core.llm.direct_client import DirectLLMAdapter  # noqa: PLC0415
     except ImportError:
         logger.error(
-            "executor_config_generic_llm_not_implemented",
+            "executor_config_llm_api_not_implemented",
             config_id=str(row.id),
             tenant_id=str(tenant_id),
-            hint="DirectLLMAdapter ships in Phase 2b — see ~/Docs/BSNexus_Direction_2026-05-03.md",
+            hint="DirectLLMAdapter ships in core.llm.direct_client — see ~/Docs/BSNexus_Direction_2026-05-03.md",
         )
         return None
 
     model = cfg.get("model")
     if not model:
         logger.warning(
-            "executor_config_generic_llm_missing_model",
+            "executor_config_llm_api_missing_model",
             config_id=str(row.id),
             tenant_id=str(tenant_id),
         )
         return None
     if not api_key or api_key == "unused":
         logger.warning(
-            "executor_config_generic_llm_missing_api_key",
+            "executor_config_llm_api_missing_api_key",
             config_id=str(row.id),
             tenant_id=str(tenant_id),
         )

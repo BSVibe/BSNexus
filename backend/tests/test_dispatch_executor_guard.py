@@ -3,7 +3,7 @@ of two adapter kinds, distinguished by infra dependency:
 
 - ``executor_type="bsgateway"`` → :class:`BSGatewayAdapter` (BSVibe
   infra path; goes through BSGateway worker pool)
-- ``executor_type="generic_llm"`` → :class:`DirectLLMAdapter` (BSVibe-
+- ``executor_type="llm_api"`` → :class:`DirectLLMAdapter` (BSVibe-
   optional path; direct LLM call from BSNexus via litellm + MCP tool
   loop)
 
@@ -64,7 +64,7 @@ async def test_no_default_returns_none(db_session, mock_tenant_id, seeded_tenant
 
 @pytest.mark.asyncio
 async def test_unknown_executor_type_returns_none(db_session, mock_tenant_id, seeded_tenant):
-    """Post-2026-05-04, only ``bsgateway`` / ``generic_llm`` are valid.
+    """Post-2026-05-04, only ``bsgateway`` / ``llm_api`` are valid.
     Anything else (legacy ``claude_code``, typo ``mystery``, ...) is
     refused with a WARN — alembic should have migrated legacy values
     on upgrade."""
@@ -206,23 +206,23 @@ async def test_bsgateway_workspace_dir_resolved_from_project_id(
     assert str(project_id) in adapter._workspace_dir
 
 
-# ─── generic_llm → DirectLLMAdapter (Phase 2b) ──────────────────────
+# ─── llm_api → DirectLLMAdapter (Phase 2b) ──────────────────────
 
 
 @pytest.mark.asyncio
-async def test_generic_llm_returns_direct_llm_adapter(
+async def test_llm_api_returns_direct_llm_adapter(
     db_session,
     mock_tenant_id,
     seeded_tenant,
 ):
-    """``generic_llm`` resolves to :class:`DirectLLMAdapter` — direct
+    """``llm_api`` resolves to :class:`DirectLLMAdapter` — direct
     LLM call from BSNexus, BSVibe-optional path."""
     from backend.src.core.llm import DirectLLMAdapter
 
     cfg = await _make_cfg(
         db_session,
         mock_tenant_id,
-        executor_type="generic_llm",
+        executor_type="llm_api",
         config={"model": "anthropic/claude-3-5-sonnet"},
     )
     cfg.api_key_encrypted = None
@@ -240,17 +240,17 @@ async def test_generic_llm_returns_direct_llm_adapter(
 
 
 @pytest.mark.asyncio
-async def test_generic_llm_missing_model_returns_none(
+async def test_llm_api_missing_model_returns_none(
     db_session,
     mock_tenant_id,
     seeded_tenant,
 ):
-    """``generic_llm`` requires ``cfg.model`` — without it the dispatcher
+    """``llm_api`` requires ``cfg.model`` — without it the dispatcher
     refuses rather than dispatching to a default model."""
     cfg = await _make_cfg(
         db_session,
         mock_tenant_id,
-        executor_type="generic_llm",
+        executor_type="llm_api",
         config={"api_key": "sk-test"},
     )
     cfg.config = {"api_key": "sk-test"}
@@ -266,17 +266,17 @@ async def test_generic_llm_missing_model_returns_none(
 
 
 @pytest.mark.asyncio
-async def test_generic_llm_missing_api_key_returns_none(
+async def test_llm_api_missing_api_key_returns_none(
     db_session,
     mock_tenant_id,
     seeded_tenant,
 ):
-    """``generic_llm`` calls a third-party LLM provider; an empty / unset
+    """``llm_api`` calls a third-party LLM provider; an empty / unset
     key would 401 at the boundary. Refuse upfront with a WARN."""
     await _make_cfg(
         db_session,
         mock_tenant_id,
-        executor_type="generic_llm",
+        executor_type="llm_api",
         config={"model": "openai/gpt-4o"},  # no api_key
     )
     adapter = await _build_adapter(

@@ -33,7 +33,7 @@ founder-metaphor migration.
   philosophy revision of the 2026-05-03 reset):
   * `executor_type=bsgateway` → `core/bsgateway/client.py` →
     BSGateway worker pool (BSVibe infra path).
-  * `executor_type=generic_llm` → `core/llm/direct_client.py` →
+  * `executor_type=llm_api` → `core/llm/direct_client.py` →
     direct litellm call + MCP tool loop client-side (BSVibe-optional
     path; works without BSGateway).
   Both honor full MCP / Decisions / artifact UX. Capability is
@@ -147,7 +147,7 @@ cd frontend && pnpm tokens:verify       # Design-token drift guard
 - **Two-path LLM dispatch** (revised 2026-05-04, "BSVibe optional"):
   * `executor_type=bsgateway` → `core.bsgateway.BSGatewayClient`
     (HTTP `/api/v1/chat/completions`).
-  * `executor_type=generic_llm` → `core.llm.DirectLLMAdapter`
+  * `executor_type=llm_api` → `core.llm.DirectLLMAdapter`
     (litellm + MCP tool loop client-side).
   `litellm` import is fenced into `core/llm/`; nowhere else may
   import it. Direct `openai` / `anthropic` SDK imports are still

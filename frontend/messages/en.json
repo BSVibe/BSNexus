@@ -279,21 +279,11 @@
         "emptyHint": "No executors registered yet. Runs stay queued until one is added here and selected.",
         "deleteConfirm": "Delete executor \"{name}\"?",
         "type": {
-          "generic_llm": {
-            "label": "LLM (LiteLLM direct)",
-            "description": "Any LiteLLM provider. Used for coding and non-coding runs alike."
-          },
           "bsgateway": {
-            "label": "BSGateway (cost-aware routing)",
-            "description": "Proxy all LLM calls through BSGateway for cost-optimized routing."
+            "label": "BSGateway"
           },
-          "claude_code": {
-            "label": "Claude Code worker",
-            "description": "Route runs to any online worker that advertises the claude_code capability."
-          },
-          "codex": {
-            "label": "Codex worker",
-            "description": "Route runs to any online worker that advertises the codex capability."
+          "llm_api": {
+            "label": "LLM API"
           }
         },
         "field": {

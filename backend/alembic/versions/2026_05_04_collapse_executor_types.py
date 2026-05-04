@@ -56,7 +56,11 @@ depends_on: str | Sequence[str] | None = None
 
 _LEGACY_MODEL_TYPES = ("claude_code", "codex", "opencode")
 _LEGACY_INFRA_TYPES = ("worker",)
-_NEW_TYPES = {"bsgateway", "generic_llm"}
+# Both ``generic_llm`` (transient name between collapse and the
+# 2026-05-04 PM rename) and ``llm_api`` (current canonical) are in
+# the pass-through set — keeps this migration forward-compatible if
+# it runs against a DB that already saw the rename migration.
+_NEW_TYPES = {"bsgateway", "generic_llm", "llm_api"}
 
 
 def _normalise_config(raw: object) -> dict:

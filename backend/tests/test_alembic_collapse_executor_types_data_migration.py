@@ -143,16 +143,16 @@ def test_existing_bsgateway_row_left_alone(in_memory_engine):
     assert cfg["model"] == "anthropic/claude-3-5-sonnet"
 
 
-def test_existing_generic_llm_row_left_alone(in_memory_engine):
+def test_existing_llm_api_row_left_alone(in_memory_engine):
     rid = _seed(
         in_memory_engine,
-        executor_type="generic_llm",
+        executor_type="llm_api",
         config={"model": "ollama/qwen3-coder"},
     )
     with in_memory_engine.begin() as conn:
         _load_migration()._collapse_legacy_rows(conn)
     typ, cfg = _read(in_memory_engine, rid)
-    assert typ == "generic_llm"
+    assert typ == "llm_api"
     assert cfg["model"] == "ollama/qwen3-coder"
 
 

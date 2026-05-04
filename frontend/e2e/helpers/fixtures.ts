@@ -305,7 +305,7 @@ export const mockAgents = [
     role: 'content writer',
     title: null,
     job_description: 'Writes blog posts and documentation',
-    executor_type: 'generic_llm',
+    executor_type: 'llm_api',
     executor_config: {},
     system_prompt: null,
     skills: [],
@@ -355,7 +355,7 @@ export const mockWorkers = [
 ]
 
 // Updated 2026-05-04 to match the post-Phase-2a schema:
-// - ``executor_type`` collapsed to ``{bsgateway, generic_llm}``
+// - ``executor_type`` collapsed to ``{bsgateway, llm_api}``
 // - ``is_default`` renamed to ``is_selected`` (single canonical
 //   server-side field)
 // - ``has_api_key`` boolean replaces any plaintext key in the
@@ -380,7 +380,7 @@ export const mockExecutorConfigs = [
     id: 'exec-002',
     tenant_id: '00000000-0000-0000-0000-000000000000',
     name: 'Direct Claude (no BSVibe)',
-    executor_type: 'generic_llm',
+    executor_type: 'llm_api',
     config: {
       model: 'anthropic/claude-3-5-sonnet',
     },

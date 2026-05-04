@@ -1,4 +1,4 @@
-"""Direct-LLM path for ``executor_type=generic_llm``.
+"""Direct-LLM path for ``executor_type=llm_api``.
 
 Phase 2b of the BSVibe-optional restructure (2026-05-04). Surface:
 

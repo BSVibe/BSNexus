@@ -4,12 +4,14 @@ import apiClient from './client'
 // dependency*, not capability. Both honor MCP / Decisions / artifact
 // UX equally; the only difference is whether dispatching needs
 // BSVibe's BSGateway pool.
-//   bsgateway   — BSVibe infra path (BSGateway worker pool)
-//   generic_llm — BSVibe-optional path (direct litellm + MCP tool loop)
+//   bsgateway — BSVibe infra path (BSGateway worker pool)
+//   llm_api   — BSVibe-optional path (direct litellm + MCP tool loop)
+// The earlier ``generic_llm`` label was renamed to ``llm_api`` in the
+// 2026-05-04 PM session — clearer about what the path actually is.
 // Legacy values (claude_code / codex / opencode / worker) are
 // auto-lifted by the alembic migration; they don't appear on new
 // responses but the API still accepts them as input for back-compat.
-export type ExecutorType = 'bsgateway' | 'generic_llm'
+export type ExecutorType = 'bsgateway' | 'llm_api'
 
 export interface ExecutorConfig {
   id: string

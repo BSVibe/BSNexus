@@ -23,7 +23,7 @@ async def test_create_returns_201_and_scopes_to_tenant(client, mock_tenant_id):
         "/api/v1/executor-configs",
         json={
             "name": "GPT-4o",
-            "executor_type": "generic_llm",
+            "executor_type": "llm_api",
             "config": {"model": "openai/gpt-4o", "api_key": "sk-test"},
             "description": "Default LLM",
             "is_selected": True,
@@ -33,7 +33,7 @@ async def test_create_returns_201_and_scopes_to_tenant(client, mock_tenant_id):
     assert resp.status_code == 201, resp.text
     body = resp.json()
     assert body["name"] == "GPT-4o"
-    assert body["executor_type"] == "generic_llm"
+    assert body["executor_type"] == "llm_api"
     assert body["is_selected"] is True
     assert body["tenant_id"] == str(mock_tenant_id)
     assert body["config"]["model"] == "openai/gpt-4o"
@@ -53,7 +53,7 @@ async def test_create_rejects_unknown_executor_type(client):
 async def test_create_rejects_empty_name(client):
     resp = await client.post(
         "/api/v1/executor-configs",
-        json={"name": "", "executor_type": "generic_llm", "config": {}},
+        json={"name": "", "executor_type": "llm_api", "config": {}},
         headers=AUTH,
     )
     assert resp.status_code == 422
@@ -65,7 +65,7 @@ async def test_selected_is_unique_per_tenant(client):
         "/api/v1/executor-configs",
         json={
             "name": "A",
-            "executor_type": "generic_llm",
+            "executor_type": "llm_api",
             "config": {},
             "is_selected": True,
         },
@@ -97,7 +97,7 @@ async def test_get_by_id(client):
     created = (
         await client.post(
             "/api/v1/executor-configs",
-            json={"name": "X", "executor_type": "generic_llm", "config": {}},
+            json={"name": "X", "executor_type": "llm_api", "config": {}},
             headers=AUTH,
         )
     ).json()
@@ -124,7 +124,7 @@ async def test_get_404_for_foreign_tenant(client, db_session):
     row = ExecutorConfig(
         tenant_id=other_tid,
         name="Hidden",
-        executor_type="generic_llm",
+        executor_type="llm_api",
         config={},
     )
     db_session.add(row)
@@ -142,7 +142,7 @@ async def test_patch_updates_and_unsets_others_when_making_selected(client):
             "/api/v1/executor-configs",
             json={
                 "name": "A",
-                "executor_type": "generic_llm",
+                "executor_type": "llm_api",
                 "config": {},
                 "is_selected": True,
             },
@@ -179,7 +179,7 @@ async def test_delete(client):
     created = (
         await client.post(
             "/api/v1/executor-configs",
-            json={"name": "Temp", "executor_type": "generic_llm", "config": {}},
+            json={"name": "Temp", "executor_type": "llm_api", "config": {}},
             headers=AUTH,
         )
     ).json()
