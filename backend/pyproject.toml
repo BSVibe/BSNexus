@@ -53,6 +53,13 @@ dependencies = [
     # release tag once both branches land on main.
     "bsvibe-audit @ git+https://github.com/BSVibe/bsvibe-python.git@feat/audit-decorator-extensions#subdirectory=packages/bsvibe-audit",
     "mcp>=1.0",
+    # Direct-LLM path for ``executor_type=generic_llm`` (Phase 2b /
+    # 2026-05-04). PR1 removed litellm because Direction §6 (reset
+    # 2026-05-03) mandated BSGateway-only routing. Company philosophy
+    # revision later that day made BSVibe integration optional, so
+    # BSNexus needs its own provider-agnostic LLM client for the
+    # opt-out path. Used by ``core.llm.direct_client``.
+    "litellm>=1.0.0",
 ]
 
 [project.optional-dependencies]

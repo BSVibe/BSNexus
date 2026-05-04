@@ -34,7 +34,21 @@ type ExecTypeMeta = {
   fields: ExecField[]
 }
 
+// Two top-level kinds — taxonomy collapse, 2026-05-04. Distinguished
+// by *infra dependency*, not capability:
+//   bsgateway   = BSVibe infra path (BSGateway worker pool routes the
+//                 underlying CLI agent / model)
+//   generic_llm = BSVibe-optional path (direct litellm + MCP tool loop)
+// Both honor full MCP / Decisions / artifact UX.
 const EXEC_TYPES: ExecTypeMeta[] = [
+  {
+    value: 'bsgateway',
+    fields: [
+      { key: 'bsgateway_url', fieldKey: 'gateway_url' },
+      { key: 'bsgateway_api_key', fieldKey: 'gateway_api_key', secret: true },
+      { key: 'model', fieldKey: 'model' },
+    ],
+  },
   {
     value: 'generic_llm',
     fields: [
@@ -42,21 +56,6 @@ const EXEC_TYPES: ExecTypeMeta[] = [
       { key: 'api_key', fieldKey: 'api_key', secret: true },
       { key: 'base_url', fieldKey: 'base_url' },
     ],
-  },
-  {
-    value: 'bsgateway',
-    fields: [
-      { key: 'bsgateway_url', fieldKey: 'gateway_url' },
-      { key: 'bsgateway_api_key', fieldKey: 'gateway_api_key', secret: true },
-    ],
-  },
-  {
-    value: 'claude_code',
-    fields: [],
-  },
-  {
-    value: 'codex',
-    fields: [],
   },
 ]
 
@@ -360,7 +359,10 @@ function ExecutorModal({
   const tField = useTranslations('nexus.settings.executors.field')
   const tCommon = useTranslations('nexus.common')
   const [type, setType] = useState<ExecutorType>(
-    existing?.executor_type ?? 'generic_llm',
+    // Default to ``bsgateway`` for new configs — the canonical path
+    // when BSVibe infra is available. ``generic_llm`` is the explicit
+    // opt-out for self-hosted-without-BSVibe deployments.
+    existing?.executor_type ?? 'bsgateway',
   )
   const [name, setName] = useState(existing?.name ?? '')
   const [description, setDescription] = useState(existing?.description ?? '')

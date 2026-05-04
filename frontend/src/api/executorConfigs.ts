@@ -1,6 +1,15 @@
 import apiClient from './client'
 
-export type ExecutorType = 'generic_llm' | 'claude_code' | 'bsgateway' | 'codex' | 'worker'
+// Taxonomy collapsed 2026-05-04 (Phase 2a) — distinguished by *infra
+// dependency*, not capability. Both honor MCP / Decisions / artifact
+// UX equally; the only difference is whether dispatching needs
+// BSVibe's BSGateway pool.
+//   bsgateway   — BSVibe infra path (BSGateway worker pool)
+//   generic_llm — BSVibe-optional path (direct litellm + MCP tool loop)
+// Legacy values (claude_code / codex / opencode / worker) are
+// auto-lifted by the alembic migration; they don't appear on new
+// responses but the API still accepts them as input for back-compat.
+export type ExecutorType = 'bsgateway' | 'generic_llm'
 
 export interface ExecutorConfig {
   id: string
@@ -10,6 +19,7 @@ export interface ExecutorConfig {
   config: Record<string, unknown>
   description: string | null
   is_selected: boolean
+  has_api_key: boolean
   created_at: string
   updated_at: string
 }
@@ -20,6 +30,8 @@ export interface ExecutorConfigCreate {
   config?: Record<string, unknown>
   description?: string | null
   is_selected?: boolean
+  /** Plaintext API key — encrypted server-side, never round-tripped on responses. */
+  api_key?: string
 }
 
 export interface ExecutorConfigUpdate {
@@ -27,6 +39,7 @@ export interface ExecutorConfigUpdate {
   config?: Record<string, unknown>
   description?: string | null
   is_selected?: boolean
+  api_key?: string
 }
 
 export const executorConfigsApi = {

@@ -29,9 +29,17 @@ founder-metaphor migration.
 - **Python 3.11+** / **FastAPI** (async monolith)
 - **PostgreSQL 16** + SQLAlchemy 2.0 (async) + Alembic
 - **Redis Streams** (consumer groups, NOT Pub/Sub)
-- **BSGateway client** for all LLM/CLI dispatch (`core/bsgateway/client.py`).
-  BSNexus core does not import `litellm` / `openai` / `anthropic` —
-  BSGateway is the single LLM/CLI router (Direction reset 2026-05-03).
+- **Two-path LLM dispatch** (Phase 2b, 2026-05-04 — BSVibe-optional
+  philosophy revision of the 2026-05-03 reset):
+  * `executor_type=bsgateway` → `core/bsgateway/client.py` →
+    BSGateway worker pool (BSVibe infra path).
+  * `executor_type=generic_llm` → `core/llm/direct_client.py` →
+    direct litellm call + MCP tool loop client-side (BSVibe-optional
+    path; works without BSGateway).
+  Both honor full MCP / Decisions / artifact UX. Capability is
+  identical; the difference is *infra dependency*. Use `litellm` only
+  inside `core/llm/`; everywhere else still goes through
+  `BSGatewayClient`.
 - **React 19** + TypeScript + Vite + Tailwind CSS + `@tanstack/react-query`
 - **Package managers**: `uv` (Python), `pnpm` (Node.js)
 - **Linting**: `ruff` (line-length 120)
@@ -136,10 +144,14 @@ cd frontend && pnpm tokens:verify       # Design-token drift guard
 - **Pydantic models**: For all request/response schemas.
 - **Redis Streams**: Consumer group pattern with JSON serialization and
   `XACK`. Never use Redis Pub/Sub.
-- **BSGateway only**: All LLM/CLI dispatch goes through
-  `core.bsgateway.BSGatewayClient` (HTTP `/api/v1/chat/completions`).
-  No direct `litellm` / `openai` / `anthropic` SDK imports — those
-  belong inside BSGateway.
+- **Two-path LLM dispatch** (revised 2026-05-04, "BSVibe optional"):
+  * `executor_type=bsgateway` → `core.bsgateway.BSGatewayClient`
+    (HTTP `/api/v1/chat/completions`).
+  * `executor_type=generic_llm` → `core.llm.DirectLLMAdapter`
+    (litellm + MCP tool loop client-side).
+  `litellm` import is fenced into `core/llm/`; nowhere else may
+  import it. Direct `openai` / `anthropic` SDK imports are still
+  forbidden — litellm is the provider abstraction.
 - **Tenant scoping**: Routes take `tenant_id: uuid.UUID = Depends(get_tenant_id)`
   and filter every query by it. Cross-tenant rows 404, never leak.
 - **Dependency Injection**: Use FastAPI `Depends()` for DB sessions,

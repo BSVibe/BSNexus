@@ -206,24 +206,78 @@ async def test_bsgateway_workspace_dir_resolved_from_project_id(
     assert str(project_id) in adapter._workspace_dir
 
 
-# ─── generic_llm adapter (Phase 2b will land DirectLLMAdapter) ──────
+# ─── generic_llm → DirectLLMAdapter (Phase 2b) ──────────────────────
 
 
 @pytest.mark.asyncio
-async def test_generic_llm_returns_none_until_phase_2b(
+async def test_generic_llm_returns_direct_llm_adapter(
     db_session,
     mock_tenant_id,
     seeded_tenant,
 ):
-    """``generic_llm`` is registered in ``EXECUTOR_TYPES`` but the
-    ``DirectLLMAdapter`` import lands in Phase 2b. Until then the
-    dispatcher logs and returns None — runs go to blocked instead of
-    silently routing to BSGateway."""
-    await _make_cfg(
+    """``generic_llm`` resolves to :class:`DirectLLMAdapter` — direct
+    LLM call from BSNexus, BSVibe-optional path."""
+    from backend.src.core.llm import DirectLLMAdapter
+
+    cfg = await _make_cfg(
         db_session,
         mock_tenant_id,
         executor_type="generic_llm",
         config={"model": "anthropic/claude-3-5-sonnet"},
+    )
+    cfg.api_key_encrypted = None
+    cfg.config = {"model": "anthropic/claude-3-5-sonnet", "api_key": "sk-test"}
+    await db_session.commit()
+
+    adapter = await _build_adapter(
+        db_session,
+        mock_tenant_id,
+        run_id=uuid.uuid4(),
+        project_id=uuid.uuid4(),
+    )
+    assert isinstance(adapter, DirectLLMAdapter)
+    assert adapter._model == "anthropic/claude-3-5-sonnet"
+
+
+@pytest.mark.asyncio
+async def test_generic_llm_missing_model_returns_none(
+    db_session,
+    mock_tenant_id,
+    seeded_tenant,
+):
+    """``generic_llm`` requires ``cfg.model`` — without it the dispatcher
+    refuses rather than dispatching to a default model."""
+    cfg = await _make_cfg(
+        db_session,
+        mock_tenant_id,
+        executor_type="generic_llm",
+        config={"api_key": "sk-test"},
+    )
+    cfg.config = {"api_key": "sk-test"}
+    await db_session.commit()
+
+    adapter = await _build_adapter(
+        db_session,
+        mock_tenant_id,
+        run_id=uuid.uuid4(),
+        project_id=uuid.uuid4(),
+    )
+    assert adapter is None
+
+
+@pytest.mark.asyncio
+async def test_generic_llm_missing_api_key_returns_none(
+    db_session,
+    mock_tenant_id,
+    seeded_tenant,
+):
+    """``generic_llm`` calls a third-party LLM provider; an empty / unset
+    key would 401 at the boundary. Refuse upfront with a WARN."""
+    await _make_cfg(
+        db_session,
+        mock_tenant_id,
+        executor_type="generic_llm",
+        config={"model": "openai/gpt-4o"},  # no api_key
     )
     adapter = await _build_adapter(
         db_session,
