@@ -148,7 +148,8 @@ def test_audit_sink_resolve_uses_service_jwt_minter_when_provided():
 
     minter = ServiceJWTMinter(
         bsvibe_auth_url="https://auth.bsvibe.dev",
-        bootstrap_token_provider=lambda: "boot",
+        client_id="bsnexus-test",
+        client_secret="test-secret",
     )
 
     cfg = AuditProviderConfig(enabled=True, base_url="http://supervisor", api_key=None)
@@ -183,7 +184,8 @@ def test_resolve_knowledge_client_uses_service_jwt_minter_when_provided():
 
     minter = ServiceJWTMinter(
         bsvibe_auth_url="https://auth.bsvibe.dev",
-        bootstrap_token_provider=lambda: "boot",
+        client_id="bsnexus-test",
+        client_secret="test-secret",
     )
 
     cfg = ProviderConfig(enabled=True, base_url="http://bsage", api_key=None)
@@ -206,7 +208,8 @@ def test_tenant_integration_config_api_key_is_no_longer_consulted_by_factory():
 
     minter = ServiceJWTMinter(
         bsvibe_auth_url="https://auth.bsvibe.dev",
-        bootstrap_token_provider=lambda: "boot",
+        client_id="bsnexus-test",
+        client_secret="test-secret",
     )
 
     # Even when api_key is set in the DB row, the minter takes

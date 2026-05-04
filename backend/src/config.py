@@ -87,13 +87,13 @@ class Settings(BsvibeSettings):
     # production must set a real value.
     service_token_signing_secret: str = ""
 
-    # Long-lived service-account credential (Bearer access token issued
-    # by BSVibe-Auth) used by ``ServiceJWTMinter`` to authenticate
-    # itself to ``/api/service-tokens/issue``. The service-account user
-    # MUST have admin/owner role for the tenants whose tokens this
-    # process mints. Empty in dev → minter falls back to anonymous and
-    # downstream services 401 (Noop fallback in adapters).
-    bsnexus_service_account_token: str = ""
+    # OAuth2 client_credentials grant — see BSVibe-Auth ``/api/oauth/token``.
+    # Provision a dedicated row in ``oauth_clients`` for BSNexus
+    # (``bsnexus-prod``); the plaintext secret is shown once and kept in
+    # Vaultwarden. Empty in dev → ``get_service_jwt_minter`` returns None
+    # and adapters fall back to Noop (composer/knowledge_client + audit).
+    bsvibe_client_id: str = ""
+    bsvibe_client_secret: str = ""
 
 
 settings = Settings()
