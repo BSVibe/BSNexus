@@ -163,6 +163,10 @@ kbd {
 }
 .app.chat-collapsed { --chat-w: 48px; }
 
+/* Mobile chat FAB hidden by default; the @media (max-width: 767px)
+   block below promotes it to a floating action button. */
+.app--mobile-chat-fab { display: none; }
+
 .mn { grid-area: main; overflow: auto; position: relative; background: var(--bg-base); }
 .cr { grid-area: chat; border-left: 1px solid var(--border-subtle); background: var(--bg-base); display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 
@@ -525,6 +529,28 @@ kbd {
     inset: 0;
     background: rgba(0, 0, 0, 0.5);
     z-index: 40;
+  }
+  /* Mobile-only chat-drawer open trigger. Floating action button at
+     the bottom-right; tapping flips ``mobileChatOpen`` to true which
+     slides the chat rail in from the right (above). The FAB itself
+     unmounts while the drawer is open so it doesn't overlap the
+     chat content. */
+  .app--mobile-chat-fab {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    width: 48px;
+    height: 48px;
+    border-radius: 24px;
+    border: 1px solid var(--border-subtle);
+    background: var(--bsnexus);
+    color: white;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    z-index: 45;
+    cursor: pointer;
   }
   /* Tighter list-item style for inspector / files / settings tab lists
      when the viewport collapses to a single column. */
