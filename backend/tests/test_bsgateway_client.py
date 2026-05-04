@@ -118,7 +118,7 @@ async def test_request_includes_workspace_dir_and_mcp_servers_in_metadata() -> N
     client = BSGatewayClient(base_url="https://gw.test", api_key="k")
     fake = _FakeClient(_sse_lines({"choices": [{"index": 0, "delta": {"content": "ok"}, "finish_reason": "stop"}]}))
 
-    mcp = {"bsnexus": {"url": "http://x/mcp/sse?token=t", "headers": {}}}
+    mcp = {"bsnexus": {"url": "http://x/mcp/http?token=t", "headers": {}}}
 
     with patch("backend.src.core.bsgateway.client.httpx.AsyncClient", return_value=fake):
         await client.execute(

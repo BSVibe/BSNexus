@@ -208,7 +208,6 @@ function ExecutorCard({
   const t = useTranslations('nexus.settings.executors')
   const tStatus = useTranslations('nexus.status')
   const tCommon = useTranslations('nexus.common')
-  const meta = EXEC_TYPES.find((tt) => tt.value === config.executor_type)
   return (
     <div
       className="card"
