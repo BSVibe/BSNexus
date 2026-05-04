@@ -364,8 +364,11 @@ export async function mockAllApis(page: Page) {
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(config || mockExecutorConfigs[0]) })
   })
 
-  // Install token
-  await page.route('**/api/v1/settings/install-token', (route) => {
+  // Install token — actual endpoint is ``/api/v1/workers/install-token``
+  // (the RemoteWorkersSection card mounts ``workersApi.getInstallTokenStatus``
+  // which hits ``src/api/workers.ts``). The legacy ``/settings/install-token``
+  // path was a mock-only artifact.
+  await page.route('**/api/v1/workers/install-token', (route) => {
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockInstallToken) })
   })
 

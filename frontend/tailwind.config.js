@@ -1,3 +1,9 @@
+// Tailwind config is ESM (``export default``); the typography plugin
+// must be imported, not require()'d — Next 15's stricter ESM loader
+// surfaces ``ReferenceError: require is not defined`` when the dev
+// cache miscompiles the previous CJS form.
+import typography from '@tailwindcss/typography'
+
 /** @type {import('tailwindcss').Config} */
 export default {
   content: [
@@ -82,5 +88,5 @@ export default {
       },
     },
   },
-  plugins: [require('@tailwindcss/typography')],
+  plugins: [typography],
 }

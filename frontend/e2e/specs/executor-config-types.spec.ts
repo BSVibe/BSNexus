@@ -180,5 +180,69 @@ test.describe('Settings — Executor type taxonomy (Phase 2)', () => {
       path: `${SHOT_DIR}/04-list-both-types.png`,
       fullPage: true,
     })
+
+    // Scroll to the Remote Workers card + capture it as a focused
+    // element shot. The settings panel scrolls internally
+    // (``.mn { overflow: auto }``) so ``fullPage`` doesn't reach the
+    // bottom card on chromium's default 1280×720 viewport — without
+    // an explicit scroll the InstallTokenCard never enters frame.
+    // Two ``.card`` sections share the "Install token" string — the
+    // card itself and the registration-guide card directly below it.
+    // ``.first()`` picks the actual InstallTokenCard.
+    const installCard = page
+      .locator('section.card')
+      .filter({ hasText: /Install token/i })
+      .first()
+    await installCard.scrollIntoViewIfNeeded()
+    await expect(installCard).toBeVisible()
+    await installCard.screenshot({ path: `${SHOT_DIR}/05-install-token-card.png` })
+  })
+})
+
+test.describe('Settings — Mobile diagnostic', () => {
+  test('Settings page renders on mobile (Pixel 5 / iPhone 13)', async ({
+    page,
+    viewport,
+  }, testInfo) => {
+    test.skip(
+      (viewport?.width ?? 0) >= 800,
+      'Desktop runs are covered by the main describe block.',
+    )
+    await page.addInitScript(() => {
+      localStorage.setItem('bsnexus.locale', 'en')
+    })
+    await page.addInitScript(() => {
+      const s = document.createElement('style')
+      s.textContent = `
+        *, *::before, *::after { transition: none !important; animation: none !important; }
+        .cmd-mask { backdrop-filter: none !important; }
+      `
+      document.head.appendChild(s)
+    })
+    await setupPage(page, '/settings')
+
+    // ResponsiveSidebar collapses to a drawer at mobile widths; the
+    // Settings tab nav still renders. We don't assert specific
+    // controls here — this is a *visual* diagnostic to surface any
+    // regressions when the desktop-only Settings page degrades to
+    // narrow viewports.
+    const projectName = testInfo.project.name
+    await page.screenshot({
+      path: `${SHOT_DIR}/mobile-${projectName}-settings.png`,
+      fullPage: true,
+    })
+
+    // If the Executors tab is reachable on this viewport, capture it
+    // too. Some mobile layouts may stack the tab nav vertically; we
+    // best-effort it without a hard assertion so the diagnostic shot
+    // always produces.
+    const executorsTab = page.getByRole('button', { name: 'Executors' })
+    if (await executorsTab.isVisible().catch(() => false)) {
+      await executorsTab.click()
+      await page.screenshot({
+        path: `${SHOT_DIR}/mobile-${projectName}-executors.png`,
+        fullPage: true,
+      })
+    }
   })
 })
