@@ -31,7 +31,6 @@ from backend.src.models.tenant_integration_config import (
     IntegrationProvider,
     TenantIntegrationConfig,
 )
-from backend.src.models.worker import Worker
 from backend.src.storage.database import Base
 
 # Phase Audit Batch 2 — register the bsvibe-audit ``audit_outbox`` table
@@ -73,6 +72,5 @@ __all__ = [
     "Tenant",
     "TenantIntegrationConfig",
     "TenantMember",
-    "Worker",
     "execution_run_dependencies",
 ]

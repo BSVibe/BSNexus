@@ -204,6 +204,17 @@ function RunDetail({ run }: { run: ExecutionRun }) {
     queryFn: () => compositionSnapshotsApi.get(snapshotId!),
     enabled: Boolean(snapshotId),
   })
+  // Direction reset 2026-05-03 — live streaming output. The
+  // useProjectEvents hook accumulates ``run_output`` chunks into
+  // ['run-output', projectId] keyed by run_id. When the run is still
+  // running, prefer the live cache; once it's done the persisted
+  // output_ref takes over (the live cache is replaced wholesale on
+  // next dispatch).
+  const { data: liveOutputs } = useQuery<Record<string, string>>({
+    queryKey: ['run-output', run.project_id],
+    enabled: false, // never fetched — populated by SSE setQueryData only
+  })
+  const liveText = liveOutputs?.[run.id] ?? ''
 
   if (!snapshotId) {
     return (
@@ -230,7 +241,12 @@ function RunDetail({ run }: { run: ExecutionRun }) {
   const inline = (snapshot.system_prompt_ref as Record<string, unknown>)?.inline as
     | string
     | undefined
-  const output = extractInline(run.output_ref)
+  const persistedOutput = extractInline(run.output_ref)
+  // While running, show the SSE-streamed live text. After completion,
+  // fall back to the persisted output_ref. ``liveText`` is empty for
+  // brand new runs so we don't render an empty box.
+  const isLive = run.status === 'running' && liveText.length > 0
+  const output = isLive ? liveText : persistedOutput
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -325,8 +341,12 @@ function RunDetail({ run }: { run: ExecutionRun }) {
           label={t('row.output')}
           actions={
             <>
-              <Badge tone={run.status === 'done' ? 'emerald' : 'gray'}>
-                {KNOWN_RUN_STATUSES.has(run.status) ? tStatus(run.status as never) : run.status}
+              <Badge tone={isLive ? 'amber' : run.status === 'done' ? 'emerald' : 'gray'}>
+                {isLive
+                  ? '● live'
+                  : KNOWN_RUN_STATUSES.has(run.status)
+                    ? tStatus(run.status as never)
+                    : run.status}
               </Badge>
               <button
                 type="button"

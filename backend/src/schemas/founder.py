@@ -118,7 +118,6 @@ class ExecutionRunResponse(BaseModel):
     output_ref: dict[str, Any] | None
     estimated_cost_cents: int
     actual_cost_cents: int
-    worker_id: uuid.UUID | None
     branch_name: str | None
     commit_hash: str | None
     error_message: str | None

@@ -29,8 +29,17 @@ founder-metaphor migration.
 - **Python 3.11+** / **FastAPI** (async monolith)
 - **PostgreSQL 16** + SQLAlchemy 2.0 (async) + Alembic
 - **Redis Streams** (consumer groups, NOT Pub/Sub)
-- **LiteLLM** (provider-agnostic LLM integration — with BSGateway hook
-  when enabled)
+- **Two-path LLM dispatch** (Phase 2b, 2026-05-04 — BSVibe-optional
+  philosophy revision of the 2026-05-03 reset):
+  * `executor_type=bsgateway` → `core/bsgateway/client.py` →
+    BSGateway worker pool (BSVibe infra path).
+  * `executor_type=llm_api` → `core/llm/direct_client.py` →
+    direct litellm call + MCP tool loop client-side (BSVibe-optional
+    path; works without BSGateway).
+  Both honor full MCP / Decisions / artifact UX. Capability is
+  identical; the difference is *infra dependency*. Use `litellm` only
+  inside `core/llm/`; everywhere else still goes through
+  `BSGatewayClient`.
 - **React 19** + TypeScript + Vite + Tailwind CSS + `@tanstack/react-query`
 - **Package managers**: `uv` (Python), `pnpm` (Node.js)
 - **Linting**: `ruff` (line-length 120)
@@ -51,9 +60,9 @@ backend/src/
   core/
     state_machine.py     # RunStateMachine (4-state ExecutionRun)
     run_orchestrator.py  # event-driven per-run dispatch (replaces GlobalDispatcher)
-    worker_watchdog.py   # opt-in polling reconciler for remote workers
-    worker_dispatch.py   # Redis Streams run dispatch
-    request_extractor.py # chit_chat|question|request|modification classifier
+    bsgateway/
+      client.py          # httpx wrapper over /api/v1/chat/completions
+      adapter.py         # BSGatewayAdapter — orchestrator-facing executor
     composer/
       knowledge_client.py  # BSage thin wrapper / Noop fallback
       prompt_assembler.py  # pure composer over templates + fragments
@@ -135,8 +144,14 @@ cd frontend && pnpm tokens:verify       # Design-token drift guard
 - **Pydantic models**: For all request/response schemas.
 - **Redis Streams**: Consumer group pattern with JSON serialization and
   `XACK`. Never use Redis Pub/Sub.
-- **LiteLLM only**: All LLM calls go through LiteLLM. No direct
-  `openai`/`anthropic` SDK imports.
+- **Two-path LLM dispatch** (revised 2026-05-04, "BSVibe optional"):
+  * `executor_type=bsgateway` → `core.bsgateway.BSGatewayClient`
+    (HTTP `/api/v1/chat/completions`).
+  * `executor_type=llm_api` → `core.llm.DirectLLMAdapter`
+    (litellm + MCP tool loop client-side).
+  `litellm` import is fenced into `core/llm/`; nowhere else may
+  import it. Direct `openai` / `anthropic` SDK imports are still
+  forbidden — litellm is the provider abstraction.
 - **Tenant scoping**: Routes take `tenant_id: uuid.UUID = Depends(get_tenant_id)`
   and filter every query by it. Cross-tenant rows 404, never leak.
 - **Dependency Injection**: Use FastAPI `Depends()` for DB sessions,

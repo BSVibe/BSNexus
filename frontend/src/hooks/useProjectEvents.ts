@@ -66,9 +66,31 @@ export function useProjectEvents(projectId: string | null): ConnectionStatus {
         }
       })
 
-      es.addEventListener('run_transition', () => {
+      es.addEventListener('run_transition', (e: MessageEvent) => {
         // ExecutionRun status / Inspector view care about these.
         queryClient.invalidateQueries({ queryKey: ['runs', projectId] })
+
+        // Prune the run-output live cache once the run reaches a
+        // terminal state — the persisted ``run.output_ref`` takes over
+        // rendering and the streamed text is no longer needed. Without
+        // this, every completed run leaks its full streamed text into
+        // the react-query cache forever (Inside-session LRU only).
+        try {
+          const data: { run_id?: string; to?: string } = JSON.parse(e.data ?? '{}')
+          if (data.run_id && (data.to === 'done' || data.to === 'blocked')) {
+            queryClient.setQueryData<Record<string, string>>(
+              ['run-output', projectId],
+              (old) => {
+                if (!old || !data.run_id || !(data.run_id in old)) return old
+                const next = { ...old }
+                delete next[data.run_id]
+                return next
+              },
+            )
+          }
+        } catch {
+          /* ignore parse errors */
+        }
       })
 
       es.addEventListener('deliverable', () => {
@@ -77,6 +99,34 @@ export function useProjectEvents(projectId: string | null): ConnectionStatus {
 
       es.addEventListener('decision', () => {
         queryClient.invalidateQueries({ queryKey: ['decisions', projectId] })
+      })
+
+      es.addEventListener('decision_resolved', () => {
+        // Resolve API already calls publish_decision_resolved; the
+        // Decisions tab must dismiss the row immediately and the
+        // Inside panel flips its blocked banner.
+        queryClient.invalidateQueries({ queryKey: ['decisions', projectId] })
+        queryClient.invalidateQueries({ queryKey: ['runs', projectId] })
+      })
+
+      es.addEventListener('run_output', (e: MessageEvent) => {
+        // Direction reset 2026-05-03 — Inside panel live streaming.
+        // BSGatewayAdapter pushes each delta.content chunk as a
+        // run_output event. Append onto the per-run output cache.
+        try {
+          const data: { run_id: string; content: string; finish_reason: string | null } =
+            JSON.parse(e.data)
+          queryClient.setQueryData<Record<string, string>>(
+            ['run-output', projectId],
+            (old) => {
+              const next = { ...(old ?? {}) }
+              next[data.run_id] = (next[data.run_id] ?? '') + data.content
+              return next
+            },
+          )
+        } catch {
+          /* ignore parse errors */
+        }
       })
 
       es.onerror = () => {

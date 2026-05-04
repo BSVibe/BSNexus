@@ -1,29 +1,27 @@
-"""Executor guard — backend must never make an LLM call on behalf of a
-tenant whose ``ExecutorConfig`` doesn't explicitly authorize one.
+"""Executor guard — every selected ``ExecutorConfig`` resolves to one
+of two adapter kinds, distinguished by infra dependency:
 
-The layering:
-  - LLM is the lowest layer (litellm.acompletion / claude CLI / …)
-  - The **executor** is the abstraction directly above. It decides
-    *where* the LLM runs: backend process (generic_llm / bsgateway) or
-    a remote worker (worker).
+- ``executor_type="bsgateway"`` → :class:`BSGatewayAdapter` (BSVibe
+  infra path; goes through BSGateway worker pool)
+- ``executor_type="llm_api"`` → :class:`DirectLLMAdapter` (BSVibe-
+  optional path; direct LLM call from BSNexus via litellm + MCP tool
+  loop)
 
-A worker-only tenant still gets runs executed — on the worker — so the
-backend never initiates a paid LLM call on their behalf.
-
-`_build_adapter` is the single dispatcher that translates an
-``ExecutorConfig`` into an orchestrator executor.
+The legacy taxonomy (``claude_code`` / ``codex`` / ``opencode`` /
+``worker``) is gone — alembic migration ``2026_05_04_collapse_executor_types``
+lifts those into ``executor_type=bsgateway`` with the original value
+preserved in ``config.model``. Unknown values at runtime return None
+with a WARN so they don't dispatch silently.
 """
 
 from __future__ import annotations
 
 import uuid
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from backend.src.api.conversation import _build_adapter
-from backend.src.core.orchestrator_adapter import LiteLLMOrchestratorAdapter
-from backend.src.core.worker_adapter import WorkerDispatchAdapter
+from backend.src.core.bsgateway import BSGatewayAdapter
 from backend.src.models import ExecutorConfig
 
 
@@ -48,6 +46,9 @@ async def _make_cfg(
     return row
 
 
+# ─── No config / unknown type ────────────────────────────────────────
+
+
 @pytest.mark.asyncio
 async def test_no_default_returns_none(db_session, mock_tenant_id, seeded_tenant):
     assert (
@@ -62,15 +63,63 @@ async def test_no_default_returns_none(db_session, mock_tenant_id, seeded_tenant
 
 
 @pytest.mark.asyncio
-async def test_generic_llm_default_returns_adapter(db_session, mock_tenant_id, seeded_tenant):
+async def test_unknown_executor_type_returns_none(db_session, mock_tenant_id, seeded_tenant):
+    """Post-2026-05-04, only ``bsgateway`` / ``llm_api`` are valid.
+    Anything else (legacy ``claude_code``, typo ``mystery``, ...) is
+    refused with a WARN — alembic should have migrated legacy values
+    on upgrade."""
     await _make_cfg(
         db_session,
         mock_tenant_id,
-        executor_type="generic_llm",
+        executor_type="claude_code",  # legacy — should never reach runtime
+        config={"bsgateway_url": "http://gw.test", "bsgateway_api_key": "k"},
+    )
+    assert (
+        await _build_adapter(
+            db_session,
+            mock_tenant_id,
+            run_id=uuid.uuid4(),
+            project_id=uuid.uuid4(),
+        )
+        is None
+    )
+
+
+# ─── bsgateway adapter ───────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_bsgateway_missing_url_returns_none(db_session, mock_tenant_id, seeded_tenant):
+    await _make_cfg(
+        db_session,
+        mock_tenant_id,
+        executor_type="bsgateway",
+        config={"bsgateway_api_key": "k"},  # url missing
+    )
+    assert (
+        await _build_adapter(
+            db_session,
+            mock_tenant_id,
+            run_id=uuid.uuid4(),
+            project_id=uuid.uuid4(),
+        )
+        is None
+    )
+
+
+@pytest.mark.asyncio
+async def test_bsgateway_uses_cfg_model(db_session, mock_tenant_id, seeded_tenant):
+    """``cfg.model`` is the actual model string BSGateway will route —
+    can be a CLI alias (``claude_code``) or a litellm-style id
+    (``anthropic/claude-3-5-sonnet``)."""
+    await _make_cfg(
+        db_session,
+        mock_tenant_id,
+        executor_type="bsgateway",
         config={
-            "model": "ollama/glm-4.7-flash:latest",
-            "api_key": "unused",
-            "base_url": "http://localhost:11434",
+            "bsgateway_url": "http://gw.test",
+            "bsgateway_api_key": "k",
+            "model": "anthropic/claude-3-5-sonnet",
         },
     )
     adapter = await _build_adapter(
@@ -79,37 +128,48 @@ async def test_generic_llm_default_returns_adapter(db_session, mock_tenant_id, s
         run_id=uuid.uuid4(),
         project_id=uuid.uuid4(),
     )
-    assert isinstance(adapter, LiteLLMOrchestratorAdapter)
+    assert isinstance(adapter, BSGatewayAdapter)
+    assert adapter._model == "anthropic/claude-3-5-sonnet"
 
 
 @pytest.mark.asyncio
-async def test_generic_llm_without_model_returns_none(db_session, mock_tenant_id, seeded_tenant):
+async def test_bsgateway_without_cfg_model_defaults_to_claude_code(
+    db_session,
+    mock_tenant_id,
+    seeded_tenant,
+):
     await _make_cfg(
         db_session,
         mock_tenant_id,
-        executor_type="generic_llm",
-        config={},  # empty — no model field
+        executor_type="bsgateway",
+        config={"bsgateway_url": "http://gw.test", "bsgateway_api_key": "k"},
     )
-    assert (
-        await _build_adapter(
-            db_session,
-            mock_tenant_id,
-            run_id=uuid.uuid4(),
-            project_id=uuid.uuid4(),
-        )
-        is None
+    adapter = await _build_adapter(
+        db_session,
+        mock_tenant_id,
+        run_id=uuid.uuid4(),
+        project_id=uuid.uuid4(),
     )
+    assert isinstance(adapter, BSGatewayAdapter)
+    assert adapter._model == "claude_code"
 
 
 @pytest.mark.asyncio
-async def test_bsgateway_default_returns_adapter_pointed_at_gateway(db_session, mock_tenant_id, seeded_tenant):
+async def test_bsgateway_legacy_base_url_fallback(
+    db_session,
+    mock_tenant_id,
+    seeded_tenant,
+):
+    """Pre-cutover rows used ``base_url`` directly. Dispatcher accepts
+    it as the gateway URL during the migration window."""
     await _make_cfg(
         db_session,
         mock_tenant_id,
         executor_type="bsgateway",
         config={
-            "bsgateway_url": "https://gateway.bsvibe.dev",
-            "bsgateway_api_key": "bsg-secret",
+            "base_url": "http://legacy-gateway.test",
+            "api_key": "legacy-key",
+            "model": "ollama/qwen3-coder:30b",
         },
     )
     adapter = await _build_adapter(
@@ -118,307 +178,111 @@ async def test_bsgateway_default_returns_adapter_pointed_at_gateway(db_session, 
         run_id=uuid.uuid4(),
         project_id=uuid.uuid4(),
     )
-    assert isinstance(adapter, LiteLLMOrchestratorAdapter)
-    assert adapter._base_url == "https://gateway.bsvibe.dev"
-    assert adapter._api_key == "bsg-secret"
+    assert isinstance(adapter, BSGatewayAdapter)
+    assert adapter._model == "ollama/qwen3-coder:30b"
 
 
 @pytest.mark.asyncio
-async def test_bsgateway_without_url_returns_none(db_session, mock_tenant_id, seeded_tenant):
+async def test_bsgateway_workspace_dir_resolved_from_project_id(
+    db_session,
+    mock_tenant_id,
+    seeded_tenant,
+):
     await _make_cfg(
         db_session,
         mock_tenant_id,
         executor_type="bsgateway",
-        config={},
+        config={"bsgateway_url": "http://gw.test", "bsgateway_api_key": "k"},
     )
-    assert (
-        await _build_adapter(
-            db_session,
-            mock_tenant_id,
-            run_id=uuid.uuid4(),
-            project_id=uuid.uuid4(),
-        )
-        is None
-    )
-
-
-@pytest.mark.parametrize(
-    "exec_type",
-    ["worker", "claude_code", "codex"],
-)
-@pytest.mark.asyncio
-async def test_worker_family_without_online_worker_returns_none(db_session, mock_tenant_id, seeded_tenant, exec_type):
-    """``worker`` and its capability-specialized siblings
-    (``claude_code``, ``codex``) all dispatch through the worker
-    pipeline. Without an online matching worker, the run waits — never
-    falls through to a direct LLM call.
-    """
-    from unittest.mock import MagicMock
-
-    await _make_cfg(
+    project_id = uuid.uuid4()
+    adapter = await _build_adapter(
         db_session,
         mock_tenant_id,
-        executor_type=exec_type,
-        config={},
+        run_id=uuid.uuid4(),
+        project_id=project_id,
     )
-    stream = MagicMock()
-    stream.publish = AsyncMock()
-    assert (
-        await _build_adapter(
-            db_session,
-            mock_tenant_id,
-            run_id=uuid.uuid4(),
-            project_id=uuid.uuid4(),
-            stream_manager=stream,
-        )
-        is None
-    )
+    assert isinstance(adapter, BSGatewayAdapter)
+    assert adapter._workspace_dir is not None
+    assert str(project_id) in adapter._workspace_dir
+
+
+# ─── llm_api → DirectLLMAdapter (Phase 2b) ──────────────────────
 
 
 @pytest.mark.asyncio
-async def test_worker_default_without_stream_manager_returns_none(db_session, mock_tenant_id, seeded_tenant):
-    """No stream_manager → we cannot publish to the worker's queue, so
-    fall back to None (run waits). Never falls through to LiteLLM."""
-    await _make_cfg(
+async def test_llm_api_returns_direct_llm_adapter(
+    db_session,
+    mock_tenant_id,
+    seeded_tenant,
+):
+    """``llm_api`` resolves to :class:`DirectLLMAdapter` — direct
+    LLM call from BSNexus, BSVibe-optional path."""
+    from backend.src.core.llm import DirectLLMAdapter
+
+    cfg = await _make_cfg(
         db_session,
         mock_tenant_id,
-        executor_type="worker",
-        config={},
+        executor_type="llm_api",
+        config={"model": "anthropic/claude-3-5-sonnet"},
     )
-    assert (
-        await _build_adapter(
-            db_session,
-            mock_tenant_id,
-            run_id=uuid.uuid4(),
-            project_id=uuid.uuid4(),
-            stream_manager=None,
-        )
-        is None
-    )
-
-
-@pytest.mark.asyncio
-async def test_worker_default_without_online_worker_returns_none(db_session, mock_tenant_id, seeded_tenant):
-    """Worker type but no worker has heartbeated recently → run waits."""
-    await _make_cfg(
-        db_session,
-        mock_tenant_id,
-        executor_type="worker",
-        config={},
-    )
-    stream_manager = MagicMock()
-    stream_manager.publish = AsyncMock()
-    assert (
-        await _build_adapter(
-            db_session,
-            mock_tenant_id,
-            run_id=uuid.uuid4(),
-            project_id=uuid.uuid4(),
-            stream_manager=stream_manager,
-        )
-        is None
-    )
-
-
-async def _register_worker(db_session, tenant_id, *, capabilities: list[str]):
-    import hashlib
-    from datetime import datetime, timezone
-
-    from backend.src.models import Worker
-
-    worker = Worker(
-        tenant_id=tenant_id,
-        name=f"host-{uuid.uuid4().hex[:6]}",
-        labels=[],
-        capabilities=capabilities,
-        status="online",
-        last_heartbeat=datetime.now(timezone.utc),
-        token_hash=hashlib.sha256(uuid.uuid4().bytes).hexdigest(),
-        is_active=True,
-    )
-    db_session.add(worker)
+    cfg.api_key_encrypted = None
+    cfg.config = {"model": "anthropic/claude-3-5-sonnet", "api_key": "sk-test"}
     await db_session.commit()
-    await db_session.refresh(worker)
-    return worker
-
-
-@pytest.mark.asyncio
-async def test_worker_default_with_online_worker_returns_worker_adapter(db_session, mock_tenant_id, seeded_tenant):
-    """Happy path: worker-only tenant + an online worker exists →
-    dispatch runs to the worker (no backend-side LLM call).
-    """
-    await _make_cfg(
-        db_session,
-        mock_tenant_id,
-        executor_type="worker",
-        config={},
-    )
-    worker = await _register_worker(db_session, mock_tenant_id, capabilities=["claude_code"])
-
-    stream_manager = MagicMock()
-    stream_manager.publish = AsyncMock()
 
     adapter = await _build_adapter(
         db_session,
         mock_tenant_id,
         run_id=uuid.uuid4(),
         project_id=uuid.uuid4(),
-        stream_manager=stream_manager,
     )
-    assert isinstance(adapter, WorkerDispatchAdapter)
-    assert adapter._worker_id == worker.id
+    assert isinstance(adapter, DirectLLMAdapter)
+    assert adapter._model == "anthropic/claude-3-5-sonnet"
 
 
 @pytest.mark.asyncio
-async def test_claude_code_default_picks_worker_with_claude_code_capability(db_session, mock_tenant_id, seeded_tenant):
-    """``claude_code`` executor specializes the worker search by
-    capability — only workers that advertise ``claude_code`` are
-    eligible."""
-    await _make_cfg(
+async def test_llm_api_missing_model_returns_none(
+    db_session,
+    mock_tenant_id,
+    seeded_tenant,
+):
+    """``llm_api`` requires ``cfg.model`` — without it the dispatcher
+    refuses rather than dispatching to a default model."""
+    cfg = await _make_cfg(
         db_session,
         mock_tenant_id,
-        executor_type="claude_code",
-        config={},
+        executor_type="llm_api",
+        config={"api_key": "sk-test"},
     )
-    # Worker without claude_code — should be skipped.
-    await _register_worker(db_session, mock_tenant_id, capabilities=["codex"])
-    # Worker with claude_code — should be chosen.
-    matching = await _register_worker(db_session, mock_tenant_id, capabilities=["claude_code", "opencode"])
-
-    stream_manager = MagicMock()
-    stream_manager.publish = AsyncMock()
+    cfg.config = {"api_key": "sk-test"}
+    await db_session.commit()
 
     adapter = await _build_adapter(
         db_session,
         mock_tenant_id,
         run_id=uuid.uuid4(),
         project_id=uuid.uuid4(),
-        stream_manager=stream_manager,
     )
-    assert isinstance(adapter, WorkerDispatchAdapter)
-    assert adapter._worker_id == matching.id
+    assert adapter is None
 
 
 @pytest.mark.asyncio
-async def test_claude_code_default_returns_none_when_no_capable_worker(db_session, mock_tenant_id, seeded_tenant):
-    """If no online worker advertises the required capability, we wait —
-    we don't silently downgrade to a backend-side LLM call."""
+async def test_llm_api_missing_api_key_returns_none(
+    db_session,
+    mock_tenant_id,
+    seeded_tenant,
+):
+    """``llm_api`` calls a third-party LLM provider; an empty / unset
+    key would 401 at the boundary. Refuse upfront with a WARN."""
     await _make_cfg(
         db_session,
         mock_tenant_id,
-        executor_type="claude_code",
-        config={},
+        executor_type="llm_api",
+        config={"model": "openai/gpt-4o"},  # no api_key
     )
-    # Only a codex-capable worker online.
-    await _register_worker(db_session, mock_tenant_id, capabilities=["codex"])
-
-    stream_manager = MagicMock()
-    stream_manager.publish = AsyncMock()
-
-    assert (
-        await _build_adapter(
-            db_session,
-            mock_tenant_id,
-            run_id=uuid.uuid4(),
-            project_id=uuid.uuid4(),
-            stream_manager=stream_manager,
-        )
-        is None
-    )
-
-
-@pytest.mark.asyncio
-async def test_codex_default_picks_worker_with_codex_capability(db_session, mock_tenant_id, seeded_tenant):
-    await _make_cfg(
-        db_session,
-        mock_tenant_id,
-        executor_type="codex",
-        config={},
-    )
-    await _register_worker(db_session, mock_tenant_id, capabilities=["claude_code"])
-    matching = await _register_worker(db_session, mock_tenant_id, capabilities=["codex"])
-
-    stream_manager = MagicMock()
-    stream_manager.publish = AsyncMock()
-
     adapter = await _build_adapter(
         db_session,
         mock_tenant_id,
         run_id=uuid.uuid4(),
         project_id=uuid.uuid4(),
-        stream_manager=stream_manager,
     )
-    assert isinstance(adapter, WorkerDispatchAdapter)
-    assert adapter._worker_id == matching.id
-
-
-@pytest.mark.asyncio
-async def test_only_default_is_consulted(db_session, mock_tenant_id, seeded_tenant):
-    """A second, non-default generic_llm row must not influence dispatch
-    — only ``is_selected=True`` decides which executor handles runs.
-
-    Guarantees: a worker-default tenant with a non-default generic_llm
-    config does NOT get its runs silently routed through LiteLLM.
-    """
-    # Default: worker — no online worker, no stream manager → waits.
-    await _make_cfg(
-        db_session,
-        mock_tenant_id,
-        executor_type="worker",
-        config={},
-        is_selected=True,
-    )
-    # Extra generic_llm config, but NOT default
-    extra = ExecutorConfig(
-        tenant_id=mock_tenant_id,
-        name="extra",
-        executor_type="generic_llm",
-        config={"model": "openai/gpt-4o", "api_key": "sk-x"},
-        is_selected=False,
-    )
-    db_session.add(extra)
-    await db_session.commit()
-
-    assert (
-        await _build_adapter(
-            db_session,
-            mock_tenant_id,
-            run_id=uuid.uuid4(),
-            project_id=uuid.uuid4(),
-            stream_manager=None,
-        )
-        is None
-    )
-
-
-@pytest.mark.asyncio
-async def test_foreign_tenant_default_ignored(db_session, mock_tenant_id, seeded_tenant):
-    """Another tenant's default must never leak through."""
-    from backend.src.models import Tenant
-
-    other_tid = uuid.uuid4()
-    other = Tenant(
-        id=other_tid,
-        name="Other",
-        slug=f"o-{uuid.uuid4().hex[:8]}",
-        owner_user_id="x",
-    )
-    db_session.add(other)
-    await db_session.commit()
-
-    await _make_cfg(
-        db_session,
-        other_tid,
-        executor_type="generic_llm",
-        config={"model": "openai/gpt-4o", "api_key": "sk-x"},
-    )
-
-    assert (
-        await _build_adapter(
-            db_session,
-            mock_tenant_id,
-            run_id=uuid.uuid4(),
-            project_id=uuid.uuid4(),
-        )
-        is None
-    )
+    assert adapter is None

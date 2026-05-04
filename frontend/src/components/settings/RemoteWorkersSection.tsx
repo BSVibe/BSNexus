@@ -156,6 +156,7 @@ function InstallTokenCard({
           display: 'flex',
           alignItems: 'center',
           gap: 8,
+          flexWrap: 'wrap',
           marginBottom: revealedToken || hasToken ? 10 : 0,
         }}
       >
@@ -163,10 +164,23 @@ function InstallTokenCard({
         <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--gray-50)' }}>
           {t('installTokenLabel')}
         </span>
-        <span className="faded" style={{ fontSize: 11 }}>
+        <span
+          className="faded"
+          style={{
+            fontSize: 11,
+            // Shrink before pushing buttons off-screen — without
+            // ``min-width: 0`` flex children refuse to compress past
+            // their intrinsic content width, which is what clipped
+            // the Regenerate / Revoke buttons on narrow chrome.
+            flex: '1 1 0',
+            minWidth: 0,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
           {t('installTokenScope', { registerCommand: 'register' })}
         </span>
-        <span style={{ flex: 1 }} />
         {loading ? (
           <span className="faded" style={{ fontSize: 12 }}>
             {tCommon('loading')}

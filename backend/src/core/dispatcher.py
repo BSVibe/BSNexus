@@ -20,11 +20,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.core.composer import resolve_knowledge_client
 from backend.src.core.integrations import get_tenant_integration_snapshot
-from backend.src.core.orchestrator_adapter import LiteLLMOrchestratorAdapter
 from backend.src.core.run_artifacts import publish_run_output
 from backend.src.core.run_orchestrator import get_run_orchestrator
-from backend.src.core.worker_adapter import WorkerDispatchAdapter
-from backend.src.core.worker_dispatch import WorkerDispatcher
 from backend.src.models import ExecutorConfig, RunStatus
 from backend.src.storage.database import async_session
 
@@ -67,145 +64,11 @@ async def _dispatch_background(
     Phase 3 (short session): re-attach the run in a fresh session and
     finalize via ``on_run_completed`` → ``publish_run_output``.
     """
-    # P0.7 — BSGateway absorbs the BSupervisor run.pre / run.post calls
-    # for LLM runs (Lockin §Architectural shifts #1). The dispatcher no
-    # longer resolves an AuditSink for the LLM completion path; the
-    # ``orchestrator_adapter`` plumbs run audit metadata to BSGateway
-    # via the LiteLLM ``metadata`` kwarg.
-    from backend.src.core.planner import replan_next_step  # noqa: PLC0415
-
+    # Direction reset 2026-05-03 — Phase 0 (LLM-driven replanner) is
+    # retired. Request → Run is 1:1 now; BSGateway's CLI agent does its
+    # own reasoning inside the worker. ``replan_next_step`` and the
+    # decision-creation-during-dispatch branch are gone with this commit.
     try:
-        # Phase 0: replan. Calls the chief-of-staff LLM to decide what
-        # this iteration should do. Possible outcomes:
-        #   next_step → fill in run.directive, write a phase_start
-        #               message, fall through to Phase 1.
-        #   done      → mark the run done with no work, write a
-        #               chain_done message, exit.
-        #   ask_founder → create a Decision row + decision_request
-        #                 message, mark run blocked, exit.
-        async with async_session() as session:
-            from backend.src.core.run_artifacts import (  # noqa: PLC0415
-                insert_chat_event,
-            )
-            from backend.src.models import Decision  # noqa: PLC0415
-            from backend.src.models import ExecutionRun as _ExecutionRun  # noqa: PLC0415
-            from backend.src.models import Request as _Request  # noqa: PLC0415
-
-            run_row = (
-                await session.execute(select(_ExecutionRun).where(_ExecutionRun.id == run_id))
-            ).scalar_one_or_none()
-            if run_row is None:
-                return
-            if run_row.request_id is None:
-                return
-
-            req_row = (
-                await session.execute(select(_Request).where(_Request.id == run_row.request_id))
-            ).scalar_one_or_none()
-            if req_row is None:
-                return
-
-            prior_runs = await _load_prior_completed_runs(session, req_row.id)
-            pending_decisions = await _load_pending_decisions(session, req_row.id)
-            recent_msgs = await _load_recent_messages(session, run_row.project_id)
-
-            replan = await replan_next_step(
-                request=req_row,
-                completed_runs=prior_runs,
-                pending_decisions=pending_decisions,
-                recent_messages=recent_msgs,
-                tenant_id=tenant_id,
-                session=session,
-            )
-
-            if replan.decision == "done":
-                await insert_chat_event(
-                    session,
-                    project_id=run_row.project_id,
-                    request_id=req_row.id,
-                    run_id=run_row.id,
-                    kind="chain_done",
-                    content=replan.founder_message,
-                )
-                from backend.src.models import RequestStatus  # noqa: PLC0415
-
-                run_row.status = RunStatus.done
-                req_row.status = RequestStatus.completed
-                await session.commit()
-                return
-
-            if replan.decision == "ask_founder":
-                decision = Decision(
-                    tenant_id=tenant_id,
-                    project_id=run_row.project_id,
-                    request_id=req_row.id,
-                    origin_run_id=run_row.id,
-                    question=replan.question or "",
-                    options=replan.options or [],
-                    blocking=replan.blocking,
-                )
-                session.add(decision)
-                await session.flush()
-                await insert_chat_event(
-                    session,
-                    project_id=run_row.project_id,
-                    request_id=req_row.id,
-                    run_id=run_row.id,
-                    kind="decision_request",
-                    content=replan.founder_message,
-                    extra={
-                        "question": replan.question,
-                        "options": replan.options or [],
-                        "decision_id": str(decision.id),
-                    },
-                )
-
-                # Phase Audit Batch 2 — emit ``nexus.decision.created``.
-                # Replanner-driven decision creation: the orchestrator
-                # asked the founder a question, no user actor exists at
-                # this point. ``orchestrator`` is the audit actor.
-                from backend.src.core.audit import (  # noqa: PLC0415
-                    actor_orchestrator,
-                    resource_decision,
-                    safe_emit,
-                )
-                from bsvibe_audit.events.nexus import DecisionCreated  # noqa: PLC0415
-
-                await safe_emit(
-                    DecisionCreated(
-                        actor=actor_orchestrator(),
-                        tenant_id=str(tenant_id),
-                        resource=resource_decision(decision.id),
-                        data={
-                            "project_id": str(run_row.project_id),
-                            "request_id": str(req_row.id),
-                            "origin_run_id": str(run_row.id),
-                            "question": decision.question,
-                            "blocking": decision.blocking,
-                            "option_count": len(decision.options or []),
-                        },
-                    ),
-                    session=session,
-                )
-
-                run_row.status = RunStatus.blocked
-                run_row.error_message = "awaiting founder decision"
-                await session.commit()
-                return
-
-            # decision == "next_step"
-            run_row.directive = replan.phase_direction
-            await insert_chat_event(
-                session,
-                project_id=run_row.project_id,
-                request_id=req_row.id,
-                run_id=run_row.id,
-                kind="phase_start",
-                content=replan.founder_message,
-                extra={"phase_name": replan.phase_name or "iteration"},
-            )
-            await session.commit()
-
         # Phase 1: prepare + transition to running, commit, release.
         prepared: dict[str, Any] | None = None
         async with async_session() as session:
@@ -257,16 +120,72 @@ async def _dispatch_background(
                 )
             ).scalar_one()
 
-            # P0.7 — plumb run audit metadata into the LiteLLM call so
-            # BSGateway's async_pre_call_hook / async_post_call_hook can
+            # Plumb run audit metadata so BSGateway's pre/post hooks can
             # forward run.pre / run.post events to BSupervisor on
-            # BSNexus's behalf (Lockin §Architectural shifts #1).
-            if isinstance(adapter, LiteLLMOrchestratorAdapter):
-                from backend.src.core.orchestrator_adapter import (  # noqa: PLC0415
-                    build_run_audit_metadata,
+            # BSNexus's behalf. Both BSGatewayAdapter and the legacy
+            # LiteLLMOrchestratorAdapter expose ``set_run_audit_metadata``.
+            from backend.src.core.orchestrator_adapter import (  # noqa: PLC0415
+                build_run_audit_metadata,
+            )
+
+            if hasattr(adapter, "set_run_audit_metadata"):
+                adapter.set_run_audit_metadata(build_run_audit_metadata(run=run, snapshot=snapshot_row))
+
+            # Direction reset 2026-05-03 — mint a run-scoped MCP token
+            # and inject the BSNexus MCP server URL so the BSGateway
+            # worker's claude CLI can call back via decision.create /
+            # decision.wait / artifact.list / knowledge.search.
+            if hasattr(adapter, "set_mcp_servers"):
+                from backend.src.config import settings as _settings  # noqa: PLC0415
+                from backend.src.mcp import issue_run_scoped_token  # noqa: PLC0415
+
+                token = issue_run_scoped_token(
+                    {
+                        "run_id": str(run.id),
+                        "tenant_id": str(run.tenant_id),
+                        "project_id": str(run.project_id),
+                    },
+                    signing_key=_settings.mcp_signing_key,
+                    # exp = run timeout + 5 min grace (BSGateway per-call
+                    # timeout default is 3600s).
+                    ttl_seconds=3600 + 300,
+                )
+                base = _settings.mcp_internal_url.rstrip("/")
+                # ``type: "http"`` is the modern claude-CLI mcpServers shape
+                # for streamable-HTTP MCP (claude.com/docs/en/mcp). codex
+                # accepts the same URL via TOML ``url`` field; opencode
+                # auto-negotiates streamable-HTTP first when type=remote.
+                # Single transport (streamable-HTTP at /mcp/http) covers
+                # all three executors — SSE-only is deprecated by the MCP
+                # spec.
+                adapter.set_mcp_servers(
+                    {
+                        "bsnexus": {
+                            "type": "http",
+                            "url": f"{base}/mcp/http?token={token}",
+                            "headers": {},
+                        }
+                    }
                 )
 
-                adapter.set_run_audit_metadata(build_run_audit_metadata(run=run, snapshot=snapshot_row))
+            # Direction reset 2026-05-03 — Inside panel live streaming.
+            # Each delta.content chunk from BSGateway becomes a run_output
+            # event on the project SSE bus so the founder watches claude
+            # type in real time.
+            if hasattr(adapter, "set_on_chunk"):
+                from backend.src.core.project_events import (  # noqa: PLC0415
+                    publish_run_output_chunk,
+                )
+
+                _captured_run_id = run.id
+                _captured_project_id = run.project_id
+
+                async def _on_chunk(text: str) -> None:
+                    await publish_run_output_chunk(
+                        _captured_project_id, run_id=_captured_run_id, chunk=text
+                    )
+
+                adapter.set_on_chunk(_on_chunk)
 
             prepared = {
                 "adapter": adapter,
@@ -292,7 +211,13 @@ async def _dispatch_background(
             raise
         except Exception as exc:  # noqa: BLE001 — sink-all at the LLM boundary
             logger.warning("llm_execute_failed", run_id=str(run_id), exc_info=True)
+            # Preserve any partial output the BSGatewayClient buffered
+            # before the terminal error chunk. ``BSGatewayError.partial_output``
+            # is empty for non-streaming or pre-stream HTTP failures.
+            partial = getattr(exc, "partial_output", "") or ""
             result = {"_error": str(exc)}
+            if partial:
+                result["output_ref"] = {"inline": partial}
 
         # Async / worker executors return a "dispatched" sentinel —
         # they'll finalize via the worker-result consumer, not here.
@@ -323,10 +248,28 @@ async def _dispatch_background(
                     originator_token = req_row.originator_auth
 
             if isinstance(result, dict) and "_error" in result:
-                from backend.src.models import RunStatus as _RunStatus  # noqa: PLC0415
+                # Route through RunStateMachine.transition so the run-history
+                # row, milestone activity row, ``run_transition`` SSE event,
+                # and ``nexus.run.blocked`` audit emit all fire (CLAUDE.md
+                # NEVER rule). Direct status assignment used to skip all four
+                # — pre-merge review caught the regression.
+                from backend.src.core.state_machine import RunStateMachine  # noqa: PLC0415
 
-                run.status = _RunStatus.blocked
-                run.error_message = result["_error"]
+                # Persist any partial output streamed before the failure so
+                # the founder sees what claude actually produced rather than
+                # a blank Inside panel after the stream cuts out.
+                if isinstance(result.get("output_ref"), dict) and result["output_ref"].get("inline"):
+                    run.output_type = "text"
+                    run.output_ref = result["output_ref"]
+                state_machine = RunStateMachine()
+                await state_machine.transition(
+                    run,
+                    RunStatus.blocked,
+                    reason=result["_error"],
+                    actor="orchestrator",
+                    db_session=session,
+                    stream_manager=stream_manager,
+                )
                 await session.commit()
                 return
 
@@ -346,62 +289,6 @@ async def _dispatch_background(
         raise
     except Exception:  # noqa: BLE001 — top-level guard for the fire-and-forget task
         logger.error("background_dispatch_failed", run_id=str(run_id), exc_info=True)
-
-
-async def _load_prior_completed_runs(session: AsyncSession, request_id: uuid.UUID) -> list[Any]:
-    """Ordered prior completed runs for a request — feeds the replanner."""
-    from backend.src.models import ExecutionRun as _ExecutionRun  # noqa: PLC0415
-
-    rows = (
-        (
-            await session.execute(
-                select(_ExecutionRun)
-                .where(
-                    _ExecutionRun.request_id == request_id,
-                    _ExecutionRun.status == RunStatus.done,
-                )
-                .order_by(_ExecutionRun.created_at.asc())
-            )
-        )
-        .scalars()
-        .all()
-    )
-    return list(rows)
-
-
-async def _load_pending_decisions(session: AsyncSession, request_id: uuid.UUID) -> list[Any]:
-    from backend.src.models import Decision  # noqa: PLC0415
-
-    rows = (
-        (
-            await session.execute(
-                select(Decision)
-                .where(Decision.request_id == request_id, Decision.resolved_at.is_(None))
-                .order_by(Decision.created_at.asc())
-            )
-        )
-        .scalars()
-        .all()
-    )
-    return list(rows)
-
-
-async def _load_recent_messages(session: AsyncSession, project_id: uuid.UUID, *, limit: int = 12) -> list[Any]:
-    from backend.src.models import ConversationMessage  # noqa: PLC0415
-
-    rows = (
-        (
-            await session.execute(
-                select(ConversationMessage)
-                .where(ConversationMessage.project_id == project_id)
-                .order_by(ConversationMessage.created_at.desc())
-                .limit(limit)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    return list(reversed(rows))
 
 
 async def build_adapter(
@@ -435,41 +322,154 @@ async def build_adapter(
     exec_type = (row.executor_type or "").lower()
     cfg = row.config or {}
 
-    if exec_type == "generic_llm":
-        model = cfg.get("model")
-        if not model:
-            return None
-        return LiteLLMOrchestratorAdapter(
-            model=model,
-            project_id=project_id,
-            api_key=cfg.get("api_key") or "unused",
-            base_url=cfg.get("base_url"),
-        )
+    # Two top-level executor kinds, distinguished by *infra dependency*
+    # not by *capability* — both honor MCP / Decisions / artifact UX:
+    #
+    #   bsgateway — through BSVibe's BSGateway worker pool. Model
+    #               string in ``cfg.model`` is whatever BSGateway
+    #               routes (``claude_code``, ``openai/gpt-4o``, ...).
+    #   llm_api   — direct LLM call from BSNexus (BSVibe optional).
+    #               ``cfg.model`` is a litellm-style identifier
+    #               (``anthropic/claude-3-7-sonnet`` etc.). MCP wired
+    #               client-side through the tool loop in
+    #               ``core.llm.direct_client``.
+    _ = stream_manager  # noqa: F841 — retained for caller-compat
+    _ = run_id  # noqa: F841
+
+    api_key = _decrypt_api_key(row, cfg, tenant_id)
+    if api_key is None:
+        return None
 
     if exec_type == "bsgateway":
-        gateway_url = cfg.get("bsgateway_url")
-        if not gateway_url:
-            return None
-        return LiteLLMOrchestratorAdapter(
-            model=cfg.get("model") or "openai/gpt-4o-mini",
-            project_id=project_id,
-            api_key=cfg.get("bsgateway_api_key") or "unused",
-            base_url=gateway_url,
-        )
-
-    if exec_type in {"worker", "claude_code", "codex"}:
-        if stream_manager is None:
-            return None
-        required = None if exec_type == "worker" else [exec_type]
-        dispatcher = WorkerDispatcher(stream_manager)
-        worker = await dispatcher.find_available_worker(session, tenant_id=tenant_id, required_capabilities=required)
-        if worker is None:
-            return None
-        return WorkerDispatchAdapter(
-            stream_manager=stream_manager,
-            worker_id=worker.id,
-            run_id=run_id,
-            project_id=project_id,
-        )
-
+        return _build_bsgateway_adapter(row, cfg, tenant_id, project_id, api_key)
+    if exec_type == "llm_api":
+        return _build_llm_api_adapter(row, cfg, tenant_id, project_id, api_key)
+    logger.warning(
+        "executor_config_unknown_type",
+        config_id=str(row.id),
+        tenant_id=str(tenant_id),
+        executor_type=exec_type,
+    )
     return None
+
+
+def _decrypt_api_key(
+    row: ExecutorConfig,
+    cfg: dict[str, Any],
+    tenant_id: uuid.UUID,
+) -> str | None:
+    """Resolve the API key string for the executor.
+
+    Returns ``"unused"`` when no key is configured (BSGateway has paths
+    that don't require auth; ``DirectLLMAdapter`` will reject this and
+    fail the dispatch loud). Returns ``None`` when an encrypted blob
+    fails to decrypt — caller treats as a hard skip so we don't dispatch
+    with a bad key.
+    """
+    if row.api_key_encrypted:
+        from backend.src.config import settings as app_settings  # noqa: PLC0415
+        from backend.src.core.encryption import EncryptionManager  # noqa: PLC0415
+
+        try:
+            return EncryptionManager(app_settings.encryption_key).decrypt_value(
+                row.api_key_encrypted
+            )
+        except ValueError:
+            logger.error(
+                "executor_config_api_key_decrypt_failed",
+                config_id=str(row.id),
+                tenant_id=str(tenant_id),
+            )
+            return None
+    if cfg.get("bsgateway_api_key") or cfg.get("api_key"):
+        # Plaintext fallback for rows not re-saved through the API
+        # after the 2026-05-04 encryption migration. WARN once so the
+        # operator notices and rotates.
+        logger.warning(
+            "executor_config_plaintext_api_key_in_use",
+            config_id=str(row.id),
+            tenant_id=str(tenant_id),
+            hint="re-save the config through PATCH /api/v1/executor-configs/{id} to encrypt at rest",
+        )
+        return cfg.get("bsgateway_api_key") or cfg.get("api_key") or "unused"
+    return "unused"
+
+
+def _build_bsgateway_adapter(
+    row: ExecutorConfig,
+    cfg: dict[str, Any],
+    tenant_id: uuid.UUID,
+    project_id: uuid.UUID,
+    api_key: str,
+) -> Any | None:
+    gateway_url = cfg.get("bsgateway_url") or cfg.get("base_url")
+    if not gateway_url:
+        logger.warning(
+            "executor_config_bsgateway_missing_url",
+            config_id=str(row.id),
+            tenant_id=str(tenant_id),
+        )
+        return None
+    model = cfg.get("model") or "claude_code"
+
+    from backend.src.core.bsgateway import BSGatewayAdapter, BSGatewayClient  # noqa: PLC0415
+    from backend.src.core.project_workspace import project_workspace_path  # noqa: PLC0415
+
+    client = BSGatewayClient(base_url=gateway_url, api_key=api_key)
+    workspace_dir = str(project_workspace_path(project_id))
+    return BSGatewayAdapter(
+        client=client,
+        model=model,
+        project_id=project_id,
+        run_audit_metadata=None,  # dispatcher patches via set_run_audit_metadata
+        workspace_dir=workspace_dir,
+    )
+
+
+def _build_llm_api_adapter(
+    row: ExecutorConfig,
+    cfg: dict[str, Any],
+    tenant_id: uuid.UUID,
+    project_id: uuid.UUID,
+    api_key: str,
+) -> Any | None:
+    """Build the direct-LLM adapter for ``executor_type=llm_api`` —
+    BSVibe-optional path that calls the LLM provider directly via
+    litellm + a client-side MCP tool loop.
+    """
+    try:
+        from backend.src.core.llm.direct_client import DirectLLMAdapter  # noqa: PLC0415
+    except ImportError:
+        logger.error(
+            "executor_config_llm_api_not_implemented",
+            config_id=str(row.id),
+            tenant_id=str(tenant_id),
+            hint="DirectLLMAdapter ships in core.llm.direct_client — see ~/Docs/BSNexus_Direction_2026-05-03.md",
+        )
+        return None
+
+    model = cfg.get("model")
+    if not model:
+        logger.warning(
+            "executor_config_llm_api_missing_model",
+            config_id=str(row.id),
+            tenant_id=str(tenant_id),
+        )
+        return None
+    if not api_key or api_key == "unused":
+        logger.warning(
+            "executor_config_llm_api_missing_api_key",
+            config_id=str(row.id),
+            tenant_id=str(tenant_id),
+        )
+        return None
+
+    from backend.src.core.project_workspace import project_workspace_path  # noqa: PLC0415
+
+    workspace_dir = str(project_workspace_path(project_id))
+    return DirectLLMAdapter(
+        model=model,
+        api_key=api_key,
+        project_id=project_id,
+        workspace_dir=workspace_dir,
+    )

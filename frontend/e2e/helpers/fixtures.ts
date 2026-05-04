@@ -305,7 +305,7 @@ export const mockAgents = [
     role: 'content writer',
     title: null,
     job_description: 'Writes blog posts and documentation',
-    executor_type: 'generic_llm',
+    executor_type: 'llm_api',
     executor_config: {},
     system_prompt: null,
     skills: [],
@@ -354,26 +354,39 @@ export const mockWorkers = [
   },
 ]
 
+// Updated 2026-05-04 to match the post-Phase-2a schema:
+// - ``executor_type`` collapsed to ``{bsgateway, llm_api}``
+// - ``is_default`` renamed to ``is_selected`` (single canonical
+//   server-side field)
+// - ``has_api_key`` boolean replaces any plaintext key in the
+//   response (the encrypted blob never round-trips)
 export const mockExecutorConfigs = [
   {
     id: 'exec-001',
     tenant_id: '00000000-0000-0000-0000-000000000000',
-    name: 'Claude Sonnet 4',
-    executor_type: 'claude_api',
-    config: { api_key: 'sk-***', model: 'anthropic/claude-sonnet-4-20250514' },
-    description: 'Default LLM API for coding tasks',
-    is_default: true,
+    name: 'BSGateway Prod',
+    executor_type: 'bsgateway',
+    config: {
+      bsgateway_url: 'https://gateway.bsvibe.dev',
+      model: 'claude_code',
+    },
+    description: 'BSVibe BSGateway with cost-aware routing',
+    is_selected: true,
+    has_api_key: true,
     created_at: '2026-04-01T00:00:00Z',
     updated_at: '2026-04-01T00:00:00Z',
   },
   {
     id: 'exec-002',
     tenant_id: '00000000-0000-0000-0000-000000000000',
-    name: 'Worker: Mac Mini Runner',
-    executor_type: 'worker',
-    config: { worker_id: 'worker-001' },
-    description: 'Self-hosted worker (claude_code)',
-    is_default: false,
+    name: 'Direct Claude (no BSVibe)',
+    executor_type: 'llm_api',
+    config: {
+      model: 'anthropic/claude-3-5-sonnet',
+    },
+    description: 'Direct LLM call, BSVibe-optional path',
+    is_selected: false,
+    has_api_key: true,
     created_at: '2026-04-01T00:00:00Z',
     updated_at: '2026-04-01T00:00:00Z',
   },

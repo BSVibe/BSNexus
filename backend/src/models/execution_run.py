@@ -115,9 +115,6 @@ class ExecutionRun(Base):
     estimated_cost_cents: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     actual_cost_cents: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
 
-    worker_id: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid, ForeignKey("workers.id", ondelete="SET NULL"), nullable=True
-    )
     branch_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     commit_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
 

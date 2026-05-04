@@ -153,3 +153,52 @@ async def publish_decision(
             "blocking": blocking,
         },
     )
+
+
+async def publish_run_output_chunk(
+    project_id: uuid.UUID,
+    *,
+    run_id: uuid.UUID,
+    chunk: str,
+    finish_reason: str | None = None,
+) -> None:
+    """Direction reset 2026-05-03 — Inside panel live output stream.
+
+    BSGatewayAdapter feeds each ``delta.content`` chunk through here so
+    the founder watches claude type in real time. ``finish_reason`` is
+    set on the terminal chunk only.
+
+    Distinct from :func:`backend.src.core.run_artifacts.publish_run_output`,
+    which materialises the *terminal* deliverable + chat reply once a
+    Run finishes — they're orthogonal stages of the same Run lifecycle.
+    """
+    await get_project_event_bus().publish(
+        project_id,
+        {
+            "type": "run_output",
+            "run_id": str(run_id),
+            "content": chunk,
+            "finish_reason": finish_reason,
+        },
+    )
+
+
+async def publish_decision_resolved(
+    project_id: uuid.UUID,
+    *,
+    decision_id: uuid.UUID,
+    resolution: str,
+    resolved_by: str | None,
+) -> None:
+    """Fired from the resolve API after commit so the Decisions tab
+    can dismiss the resolved row immediately and the Inside panel
+    can flip its blocked-on-decision banner."""
+    await get_project_event_bus().publish(
+        project_id,
+        {
+            "type": "decision_resolved",
+            "id": str(decision_id),
+            "resolution": resolution,
+            "resolved_by": resolved_by,
+        },
+    )

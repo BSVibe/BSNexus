@@ -7,6 +7,7 @@ import { useQuery } from '@tanstack/react-query'
 import Sidebar from './Sidebar'
 import GlobalChat from '../chat/GlobalChat'
 import CommandPalette from '../common/CommandPalette'
+import { I } from '../../lib/icons'
 import { projectsApi, type Project } from '../../api/projects'
 import { useProjectEvents } from '../../hooks/useProjectEvents'
 
@@ -97,6 +98,21 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         collapsed={chatCollapsed}
         onToggleCollapsed={() => setChatCollapsed((c) => !c)}
       />
+
+      {/* Mobile-only chat-drawer open trigger. Hidden by CSS on
+          ≥768px (desktop chat rail is always inline). Hidden also
+          while the drawer is already open — backdrop tap closes. */}
+      {!mobileChatOpen && (
+        <button
+          type="button"
+          data-testid="bsnexus-mobile-chat-fab"
+          className="app--mobile-chat-fab"
+          aria-label="Open chat"
+          onClick={() => setMobileChatOpen(true)}
+        >
+          <I.Chat size={20} />
+        </button>
+      )}
 
       {/* Mobile-only backdrop — closes the chat drawer on tap.
           The sidebar drawer ships its own backdrop via @bsvibe/layout. */}

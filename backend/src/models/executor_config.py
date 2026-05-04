@@ -38,6 +38,14 @@ class ExecutorConfig(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     executor_type: Mapped[str] = mapped_column(String(50), nullable=False)
     config: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict, server_default="{}")
+    # Encrypted at rest. ``config`` used to store ``bsgateway_api_key`` /
+    # ``api_key`` plaintext in its JSON column — that path is gone.
+    # Set via :class:`backend.src.core.encryption.EncryptionManager`
+    # (Text column, base64-encoded ciphertext+IV+HMAC). The plaintext
+    # never round-trips back through API responses; callers see
+    # ``has_api_key: bool`` instead. Same pattern as
+    # ``TenantIntegrationConfig.api_key_encrypted``.
+    api_key_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_selected: Mapped[bool] = mapped_column(default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())

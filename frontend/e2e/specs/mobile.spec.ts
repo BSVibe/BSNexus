@@ -24,6 +24,11 @@ test.describe('Mobile viewport: BSNexus core flow', () => {
     if (testInfo.project.name === 'chromium') {
       testInfo.skip()
     }
+    // Pin English locale — devcontainer default is Korean and the
+    // assertions below match English link names ("Dashboard", etc.).
+    await page.addInitScript(() => {
+      localStorage.setItem('bsnexus.locale', 'en')
+    })
     // Suppress the Next.js dev runtime-error overlay so it doesn't intercept
     // pointer events. The pre-existing GlobalChat `q.data.forEach` overlay
     // is unrelated to mobile chrome and is tracked separately.
