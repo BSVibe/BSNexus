@@ -251,11 +251,6 @@ function ExecutorCard({
           <Badge tone="gray" square>
             {config.executor_type}
           </Badge>
-          {meta && (
-            <span className="faded" style={{ fontSize: 12 }}>
-              {t(`type.${meta.value}.description`)}
-            </span>
-          )}
         </div>
         {config.description && (
           <p style={{ margin: 0, fontSize: 12, color: 'var(--text-secondary)' }}>
