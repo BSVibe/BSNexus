@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import contextvars
 from typing import Any
+from urllib.parse import parse_qs
 from uuid import UUID
 
 import structlog
@@ -220,10 +221,30 @@ def attach_to_app(app) -> None:  # type: ignore[no-untyped-def]
         if scope["type"] != "http":
             await sse_app(scope, receive, send)
             return
-        # Parse ``token=...`` from the query string.
-        qs = scope.get("query_string", b"").decode()
-        params = dict(p.split("=", 1) for p in qs.split("&") if "=" in p)
-        token = params.get("token", "")
+        # Parse ``token=...`` from the query string. ``parse_qs`` handles
+        # percent-decoding, repeated keys, and value-less keys correctly —
+        # the ad-hoc ``split("&") / split("=", 1)`` parser this replaces
+        # would mangle a ``%XX``-encoded base64url char (the JWT-style
+        # token uses ``.``/``-``/``_`` only, but the signing key choice
+        # could change) and silently keep the *first* value of a
+        # ``token=a&token=b`` smuggling attempt instead of rejecting.
+        qs = scope.get("query_string", b"").decode("ascii", errors="replace")
+        params = parse_qs(qs, keep_blank_values=True, strict_parsing=False)
+        token_values = params.get("token", [])
+        # Reject if a caller supplies two ``token=`` keys — there's no
+        # legitimate use for that and treating it as authoritative-first
+        # is a smuggling foothold.
+        if len(token_values) != 1:
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 401,
+                    "headers": [(b"content-type", b"text/plain")],
+                }
+            )
+            await send({"type": "http.response.body", "body": b"missing or duplicate token"})
+            return
+        token = token_values[0]
         try:
             claim = verify_run_scoped_token(token, signing_key=settings.mcp_signing_key)
         except MCPAuthError as exc:

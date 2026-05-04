@@ -231,7 +231,15 @@ async def send_message(
 
     if run_to_dispatch is not None:
         stream_manager = getattr(request.app.state, "stream_manager", None)
-        asyncio.create_task(_BACKGROUND_DISPATCH(run_to_dispatch, tenant_id, project_id, stream_manager))
+        # Hold a strong reference until the task completes — Python's
+        # asyncio loop only weak-references in-flight tasks, so a fire-
+        # and-forget ``create_task(...)`` whose return value isn't kept
+        # may be garbage-collected mid-await on Python 3.11+.
+        task = asyncio.create_task(
+            _BACKGROUND_DISPATCH(run_to_dispatch, tenant_id, project_id, stream_manager)
+        )
+        _BACKGROUND_DISPATCH_TASKS.add(task)
+        task.add_done_callback(_BACKGROUND_DISPATCH_TASKS.discard)
 
     return SendMessageResponse(
         message=MessageResponse.model_validate(message, from_attributes=True),
@@ -245,3 +253,6 @@ async def send_message(
 _dispatch_new_run = _dispatch_background
 _build_adapter = build_adapter
 _BACKGROUND_DISPATCH = _dispatch_new_run
+# Strong-ref registry for fire-and-forget dispatch tasks. See call site
+# above for the GC rationale.
+_BACKGROUND_DISPATCH_TASKS: set[asyncio.Task] = set()

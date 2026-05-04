@@ -19,6 +19,7 @@ import httpx
 import pytest
 
 from backend.src.core.bsgateway import BSGatewayClient, BSGatewayError
+from backend.src.core.bsgateway.client import BSGatewayMetadataError
 
 
 def _sse_lines(*chunks: dict[str, Any]) -> list[str]:
@@ -235,3 +236,47 @@ async def test_on_chunk_callback_receives_each_delta() -> None:
         )
 
     assert received == ["Hi ", "there"]
+
+
+# ── workspace_dir client-side validation ──────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "bad_value",
+    [
+        "",  # empty
+        "relative/path",  # not absolute
+        "./relative",  # not absolute
+        "/etc/../tmp",  # contains ..
+        "/projects/../../../etc/passwd",  # escape attempt
+    ],
+)
+@pytest.mark.asyncio
+async def test_execute_rejects_invalid_workspace_dir(bad_value: str) -> None:
+    client = BSGatewayClient(base_url="http://stub", api_key="k")
+    with pytest.raises(BSGatewayMetadataError):
+        await client.execute(
+            messages=[{"role": "user", "content": "x"}],
+            metadata={"tenant_id": str(uuid.uuid4())},
+            model="claude_code",
+            workspace_dir=bad_value,
+        )
+
+
+@pytest.mark.parametrize("non_string", [None, 123, ["/abs"], {"path": "/abs"}])
+@pytest.mark.asyncio
+async def test_execute_rejects_non_string_workspace_dir(non_string: Any) -> None:
+    """Mirror BSGateway-side strictness — non-string values were the
+    PR #26 sub-agent regression (list became literal "['/abs']")."""
+    if non_string is None:
+        # ``None`` is the sentinel meaning "don't send workspace_dir";
+        # client preserves that path. Validation should NOT fire.
+        return
+    client = BSGatewayClient(base_url="http://stub", api_key="k")
+    with pytest.raises(BSGatewayMetadataError):
+        await client.execute(
+            messages=[{"role": "user", "content": "x"}],
+            metadata={"tenant_id": str(uuid.uuid4())},
+            model="claude_code",
+            workspace_dir=non_string,
+        )

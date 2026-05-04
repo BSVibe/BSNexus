@@ -67,3 +67,43 @@ async def test_mcp_health_rejects_expired_token(client) -> None:
     )
     res = await client.get(f"/mcp/health?token={expired}")
     assert res.status_code == 401
+
+
+# ── ASGI gate: query-string parser must reject duplicate token keys ──
+
+
+@pytest.mark.asyncio
+async def test_sse_gate_rejects_duplicate_token_key() -> None:
+    """``?token=a&token=b`` must 401 — silently picking ``a`` is a token-
+    smuggling foothold (a careless reverse proxy could append ``token=``
+    and the original parser would have ignored the second value)."""
+    from backend.src.mcp.server import attach_to_app  # noqa: PLC0415
+
+    captured: list[dict] = []
+
+    class _CapturedSend:
+        async def __call__(self, message: dict) -> None:
+            captured.append(message)
+
+    class _StubApp:
+        def __init__(self) -> None:
+            self._mounts: dict[str, object] = {}
+
+        def mount(self, path: str, app: object) -> None:  # noqa: D401
+            self._mounts[path] = app
+
+    stub_app = _StubApp()
+    attach_to_app(stub_app)
+    gated = stub_app._mounts["/mcp/sse"]  # type: ignore[index]
+
+    good = _good_token()
+    duped_qs = f"token={good}&token=other".encode()
+    scope = {"type": "http", "query_string": duped_qs, "method": "GET", "path": "/"}
+
+    async def _recv() -> dict:
+        return {"type": "http.disconnect"}
+
+    await gated(scope, _recv, _CapturedSend())  # type: ignore[arg-type]
+
+    starts = [m for m in captured if m["type"] == "http.response.start"]
+    assert starts and starts[0]["status"] == 401

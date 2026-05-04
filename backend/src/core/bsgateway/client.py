@@ -17,6 +17,7 @@ preserves pre-E5 behaviour.
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -24,6 +25,42 @@ import httpx
 import structlog
 
 logger = structlog.get_logger(__name__)
+
+
+class BSGatewayMetadataError(ValueError):
+    """Raised when the dispatcher passes a workspace_dir that fails the
+    client-side path-shape check before the BSGateway request is sent.
+
+    BSGateway's worker also validates server-side, but doing it here too
+    means we fail fast in BSNexus tests / dev rather than producing an
+    opaque ``FileNotFoundError`` from the worker's chdir. A defective
+    workspace_dir in production is also a strong signal of a dispatcher
+    bug — fail loud rather than silently fall back to ``"."``.
+    """
+
+
+def _validate_workspace_dir(workspace_dir: str) -> None:
+    """Reject non-absolute and traversal-y paths before they reach the wire.
+
+    The BSGateway worker uses this directly as ``cwd`` for the CLI
+    process. Allowing a relative path means the worker's effective cwd
+    leaks into the run; allowing ``..`` segments means a careless
+    template can escape the project's intended workspace.
+    """
+    if not isinstance(workspace_dir, str) or not workspace_dir:
+        raise BSGatewayMetadataError("workspace_dir must be a non-empty string")
+    if not os.path.isabs(workspace_dir):
+        raise BSGatewayMetadataError(
+            f"workspace_dir must be an absolute path, got {workspace_dir!r}"
+        )
+    # ``os.path.normpath`` collapses ``a/../b`` → ``b``; if the original
+    # contained a ``..`` segment we reject regardless of whether it
+    # resolves above the supplied root, because intent is unclear.
+    parts = workspace_dir.replace("\\", "/").split("/")
+    if any(p == ".." for p in parts):
+        raise BSGatewayMetadataError(
+            f"workspace_dir must not contain '..' segments, got {workspace_dir!r}"
+        )
 
 
 class BSGatewayError(Exception):
@@ -95,6 +132,7 @@ class BSGatewayClient:
         """
         payload_metadata = dict(metadata)
         if workspace_dir is not None:
+            _validate_workspace_dir(workspace_dir)
             payload_metadata["workspace_dir"] = workspace_dir
         if mcp_servers:
             payload_metadata["mcp_servers"] = mcp_servers

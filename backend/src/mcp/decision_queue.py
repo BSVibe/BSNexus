@@ -31,6 +31,7 @@ that run will see the resolved Decision in the DB and skip the wait.
 from __future__ import annotations
 
 import asyncio
+import time
 import uuid
 from collections import defaultdict
 from typing import Any
@@ -40,21 +41,51 @@ class DecisionWaitTimeout(TimeoutError):
     """Raised when ``wait_for`` exceeds its timeout."""
 
 
+# Buffered notifies (founder resolves before the BSGateway run reaches
+# ``decision.wait``) are kept in ``_results`` until the matching
+# register/wait_for picks them up. Without TTL the dict grows without
+# bound across the lifetime of the process — every orphaned resolve
+# (run timed out or got cancelled) leaks one entry. The cap is the
+# run-total timeout from BSGateway (7200s) plus a small grace; older
+# entries can't possibly be claimed by a still-live run.
+_RESULT_TTL_SECONDS: float = 7800.0
+
+
 class DecisionQueue:
     """Per-decision ``asyncio.Event`` registry."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, result_ttl_seconds: float = _RESULT_TTL_SECONDS) -> None:
         self._events: dict[uuid.UUID, asyncio.Event] = {}
         # ``defaultdict`` so a notify that arrives before register still
         # parks the result for the eventual register/wait_for pair.
         self._results: dict[uuid.UUID, dict[str, Any]] = {}
+        self._results_ts: dict[uuid.UUID, float] = {}
         self._waiters: dict[uuid.UUID, int] = defaultdict(int)
+        self._result_ttl_seconds = result_ttl_seconds
+
+    def _prune_stale_results(self, *, now: float | None = None) -> None:
+        """Drop buffered results past their TTL — runs that resolved them
+        have already timed out and no waiter will ever claim them.
+
+        Only removes entries that have *no* registered Event; an Event
+        whose Run is still alive keeps the result regardless of age.
+        """
+        cutoff = (now if now is not None else time.monotonic()) - self._result_ttl_seconds
+        stale = [
+            decision_id
+            for decision_id, ts in self._results_ts.items()
+            if ts < cutoff and decision_id not in self._events
+        ]
+        for decision_id in stale:
+            self._results.pop(decision_id, None)
+            self._results_ts.pop(decision_id, None)
 
     def register(self, decision_id: uuid.UUID) -> None:
         """Create the Event for a decision so subsequent waiters can park.
 
         If a notify already buffered a result, the Event is created
         already-set so wait_for returns immediately."""
+        self._prune_stale_results()
         if decision_id in self._events:
             return
         ev = asyncio.Event()
@@ -66,9 +97,11 @@ class DecisionQueue:
         """Fire the Event with the founder's resolve payload.
 
         Buffered when no Event is registered yet — handled on the next
-        ``register`` call.
+        ``register`` call. Stale buffered results pruned on every notify.
         """
+        self._prune_stale_results()
         self._results[decision_id] = result
+        self._results_ts[decision_id] = time.monotonic()
         ev = self._events.get(decision_id)
         if ev is not None:
             ev.set()
@@ -104,6 +137,7 @@ class DecisionQueue:
             if self._waiters[decision_id] <= 0 and ev.is_set():
                 self._events.pop(decision_id, None)
                 self._results.pop(decision_id, None)
+                self._results_ts.pop(decision_id, None)
                 self._waiters.pop(decision_id, None)
 
 

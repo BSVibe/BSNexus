@@ -101,3 +101,40 @@ async def test_concurrent_waiters_on_same_decision_all_unblock() -> None:
 
     results = await asyncio.gather(*waiters)
     assert results == [{"choice": "broadcast"}] * 3
+
+
+@pytest.mark.asyncio
+async def test_buffered_results_pruned_after_ttl() -> None:
+    """Orphan notifies (founder resolves on a run that already timed out)
+    must not leak — the buffered result drops after TTL on the next
+    notify or register call."""
+    queue = DecisionQueue(result_ttl_seconds=0.05)
+    orphan = uuid.uuid4()
+    queue.notify(orphan, result={"choice": "orphan"})
+    assert orphan in queue._results
+
+    await asyncio.sleep(0.06)
+
+    # Trigger a prune via an unrelated notify.
+    fresh = uuid.uuid4()
+    queue.notify(fresh, result={"choice": "fresh"})
+
+    assert orphan not in queue._results
+    assert orphan not in queue._results_ts
+    assert fresh in queue._results
+
+
+@pytest.mark.asyncio
+async def test_active_run_results_not_pruned_even_when_old() -> None:
+    """An entry whose Event is registered (run still alive) must NOT be
+    pruned even if it's older than TTL — the run is just slow."""
+    queue = DecisionQueue(result_ttl_seconds=0.05)
+    decision_id = uuid.uuid4()
+    queue.register(decision_id)
+    queue.notify(decision_id, result={"choice": "slow"})
+
+    await asyncio.sleep(0.06)
+
+    # Trigger a prune via an unrelated notify.
+    queue.notify(uuid.uuid4(), result={"choice": "unrelated"})
+    assert decision_id in queue._results, "registered decision must survive prune"
