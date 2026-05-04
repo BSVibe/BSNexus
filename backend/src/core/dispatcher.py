@@ -322,33 +322,56 @@ async def build_adapter(
     exec_type = (row.executor_type or "").lower()
     cfg = row.config or {}
 
-    # Direction reset 2026-05-03 — all executor types route through
-    # BSGateway via BSGatewayAdapter. The differentiator is the ``model``
-    # string sent to BSGateway:
-    #   - claude_code / codex / opencode ⇒ literal as the model name
-    #   - bsgateway / generic_llm        ⇒ cfg.model (LiteLLM-routed)
-    # gateway_url + bsgateway_api_key live on the ExecutorConfig row.
-    # ``stream_manager`` and ``run_id`` are kept in the signature for the
-    # cutover window — old callers / tests still pass them.
+    # Two top-level executor kinds, distinguished by *infra dependency*
+    # not by *capability* — both honor MCP / Decisions / artifact UX:
+    #
+    #   bsgateway   — through BSVibe's BSGateway worker pool. Model
+    #                 string in ``cfg.model`` is whatever BSGateway
+    #                 routes (``claude_code``, ``openai/gpt-4o``, ...).
+    #   generic_llm — direct LLM call from BSNexus (BSVibe optional).
+    #                 ``cfg.model`` is a litellm-style identifier
+    #                 (``anthropic/claude-3-7-sonnet`` etc.). MCP wired
+    #                 client-side through the tool loop in
+    #                 ``core.llm.direct_client``.
     _ = stream_manager  # noqa: F841 — retained for caller-compat
     _ = run_id  # noqa: F841
 
-    gateway_url = cfg.get("bsgateway_url") or cfg.get("base_url")
-    if not gateway_url:
+    api_key = _decrypt_api_key(row, cfg, tenant_id)
+    if api_key is None:
         return None
-    # Prefer the encrypted column (post-2026-05-04). Fall back to the
-    # plaintext JSON path so already-running deploys that haven't been
-    # re-saved through the API after the migration still work — a
-    # well-behaved upgrade re-encrypts on first PATCH. The plaintext
-    # fallback is logged once per row at WARN so the operator notices
-    # and rotates.
-    api_key = "unused"
+
+    if exec_type == "bsgateway":
+        return _build_bsgateway_adapter(row, cfg, tenant_id, project_id, api_key)
+    if exec_type == "generic_llm":
+        return _build_generic_llm_adapter(row, cfg, tenant_id, project_id, api_key)
+    logger.warning(
+        "executor_config_unknown_type",
+        config_id=str(row.id),
+        tenant_id=str(tenant_id),
+        executor_type=exec_type,
+    )
+    return None
+
+
+def _decrypt_api_key(
+    row: ExecutorConfig,
+    cfg: dict[str, Any],
+    tenant_id: uuid.UUID,
+) -> str | None:
+    """Resolve the API key string for the executor.
+
+    Returns ``"unused"`` when no key is configured (BSGateway has paths
+    that don't require auth; ``DirectLLMAdapter`` will reject this and
+    fail the dispatch loud). Returns ``None`` when an encrypted blob
+    fails to decrypt — caller treats as a hard skip so we don't dispatch
+    with a bad key.
+    """
     if row.api_key_encrypted:
         from backend.src.config import settings as app_settings  # noqa: PLC0415
         from backend.src.core.encryption import EncryptionManager  # noqa: PLC0415
 
         try:
-            api_key = EncryptionManager(app_settings.encryption_key).decrypt_value(
+            return EncryptionManager(app_settings.encryption_key).decrypt_value(
                 row.api_key_encrypted
             )
         except ValueError:
@@ -358,21 +381,36 @@ async def build_adapter(
                 tenant_id=str(tenant_id),
             )
             return None
-    elif cfg.get("bsgateway_api_key") or cfg.get("api_key"):
-        api_key = cfg.get("bsgateway_api_key") or cfg.get("api_key") or "unused"
+    if cfg.get("bsgateway_api_key") or cfg.get("api_key"):
+        # Plaintext fallback for rows not re-saved through the API
+        # after the 2026-05-04 encryption migration. WARN once so the
+        # operator notices and rotates.
         logger.warning(
             "executor_config_plaintext_api_key_in_use",
             config_id=str(row.id),
             tenant_id=str(tenant_id),
             hint="re-save the config through PATCH /api/v1/executor-configs/{id} to encrypt at rest",
         )
+        return cfg.get("bsgateway_api_key") or cfg.get("api_key") or "unused"
+    return "unused"
 
-    if exec_type in {"claude_code", "codex", "opencode"}:
-        model = exec_type
-    elif exec_type in {"bsgateway", "generic_llm", "worker"}:
-        model = cfg.get("model") or "claude_code"
-    else:
+
+def _build_bsgateway_adapter(
+    row: ExecutorConfig,
+    cfg: dict[str, Any],
+    tenant_id: uuid.UUID,
+    project_id: uuid.UUID,
+    api_key: str,
+) -> Any | None:
+    gateway_url = cfg.get("bsgateway_url") or cfg.get("base_url")
+    if not gateway_url:
+        logger.warning(
+            "executor_config_bsgateway_missing_url",
+            config_id=str(row.id),
+            tenant_id=str(tenant_id),
+        )
         return None
+    model = cfg.get("model") or "claude_code"
 
     from backend.src.core.bsgateway import BSGatewayAdapter, BSGatewayClient  # noqa: PLC0415
     from backend.src.core.project_workspace import project_workspace_path  # noqa: PLC0415
@@ -384,5 +422,56 @@ async def build_adapter(
         model=model,
         project_id=project_id,
         run_audit_metadata=None,  # dispatcher patches via set_run_audit_metadata
+        workspace_dir=workspace_dir,
+    )
+
+
+def _build_generic_llm_adapter(
+    row: ExecutorConfig,
+    cfg: dict[str, Any],
+    tenant_id: uuid.UUID,
+    project_id: uuid.UUID,
+    api_key: str,
+) -> Any | None:
+    """Build the direct-LLM adapter for ``executor_type=generic_llm``.
+
+    Lands in Phase 2b along with ``core.llm.direct_client``. Until
+    that ships, return None with a WARN so the orchestrator transitions
+    the run to blocked instead of silently failing.
+    """
+    try:
+        from backend.src.core.llm.direct_client import DirectLLMAdapter  # noqa: PLC0415
+    except ImportError:
+        logger.error(
+            "executor_config_generic_llm_not_implemented",
+            config_id=str(row.id),
+            tenant_id=str(tenant_id),
+            hint="DirectLLMAdapter ships in Phase 2b — see ~/Docs/BSNexus_Direction_2026-05-03.md",
+        )
+        return None
+
+    model = cfg.get("model")
+    if not model:
+        logger.warning(
+            "executor_config_generic_llm_missing_model",
+            config_id=str(row.id),
+            tenant_id=str(tenant_id),
+        )
+        return None
+    if not api_key or api_key == "unused":
+        logger.warning(
+            "executor_config_generic_llm_missing_api_key",
+            config_id=str(row.id),
+            tenant_id=str(tenant_id),
+        )
+        return None
+
+    from backend.src.core.project_workspace import project_workspace_path  # noqa: PLC0415
+
+    workspace_dir = str(project_workspace_path(project_id))
+    return DirectLLMAdapter(
+        model=model,
+        api_key=api_key,
+        project_id=project_id,
         workspace_dir=workspace_dir,
     )

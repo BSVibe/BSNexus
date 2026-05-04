@@ -7,8 +7,26 @@ from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 
-# Valid executor types
-EXECUTOR_TYPES = {"generic_llm", "claude_code", "bsgateway", "codex", "worker"}
+# Valid executor types — taxonomy collapsed 2026-05-04 to two top-level
+# kinds, distinguished by *infra dependency* not by *capability*. Both
+# carry full MCP / Decisions / artifact UX:
+#
+#   bsgateway   — route through BSGateway (BSVibe infra). Cost-aware
+#                 routing, CLI agent pool, multi-tenant. cfg.model
+#                 carries the model string BSGateway routes
+#                 (``claude_code``, ``openai/gpt-4o``, ...).
+#   generic_llm — direct LLM call from BSNexus (BSVibe optional).
+#                 cfg.model is a litellm-style identifier
+#                 (``anthropic/claude-3-7-sonnet``, ``ollama/llama3``,
+#                 ``openai/gpt-4o``); MCP wired client-side via the
+#                 tool-loop in ``core.llm.direct_client``.
+#
+# Legacy values (``claude_code`` / ``codex`` / ``opencode`` / ``worker``)
+# from the pre-2026-05-04 taxonomy are auto-lifted by the alembic
+# migration ``2026_05_04_collapse_executor_types`` — old rows become
+# ``executor_type=bsgateway`` with the original value moved to
+# ``config.model``.
+EXECUTOR_TYPES = {"bsgateway", "generic_llm"}
 
 
 # Keys the API never returns in the ``config`` response payload, even
