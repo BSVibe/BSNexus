@@ -57,7 +57,8 @@ def test_bsage_knowledge_client_adapter_is_constructible_with_minter_closure():
     """
     minter = ServiceJWTMinter(
         bsvibe_auth_url="https://auth.bsvibe.dev",
-        bootstrap_token_provider=lambda: "boot",
+        client_id="bsnexus-test",
+        client_secret="test-secret",
     )
     closure = minter.make_auth_provider(
         audience="bsage",
@@ -81,7 +82,8 @@ def test_bsupervisor_audit_sink_adapter_is_constructible_with_minter_closure():
     """Same contract for the audit sink — closure swap, no new params."""
     minter = ServiceJWTMinter(
         bsvibe_auth_url="https://auth.bsvibe.dev",
-        bootstrap_token_provider=lambda: "boot",
+        client_id="bsnexus-test",
+        client_secret="test-secret",
     )
     closure = minter.make_auth_provider(
         audience="bsupervisor",
@@ -135,7 +137,8 @@ async def test_bsage_search_uses_minted_service_jwt_when_swapped():
     api_key. Pin the cross-PR boundary."""
     minter = ServiceJWTMinter(
         bsvibe_auth_url="https://auth.bsvibe.dev",
-        bootstrap_token_provider=lambda: "founder-boot",
+        client_id="bsnexus-test",
+        client_secret="test-secret",
     )
 
     issued = _http_response(200, {"access_token": "service-jwt-eyJ", "expires_in": 600})
@@ -179,7 +182,8 @@ async def test_bsupervisor_post_uses_minted_service_jwt_when_swapped():
     with the minted service JWT, not the static api_key."""
     minter = ServiceJWTMinter(
         bsvibe_auth_url="https://auth.bsvibe.dev",
-        bootstrap_token_provider=lambda: "founder-boot",
+        client_id="bsnexus-test",
+        client_secret="test-secret",
     )
 
     issued = _http_response(200, {"access_token": "supervisor-svc-jwt", "expires_in": 600})
