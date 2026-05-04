@@ -166,14 +166,14 @@ async def _dispatch_background(
             # type in real time.
             if hasattr(adapter, "set_on_chunk"):
                 from backend.src.core.project_events import (  # noqa: PLC0415
-                    publish_run_output as _publish_run_output_event,
+                    publish_run_output_chunk,
                 )
 
                 _captured_run_id = run.id
                 _captured_project_id = run.project_id
 
                 async def _on_chunk(text: str) -> None:
-                    await _publish_run_output_event(
+                    await publish_run_output_chunk(
                         _captured_project_id, run_id=_captured_run_id, chunk=text
                     )
 

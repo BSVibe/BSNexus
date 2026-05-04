@@ -5,10 +5,11 @@ These are tested as plain async functions (not via the MCP protocol)
 so we can pin the DB / queue / cross-tenant guards without fighting
 SSE plumbing. The MCP wire layer is a thin wrapper over these.
 
-Scope: v1 ships ``decision.create``, ``decision.wait``, ``artifact.list``,
-``knowledge.search``. ``report_deliverable`` and ``artifact.read``
-involve DeliverableVersion + storage-backend round-trips and ride a
-follow-up PR.
+Scope: v1 ships six tools — ``decision.create``, ``decision.wait``,
+``artifact.list``, ``artifact.read``, ``report_deliverable``,
+``knowledge.search``. ``report_deliverable`` writes inline content
+through ``StorageBackend.object``; non-inline storage-backend fetch
+for ``artifact.read`` rides a follow-up.
 """
 
 from __future__ import annotations

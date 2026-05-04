@@ -155,7 +155,7 @@ async def publish_decision(
     )
 
 
-async def publish_run_output(
+async def publish_run_output_chunk(
     project_id: uuid.UUID,
     *,
     run_id: uuid.UUID,
@@ -167,6 +167,10 @@ async def publish_run_output(
     BSGatewayAdapter feeds each ``delta.content`` chunk through here so
     the founder watches claude type in real time. ``finish_reason`` is
     set on the terminal chunk only.
+
+    Distinct from :func:`backend.src.core.run_artifacts.publish_run_output`,
+    which materialises the *terminal* deliverable + chat reply once a
+    Run finishes — they're orthogonal stages of the same Run lifecycle.
     """
     await get_project_event_bus().publish(
         project_id,

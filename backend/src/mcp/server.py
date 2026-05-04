@@ -12,9 +12,10 @@ Two endpoints:
 
 Token verification is shared between both — see :mod:`backend.src.mcp.auth`.
 
-The four tools (decision.create / decision.wait / artifact.list /
-knowledge.search) live in :mod:`backend.src.mcp.tools` as plain async
-functions so the unit tests don't have to fight the MCP protocol;
+The six tools (``decision.create`` / ``decision.wait`` /
+``artifact.list`` / ``artifact.read`` / ``report_deliverable`` /
+``knowledge.search``) live in :mod:`backend.src.mcp.tools` as plain
+async functions so the unit tests don't have to fight the MCP protocol;
 the FastMCP wrapper here is a thin dispatch layer that reads the
 per-request auth/DB context from a contextvar.
 """
@@ -76,7 +77,7 @@ async def mcp_health(token: str = Query(...)) -> dict[str, Any]:
 
 
 def _build_fastmcp() -> Any:
-    """Construct the FastMCP server with the four BSNexus tools.
+    """Construct the FastMCP server with the six BSNexus tools.
 
     Tools read the per-request auth context from ``_auth_ctx``; the SSE
     handler sets it before yielding to FastMCP's transport.

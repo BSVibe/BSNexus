@@ -7,13 +7,19 @@ embeds it in ``metadata.mcp_servers["bsnexus"].url``.
 
 Public surface:
 
-- :func:`mint_run_scoped_token_for_metadata` — call from the dispatcher
-  after a Run is loaded; produces the ``mcp_servers`` dict to pass to
-  :class:`backend.src.core.bsgateway.BSGatewayAdapter.set_mcp_servers`.
-- :func:`build_mcp_router` — returns the FastAPI router that mounts
-  the SSE endpoint and the resolve callback bridge.
-- :data:`get_decision_queue` — process-wide queue. The decisions API's
-  resolve handler calls ``notify`` on it.
+- :func:`issue_run_scoped_token` / :func:`verify_run_scoped_token` —
+  HMAC token mint + verify (see :mod:`backend.src.mcp.auth`). Dispatcher
+  calls ``issue`` to embed the token in ``metadata.mcp_servers[...]``;
+  the SSE handler calls ``verify`` on every connect.
+- :func:`get_decision_queue` — process-wide queue. The decisions API's
+  resolve handler calls ``queue.notify`` on it.
+- Tool implementations (``create_decision`` / ``wait_for_decision`` /
+  ``list_run_artifacts`` / ``read_artifact`` / ``report_deliverable`` /
+  ``search_knowledge``) live in :mod:`backend.src.mcp.tools` and are
+  re-exported here for easier imports.
+
+The router itself is mounted by :func:`backend.src.mcp.server.attach_to_app`,
+called from ``main.create_app``.
 """
 
 from backend.src.mcp.auth import (

@@ -11,7 +11,7 @@ import pytest
 from backend.src.core.project_events import (
     ProjectEventBus,
     publish_decision_resolved,
-    publish_run_output,
+    publish_run_output_chunk,
 )
 
 
@@ -55,7 +55,7 @@ async def test_run_output_event_shape() -> None:
 
 
 @pytest.mark.asyncio
-async def test_publish_run_output_helper_uses_singleton() -> None:
+async def test_publish_run_output_chunk_helper_uses_singleton() -> None:
     """Smoke-test the module helper actually emits onto the singleton."""
     from backend.src.core.project_events import get_project_event_bus
 
@@ -71,7 +71,7 @@ async def test_publish_run_output_helper_uses_singleton() -> None:
 
     consumer = asyncio.create_task(_consume())
     await asyncio.sleep(0)
-    await publish_run_output(project_id, run_id=run_id, chunk="hi")
+    await publish_run_output_chunk(project_id, run_id=run_id, chunk="hi")
     await asyncio.wait_for(consumer, timeout=1.0)
 
     assert received[0]["type"] == "run_output"

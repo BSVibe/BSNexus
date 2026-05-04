@@ -10,10 +10,12 @@ the row's ``tenant_id`` matches the verified claim's. Cross-tenant
 attempts return empty (for list/read endpoints) or raise
 ``MCPToolError`` (for write/wait endpoints).
 
-v1 ships ``decision.create``, ``decision.wait``, ``artifact.list``,
-``knowledge.search``. ``report_deliverable`` and ``artifact.read``
-involve the storage backend layer (DeliverableVersion + git/object
-content fetch) and ride a follow-up PR.
+v1 ships six tools: ``decision.create``, ``decision.wait``,
+``artifact.list``, ``artifact.read``, ``report_deliverable``,
+``knowledge.search``. ``report_deliverable`` writes inline content
+into a DeliverableVersion (``StorageBackend.object``); fetching
+non-inline content (S3 GET, git show) for ``artifact.read`` rides a
+follow-up — see ``BSNexus_BSGateway_TODOs_2026-05-04.md`` items #1/#2.
 """
 
 from __future__ import annotations

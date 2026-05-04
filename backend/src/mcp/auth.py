@@ -32,6 +32,12 @@ import json
 import time
 from typing import Any
 
+# Identity claims that must be *present* on every token. ``iat`` /
+# ``exp`` are populated by ``issue_run_scoped_token`` and ``exp`` is
+# validated structurally below (must be int + not in the past); we
+# don't add them here because the missing-key path uses the same
+# error message and we want expiry to surface as ``"token expired"``
+# rather than ``"missing required claim: exp"``.
 REQUIRED_CLAIM_KEYS = ("run_id", "tenant_id", "project_id")
 _HEADER = {"alg": "HS256", "typ": "MCP1"}
 
