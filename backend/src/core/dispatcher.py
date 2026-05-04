@@ -328,7 +328,36 @@ async def build_adapter(
     gateway_url = cfg.get("bsgateway_url") or cfg.get("base_url")
     if not gateway_url:
         return None
-    api_key = cfg.get("bsgateway_api_key") or cfg.get("api_key") or "unused"
+    # Prefer the encrypted column (post-2026-05-04). Fall back to the
+    # plaintext JSON path so already-running deploys that haven't been
+    # re-saved through the API after the migration still work — a
+    # well-behaved upgrade re-encrypts on first PATCH. The plaintext
+    # fallback is logged once per row at WARN so the operator notices
+    # and rotates.
+    api_key = "unused"
+    if row.api_key_encrypted:
+        from backend.src.config import settings as app_settings  # noqa: PLC0415
+        from backend.src.core.encryption import EncryptionManager  # noqa: PLC0415
+
+        try:
+            api_key = EncryptionManager(app_settings.encryption_key).decrypt_value(
+                row.api_key_encrypted
+            )
+        except ValueError:
+            logger.error(
+                "executor_config_api_key_decrypt_failed",
+                config_id=str(row.id),
+                tenant_id=str(tenant_id),
+            )
+            return None
+    elif cfg.get("bsgateway_api_key") or cfg.get("api_key"):
+        api_key = cfg.get("bsgateway_api_key") or cfg.get("api_key") or "unused"
+        logger.warning(
+            "executor_config_plaintext_api_key_in_use",
+            config_id=str(row.id),
+            tenant_id=str(tenant_id),
+            hint="re-save the config through PATCH /api/v1/executor-configs/{id} to encrypt at rest",
+        )
 
     if exec_type in {"claude_code", "codex", "opencode"}:
         model = exec_type

@@ -11,12 +11,29 @@ from pydantic import BaseModel, ConfigDict, Field
 EXECUTOR_TYPES = {"generic_llm", "claude_code", "bsgateway", "codex", "worker"}
 
 
+# Keys the API never returns in the ``config`` response payload, even
+# if a legacy row still carries them. Rotation hygiene — see the
+# 2026-05-04 ``executor_config_api_key_encrypted`` migration.
+SENSITIVE_CONFIG_KEYS: frozenset[str] = frozenset({"bsgateway_api_key", "api_key"})
+
+
+def _redact_config(config: dict) -> dict:
+    """Strip sensitive keys from the response-side ``config`` dict."""
+    return {k: v for k, v in (config or {}).items() if k not in SENSITIVE_CONFIG_KEYS}
+
+
 class ExecutorConfigCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     executor_type: str
     config: dict = Field(default_factory=dict)
     description: Optional[str] = None
     is_selected: bool = False
+    # Optional plaintext API key — encrypted server-side and stored on
+    # ``executor_configs.api_key_encrypted``. May also be supplied
+    # inside ``config["bsgateway_api_key"]`` for backwards compat with
+    # pre-2026-05-04 callers; both paths land in the encrypted column
+    # and the plaintext is dropped from the JSON config.
+    api_key: Optional[str] = None
 
 
 class ExecutorConfigUpdate(BaseModel):
@@ -24,6 +41,7 @@ class ExecutorConfigUpdate(BaseModel):
     config: Optional[dict] = None
     description: Optional[str] = None
     is_selected: Optional[bool] = None
+    api_key: Optional[str] = None
 
 
 class ExecutorConfigResponse(BaseModel):
@@ -36,5 +54,6 @@ class ExecutorConfigResponse(BaseModel):
     config: dict = Field(default_factory=dict)
     description: Optional[str] = None
     is_selected: bool = False
+    has_api_key: bool = False
     created_at: datetime
     updated_at: datetime
