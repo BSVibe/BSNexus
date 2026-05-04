@@ -2,7 +2,7 @@
 
 Tokens are minted by the dispatcher just before a BSGateway chat
 completion, embedded in ``metadata.mcp_servers["bsnexus"].url`` as a
-``?token=`` query param, and verified on every MCP `/mcp/sse` request.
+``?token=`` query param, and verified on every MCP `/mcp/http` request.
 The token claim is ``{run_id, tenant_id, project_id, iat, exp}`` —
 verification rejects cross-tenant or run-mismatched tokens so a
 compromised run can never access another run's decisions or artifacts.

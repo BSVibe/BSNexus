@@ -5,7 +5,7 @@ Lifecycle:
 1. Dispatcher mints a token just before the BSGateway chat completion
    (``issue_run_scoped_token``) with a TTL = run timeout + 5 min grace.
 2. The dispatcher embeds the token in the BSGateway request as
-   ``metadata.mcp_servers["bsnexus"].url = ".../mcp/sse?token=<token>"``.
+   ``metadata.mcp_servers["bsnexus"].url = ".../mcp/http?token=<token>"``.
 3. BSGateway forwards through to the worker; the worker spawns claude
    CLI with ``--mcp-config`` pointing at that URL.
 4. Claude opens the SSE connection; the BSNexus SSE handler calls

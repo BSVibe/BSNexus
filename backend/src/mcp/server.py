@@ -5,10 +5,17 @@ Two endpoints:
 - ``GET /mcp/health?token=...`` — verifies the run-scoped token and
   returns the claim payload. Used by ops to smoke-test that a token
   the dispatcher minted is valid before the BSGateway worker actually
-  spins up claude. Cheap to call.
-- ``GET /mcp/sse?token=...`` — the MCP Server-Sent-Events endpoint
-  the worker's claude CLI connects to via ``--mcp-config``. Verifies
-  the token, then hands off to the FastMCP SSE transport.
+  spins up the CLI. Cheap to call.
+- ``ANY /mcp/http?token=...`` — the MCP **streamable-HTTP** endpoint
+  the worker's CLI (claude / codex / opencode) connects to. Verifies
+  the token, then hands off to FastMCP's streamable-HTTP transport.
+
+The streamable-HTTP transport supersedes the legacy SSE-only transport
+(deprecated by the MCP spec, 2024). All three executor CLIs we target
+either accept streamable-HTTP natively (claude with ``"type": "http"``,
+codex via TOML ``url``) or auto-negotiate streamable-HTTP first then
+fall back to SSE (opencode). Hosting one transport keeps the auth gate
+simple and avoids two parallel mount paths.
 
 Token verification is shared between both — see :mod:`backend.src.mcp.auth`.
 
@@ -204,22 +211,23 @@ def _get_fastmcp() -> Any:
 
 
 def attach_to_app(app) -> None:  # type: ignore[no-untyped-def]
-    """Mount the MCP SSE app on the main FastAPI app under ``/mcp/sse``.
+    """Mount the MCP streamable-HTTP app on the main FastAPI app under
+    ``/mcp/http``.
 
     Called from ``main.create_app`` after the routers are added. The
-    SSE app needs token verification per-connect — implemented as a
-    Starlette middleware that reads the ``token`` query param, verifies
-    it, and stuffs the claim into ``_auth_ctx`` before yielding to
-    FastMCP's transport.
+    transport app needs token verification per-connect — implemented
+    as a Starlette middleware that reads the ``token`` query param,
+    verifies it, and stuffs the claim into ``_auth_ctx`` before yielding
+    to FastMCP's transport.
     """
     from starlette.types import Receive, Scope, Send  # noqa: PLC0415
 
     fastmcp = _get_fastmcp()
-    sse_app = fastmcp.sse_app()
+    transport_app = fastmcp.streamable_http_app()
 
     async def _gated(scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
-            await sse_app(scope, receive, send)
+            await transport_app(scope, receive, send)
             return
         # Parse ``token=...`` from the query string. ``parse_qs`` handles
         # percent-decoding, repeated keys, and value-less keys correctly —
@@ -265,8 +273,8 @@ def attach_to_app(app) -> None:  # type: ignore[no-untyped-def]
             }
         )
         try:
-            await sse_app(scope, receive, send)
+            await transport_app(scope, receive, send)
         finally:
             _auth_ctx.reset(token_value)
 
-    app.mount("/mcp/sse", _gated)
+    app.mount("/mcp/http", _gated)

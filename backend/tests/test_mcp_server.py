@@ -94,7 +94,7 @@ async def test_sse_gate_rejects_duplicate_token_key() -> None:
 
     stub_app = _StubApp()
     attach_to_app(stub_app)
-    gated = stub_app._mounts["/mcp/sse"]  # type: ignore[index]
+    gated = stub_app._mounts["/mcp/http"]  # type: ignore[index]
 
     good = _good_token()
     duped_qs = f"token={good}&token=other".encode()

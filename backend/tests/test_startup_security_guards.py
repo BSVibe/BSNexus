@@ -108,8 +108,8 @@ def test_production_accepts_real_frontend_url():
 
 def test_production_rejects_default_mcp_signing_key():
     """Compromise of ``BSNEXUS_MCP_SIGNING_KEY`` lets any actor on
-    ``/mcp/sse`` mint forged run-scoped tokens — startup must refuse to
-    boot if the dev default leaks into production."""
+    ``/mcp/http`` mint forged run-scoped tokens — startup must refuse
+    to boot if the dev default leaks into production."""
     settings = _make_settings(mcp_signing_key="dev-mcp-signing-key-change-in-production")
     with pytest.raises(DevDefaultLeakError) as exc_info:
         enforce_production_security_guards(settings)

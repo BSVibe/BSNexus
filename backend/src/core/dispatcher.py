@@ -151,10 +151,18 @@ async def _dispatch_background(
                     ttl_seconds=3600 + 300,
                 )
                 base = _settings.mcp_internal_url.rstrip("/")
+                # ``type: "http"`` is the modern claude-CLI mcpServers shape
+                # for streamable-HTTP MCP (claude.com/docs/en/mcp). codex
+                # accepts the same URL via TOML ``url`` field; opencode
+                # auto-negotiates streamable-HTTP first when type=remote.
+                # Single transport (streamable-HTTP at /mcp/http) covers
+                # all three executors — SSE-only is deprecated by the MCP
+                # spec.
                 adapter.set_mcp_servers(
                     {
                         "bsnexus": {
-                            "url": f"{base}/mcp/sse?token={token}",
+                            "type": "http",
+                            "url": f"{base}/mcp/http?token={token}",
                             "headers": {},
                         }
                     }

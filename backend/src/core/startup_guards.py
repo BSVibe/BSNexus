@@ -33,7 +33,7 @@ _DEV_SIGNING_KEY = Settings.model_fields["prompt_signing_key"].default
 _DEV_ENCRYPTION_KEY = Settings.model_fields["encryption_key"].default
 _DEV_FRONTEND_URL = Settings.model_fields["frontend_url"].default
 # Direction reset 2026-05-03 — MCP server signing key. Compromise lets
-# any actor on the public ``/mcp/sse`` path mint forged run-scoped
+# any actor on the public ``/mcp/http`` path mint forged run-scoped
 # tokens for any tenant/run/project (claim contains all three). Treat
 # as top-tier secret per ``core/mcp/auth.py`` docstring.
 _DEV_MCP_SIGNING_KEY = Settings.model_fields["mcp_signing_key"].default
@@ -89,7 +89,7 @@ def enforce_production_security_guards(settings: Settings) -> None:
     if settings.mcp_signing_key == _DEV_MCP_SIGNING_KEY:
         offenders.append(
             "mcp_signing_key — set a secure BSNEXUS_MCP_SIGNING_KEY env var "
-            "(>=32 bytes). Compromise lets any client on the /mcp/sse path "
+            "(>=32 bytes). Compromise lets any client on the /mcp/http path "
             "mint forged run-scoped tokens for any tenant/run."
         )
     if (

@@ -1,9 +1,11 @@
 """BSNexus MCP server — runs alongside the main FastAPI app and lets
 the BSGateway worker's claude CLI call back into BSNexus over MCP.
 
-Mount point: ``/mcp/sse`` (token in query param). The dispatcher mints
-a run-scoped HMAC token before each BSGateway chat completion and
-embeds it in ``metadata.mcp_servers["bsnexus"].url``.
+Mount point: ``/mcp/http`` (streamable-HTTP transport, token in query
+param). The dispatcher mints a run-scoped HMAC token before each
+BSGateway chat completion and embeds it in
+``metadata.mcp_servers["bsnexus"].url`` along with ``type: "http"`` so
+claude / codex / opencode all dispatch on the modern transport.
 
 Public surface:
 
