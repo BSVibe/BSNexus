@@ -16,7 +16,7 @@
     "test:e2e:isolated": "node ./e2e/scripts/run-isolated.mjs"
   },
   "dependencies": {
-    "@bsvibe/demo": "^0.1.0",
+    "@bsvibe/demo": "^0.1.1",
     "@bsvibe/design-tokens": "^0.2.0",
     "@bsvibe/layout": "^0.7.0",
     "@tailwindcss/postcss": "^4.0.0",
