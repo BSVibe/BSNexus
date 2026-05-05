@@ -22,6 +22,22 @@ from backend.src.core.llm.direct_client import (
 )
 
 
+def test_mcp_client_session_imports_from_sdk_not_internal_module() -> None:
+    """The SDK's ``ClientSession`` must be importable from
+    ``mcp.client.session``. ``backend/src/mcp/`` is BSNexus's own MCP
+    *server* module; in some site-packages layouts (notably the
+    production container) it shadows the top-level ``mcp`` package and
+    breaks ``from mcp import ClientSession`` at runtime — surfaces only
+    when a run actually has MCP servers configured. Pin the deep
+    import path so a future contributor doesn't shorten it back.
+    """
+    from mcp.client.session import ClientSession  # noqa: PLC0415
+    from mcp.client.streamable_http import streamablehttp_client  # noqa: PLC0415
+
+    assert isinstance(ClientSession, type)
+    assert callable(streamablehttp_client)
+
+
 # ─── MCP ↔ OpenAI translation helpers ────────────────────────────────
 
 

@@ -125,7 +125,7 @@ test.describe('Production smoke — golden path with real LLM', () => {
       `${FE}/api/v1/projects/${projectId}/messages`,
       {
         headers: auth,
-        data: { content: userMessage, role: 'user' },
+        data: { content: userMessage },
       },
     )
     expect(sendRes.status(), `send failed: ${await sendRes.text()}`).toBe(201)
