@@ -146,7 +146,12 @@ class DirectLLMAdapter:
 
         # The dispatcher embeds the run-scoped HMAC token as ``?token=``
         # query param on the URL — streamablehttp_client preserves that.
-        from mcp import ClientSession  # noqa: PLC0415
+        # NOTE: import the SDK's ``ClientSession`` from the deeper
+        # ``mcp.client.session`` path — ``backend/src/mcp/`` is BSNexus's
+        # own MCP server module and shadows the top-level ``mcp`` package
+        # in some site-packages layouts (production container). The deep
+        # path always resolves to the SDK regardless of import order.
+        from mcp.client.session import ClientSession  # noqa: PLC0415
         from mcp.client.streamable_http import streamablehttp_client  # noqa: PLC0415
 
         first = next(iter(self._mcp_servers.values()))
