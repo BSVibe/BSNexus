@@ -88,7 +88,13 @@ line-length = 120
 
 [tool.coverage.run]
 source = ["src"]
-omit = ["*/migrations/*"]
+omit = [
+    "*/migrations/*",
+    # Demo backend module — gated behind BSVIBE_DEMO_MODE, only loaded
+    # in the public demo deployment (demo-nexus.bsvibe.dev). Excluded
+    # from prod coverage gate.
+    "*/demo/*",
+]
 
 [tool.coverage.report]
 # 81 — Sprint 4 PR #37 baseline preserved through Phase Audit Batch 2.
