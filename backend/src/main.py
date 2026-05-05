@@ -267,6 +267,20 @@ def create_app(
     _app.include_router(mcp_router)
     attach_to_app(_app)
 
+    # ─── Demo mode (separate deployment, BSVIBE_DEMO_MODE=true) ─────────
+    # Demo backend exposes /api/v1/demo/session and swaps the prod
+    # tenant_id dep for one that reads from the demo JWT. Prod backends
+    # never reach this branch.
+    from bsvibe_demo import is_demo_mode  # noqa: PLC0415
+
+    if is_demo_mode():
+        from backend.src.core.tenant_context import get_tenant_id  # noqa: PLC0415
+        from backend.src.demo.auth import demo_tenant_id  # noqa: PLC0415
+        from backend.src.demo.router import demo_router  # noqa: PLC0415
+
+        _app.include_router(demo_router)
+        _app.dependency_overrides[get_tenant_id] = demo_tenant_id
+
     return _app
 
 

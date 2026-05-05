@@ -2,8 +2,10 @@
 
 import { useState } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { isDemoMode } from '@bsvibe/demo'
 
 import AuthProvider from '../components/auth/AuthProvider'
+import DemoModeProvider from '../components/demo/DemoModeProvider'
 import { ToastContainer } from '../components/common'
 import IntlProvider from '../i18n/IntlProvider'
 
@@ -22,14 +24,17 @@ import IntlProvider from '../i18n/IntlProvider'
  */
 export default function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(() => new QueryClient())
+  // Build-time switch — demo deployments never instantiate AuthProvider, so
+  // the JWT probe + login redirect logic is fully tree-shaken from the bundle.
+  const Gate = isDemoMode() ? DemoModeProvider : AuthProvider
 
   return (
     <QueryClientProvider client={queryClient}>
       <IntlProvider>
-        <AuthProvider>
+        <Gate>
           {children}
           <ToastContainer />
-        </AuthProvider>
+        </Gate>
       </IntlProvider>
     </QueryClientProvider>
   )

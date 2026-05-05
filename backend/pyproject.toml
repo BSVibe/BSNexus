@@ -58,6 +58,9 @@ dependencies = [
     # BSNexus needs its own provider-agnostic LLM client for the
     # opt-out path. Used by ``core.llm.direct_client``.
     "litellm>=1.0.0",
+    # Demo stack helpers — JWT, LLM mock guard, tenant GC, session service.
+    # Lives on feat/bsvibe-demo until merged.
+    "bsvibe-demo[sqlalchemy] @ git+https://github.com/BSVibe/bsvibe-python.git@feat/bsvibe-demo#subdirectory=packages/bsvibe-demo",
 ]
 
 [project.optional-dependencies]
@@ -85,7 +88,13 @@ line-length = 120
 
 [tool.coverage.run]
 source = ["src"]
-omit = ["*/migrations/*"]
+omit = [
+    "*/migrations/*",
+    # Demo backend module — gated behind BSVIBE_DEMO_MODE, only loaded
+    # in the public demo deployment (demo-nexus.bsvibe.dev). Excluded
+    # from prod coverage gate.
+    "*/demo/*",
+]
 
 [tool.coverage.report]
 # 81 — Sprint 4 PR #37 baseline preserved through Phase Audit Batch 2.
