@@ -181,9 +181,7 @@ async def _dispatch_background(
                 _captured_project_id = run.project_id
 
                 async def _on_chunk(text: str) -> None:
-                    await publish_run_output_chunk(
-                        _captured_project_id, run_id=_captured_run_id, chunk=text
-                    )
+                    await publish_run_output_chunk(_captured_project_id, run_id=_captured_run_id, chunk=text)
 
                 adapter.set_on_chunk(_on_chunk)
 
@@ -371,9 +369,7 @@ def _decrypt_api_key(
         from backend.src.core.encryption import EncryptionManager  # noqa: PLC0415
 
         try:
-            return EncryptionManager(app_settings.encryption_key).decrypt_value(
-                row.api_key_encrypted
-            )
+            return EncryptionManager(app_settings.encryption_key).decrypt_value(row.api_key_encrypted)
         except ValueError:
             logger.error(
                 "executor_config_api_key_decrypt_failed",
@@ -467,9 +463,15 @@ def _build_llm_api_adapter(
     from backend.src.core.project_workspace import project_workspace_path  # noqa: PLC0415
 
     workspace_dir = str(project_workspace_path(project_id))
+    # Optional ``base_url`` for self-hosted / Tailscale-routed LLMs
+    # (e.g. ollama on the Mac Mini reached via 100.x.x.x:11434).
+    # Empty string is treated as "unset" so accidentally-saved blanks
+    # don't break litellm provider defaults.
+    api_base = (cfg.get("base_url") or "").strip() or None
     return DirectLLMAdapter(
         model=model,
         api_key=api_key,
         project_id=project_id,
         workspace_dir=workspace_dir,
+        api_base=api_base,
     )

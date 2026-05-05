@@ -73,8 +73,7 @@ def test_serialise_tool_result_empty_content() -> None:
 # ─── Stream consumer ─────────────────────────────────────────────────
 
 
-def _delta_chunk(content: str = "", tool_calls: list[dict] | None = None,
-                 finish_reason: str | None = None) -> Any:
+def _delta_chunk(content: str = "", tool_calls: list[dict] | None = None, finish_reason: str | None = None) -> Any:
     """Build a litellm-style streaming chunk."""
     delta = MagicMock()
     delta.content = content if content else None
@@ -118,12 +117,14 @@ async def test_consume_stream_concatenates_content_and_invokes_on_chunk() -> Non
         project_id=uuid.uuid4(),
         on_chunk=on_chunk,
     )
-    stream = _async_iter([
-        _delta_chunk(content="Hel"),
-        _delta_chunk(content="lo "),
-        _delta_chunk(content="world"),
-        _delta_chunk(finish_reason="stop"),
-    ])
+    stream = _async_iter(
+        [
+            _delta_chunk(content="Hel"),
+            _delta_chunk(content="lo "),
+            _delta_chunk(content="world"),
+            _delta_chunk(finish_reason="stop"),
+        ]
+    )
     parts, tool_calls, finish_reason = await adapter._consume_stream(stream)
     assert parts == ["Hel", "lo ", "world"]
     assert tool_calls == []
@@ -140,18 +141,29 @@ async def test_consume_stream_coalesces_tool_call_deltas() -> None:
         api_key="k",
         project_id=uuid.uuid4(),
     )
-    stream = _async_iter([
-        _delta_chunk(tool_calls=[{
-            "index": 0, "id": "call_1",
-            "function_name": "decision_create",
-            "function_arguments": '{"qu',
-        }]),
-        _delta_chunk(tool_calls=[{
-            "index": 0,
-            "function_arguments": 'estion": "OAuth or magic links?"}',
-        }]),
-        _delta_chunk(finish_reason="tool_calls"),
-    ])
+    stream = _async_iter(
+        [
+            _delta_chunk(
+                tool_calls=[
+                    {
+                        "index": 0,
+                        "id": "call_1",
+                        "function_name": "decision_create",
+                        "function_arguments": '{"qu',
+                    }
+                ]
+            ),
+            _delta_chunk(
+                tool_calls=[
+                    {
+                        "index": 0,
+                        "function_arguments": 'estion": "OAuth or magic links?"}',
+                    }
+                ]
+            ),
+            _delta_chunk(finish_reason="tool_calls"),
+        ]
+    )
     parts, tool_calls, finish_reason = await adapter._consume_stream(stream)
     assert parts == []
     assert finish_reason == "tool_calls"
@@ -194,10 +206,12 @@ async def test_tool_loop_no_tool_calls_returns_text() -> None:
         api_key="k",
         project_id=uuid.uuid4(),
     )
-    stream = _async_iter([
-        _delta_chunk(content="Done"),
-        _delta_chunk(finish_reason="stop"),
-    ])
+    stream = _async_iter(
+        [
+            _delta_chunk(content="Done"),
+            _delta_chunk(finish_reason="stop"),
+        ]
+    )
     with patch(
         "backend.src.core.llm.direct_client.acompletion",
         AsyncMock(return_value=stream),
@@ -222,19 +236,28 @@ async def test_tool_loop_dispatches_tool_call_then_continues() -> None:
     )
     session = _build_session_mock()
 
-    round1 = _async_iter([
-        _delta_chunk(tool_calls=[{
-            "index": 0, "id": "c1",
-            "function_name": "knowledge_search",
-            "function_arguments": '{"query": "x"}',
-        }]),
-        _delta_chunk(finish_reason="tool_calls"),
-    ])
-    round2 = _async_iter([
-        _delta_chunk(content="Got "),
-        _delta_chunk(content="answer"),
-        _delta_chunk(finish_reason="stop"),
-    ])
+    round1 = _async_iter(
+        [
+            _delta_chunk(
+                tool_calls=[
+                    {
+                        "index": 0,
+                        "id": "c1",
+                        "function_name": "knowledge_search",
+                        "function_arguments": '{"query": "x"}',
+                    }
+                ]
+            ),
+            _delta_chunk(finish_reason="tool_calls"),
+        ]
+    )
+    round2 = _async_iter(
+        [
+            _delta_chunk(content="Got "),
+            _delta_chunk(content="answer"),
+            _delta_chunk(finish_reason="stop"),
+        ]
+    )
 
     with patch(
         "backend.src.core.llm.direct_client.acompletion",
@@ -263,18 +286,27 @@ async def test_tool_loop_failed_tool_call_appends_error_message() -> None:
     session.call_tool = AsyncMock(side_effect=RuntimeError("decision queue down"))
 
     captured_messages: list[list[dict]] = []
-    round1 = _async_iter([
-        _delta_chunk(tool_calls=[{
-            "index": 0, "id": "c1",
-            "function_name": "decision_wait",
-            "function_arguments": "{}",
-        }]),
-        _delta_chunk(finish_reason="tool_calls"),
-    ])
-    round2 = _async_iter([
-        _delta_chunk(content="Sorry, decisions unavailable"),
-        _delta_chunk(finish_reason="stop"),
-    ])
+    round1 = _async_iter(
+        [
+            _delta_chunk(
+                tool_calls=[
+                    {
+                        "index": 0,
+                        "id": "c1",
+                        "function_name": "decision_wait",
+                        "function_arguments": "{}",
+                    }
+                ]
+            ),
+            _delta_chunk(finish_reason="tool_calls"),
+        ]
+    )
+    round2 = _async_iter(
+        [
+            _delta_chunk(content="Sorry, decisions unavailable"),
+            _delta_chunk(finish_reason="stop"),
+        ]
+    )
 
     async def _fake_acompletion(**kwargs):
         captured_messages.append([dict(m) for m in kwargs["messages"]])
@@ -307,12 +339,22 @@ async def test_tool_loop_round_cap_raises() -> None:
     session = _build_session_mock()
 
     def _make_round():
-        return _async_iter([
-            _delta_chunk(content="...", tool_calls=[{
-                "index": 0, "id": "c", "function_name": "x", "function_arguments": "{}",
-            }]),
-            _delta_chunk(finish_reason="tool_calls"),
-        ])
+        return _async_iter(
+            [
+                _delta_chunk(
+                    content="...",
+                    tool_calls=[
+                        {
+                            "index": 0,
+                            "id": "c",
+                            "function_name": "x",
+                            "function_arguments": "{}",
+                        }
+                    ],
+                ),
+                _delta_chunk(finish_reason="tool_calls"),
+            ]
+        )
 
     with patch(
         "backend.src.core.llm.direct_client.acompletion",
@@ -329,6 +371,97 @@ async def test_tool_loop_round_cap_raises() -> None:
 
 
 @pytest.mark.asyncio
+async def test_api_base_forwarded_to_acompletion_when_set() -> None:
+    """Local-LLM (ollama, vLLM) deployments need ``api_base`` plumbed
+    through to litellm. Mac Mini production hits ollama via Tailscale
+    IP, so the executor config carries ``cfg.base_url`` and the
+    adapter must pass it to ``acompletion(api_base=...)``.
+    """
+    adapter = DirectLLMAdapter(
+        model="ollama/qwen3-coder:30b",
+        api_key="any",
+        project_id=uuid.uuid4(),
+        api_base="http://100.64.0.5:11434",
+    )
+
+    captured_kwargs: dict[str, Any] = {}
+    stream = _async_iter(
+        [
+            _delta_chunk(content="hi"),
+            _delta_chunk(finish_reason="stop"),
+        ]
+    )
+
+    async def _fake_acompletion(**kwargs):
+        captured_kwargs.update(kwargs)
+        return stream
+
+    @asynccontextmanager
+    async def _no_session():
+        yield None
+
+    with (
+        patch.object(adapter, "_mcp_session", _no_session),
+        patch(
+            "backend.src.core.llm.direct_client.acompletion",
+            AsyncMock(side_effect=_fake_acompletion),
+        ),
+    ):
+        await adapter.execute(
+            system_prompt="s",
+            user_prompt="u",
+            tools_allowed=[],
+        )
+
+    assert captured_kwargs["api_base"] == "http://100.64.0.5:11434"
+
+
+@pytest.mark.asyncio
+async def test_api_base_omitted_when_unset() -> None:
+    """When the executor config doesn't carry a ``base_url`` (the
+    Anthropic / OpenAI cloud case), litellm falls back to provider
+    defaults — we must not pass an empty/None ``api_base`` and confuse
+    the SDK.
+    """
+    adapter = DirectLLMAdapter(
+        model="anthropic/claude-3-5-sonnet",
+        api_key="any",
+        project_id=uuid.uuid4(),
+    )
+
+    captured_kwargs: dict[str, Any] = {}
+    stream = _async_iter(
+        [
+            _delta_chunk(content="hi"),
+            _delta_chunk(finish_reason="stop"),
+        ]
+    )
+
+    async def _fake_acompletion(**kwargs):
+        captured_kwargs.update(kwargs)
+        return stream
+
+    @asynccontextmanager
+    async def _no_session():
+        yield None
+
+    with (
+        patch.object(adapter, "_mcp_session", _no_session),
+        patch(
+            "backend.src.core.llm.direct_client.acompletion",
+            AsyncMock(side_effect=_fake_acompletion),
+        ),
+    ):
+        await adapter.execute(
+            system_prompt="s",
+            user_prompt="u",
+            tools_allowed=[],
+        )
+
+    assert "api_base" not in captured_kwargs
+
+
+@pytest.mark.asyncio
 async def test_execute_assembles_messages_from_history() -> None:
     """``execute`` builds messages from system + filtered history + user."""
     adapter = DirectLLMAdapter(
@@ -338,10 +471,12 @@ async def test_execute_assembles_messages_from_history() -> None:
     )
 
     captured_messages: list[dict] = []
-    stream = _async_iter([
-        _delta_chunk(content="ok"),
-        _delta_chunk(finish_reason="stop"),
-    ])
+    stream = _async_iter(
+        [
+            _delta_chunk(content="ok"),
+            _delta_chunk(finish_reason="stop"),
+        ]
+    )
 
     async def _fake_acompletion(**kwargs):
         captured_messages.extend(kwargs["messages"])
