@@ -14,8 +14,11 @@ These tests pin behaviours that no individual unit test asserts:
     → done) AND a CompositionSnapshot.
   * ``stream_manager.publish_project_event`` fires for every state
     transition with ``run_transition`` event.
-  * ``on_run_completed`` schedules a follow-up replanner run with
-    ``parent_run_id`` set.
+  * ``on_run_completed`` finalizes the run without spawning a child.
+    Direction reset 2026-05-03 retired the LLM-driven replanner so
+    Request → ExecutionRun is 1:1; production saw 1000-deep run
+    chains when the unconditional child-spawn was kept around with
+    no terminator.
   * Foreign-tenant runs do not leak through the orchestrator.
 
 CLAUDE.md NEVER rule preserved: state changes go through the
@@ -142,6 +145,16 @@ async def test_full_chain_persists_snapshot_history_and_publishes_events(
 
     # 4. Executor was called exactly once.
     adapter.execute.assert_awaited_once()
+
+    # 5. No child run is spawned — Request → ExecutionRun is 1:1.
+    children = (
+        (await db_session.execute(select(ExecutionRun).where(ExecutionRun.parent_run_id == run.id))).scalars().all()
+    )
+    assert children == [], (
+        "No child run should be spawned on completion. Production saw a "
+        "1000-deep chain when this was unconditional. Re-add only with an "
+        "explicit terminator (planner output / snapshot child list)."
+    )
 
 
 @pytest.mark.asyncio

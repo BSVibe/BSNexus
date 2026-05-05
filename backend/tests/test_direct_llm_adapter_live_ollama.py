@@ -83,9 +83,12 @@ async def test_direct_llm_adapter_returns_local_completion() -> None:
     assert result.get("finish_reason") == "stop", result
     assert result.get("output_type") == "text", result
     assert result.get("actual_cost_cents") == 0, result
-    assert result.get("output_ref"), "ollama returned empty output"
+    output_ref = result.get("output_ref") or {}
+    assert isinstance(output_ref, dict), output_ref
+    inline = output_ref.get("inline", "")
+    assert inline, "ollama returned empty output"
     assert "".join(chunks), "no streaming chunks observed"
     # Loose semantic check — qwen3-coder reliably emits a `def` keyword
     # for "Write a Python function" prompts. Don't assert function
     # signature / name to avoid false negatives if the model paraphrases.
-    assert "def " in result["output_ref"], result["output_ref"]
+    assert "def " in inline, inline
