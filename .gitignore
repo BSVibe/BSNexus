@@ -75,3 +75,7 @@ screen_*.png
 # Runtime workspace artefacts (extracted code blocks per project)
 backend/data/workspaces/
 
+
+# Demo env (per-product DEMO_JWT_SECRET, demo PG creds)
+.env.demo
+deploy/.env.demo
