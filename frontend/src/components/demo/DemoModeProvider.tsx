@@ -1,9 +1,33 @@
 'use client'
 
 import { DemoBanner, useAutoDemoSession } from '@bsvibe/demo'
+import { AuthContext } from '../auth/AuthContext'
 
 const DEMO_API_URL =
   process.env.NEXT_PUBLIC_API_URL ?? 'https://api-demo-nexus.bsvibe.dev'
+
+const DEMO_USER = {
+  id: 'demo-user',
+  email: 'demo@bsvibe.dev',
+  tenantId: 'demo',
+  tenantName: 'Demo sandbox',
+  role: 'demo',
+}
+
+const DEMO_AUTH_VALUE = {
+  user: DEMO_USER,
+  loading: false,
+  login: () => {
+    /* demo: no-op */
+  },
+  logout: async () => {
+    /* demo: no-op */
+  },
+  tenants: [{ id: 'demo', name: 'Demo sandbox', role: 'demo' }],
+  switchTenant: async () => {
+    /* demo: single tenant */
+  },
+}
 
 /**
  * Drop-in replacement for ``AuthProvider`` in demo mode. Auto-creates a
@@ -72,9 +96,9 @@ export default function DemoModeProvider({
   }
 
   return (
-    <>
+    <AuthContext.Provider value={DEMO_AUTH_VALUE}>
       <DemoBanner productName="BSNexus" locale="en" />
       {children}
-    </>
+    </AuthContext.Provider>
   )
 }
