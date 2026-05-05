@@ -237,6 +237,87 @@ async def test_llm_api_returns_direct_llm_adapter(
     )
     assert isinstance(adapter, DirectLLMAdapter)
     assert adapter._model == "anthropic/claude-3-5-sonnet"
+    # No ``base_url`` in cfg → adapter falls back to litellm provider
+    # defaults (Anthropic / OpenAI cloud endpoints).
+    assert adapter._api_base is None
+
+
+@pytest.mark.asyncio
+async def test_llm_api_forwards_base_url_to_adapter(
+    db_session,
+    mock_tenant_id,
+    seeded_tenant,
+):
+    """Self-hosted LLMs (ollama on a Tailscale IP, on-prem vLLM) need
+    ``cfg.base_url`` to reach the provider. The dispatcher reads it
+    off the executor config and hands it to :class:`DirectLLMAdapter`
+    as ``api_base``.
+    """
+    from backend.src.core.llm import DirectLLMAdapter
+
+    cfg = await _make_cfg(
+        db_session,
+        mock_tenant_id,
+        executor_type="llm_api",
+        config={
+            "model": "ollama/qwen3-coder:30b",
+            "base_url": "http://100.64.0.5:11434",
+        },
+    )
+    cfg.config = {
+        "model": "ollama/qwen3-coder:30b",
+        "base_url": "http://100.64.0.5:11434",
+        "api_key": "ollama-doesnt-need-one",
+    }
+    cfg.api_key_encrypted = None
+    await db_session.commit()
+
+    adapter = await _build_adapter(
+        db_session,
+        mock_tenant_id,
+        run_id=uuid.uuid4(),
+        project_id=uuid.uuid4(),
+    )
+    assert isinstance(adapter, DirectLLMAdapter)
+    assert adapter._api_base == "http://100.64.0.5:11434"
+
+
+@pytest.mark.asyncio
+async def test_llm_api_blank_base_url_falls_back_to_provider_default(
+    db_session,
+    mock_tenant_id,
+    seeded_tenant,
+):
+    """An empty / whitespace-only ``base_url`` value means "use the
+    provider default" — don't pass an empty string to litellm or it
+    will refuse to resolve the endpoint."""
+    from backend.src.core.llm import DirectLLMAdapter
+
+    cfg = await _make_cfg(
+        db_session,
+        mock_tenant_id,
+        executor_type="llm_api",
+        config={
+            "model": "anthropic/claude-3-5-sonnet",
+            "base_url": "   ",
+        },
+    )
+    cfg.config = {
+        "model": "anthropic/claude-3-5-sonnet",
+        "base_url": "   ",
+        "api_key": "sk-test",
+    }
+    cfg.api_key_encrypted = None
+    await db_session.commit()
+
+    adapter = await _build_adapter(
+        db_session,
+        mock_tenant_id,
+        run_id=uuid.uuid4(),
+        project_id=uuid.uuid4(),
+    )
+    assert isinstance(adapter, DirectLLMAdapter)
+    assert adapter._api_base is None
 
 
 @pytest.mark.asyncio

@@ -76,16 +76,19 @@ class DirectLLMAdapter:
         mcp_servers: dict[str, Any] | None = None,
         on_chunk: Callable[[str], Awaitable[None]] | None = None,
         max_tool_rounds: int = _MAX_TOOL_ROUNDS,
+        api_base: str | None = None,
     ) -> None:
         self._model = model
         self._api_key = api_key
         self._project_id = project_id
-        self._run_audit_metadata: dict[str, Any] = (
-            dict(run_audit_metadata) if run_audit_metadata else {}
-        )
+        self._run_audit_metadata: dict[str, Any] = dict(run_audit_metadata) if run_audit_metadata else {}
         self._workspace_dir = workspace_dir
         self._mcp_servers = mcp_servers
         self._on_chunk = on_chunk
+        # Optional override for self-hosted / local LLM endpoints
+        # (ollama on a Tailscale IP, on-prem vLLM, etc.). When unset,
+        # litellm uses the provider's default endpoint.
+        self._api_base = api_base or None
         self._max_tool_rounds = max_tool_rounds
 
     def set_run_audit_metadata(self, metadata: dict[str, Any] | None) -> None:
@@ -204,6 +207,8 @@ class DirectLLMAdapter:
                 "stream": True,
                 "api_key": self._api_key,
             }
+            if self._api_base:
+                kwargs["api_base"] = self._api_base
             if openai_tools:
                 kwargs["tools"] = openai_tools
 
