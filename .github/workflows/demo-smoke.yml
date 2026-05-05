@@ -67,6 +67,13 @@ jobs:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN || secrets.GITHUB_TOKEN }}
         run: pnpm install --frozen-lockfile
 
+      - name: Force playwright reuseExistingServer
+        working-directory: frontend
+        run: |
+          # Our manually-started next start on port 3000 must be reused;
+          # default config sets reuseExistingServer: !process.env.CI.
+          sed -i 's/reuseExistingServer: !process.env.CI/reuseExistingServer: true/' playwright.config.ts
+
       - name: Build frontend in demo mode
         working-directory: frontend
         env:
