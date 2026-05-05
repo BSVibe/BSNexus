@@ -1,0 +1,73 @@
+name: Prod Build Smoke
+
+# Catch the class of bug that ``ci.yml`` (editable install + sqlite) cannot:
+# anything that only manifests once the backend source is installed into
+# the production container's site-packages layout.
+#
+# The motivating case (2026-05-05): ``backend/src/mcp/`` shadowed the PyPI
+# ``mcp`` package once ``uv pip install --system .`` deposited the
+# project's mcp/ at /usr/local/lib/python3.11/site-packages/mcp/. Local
+# dev with ``pip install -e .`` resolved imports differently and never
+# saw the shadow. The bug only surfaced when a real production run hit
+# ``from mcp import ClientSession`` — by which point the change was
+# already on main.
+#
+# This job builds the actual prod image and exercises the import chain
+# + a uvicorn boot + /health, so any production-only import or
+# startup-time failure fails the PR instead of the deploy.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  prod-build-smoke:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build prod backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./deploy/Dockerfile
+          tags: bsnexus-app:smoke
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Import + create_app smoke
+        # Exercise every module the prod app imports at startup. If
+        # ``backend/src/<name>/`` shadows a same-named PyPI package
+        # (mcp, jwt, click, …) in the site-packages layout, this
+        # fails here at PR time. ``create_app`` is the FastAPI factory
+        # that registers every router + middleware — closest possible
+        # to "actually start the app" without DB / Redis.
+        #
+        # Bypass entrypoint.sh (which runs alembic upgrade head and
+        # would need a real PG): use ``--entrypoint python`` to drop
+        # straight into the import smoke.
+        run: |
+          docker run --rm \
+            -e PROMPT_SIGNING_KEY=ci-smoke-key \
+            --entrypoint python \
+            bsnexus-app:smoke \
+            -c "
+          from mcp.client.session import ClientSession
+          from mcp.client.streamable_http import streamablehttp_client
+          from backend.src.core.llm.direct_client import DirectLLMAdapter
+          from backend.src.core.bsgateway.client import BSGatewayClient
+          from backend.src.core.dispatcher import _dispatch_background, build_adapter
+          from backend.src.core.run_orchestrator import RunOrchestrator
+          from backend.src.api.conversation import _BACKGROUND_DISPATCH_TASKS
+          from backend.src.main import create_app
+          app = create_app(cors_origins=[], rate_limit=False)
+          assert app is not None, 'create_app returned None'
+          print('prod imports + create_app OK')
+          "

@@ -235,7 +235,7 @@ async def test_tool_loop_no_tool_calls_returns_text() -> None:
         result = await adapter._tool_loop([], session=None, openai_tools=None)
     assert result == {
         "output_type": "text",
-        "output_ref": "Done",
+        "output_ref": {"inline": "Done"},
         "actual_cost_cents": 0,
         "finish_reason": "stop",
     }
@@ -282,7 +282,7 @@ async def test_tool_loop_dispatches_tool_call_then_continues() -> None:
         result = await adapter._tool_loop([], session=session, openai_tools=[])
 
     session.call_tool.assert_awaited_once_with("knowledge_search", {"query": "x"})
-    assert result["output_ref"] == "Got answer"
+    assert result["output_ref"] == {"inline": "Got answer"}
     assert result["finish_reason"] == "stop"
 
 
@@ -339,7 +339,7 @@ async def test_tool_loop_failed_tool_call_appends_error_message() -> None:
     tool_msg = [m for m in round2_messages if m.get("role") == "tool"]
     assert len(tool_msg) == 1
     assert "decision queue down" in tool_msg[0]["content"]
-    assert result["output_ref"].startswith("Sorry")
+    assert result["output_ref"]["inline"].startswith("Sorry")
 
 
 @pytest.mark.asyncio
@@ -526,4 +526,4 @@ async def test_execute_assembles_messages_from_history() -> None:
     assert captured_messages[3] == {"role": "user", "content": "say hi"}
     # tool-role history entries are filtered
     assert all(m["role"] != "tool" for m in captured_messages)
-    assert result["output_ref"] == "ok"
+    assert result["output_ref"] == {"inline": "ok"}

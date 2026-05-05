@@ -254,9 +254,15 @@ class DirectLLMAdapter:
                 partial_output="".join(aggregated_text),
             )
 
+        # Match the BSGatewayAdapter / dispatcher contract: ``output_ref``
+        # is a JSON object, not a bare string. ``ExecutionRunResponse``
+        # types it as ``dict[str, Any] | None`` (founder.py:118), and the
+        # /api/v1/requests/{id}/runs endpoint 500s on ResponseValidationError
+        # if a row carries a string here. Convention is ``{"inline": text}``
+        # for inline-text deliverables (see dispatcher.py:218).
         return {
             "output_type": "text",
-            "output_ref": "".join(aggregated_text),
+            "output_ref": {"inline": "".join(aggregated_text)},
             "actual_cost_cents": 0,
             "finish_reason": finish_reason,
         }

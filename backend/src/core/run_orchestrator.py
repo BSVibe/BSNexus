@@ -305,42 +305,16 @@ class RunOrchestrator:
             stream_manager=stream_manager,
         )
 
-        if run.request_id is None:
-            return
-
-        # Schedule the next iteration. The replanner inside Phase 0 of
-        # the dispatcher decides whether this is the last one (it can
-        # return ``done`` and the new run becomes a no-op closer).
-        next_run = ExecutionRun(
-            tenant_id=run.tenant_id,
-            project_id=run.project_id,
-            request_id=run.request_id,
-            parent_run_id=run.id,
-            status=RunStatus.pending,
-            priority=run.priority,
-        )
-        db.add(next_run)
-        await db.flush()
-        # Commit so the background task's own session sees the row.
-        await db.commit()
-        _fire_async(next_run.id, next_run.tenant_id, next_run.project_id, stream_manager)
-
-
-def _fire_async(
-    run_id: uuid.UUID,
-    tenant_id: uuid.UUID,
-    project_id: uuid.UUID,
-    stream_manager: Any | None,
-) -> None:
-    """Schedule a background dispatch of ``run_id``.
-
-    Lazy import of ``core.dispatcher`` avoids a circular import: the
-    dispatcher module depends on the orchestrator to run the actual
-    compose→audit→execute loop.
-    """
-    from backend.src.core.dispatcher import fire_run  # noqa: PLC0415
-
-    fire_run(run_id, tenant_id, project_id, stream_manager)
+        # Direction reset 2026-05-03: Request → ExecutionRun is 1:1.
+        # The Phase 0 LLM-driven replanner that used to decide "another
+        # iteration vs done" is retired — the BSGateway / direct-LLM
+        # executor does its own multi-turn reasoning inside a single
+        # run. Spawning a child here without a terminator caused a
+        # 1000-deep run chain in production (each child output_ref
+        # "PONG" → another child → … until ollama OOM'd, 17 minutes
+        # 1001 runs). If a tree-structured task lifecycle returns,
+        # gate child spawn on something explicit (planner output,
+        # composition snapshot child list) — never unconditional.
 
 
 async def _find_blocked_successor(db: AsyncSession, parent_run_id: uuid.UUID) -> ExecutionRun | None:
