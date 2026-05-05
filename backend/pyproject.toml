@@ -60,7 +60,7 @@ dependencies = [
     "litellm>=1.0.0",
     # Demo stack helpers — JWT, LLM mock guard, tenant GC, session service.
     # Lives on feat/bsvibe-demo until merged.
-    "bsvibe-demo[sqlalchemy] @ git+https://github.com/BSVibe/bsvibe-python.git@feat/bsvibe-demo#subdirectory=packages/bsvibe-demo",
+    "bsvibe-demo[sqlalchemy] @ git+https://github.com/BSVibe/bsvibe-python.git@main#subdirectory=packages/bsvibe-demo",
 ]
 
 [project.optional-dependencies]
