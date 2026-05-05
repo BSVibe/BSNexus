@@ -29,6 +29,7 @@
  * mechanical.
  */
 import { useEffect, useState } from 'react'
+import { isDemoMode } from '@bsvibe/demo'
 
 interface User {
   id: string
@@ -137,6 +138,21 @@ export function clearTokenCache() {
 }
 
 /**
+ * Inject a demo session JWT into the auth token cache so getAccessToken()
+ * returns the demo Bearer for every fetch — without this, the demo shell
+ * loads but every data fetch goes out unauth'd.
+ *
+ * Wire from DemoModeProvider via @bsvibe/demo 0.3 onSessionReady.
+ */
+export function injectDemoToken(token: string, expiresIn: number): void {
+  const expiresAt = Date.now() + expiresIn * 1000
+  cachedToken = { value: token, expiresAt }
+  if (typeof window !== 'undefined') {
+    saveTokenToLocalStorage(token, '', expiresIn)
+  }
+}
+
+/**
  * Parse tokens from the OAuth callback URL fragment and persist them.
  * Call from the app root on mount when `window.location.hash` starts with
  * `#/auth/callback`. Returns true if a token was found and stored.
@@ -201,38 +217,46 @@ export function useAuth({
       }
       try {
         const payload = decodeJwt(token) as {
-          sub: string
-          email: string
+          sub?: string
+          email?: string
+          tenant_id?: string
+          is_demo?: boolean
           app_metadata?: { tenant_id?: string; role?: string }
         }
-        const tenantId = payload.app_metadata?.tenant_id ?? ''
-        // Tenant name + full tenants list from /api/session.tenants —
-        // cookie or bearer accepted, send both for portability.
-        let tenantName: string | null = null
+        const isDemoSession = payload.is_demo === true
+        // Demo JWT carries `tenant_id` directly; prod JWT wraps it in
+        // app_metadata. Fall back from one to the other.
+        const tenantId =
+          payload.app_metadata?.tenant_id ?? payload.tenant_id ?? ''
+        let tenantName: string | null = isDemoSession ? 'Demo sandbox' : null
         let tenantList: SessionTenant[] = []
         let activeTenantId: string = tenantId
-        try {
-          const res = await fetch(`${AUTH_URL}/api/session`, {
-            credentials: 'include',
-            headers: { Authorization: `Bearer ${token}` },
-          })
-          if (res.ok) {
-            const data: SessionResponse = await res.json()
-            tenantList = data.tenants ?? []
-            activeTenantId = data.active_tenant_id ?? tenantId
-            tenantName =
-              tenantList.find((t) => t.id === activeTenantId)?.name ?? null
+        // Skip the prod tenants probe in demo mode — auth.bsvibe.dev
+        // does not allow the demo origin and the call CORS-fails.
+        if (!isDemoSession && !isDemoMode()) {
+          try {
+            const res = await fetch(`${AUTH_URL}/api/session`, {
+              credentials: 'include',
+              headers: { Authorization: `Bearer ${token}` },
+            })
+            if (res.ok) {
+              const data: SessionResponse = await res.json()
+              tenantList = data.tenants ?? []
+              activeTenantId = data.active_tenant_id ?? tenantId
+              tenantName =
+                tenantList.find((t) => t.id === activeTenantId)?.name ?? null
+            }
+          } catch {
+            // ignore
           }
-        } catch {
-          // ignore
         }
         setTenants(tenantList)
         setUser({
-          id: payload.sub,
-          email: payload.email,
+          id: payload.sub ?? (isDemoSession ? 'demo-user' : ''),
+          email: payload.email ?? (isDemoSession ? 'demo@bsvibe.dev' : ''),
           tenantId: activeTenantId,
           tenantName,
-          role: payload.app_metadata?.role ?? 'member',
+          role: payload.app_metadata?.role ?? (isDemoSession ? 'demo' : 'member'),
         })
       } catch {
         // Not a JWT — skip and stay unauthenticated.

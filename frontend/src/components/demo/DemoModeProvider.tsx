@@ -2,6 +2,7 @@
 
 import { DemoBanner, useAutoDemoSession } from '@bsvibe/demo'
 import { AuthContext } from '../auth/AuthContext'
+import { injectDemoToken } from '../../hooks/useAuth'
 
 const DEMO_API_URL =
   process.env.NEXT_PUBLIC_API_URL ?? 'https://api-demo-nexus.bsvibe.dev'
@@ -41,7 +42,16 @@ export default function DemoModeProvider({
 }: {
   children: React.ReactNode
 }) {
-  const { loading, error } = useAutoDemoSession(DEMO_API_URL)
+  const { loading, error } = useAutoDemoSession(DEMO_API_URL, {
+    onSessionReady: ({ token, expiresIn }) => {
+      // Park the demo JWT in cachedToken so api/client's
+      // getAccessToken() returns it. Without this, the
+      // AuthContext stub above lets the page render but the
+      // axios client still goes out without Authorization and
+      // every dashboard fetch 401s.
+      injectDemoToken(token, expiresIn)
+    },
+  })
 
   if (loading) {
     return (
