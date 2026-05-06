@@ -19,7 +19,7 @@ dependencies = [
     "structlog>=23.0.0",
     "bsvibe-auth[fastapi] @ git+https://github.com/BSVibe/BSVibe-Auth.git@v0.5.0#subdirectory=python",
     # the package lands on bsvibe-python main.
-    "bsvibe-authz @ git+https://github.com/BSVibe/bsvibe-python.git@main#subdirectory=packages/bsvibe-authz",
+    "bsvibe-authz @ git+https://github.com/BSVibe/bsvibe-python.git@84c393f6#subdirectory=packages/bsvibe-authz",
     # Phase A Batch 5 + Phase Audit Batch 2 — all bsvibe-python packages
     # consumed by BSNexus are pinned to a single integration branch
     # (``integration/phase-audit-batch-2``) that carries
