@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import uuid
 
+from bsvibe_auth import BSVibeUser
 from bsvibe_demo import DemoJWTError, decode_demo_jwt
 from fastapi import HTTPException, Request, status
 
@@ -61,3 +62,45 @@ async def demo_tenant_id(
 
     request.state.tenant_id = claims.tenant_id
     return claims.tenant_id
+
+
+async def demo_get_current_user(
+    request: Request,
+    *,
+    secret: str | None = None,
+) -> BSVibeUser:
+    """Drop-in for ``backend.src.core.auth.get_current_user`` in demo mode.
+
+    Verifies the demo JWT and synthesizes a BSVibeUser carrying the
+    demo tenant_id in ``app_metadata`` — every downstream handler
+    already pulls tenant_id from there or from request.state, so no
+    other code path needs to know it is a demo session.
+    """
+    secret = secret or get_demo_jwt_secret()
+    token = _extract_token(request)
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Demo session not started — POST /api/v1/demo/session first",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    try:
+        claims = decode_demo_jwt(token, secret=secret)
+    except DemoJWTError as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Invalid demo session: {e}",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from e
+
+    request.state.tenant_id = claims.tenant_id
+    return BSVibeUser(
+        id="demo-user",
+        email="demo@bsvibe.dev",
+        app_metadata={
+            "tenant_id": str(claims.tenant_id),
+            "role": "demo",
+        },
+        user_metadata={"is_demo": True},
+    )
