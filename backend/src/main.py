@@ -274,12 +274,21 @@ def create_app(
     from bsvibe_demo import is_demo_mode  # noqa: PLC0415
 
     if is_demo_mode():
+        from backend.src.core.auth import get_current_user  # noqa: PLC0415
         from backend.src.core.tenant_context import get_tenant_id  # noqa: PLC0415
-        from backend.src.demo.auth import demo_tenant_id  # noqa: PLC0415
+        from backend.src.demo.auth import (  # noqa: PLC0415
+            demo_get_current_user,
+            demo_tenant_id,
+        )
         from backend.src.demo.router import demo_router  # noqa: PLC0415
 
         _app.include_router(demo_router)
         _app.dependency_overrides[get_tenant_id] = demo_tenant_id
+        # Without this override, every authed handler still calls
+        # auth.bsvibe.dev's JWKS verifier and the HS256 demo JWT fails
+        # with "Unable to find a signing key" — UI loads but every
+        # /api/v1/projects, /messages, /requests fetch returns 401.
+        _app.dependency_overrides[get_current_user] = demo_get_current_user
 
     return _app
 

@@ -182,39 +182,142 @@ async def seed_demo(*, tenant_id: UUID, session: AsyncSession) -> None:
             },
         )
 
-    # ─── Decision (blocking, awaiting approval) ───────────────────────
+    # ─── Decisions (one blocking, one resolved — populates inbox) ─────
     # Schema: id, tenant_id, project_id, request_id, origin_run_id,
     # question (NOT NULL — not title/body), options (json default '[]'),
     # blocking, resolved_at, resolution, resolved_by, created_at.
+    decisions = [
+        {
+            "id": _uuid.uuid4(),
+            "question": "Approve the new hero copy variant?",
+            "options": ["Approve", "Request changes"],
+            "blocking": True,
+            "resolved_at": None,
+            "resolution": None,
+            "created": now - timedelta(hours=2),
+        },
+        {
+            "id": _uuid.uuid4(),
+            "question": "Pick the primary CTA color for the demo banner",
+            "options": ["Brand blue", "High-contrast amber", "Subtle slate"],
+            "blocking": False,
+            "resolved_at": now - timedelta(hours=5),
+            "resolution": "Brand blue",
+            "created": now - timedelta(hours=18),
+        },
+    ]
+    for d in decisions:
+        await session.execute(
+            text(
+                "INSERT INTO decisions (id, tenant_id, project_id, "
+                "origin_run_id, question, options, blocking, resolved_at, "
+                "resolution, created_at) "
+                "VALUES (:id, :tid, :pid, :run_id, :question, "
+                "CAST(:options AS json), :blocking, :resolved_at, "
+                ":resolution, :created)"
+            ),
+            {
+                "id": d["id"],
+                "tid": tenant_id,
+                "pid": project_id,
+                "run_id": run_id,
+                "question": d["question"],
+                "options": json.dumps(d["options"]),
+                "blocking": d["blocking"],
+                "resolved_at": d["resolved_at"],
+                "resolution": d["resolution"],
+                "created": d["created"],
+            },
+        )
+
+    # ─── Second project (different status, gives the dashboard breadth) ─
+    project_id_2 = _uuid.uuid4()
     await session.execute(
         text(
-            "INSERT INTO decisions (id, tenant_id, project_id, "
-            "origin_run_id, question, options, blocking, created_at) "
-            "VALUES (:id, :tid, :pid, :run_id, :question, "
-            "CAST(:options AS json), TRUE, :created)"
+            "INSERT INTO projects (id, tenant_id, name, description, "
+            "status, workspace_type, created_at, updated_at) "
+            "VALUES (:id, :tid, :name, :description, 'active', "
+            "'server_managed', :created, :updated)"
+        ),
+        {
+            "id": project_id_2,
+            "tid": tenant_id,
+            "name": "Customer onboarding playbook",
+            "description": (
+                "Codify the first-7-day customer journey into a playbook "
+                "the agent can follow autonomously."
+            ),
+            "created": now - timedelta(days=7),
+            "updated": now - timedelta(days=1),
+        },
+    )
+    # A few messages + a completed request for the second project so its
+    # detail view also has content.
+    second_messages = [
+        ("user", "I want a real onboarding flow, not a generic email drip.", now - timedelta(days=7)),
+        (
+            "assistant",
+            "Got it. Should the playbook branch on plan tier, or stay flat for v1?",
+            now - timedelta(days=7, minutes=-2),
+        ),
+        ("user", "Flat for v1. Iterate after 30 customers.", now - timedelta(days=6, hours=20)),
+    ]
+    for role, content, ts in second_messages:
+        await session.execute(
+            text(
+                "INSERT INTO conversation_messages "
+                "(id, project_id, role, content, source, created_at) "
+                "VALUES (:id, :pid, :role, :content, 'web', :created)"
+            ),
+            {
+                "id": _uuid.uuid4(),
+                "pid": project_id_2,
+                "role": role,
+                "content": content,
+                "created": ts,
+            },
+        )
+    completed_req_id = _uuid.uuid4()
+    await session.execute(
+        text(
+            "INSERT INTO requests (id, tenant_id, project_id, "
+            "intent_summary, status, user_confirmed, created_at, updated_at) "
+            "VALUES (:id, :tid, :pid, :summary, 'completed', TRUE, "
+            ":created, :updated)"
+        ),
+        {
+            "id": completed_req_id,
+            "tid": tenant_id,
+            "pid": project_id_2,
+            "summary": "Draft the v1 onboarding playbook with day-by-day actions",
+            "created": now - timedelta(days=6),
+            "updated": now - timedelta(days=1, hours=4),
+        },
+    )
+    await session.execute(
+        text(
+            "INSERT INTO deliverables (id, tenant_id, project_id, "
+            "request_id, type, title, status, created_at, updated_at) "
+            "VALUES (:id, :tid, :pid, :rid, 'doc', :title, 'delivered', "
+            ":created, :updated)"
         ),
         {
             "id": _uuid.uuid4(),
             "tid": tenant_id,
-            "pid": project_id,
-            "run_id": run_id,
-            "question": "Approve the new hero copy variant?",
-            "options": json.dumps(
-                [
-                    {"label": "Approve", "value": "approve"},
-                    {"label": "Request changes", "value": "revise"},
-                ]
-            ),
-            "created": now - timedelta(hours=2),
+            "pid": project_id_2,
+            "rid": completed_req_id,
+            "title": "Onboarding playbook v1",
+            "created": now - timedelta(days=2),
+            "updated": now - timedelta(days=1, hours=4),
         },
     )
 
     logger.info(
         "demo_seed_complete",
         tenant_id=str(tenant_id),
-        project_id=str(project_id),
-        messages=len(sample_messages),
-        requests=len(request_ids),
-        deliverables=2,
-        decisions=1,
+        projects=2,
+        messages=len(sample_messages) + len(second_messages),
+        requests=len(request_ids) + 1,
+        deliverables=3,
+        decisions=len(decisions),
     )
