@@ -56,6 +56,14 @@ _DEFAULT_ITERATION_TIMEOUT_S = 600.0
 # known-issue doc ("shell_exec has its own asyncio.wait_for timeout=180s").
 _DEFAULT_TOOL_CALL_TIMEOUT_S = 180.0
 
+# Per-iteration generation budget in tokens. Round 1 (2026-05-07)
+# revealed default litellm/Ollama caps truncating most outputs at
+# ~150-500 chars mid-response (M0 task corpus had 6/10 tasks visibly
+# truncated). 4096 covers single-file artifacts comfortably; longer
+# multi-file builds chain across iterations via MCP file_write so
+# the per-iteration budget stays modest.
+_DEFAULT_MAX_TOKENS = 4096
+
 
 class DirectLLMError(Exception):
     """Surface for tool-loop failures.
@@ -94,6 +102,7 @@ class DirectLLMAdapter:
         api_base: str | None = None,
         iteration_timeout_s: float = _DEFAULT_ITERATION_TIMEOUT_S,
         tool_call_timeout_s: float = _DEFAULT_TOOL_CALL_TIMEOUT_S,
+        max_tokens: int = _DEFAULT_MAX_TOKENS,
     ) -> None:
         self._model = model
         self._api_key = api_key
@@ -109,6 +118,7 @@ class DirectLLMAdapter:
         self._max_tool_rounds = max_tool_rounds
         self._iteration_timeout_s = iteration_timeout_s
         self._tool_call_timeout_s = tool_call_timeout_s
+        self._max_tokens = max_tokens
 
     def set_run_audit_metadata(self, metadata: dict[str, Any] | None) -> None:
         self._run_audit_metadata = dict(metadata) if metadata else {}
@@ -190,10 +200,22 @@ class DirectLLMAdapter:
                     await session.initialize()
                     yield session
         except Exception as exc:  # noqa: BLE001 — surface as tool-loop failure
+            # ExceptionGroup (Python 3.11) wraps the real cause inside
+            # ``.exceptions``; ``str(exc)`` alone gives only the wrapper
+            # text "unhandled errors in a TaskGroup (1 sub-exception)".
+            # Walk the group so the warning carries the actual cause.
+            sub_excs = getattr(exc, "exceptions", None)
+            if sub_excs:
+                inner = sub_excs[0]
+                error_repr = f"{type(inner).__name__}: {inner}"
+            else:
+                error_repr = f"{type(exc).__name__}: {exc}"
             logger.warning(
                 "direct_llm_mcp_connect_failed",
                 project_id=str(self._project_id),
-                error=str(exc),
+                url=url,
+                error=error_repr,
+                exc_info=True,
             )
             # Fall through to no-tools path — the model still produces
             # text deliverable, just without MCP callbacks.
@@ -230,6 +252,7 @@ class DirectLLMAdapter:
                 "messages": messages,
                 "stream": True,
                 "api_key": self._api_key,
+                "max_tokens": self._max_tokens,
             }
             if self._api_base:
                 kwargs["api_base"] = self._api_base
