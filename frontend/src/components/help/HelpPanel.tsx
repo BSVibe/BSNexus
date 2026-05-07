@@ -1,60 +1,16 @@
+'use client'
+
 import { useSyncExternalStore } from 'react'
+import { useTranslations } from 'next-intl'
 
-interface HelpContent {
-  title: string
-  description: string
-  link?: { label: string; href: string }
-}
+type TopicKey = 'dashboard' | 'project' | 'settings' | 'default'
 
-function getHelpContent(pathname: string): HelpContent {
-  if (pathname === '/' || pathname.startsWith('/dashboard')) {
-    return {
-      title: 'Dashboard',
-      description:
-        '프로젝트 현황, 태스크 진행률, 에이전트 비용을 한눈에 확인합니다. ' +
-        'New Project를 눌러 AI Architect와 대화하며 프로젝트를 설계하세요.',
-    }
-  }
-  if (pathname.startsWith('/agents')) {
-    return {
-      title: 'Agents',
-      description:
-        'AI 에이전트 조직도를 관리합니다. 에이전트에 역할(CTO, Engineer 등)을 부여하고, ' +
-        '계층 구조를 만들고, executor를 할당합니다. 카드를 클릭하면 상세 정보를 보고 편집할 수 있습니다.',
-    }
-  }
-  if (pathname.startsWith('/budget')) {
-    return {
-      title: 'Budget',
-      description:
-        '에이전트별 월간 예산과 비용을 추적합니다. ' +
-        '각 에이전트 카드에서 예산 사용률을 확인하고, Cost Records에서 상세 내역을 볼 수 있습니다. ' +
-        '월말에 Reset Monthly로 사용량을 초기화하세요.',
-    }
-  }
-  if (pathname.startsWith('/settings')) {
-    return {
-      title: 'Settings',
-      description:
-        'LLM API 키, 모델, Base URL을 설정합니다. ' +
-        'Default Executor를 선택하면 새 에이전트 생성 시 기본값으로 사용됩니다. ' +
-        'Executor별 상세 설정은 각 에이전트의 편집 모드에서 할 수 있습니다.',
-    }
-  }
-  if (pathname.startsWith('/project')) {
-    return {
-      title: 'Project',
-      description:
-        '프로젝트의 Plan, Files, Timeline, Design, Agents 탭으로 작업을 관리합니다. ' +
-        'Plan 뷰에서 에이전트의 진행 상황과 산출물을 확인하세요.',
-    }
-  }
-  return {
-    title: 'BSNexus Company OS',
-    description:
-      'AI 에이전트 조직을 구성하고 프로젝트를 자동화하는 Company OS입니다. ' +
-      'Dashboard에서 전체 현황을, Agents에서 조직도를, Budget에서 비용을 관리하세요.',
-  }
+function topicForPathname(pathname: string): TopicKey {
+  if (pathname === '/' || pathname.startsWith('/dashboard')) return 'dashboard'
+  if (pathname.startsWith('/projects') || pathname.startsWith('/project'))
+    return 'project'
+  if (pathname.startsWith('/settings')) return 'settings'
+  return 'default'
 }
 
 interface HelpPanelProps {
@@ -71,13 +27,24 @@ function getPathname() {
   return window.location.pathname
 }
 
+function getServerSnapshot() {
+  return '/'
+}
+
 export default function HelpPanel({ isOpen, onClose }: HelpPanelProps) {
-  const pathname = useSyncExternalStore(subscribeToPathname, getPathname)
-  const content = getHelpContent(pathname)
+  const pathname = useSyncExternalStore(
+    subscribeToPathname,
+    getPathname,
+    getServerSnapshot,
+  )
+  const tPanel = useTranslations('nexus.help.panel')
+  const tTopic = useTranslations('nexus.help.topic')
+  const topic = topicForPathname(pathname)
+  const title = tTopic(`${topic}.title`)
+  const description = tTopic(`${topic}.description`)
 
   return (
     <>
-      {/* Backdrop */}
       {isOpen && (
         <div
           className="fixed inset-0 bg-black/40 z-40"
@@ -85,50 +52,40 @@ export default function HelpPanel({ isOpen, onClose }: HelpPanelProps) {
         />
       )}
 
-      {/* Panel */}
       <div
         className={`fixed top-0 right-0 h-full w-80 bg-gray-900 border-l border-gray-700 z-50 shadow-2xl
           transform transition-transform duration-300 ease-in-out
           ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}
       >
-        {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700">
-          <h2 className="text-lg font-semibold text-gray-50">도움말</h2>
+          <h2 className="text-lg font-semibold text-gray-50">{tPanel('title')}</h2>
           <button
             onClick={onClose}
             className="p-1 rounded hover:bg-gray-800 text-gray-400 hover:text-gray-50 transition-colors"
-            aria-label="닫기"
+            aria-label={tPanel('closeLabel')}
           >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className="h-5 w-5"
+              viewBox="0 0 20 20"
+              fill="currentColor"
+            >
+              <path
+                fillRule="evenodd"
+                d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                clipRule="evenodd"
+              />
             </svg>
           </button>
         </div>
 
-        {/* Content */}
         <div className="px-5 py-6">
           <div className="mb-2">
             <span className="inline-block px-2 py-0.5 text-xs font-medium rounded bg-[#3b82f6]/20 text-[#3b82f6]">
-              {content.title}
+              {title}
             </span>
           </div>
-          <p className="text-gray-300 text-sm leading-relaxed mb-4">
-            {content.description}
-          </p>
-          {content.link && (
-            <a
-              href={content.link.href}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 text-sm font-medium text-[#3b82f6] hover:text-blue-400 transition-colors"
-            >
-              {content.link.label}
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                <path d="M11 3a1 1 0 100 2h2.586l-6.293 6.293a1 1 0 101.414 1.414L15 6.414V9a1 1 0 102 0V4a1 1 0 00-1-1h-5z" />
-                <path d="M5 5a2 2 0 00-2 2v8a2 2 0 002 2h8a2 2 0 002-2v-3a1 1 0 10-2 0v3H5V7h3a1 1 0 000-2H5z" />
-              </svg>
-            </a>
-          )}
+          <p className="text-gray-300 text-sm leading-relaxed">{description}</p>
         </div>
       </div>
     </>

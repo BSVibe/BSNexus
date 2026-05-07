@@ -4,7 +4,8 @@ import Providers from './providers'
 
 export const metadata: Metadata = {
   title: 'BSNexus',
-  description: 'Orchestrate AI agents, from design to deployment.',
+  description:
+    'BSNexus is the command layer for AI-native companies. AI handles the work. You make the decisions.',
 }
 
 /**

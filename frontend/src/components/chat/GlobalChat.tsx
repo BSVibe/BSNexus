@@ -364,7 +364,7 @@ export default function GlobalChat({
             onOpenProject={(pid) => navigate(`/projects/${pid}`)}
             onInspectRequest={(rid) =>
               document.dispatchEvent(
-                new CustomEvent('bsn:open-inspector', { detail: { requestId: rid } }),
+                new CustomEvent('bsn:open-inside', { detail: { requestId: rid } }),
               )
             }
           />

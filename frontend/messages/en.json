@@ -132,7 +132,7 @@
         "nameLabel": "Name",
         "namePlaceholder": "e.g. Pelago Billing Rework",
         "descriptionLabel": "One-line description",
-        "descriptionPlaceholder": "What do you want the agents to build?",
+        "descriptionPlaceholder": "What direction should the company take next?",
         "hint": "Once created, you'll land in the project. Talk to the company and mention {mentionToken} to direct it.",
         "submit": "Create & open"
       }
@@ -142,7 +142,7 @@
         "progress": "Progress",
         "files": "Files",
         "decisions": "Decisions",
-        "inspector": "Inspector"
+        "inside": "Inside"
       },
       "deleteModal": {
         "title": "Delete this project?",
@@ -348,23 +348,48 @@
       }
     },
     "landing": {
-      "tagline": "Orchestrate AI agents, from design to deployment.",
+      "tagline": "AI handles the work. You make the decisions.",
+      "subTagline": "BSNexus is the command layer for AI-native companies.",
       "feature": {
         "planning": {
-          "title": "Conversational Planning",
-          "description": "Talk to the company in a single chat to direct what gets built."
+          "title": "Direction",
+          "description": "One chat per project. Tell BSNexus what to do — it turns each direction into a request."
         },
         "live": {
-          "title": "Live Progress",
-          "description": "See deliverables and decisions land in real time as runs complete."
+          "title": "Decisions & Brief",
+          "description": "Resolve only the choices AI cannot make alone. The brief tells you what shipped, what is blocked, and what needs you."
         },
         "workers": {
-          "title": "Distributed Workers",
-          "description": "Remote worker nodes execute code on your hosts under your CLIs."
+          "title": "Verified Deliverables",
+          "description": "Outputs ship with proof — verification command, exit code, and artifact links. No proof, no \"shipped\"."
         }
       },
       "ctaGo": "Go to Dashboard",
       "footer": "Powered by BSVibe"
+    },
+    "help": {
+      "panel": {
+        "title": "Help",
+        "closeLabel": "Close"
+      },
+      "topic": {
+        "dashboard": {
+          "title": "Dashboard",
+          "description": "Decisions that need you, the latest brief, and shipped work — all in one place. Hit \"New project\" to scope a new direction."
+        },
+        "project": {
+          "title": "Project",
+          "description": "Each project has four surfaces. Direction is a single chat where you tell BSNexus what to do. Progress shows the deliverable timeline. Decisions is the approval inbox. Inside (optional) opens execution runs and composition snapshots for debugging."
+        },
+        "settings": {
+          "title": "Settings",
+          "description": "Connect BSage, BSGateway, and BSupervisor, and register the LLM executors that run your work. API keys are encrypted at rest — only whether a key is present is ever returned."
+        },
+        "default": {
+          "title": "BSNexus",
+          "description": "BSNexus is the command layer for AI-native companies. You direct, decide, and review. AI handles the work."
+        }
+      }
     }
   }
 }
