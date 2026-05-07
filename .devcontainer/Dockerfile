@@ -76,16 +76,10 @@ RUN brew install git-delta --force-bottle
 # Copy and set up firewall script (for Claude Code)
 COPY scripts/init-firewall.sh /usr/local/bin/
 USER root
-# Install Docker CLI (static binary — lightweight, no daemon)
-RUN curl -fsSL https://download.docker.com/linux/static/stable/$(dpkg --print-architecture)/docker-27.5.1.tgz \
-    | tar xz --strip-components=1 -C /usr/local/bin docker/docker && \
-    chmod +x /usr/local/bin/docker
-
 RUN chmod +x /usr/local/bin/init-firewall.sh && \
     echo "$USERNAME ALL=(root) NOPASSWD: /usr/local/bin/init-firewall.sh" > /etc/sudoers.d/firewall && \
     chmod 0440 /etc/sudoers.d/firewall && \
     echo "$USERNAME ALL=(root) NOPASSWD: /usr/bin/apt-get" > /etc/sudoers.d/apt && \
-    chmod 0440 /etc/sudoers.d/apt && \
-    groupadd -f docker && usermod -aG docker $USERNAME
+    chmod 0440 /etc/sudoers.d/apt
 
 USER $USERNAME
