@@ -23,7 +23,6 @@ import enum
 import os
 from typing import Any, cast
 
-import structlog
 from bsvibe_authz import (
     AuthError,
     IntrospectionCache,
@@ -45,8 +44,6 @@ from backend.src.core.tenant_context import (
     ensure_personal_tenant,
 )
 from backend.src.storage.database import get_db
-
-logger = structlog.get_logger(__name__)
 
 BOOTSTRAP_TOKEN_PREFIX = "bsv_admin_"
 OPAQUE_TOKEN_PREFIX = "bsv_sk_"
