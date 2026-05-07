@@ -92,7 +92,14 @@ def _build_fastmcp() -> Any:
     """
     from mcp.server.fastmcp import FastMCP  # noqa: PLC0415
 
-    app = FastMCP("bsnexus")
+    # ``streamable_http_path="/"`` keeps FastMCP's transport route at
+    # the mount root. The default ``/mcp`` would push the actual URL to
+    # ``/mcp/http/mcp`` once mounted under ``/mcp/http`` (see
+    # ``attach_to_app``), and dispatcher.py advertises the endpoint as
+    # ``{base}/mcp/http?token=...`` — that 404s and the LLM tool loop
+    # silently falls back to no-tools mode (Round 1 finding 2026-05-07,
+    # ``tools_in_kwargs: false`` for every run).
+    app = FastMCP("bsnexus", streamable_http_path="/")
 
     @app.tool()
     async def decision_create(
@@ -144,9 +151,7 @@ def _build_fastmcp() -> Any:
             )
 
     @app.tool()
-    async def deliverable_report(
-        title: str, body: str, links: list[str] | None = None
-    ) -> dict[str, str]:
+    async def deliverable_report(title: str, body: str, links: list[str] | None = None) -> dict[str, str]:
         """Persist a Deliverable + DeliverableVersion. Returns ``{deliverable_id}``."""
         ctx = _auth_ctx.get()
         async with async_session() as session:
@@ -188,9 +193,7 @@ def _build_fastmcp() -> Any:
 
         ctx = _auth_ctx.get()
         async with async_session() as session:
-            integrations = await get_tenant_integration_snapshot(
-                session, UUID(ctx["tenant_id"])
-            )
+            integrations = await get_tenant_integration_snapshot(session, UUID(ctx["tenant_id"]))
             knowledge: KnowledgeClient = resolve_knowledge_client(integrations.bsage)
 
         if isinstance(knowledge, NoopKnowledgeClient):
@@ -210,6 +213,29 @@ def _get_fastmcp() -> Any:
     return _fastmcp_app
 
 
+def fastmcp_session_manager_run():
+    """Return ``session_manager.run()`` async context for the singleton
+    FastMCP app.
+
+    FastMCP's streamable-HTTP transport spins up an internal
+    ``StreamableHTTPSessionManager`` that owns its task group; without
+    entering ``session_manager.run()`` once at process startup, every
+    request handler raises ``RuntimeError: Task group is not initialized.
+    Make sure to use run().``. When mounting the transport sub-app under
+    a parent FastAPI we must chain this context into the parent's
+    lifespan ourselves — Starlette mounts don't propagate sub-app
+    lifespans automatically. ``attach_to_app`` already builds the
+    transport app (which lazily creates the session_manager), so by the
+    time the parent lifespan calls this, the manager exists.
+    """
+    fastmcp = _get_fastmcp()
+    # ``streamable_http_app()`` is what creates ``session_manager``
+    # lazily. ``attach_to_app`` already invoked it; calling again is
+    # idempotent (returns the cached app) but safe regardless.
+    fastmcp.streamable_http_app()
+    return fastmcp.session_manager.run()
+
+
 def attach_to_app(app) -> None:  # type: ignore[no-untyped-def]
     """Mount the MCP streamable-HTTP app on the main FastAPI app under
     ``/mcp/http``.
@@ -219,6 +245,11 @@ def attach_to_app(app) -> None:  # type: ignore[no-untyped-def]
     as a Starlette middleware that reads the ``token`` query param,
     verifies it, and stuffs the claim into ``_auth_ctx`` before yielding
     to FastMCP's transport.
+
+    NOTE: also wire ``fastmcp_session_manager_run()`` into the parent
+    app's lifespan (see ``main.lifespan``). The mount alone routes
+    requests but the session manager's task group still has to be
+    started, or every request 500s with "Task group is not initialized".
     """
     from starlette.types import Receive, Scope, Send  # noqa: PLC0415
 

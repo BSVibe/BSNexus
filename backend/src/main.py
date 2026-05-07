@@ -171,8 +171,18 @@ async def lifespan(app: FastAPI):
     await audit_relay.start()
     app.state.audit_relay = audit_relay
 
+    # Direction reset 2026-05-03 — FastMCP transport's session manager
+    # owns an internal task group that must be entered at process
+    # startup. ``attach_to_app`` mounts the sub-app but Starlette mounts
+    # don't auto-propagate sub-app lifespans, so we chain it here.
+    # Without this every request to ``/mcp/http`` 500s with "Task group
+    # is not initialized" and the LLM tool loop falls back to no-tools
+    # mode (Round 1 finding 2026-05-07).
+    from backend.src.mcp.server import fastmcp_session_manager_run  # noqa: PLC0415
+
     try:
-        yield
+        async with fastmcp_session_manager_run():
+            yield
     finally:
         await audit_relay.stop()
         await close_redis()
