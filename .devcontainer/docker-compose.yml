@@ -14,7 +14,6 @@ services:
       - ..:/workspace:cached
       - claude-code-bashhistory:/commandhistory
       - ~/.claude:/home/vscode/.claude:cached
-      - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "${EXTERNAL_BACKEND_PORT:-8000}:8000"
       - "${EXTERNAL_FRONTEND_PORT:-3000}:3000"
@@ -79,9 +78,10 @@ services:
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-bsnexus_dev_secret}
     volumes:
       - minio-data:/data
-    ports:
-      - "${EXTERNAL_MINIO_PORT:-9000}:9000"
-      - "${EXTERNAL_MINIO_CONSOLE_PORT:-9001}:9001"
+    # No host port mapping: BSNexus connects via the bsnexus-network bridge
+    # (e.g. http://minio:9000). Adding `ports:` causes slot collisions with
+    # other worktrees / the prod minio. Re-add temporarily if you need the
+    # console (http://minio:9001) from a host browser.
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:9000/minio/health/live" ]
       interval: 10s
