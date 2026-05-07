@@ -1,41 +1,65 @@
-"""JWT-based authentication via bsvibe-auth."""
+"""3-way auth dispatch via ``bsvibe-authz``.
+
+Token routing by prefix:
+
+  * ``bsv_admin_*`` — :func:`bsvibe_authz.verify_bootstrap_token`
+    (constant-time digest compare against
+    :attr:`Settings.bootstrap_token_hash`).
+  * ``bsv_sk_*``    — :func:`bsvibe_authz.verify_opaque_token`
+    (RFC 7662 introspection against
+    :attr:`Settings.introspection_url`).
+  * other           — :func:`bsvibe_authz.verify_user_jwt`
+    (HS256/RS256/ES256/EdDSA, configured via ``USER_JWT_*`` env vars).
+
+The pre-existing ``E2E_TEST_TOKEN`` bypass short-circuits BEFORE
+dispatch in non-production environments. It is the only path that
+returns a synthetic ``admin@bsvibe.dev``-style user; production never
+honors it (see :func:`_e2e_bypass_enabled`).
+"""
+
+from __future__ import annotations
 
 import enum
 import os
+from typing import Any, cast
 
-from bsvibe_auth import BSVibeUser, BsvibeAuthProvider
-from bsvibe_auth.errors import AuthError
+import structlog
+from bsvibe_authz import (
+    AuthError,
+    IntrospectionCache,
+    IntrospectionClient,
+    Settings as AuthzSettings,
+    User as AuthzUser,
+    verify_bootstrap_token,
+    verify_opaque_token,
+    verify_user_jwt,
+)
 from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.config import settings
 from backend.src.core.tenant_context import (
     DEFAULT_TENANT_ID,
+    BSVibeUser,
     _tenant_id_from_user,
     ensure_personal_tenant,
 )
 from backend.src.storage.database import get_db
 
+logger = structlog.get_logger(__name__)
+
+BOOTSTRAP_TOKEN_PREFIX = "bsv_admin_"
+OPAQUE_TOKEN_PREFIX = "bsv_sk_"
+
 
 def _is_production_environment() -> bool:
-    """Return ``True`` if the runtime environment is production.
-
-    Reads from (in order): ``settings.environment``, then the raw
-    ``ENVIRONMENT`` env var. The env-var fallback exists so tests and
-    operators can flip production-mode without bouncing the process to
-    re-read pydantic settings.
-    """
+    """Return ``True`` if the runtime environment is production."""
     env = (settings.environment or os.getenv("ENVIRONMENT") or "").strip().lower()
     return env == "production"
 
 
 def _e2e_bypass_enabled() -> bool:
-    """``True`` only if the e2e bypass token is set AND we are not in prod.
-
-    The bypass token short-circuits ``BsvibeAuthProvider.verify_token``
-    and returns a synthetic admin user — invaluable for local dev and
-    Playwright runs, catastrophic if accidentally honored in prod.
-    """
+    """``True`` only if the e2e bypass token is set AND we are not in prod."""
     if _is_production_environment():
         return False
     return bool(settings.e2e_test_token)
@@ -113,7 +137,59 @@ ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
 }
 
 
-auth_provider = BsvibeAuthProvider(auth_url=settings.bsvibe_auth_url)
+def _authz_settings() -> AuthzSettings:
+    """Build a :class:`bsvibe_authz.Settings` instance from BSNexus env.
+
+    Constructed per-call so test patches against ``backend.src.config.settings``
+    take effect without restarting the process. The OpenFGA fields are
+    placeholders — the dispatch never calls OpenFGA from BSNexus today
+    (RBAC still runs through :class:`Permission` / :func:`require_permission`).
+    """
+    user_jwt_secret = os.getenv("USER_JWT_SECRET")
+    user_jwt_public_key = os.getenv("USER_JWT_PUBLIC_KEY")
+    user_jwt_algorithm = cast(Any, os.getenv("USER_JWT_ALGORITHM", "HS256"))
+    return AuthzSettings(
+        bsvibe_auth_url=settings.bsvibe_auth_url,
+        openfga_api_url="",
+        openfga_store_id="",
+        openfga_auth_model_id="",
+        service_token_signing_secret=settings.service_token_signing_secret or "",
+        user_jwt_secret=user_jwt_secret,
+        user_jwt_public_key=user_jwt_public_key,
+        user_jwt_algorithm=user_jwt_algorithm,
+        user_jwt_audience=os.getenv("USER_JWT_AUDIENCE", "authenticated"),
+        user_jwt_issuer=os.getenv("USER_JWT_ISSUER"),
+        bootstrap_token_hash=settings.bootstrap_token_hash,
+        introspection_url=settings.introspection_url,
+        introspection_client_id=settings.introspection_client_id,
+        introspection_client_secret=settings.introspection_client_secret,
+    )
+
+
+_introspection_client: IntrospectionClient | None = None
+_introspection_cache: IntrospectionCache | None = None
+
+
+def _get_introspection_client() -> IntrospectionClient | None:
+    """Lazy-build the RFC 7662 introspection client. ``None`` when disabled."""
+    global _introspection_client
+    if _introspection_client is not None:
+        return _introspection_client
+    if not settings.introspection_url:
+        return None
+    _introspection_client = IntrospectionClient(
+        introspection_url=settings.introspection_url,
+        client_id=settings.introspection_client_id,
+        client_secret=settings.introspection_client_secret,
+    )
+    return _introspection_client
+
+
+def _get_introspection_cache() -> IntrospectionCache:
+    global _introspection_cache
+    if _introspection_cache is None:
+        _introspection_cache = IntrospectionCache(ttl_s=30)
+    return _introspection_cache
 
 
 def _build_e2e_test_user() -> BSVibeUser:
@@ -129,41 +205,98 @@ def _build_e2e_test_user() -> BSVibeUser:
     )
 
 
+def _to_bsvibe_user(authz_user: AuthzUser, *, default_role: str = "viewer") -> BSVibeUser:
+    """Translate a ``bsvibe_authz.User`` into the BSVibeUser shape BSNexus
+    consumes (``app_metadata['role']`` + ``app_metadata['tenant_id']``).
+
+    Bootstrap (``is_service`` + ``scope == ['*']``) maps to admin.
+    """
+    if authz_user.is_service or "*" in authz_user.scope:
+        role = "admin"
+    else:
+        role = default_role
+    app_meta: dict[str, Any] = {"role": role}
+    if authz_user.active_tenant_id:
+        app_meta["tenant_id"] = authz_user.active_tenant_id
+    return BSVibeUser(
+        id=authz_user.id,
+        email=authz_user.email,
+        app_metadata=app_meta,
+        user_metadata={},
+    )
+
+
+def _bsvibe_user_from_jwt_payload(payload: dict[str, Any]) -> BSVibeUser:
+    """Translate a verified JWT payload into BSVibeUser, preserving
+    ``app_metadata`` / ``user_metadata`` so role/tenant claims survive."""
+    sub = payload.get("sub")
+    if not isinstance(sub, str) or not sub:
+        raise AuthError("user JWT missing sub")
+    return BSVibeUser(
+        id=sub,
+        email=payload.get("email"),
+        app_metadata=payload.get("app_metadata") or {},
+        user_metadata=payload.get("user_metadata") or {},
+    )
+
+
+async def _dispatch_token(token: str) -> BSVibeUser:
+    """Run the 3-way bsvibe-authz dispatch and return a BSVibeUser.
+
+    All AuthError failures surface as 401 with ``WWW-Authenticate: Bearer``.
+    The error detail mirrors :class:`AuthError` strings — they never echo
+    the raw token (bsvibe-authz hashes the opaque token before logging).
+    """
+    az_settings = _authz_settings()
+    try:
+        if token.startswith(BOOTSTRAP_TOKEN_PREFIX):
+            authz_user = verify_bootstrap_token(token, az_settings)
+            return _to_bsvibe_user(authz_user)
+        if token.startswith(OPAQUE_TOKEN_PREFIX):
+            client = _get_introspection_client()
+            if client is None:
+                raise AuthError("opaque token path is not configured")
+            authz_user = await verify_opaque_token(
+                token,
+                client,
+                _get_introspection_cache(),
+            )
+            return _to_bsvibe_user(authz_user)
+        payload = verify_user_jwt(token, az_settings)
+        return _bsvibe_user_from_jwt_payload(payload)
+    except AuthError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(exc),
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
+
+
 async def get_current_user(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> BSVibeUser:
     """Authenticate the request and upsert the personal tenant row.
 
-    Wraps the bsvibe-auth dependency so every authenticated handler is
-    guaranteed a Tenant row exists for the user's tenant_id before any
-    FK insert (projects, requests, deliverables, ...) runs. Without
-    this, brand-new users hit ``ForeignKeyViolationError`` on their
-    first mutating call.
+    Token resolution order:
+
+      1. ``Authorization: Bearer <token>`` — preferred.
+      2. ``?token=<token>`` query string — required for SSE endpoints
+         because the browser EventSource API does not support custom
+         headers. Treated identically to the bearer header.
 
     SECURITY:
-      * The JWT signature is verified by
-        ``BsvibeAuthProvider.verify_token`` — a forged token raises
-        ``AuthError`` and we surface 401.
-      * The verified user's tenant id is re-stamped onto
-        ``request.state.tenant_id``, overriding any unverified value
-        a middleware may have written. ``get_tenant_id`` reads from
-        that state, so handlers always see the post-verification tenant.
-      * The ``E2E_TEST_TOKEN`` bypass is only honored when
-        ``ENVIRONMENT`` is non-production (see ``_e2e_bypass_enabled``).
-        A leaked dev bypass token is inert in prod.
-    """
-    # ``tenant_context`` symbols are now imported at module level (no
-    # cycle exists in practice — tenant_context does not import auth).
-    # The previously local import was defensive; eliminating it makes
-    # the dependency direction explicit and removes the M8 smell.
 
-    # Token resolution order:
-    #   1. ``Authorization: Bearer <token>`` — preferred
-    #   2. ``?token=<token>`` query string — required for SSE endpoints
-    #      because the browser EventSource API does not support custom
-    #      headers. The query string token is treated identically to a
-    #      bearer header — same bypass rules, same JWT verification.
+      * Verification runs through ``bsvibe-authz`` (bootstrap → opaque
+        → JWT). A forged token surfaces ``HTTP 401``.
+      * The verified user's tenant id is re-stamped onto
+        ``request.state.tenant_id``, overriding any unverified value the
+        middleware may have written. ``get_tenant_id`` reads from that
+        state, so handlers always see the post-verification tenant.
+      * The ``E2E_TEST_TOKEN`` bypass is only honored when ``ENVIRONMENT``
+        is non-production (see :func:`_e2e_bypass_enabled`). A leaked
+        dev bypass token is inert in prod.
+    """
     raw_token = ""
     auth_header = request.headers.get("authorization", "")
     if auth_header.lower().startswith("bearer "):
@@ -178,28 +311,16 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    user: BSVibeUser
     if _e2e_bypass_enabled() and raw_token == settings.e2e_test_token:
         user = _build_e2e_test_user()
     else:
-        try:
-            user = await auth_provider.verify_token(raw_token)
-        except AuthError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=exc.message,
-                headers={"WWW-Authenticate": "Bearer"},
-            )
+        user = await _dispatch_token(raw_token)
 
     tenant_id = _tenant_id_from_user(user)
     if tenant_id is not None and tenant_id != DEFAULT_TENANT_ID:
         await ensure_personal_tenant(db, tenant_id, user)
-        # Stamp on request.state so get_tenant_id sees the right value
-        # even when the middleware ran with a different/no claim.
         request.state.tenant_id = tenant_id
     else:
-        # No usable tenant id — make sure request.state reflects that
-        # rather than carrying whatever the middleware seeded.
         request.state.tenant_id = DEFAULT_TENANT_ID
 
     return user

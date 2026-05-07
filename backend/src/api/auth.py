@@ -1,15 +1,25 @@
-"""Auth API endpoints — callback from BSVibe Auth portal + token management."""
+"""Auth API endpoints — callback from BSVibe Auth portal + token management.
+
+The user verification path (`Depends(get_current_user)`) routes through
+``backend.src.core.auth``'s bsvibe-authz dispatch (bootstrap → opaque →
+JWT). The session-management endpoints below (refresh / logout) still
+talk to ``auth.bsvibe.dev`` via ``bsvibe-auth.BsvibeAuthProvider`` —
+those are a separate concern from token verification and live here so
+``core/auth`` stays purely a verification module.
+"""
 
 from urllib.parse import urlencode
 
 import structlog
-from bsvibe_auth import AuthError, BSVibeUser
+from bsvibe_auth import AuthError, BSVibeUser, BsvibeAuthProvider
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
 from backend.src.config import settings
-from backend.src.core.auth import auth_provider, get_current_user
+from backend.src.core.auth import get_current_user
+
+auth_provider = BsvibeAuthProvider(auth_url=settings.bsvibe_auth_url)
 
 logger = structlog.get_logger(__name__)
 
