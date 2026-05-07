@@ -452,22 +452,32 @@ def _build_llm_api_adapter(
             tenant_id=str(tenant_id),
         )
         return None
-    if not api_key or api_key == "unused":
-        logger.warning(
-            "executor_config_llm_api_missing_api_key",
-            config_id=str(row.id),
-            tenant_id=str(tenant_id),
-        )
-        return None
 
-    from backend.src.core.project_workspace import project_workspace_path  # noqa: PLC0415
-
-    workspace_dir = str(project_workspace_path(project_id))
     # Optional ``base_url`` for self-hosted / Tailscale-routed LLMs
     # (e.g. ollama on the Mac Mini reached via 100.x.x.x:11434).
     # Empty string is treated as "unset" so accidentally-saved blanks
     # don't break litellm provider defaults.
     api_base = (cfg.get("base_url") or "").strip() or None
+
+    if not api_key or api_key == "unused":
+        if api_base is None:
+            # Cloud LLM (no base_url): missing key would 401 at the
+            # boundary. Refuse upfront with a WARN.
+            logger.warning(
+                "executor_config_llm_api_missing_api_key",
+                config_id=str(row.id),
+                tenant_id=str(tenant_id),
+            )
+            return None
+        # Self-hosted endpoint (base_url set, e.g. ollama / vLLM).
+        # litellm needs *some* api_key kwarg even when the upstream
+        # ignores it — empty string trips its missing-key path on
+        # certain provider routers. Use a sentinel placeholder.
+        api_key = "self-hosted-no-auth"
+
+    from backend.src.core.project_workspace import project_workspace_path  # noqa: PLC0415
+
+    workspace_dir = str(project_workspace_path(project_id))
     return DirectLLMAdapter(
         model=model,
         api_key=api_key,

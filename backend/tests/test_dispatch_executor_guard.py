@@ -347,18 +347,19 @@ async def test_llm_api_missing_model_returns_none(
 
 
 @pytest.mark.asyncio
-async def test_llm_api_missing_api_key_returns_none(
+async def test_llm_api_missing_api_key_cloud_provider_returns_none(
     db_session,
     mock_tenant_id,
     seeded_tenant,
 ):
-    """``llm_api`` calls a third-party LLM provider; an empty / unset
-    key would 401 at the boundary. Refuse upfront with a WARN."""
+    """``llm_api`` calling a third-party cloud provider; an empty /
+    unset key would 401 at the boundary. Refuse upfront with a WARN.
+    ``base_url`` absent → cloud provider, key required."""
     await _make_cfg(
         db_session,
         mock_tenant_id,
         executor_type="llm_api",
-        config={"model": "openai/gpt-4o"},  # no api_key
+        config={"model": "openai/gpt-4o"},  # no api_key, no base_url
     )
     adapter = await _build_adapter(
         db_session,
@@ -367,3 +368,46 @@ async def test_llm_api_missing_api_key_returns_none(
         project_id=uuid.uuid4(),
     )
     assert adapter is None
+
+
+@pytest.mark.asyncio
+async def test_llm_api_self_hosted_no_api_key_succeeds(
+    db_session,
+    mock_tenant_id,
+    seeded_tenant,
+):
+    """Self-hosted ``llm_api`` (``base_url`` set, e.g. local Ollama or
+    on-prem vLLM) doesn't require an api_key — those endpoints accept
+    any value or none. Refusing the build like the cloud-provider
+    branch silently aborts dispatch (run transitions pending → running
+    via the no-executor path and then stays there forever, with no
+    LLM call ever made). Surfaced 2026-05-07 reproducing M0 round 1
+    on Mac mini Ollama: looked exactly like the
+    ``llm-tool-loop-hang`` symptom but was actually a missed gate.
+    """
+    from backend.src.core.llm import DirectLLMAdapter
+
+    cfg = await _make_cfg(
+        db_session,
+        mock_tenant_id,
+        executor_type="llm_api",
+        config={
+            "model": "ollama_chat/qwen3-coder:30b",
+            "base_url": "http://host.docker.internal:11434",
+        },
+    )
+    cfg.api_key_encrypted = None
+    await db_session.commit()
+
+    adapter = await _build_adapter(
+        db_session,
+        mock_tenant_id,
+        run_id=uuid.uuid4(),
+        project_id=uuid.uuid4(),
+    )
+
+    assert isinstance(adapter, DirectLLMAdapter)
+    assert adapter._api_base == "http://host.docker.internal:11434"
+    # Must pass *some* api_key to litellm — empty string trips its
+    # "missing key" path on certain provider routers. Placeholder is fine.
+    assert adapter._api_key
