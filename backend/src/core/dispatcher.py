@@ -158,11 +158,18 @@ async def _dispatch_background(
                 # Single transport (streamable-HTTP at /mcp/http) covers
                 # all three executors — SSE-only is deprecated by the MCP
                 # spec.
+                # Trailing slash is REQUIRED — Starlette mounts only
+                # match the prefix when followed by ``/`` (or further
+                # path), and the streamable-HTTP MCP client posts to
+                # the URL verbatim. Without the slash the request hits
+                # ``/mcp/http`` exactly, which is not a route, FastAPI
+                # 404s, the client raises "Session terminated", and
+                # the LLM tool loop falls back to no-tools mode.
                 adapter.set_mcp_servers(
                     {
                         "bsnexus": {
                             "type": "http",
-                            "url": f"{base}/mcp/http?token={token}",
+                            "url": f"{base}/mcp/http/?token={token}",
                             "headers": {},
                         }
                     }
