@@ -233,6 +233,32 @@
         "output": "Output",
         "contextDocs": "Context docs",
         "refsSuffix": "refs"
+      },
+      "runQuality": {
+        "notYet": "No quality summary yet — run still in progress or finalized via BSGateway.",
+        "rounds": "rounds",
+        "toolCalls": "tool calls",
+        "files": "files",
+        "fencedBlock": "verification block",
+        "kind": {
+          "real_tool_calls": "real tool calls",
+          "pseudocode_in_chat": "pseudocode in chat",
+          "fenced_block_only": "fenced block only",
+          "empty": "empty",
+          "mixed": "mixed"
+        }
+      },
+      "activity": {
+        "loading": "Loading activity…",
+        "empty": "No activity yet.",
+        "showToolLog": "Show tool log ({count})",
+        "hideToolLog": "Hide tool log",
+        "toolLogLabel": "Tool calls"
+      },
+      "failureModeStrip": {
+        "title": "Last 20 runs",
+        "noRuns": "No runs in the last 7 days.",
+        "totalSuffix": "runs"
       }
     },
     "chat": {
