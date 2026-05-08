@@ -189,24 +189,40 @@ cd frontend && pnpm tokens:verify       # Design-token drift guard
 
 ## API Endpoints
 
+Flat REST resource shape — `/projects/{id}/<sub>` nesting was removed
+2026-05-08 (decision-locks **A3**, see `~/Docs/BSNexus/planning/decision-locks.md`).
+Sub-resources live at top-level URLs and accept `?project_id=` /
+`?request_id=` query parameters; omitting the scope param returns the
+tenant-wide cross-project view (powers the Home Decision Inbox strip,
+the company brief, future Slack/email digests, etc.).
+
 | Route                                          | Method        | Description |
 |------------------------------------------------|---------------|-------------|
 | `/health`, `/health/deps`                      | GET           | Liveness + PG/Redis connectivity |
 | `/api/v1/projects`                             | GET/POST      | List + create projects |
 | `/api/v1/projects/{id}`                        | GET/PATCH/DELETE | Project detail + update + delete |
-| `/api/v1/projects/{id}/messages`               | GET/POST      | Conversation list + send (POST runs extractor) |
-| `/api/v1/projects/{id}/requests`               | GET           | Requests for this project |
-| `/api/v1/projects/{id}/deliverables`           | GET           | Deliverables for this project |
-| `/api/v1/projects/{id}/decisions`              | GET           | Decisions inbox (blocking first) |
+| `/api/v1/messages?project_id={id}`             | GET           | Conversation list for a project |
+| `/api/v1/messages`                             | POST          | Send message (body: `{content, project_id}`); runs the inline request rule |
+| `/api/v1/requests?project_id={id}&limit=`      | GET           | Requests; omit `project_id` for cross-project tenant view |
+| `/api/v1/deliverables?project_id={id}&limit=`  | GET           | Deliverables; omit `project_id` for cross-project tenant view |
+| `/api/v1/decisions?project_id={id}&blocking_only=&resolved=&limit=` | GET | Decision inbox; omit `project_id` for the Home Decision Inbox strip |
 | `/api/v1/decisions/{id}/resolve`               | POST          | Resolve a decision |
-| `/api/v1/requests/{id}/runs`                   | GET           | Inside panel — runs for a request |
+| `/api/v1/runs?request_id={id}`                 | GET           | Inside panel — runs for a request |
 | `/api/v1/composition-snapshots/{id}`           | GET           | Inside panel — snapshot detail |
+| `/api/v1/events?project_id={id}`               | GET           | SSE stream for a project (chat / runs / deliverables / decisions) |
+| `/api/v1/workspace-files?project_id={id}`      | GET           | Workspace file tree |
+| `/api/v1/workspace-files/content?project_id={id}&path={p}` | GET | Workspace file content |
 | `/api/v1/integrations`                         | GET           | Redacted view of all three provider configs |
 | `/api/v1/integrations/{provider}`              | PATCH         | Upsert one provider's config (encrypts api_key) |
 | `/api/v1/integrations/{provider}/test`         | POST          | Probe reachable + auth |
 
 All mutating endpoints require `Authorization: Bearer <jwt>`. Dev mode
 accepts the raw value of `E2E_TEST_TOKEN` as a bypass.
+
+There are no `/projects/{id}/<sub>` aliases — A3 locks "no backwards
+compatibility shims". A cross-project listing is the same endpoint as the
+project-scoped listing with the query param omitted; both share one
+canonical URL pattern per resource.
 
 ## Request → Run Lifecycle
 

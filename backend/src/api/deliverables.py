@@ -1,10 +1,14 @@
-"""Deliverables list — tenant-scoped, per project."""
+"""Deliverables list — flat resource shape (decision-locks A3, 2026-05-08).
+
+- ``GET /api/v1/deliverables?project_id={id}``  — scoped to a project
+- ``GET /api/v1/deliverables``                  — cross-project (tenant-scoped)
+"""
 
 from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,7 +18,10 @@ from backend.src.models import Deliverable, Project
 from backend.src.schemas import DeliverableResponse
 from backend.src.storage.database import get_db
 
-router = APIRouter(prefix="/api/v1/projects", tags=["deliverables"])
+router = APIRouter(prefix="/api/v1/deliverables", tags=["deliverables"])
+
+_DEFAULT_LIMIT = 50
+_MAX_LIMIT = 200
 
 
 async def _assert_project_belongs(db: AsyncSession, project_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
@@ -24,22 +31,23 @@ async def _assert_project_belongs(db: AsyncSession, project_id: uuid.UUID, tenan
 
 
 @router.get(
-    "/{project_id}/deliverables",
+    "",
     response_model=list[DeliverableResponse],
 )
 async def list_deliverables(
-    project_id: uuid.UUID,
+    project_id: uuid.UUID | None = Query(
+        None, description="Filter to a single project. Omit for tenant-wide cross-project list."
+    ),
+    limit: int = Query(_DEFAULT_LIMIT, ge=1, le=_MAX_LIMIT),
     _user=Depends(get_current_user),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> list[Deliverable]:
-    await _assert_project_belongs(db, project_id, tenant_id)
-    stmt = (
-        select(Deliverable)
-        .where(
-            Deliverable.project_id == project_id,
-            Deliverable.tenant_id == tenant_id,
-        )
-        .order_by(Deliverable.created_at.desc())
-    )
+    if project_id is not None:
+        await _assert_project_belongs(db, project_id, tenant_id)
+
+    stmt = select(Deliverable).where(Deliverable.tenant_id == tenant_id)
+    if project_id is not None:
+        stmt = stmt.where(Deliverable.project_id == project_id)
+    stmt = stmt.order_by(Deliverable.created_at.desc()).limit(limit)
     return list((await db.execute(stmt)).scalars())

@@ -381,7 +381,7 @@ async def test_decision_blocking_status_round_trips_through_api(client, db_sessi
     # List → blocking surfaces.
     listed = (
         await client.get(
-            f"/api/v1/projects/{pid}/decisions",
+            f"/api/v1/decisions?project_id={pid}",
             headers={"Authorization": "Bearer fake"},
         )
     ).json()
@@ -442,7 +442,7 @@ async def test_request_status_transitions_independent_of_run_status(client, db_s
     # The Request itself remains "open".
     rows = (
         await client.get(
-            f"/api/v1/projects/{pid}/requests",
+            f"/api/v1/requests?project_id={pid}",
             headers={"Authorization": "Bearer fake"},
         )
     ).json()

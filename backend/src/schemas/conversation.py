@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class MessageCreate(BaseModel):
+    project_id: uuid.UUID
     content: str = Field(..., min_length=1, max_length=50_000)
 
     model_config = ConfigDict(extra="forbid")

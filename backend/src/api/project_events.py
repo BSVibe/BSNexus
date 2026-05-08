@@ -1,7 +1,8 @@
 """SSE endpoint for per-project event stream.
 
-The frontend opens an EventSource against ``/api/v1/projects/{id}/events?token=...``
-and receives ``message`` / ``run_transition`` / ``deliverable`` /
+The frontend opens an EventSource against
+``/api/v1/events?project_id={id}&token=...`` and receives ``message`` /
+``run_transition`` / ``deliverable`` /
 ``decision`` events as they happen. Replaces the prior 3-second
 polling loop on chat / deliverables / decisions.
 
@@ -26,7 +27,7 @@ import uuid
 from collections.abc import AsyncIterator
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import StreamingResponse
@@ -40,7 +41,7 @@ from backend.src.storage.database import async_session, get_db
 
 logger = structlog.get_logger(__name__)
 
-router = APIRouter(prefix="/api/v1/projects", tags=["project-events"])
+router = APIRouter(prefix="/api/v1/events", tags=["project-events"])
 
 
 _HEARTBEAT_SECONDS = 15
@@ -138,10 +139,10 @@ async def _stream(project_id: uuid.UUID, *, resilient_source: ResilientRunEventS
             resilient_source.stop()
 
 
-@router.get("/{project_id}/events")
+@router.get("")
 async def project_events(
-    project_id: uuid.UUID,
     request: Request,
+    project_id: uuid.UUID = Query(..., description="Project to stream events for."),
     _user=Depends(get_current_user),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),

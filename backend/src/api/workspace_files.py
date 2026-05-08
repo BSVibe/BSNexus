@@ -1,13 +1,12 @@
-"""Workspace files API — list + read the real files produced by runs.
+"""Workspace files API — flat resource shape (decision-locks A3, 2026-05-08).
 
 The orchestrator's post-completion hook (``core.run_artifacts``) writes
 extracted fenced code blocks into a per-project workspace directory.
 This router surfaces them so the frontend's Files tab can show a real
-tree + file contents, not a hardcoded sample.
+tree + file contents.
 
-Endpoints:
-- ``GET /api/v1/projects/{project_id}/files``     → tree listing
-- ``GET /api/v1/projects/{project_id}/files/{p}`` → single file content
+- ``GET /api/v1/workspace-files?project_id={id}``                  → tree listing
+- ``GET /api/v1/workspace-files/content?project_id={id}&path={p}`` → file content
 """
 
 from __future__ import annotations
@@ -15,7 +14,7 @@ from __future__ import annotations
 import uuid
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,7 +26,7 @@ from backend.src.storage.database import get_db
 
 logger = structlog.get_logger(__name__)
 
-router = APIRouter(prefix="/api/v1/projects", tags=["workspace-files"])
+router = APIRouter(prefix="/api/v1/workspace-files", tags=["workspace-files"])
 
 
 async def _require_project(db: AsyncSession, project_id: uuid.UUID, tenant_id: uuid.UUID) -> Project:
@@ -38,9 +37,9 @@ async def _require_project(db: AsyncSession, project_id: uuid.UUID, tenant_id: u
     return project
 
 
-@router.get("/{project_id}/files")
+@router.get("")
 async def list_workspace_files(
-    project_id: uuid.UUID,
+    project_id: uuid.UUID = Query(..., description="Project to list workspace files for."),
     _user=Depends(get_current_user),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),
@@ -49,10 +48,10 @@ async def list_workspace_files(
     return workspace_store.list_files(project_id)
 
 
-@router.get("/{project_id}/files/{path:path}")
+@router.get("/content")
 async def read_workspace_file(
-    project_id: uuid.UUID,
-    path: str,
+    project_id: uuid.UUID = Query(..., description="Project the file lives in."),
+    path: str = Query(..., description="Relative path within the project workspace."),
     _user=Depends(get_current_user),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),

@@ -4,7 +4,7 @@ Stage 4 against production surfaced two prod-only bugs that the
 existing test surface missed despite 458 green tests:
 
   3. ``DirectLLMAdapter`` returned ``output_ref`` as a bare string,
-     so every ``GET /api/v1/requests/{id}/runs`` 500'd on
+     so every ``GET /api/v1/runs?request_id={id}`` 500'd on
      ``ResponseValidationError``.
   4. ``RunOrchestrator._on_run_completed`` unconditionally spawned a
      child run, producing a 1000-deep chain that only ollama crashing
@@ -112,7 +112,7 @@ async def test_message_to_run_roundtrip_response_model_passes(
     patched_async_session,
 ):
     """POST /messages → real DirectLLMAdapter (acompletion stubbed) →
-    DB write → GET /api/v1/requests/{id}/runs.
+    DB write → GET /api/v1/runs?request_id={id}.
 
     Bug 3 regression: if the adapter writes ``output_ref`` as a bare
     string, GET 500s on ResponseValidationError. The test asserts 200
@@ -158,8 +158,8 @@ async def test_message_to_run_roundtrip_response_model_passes(
         ):
             # ── POST a user message; orchestrator dispatches in background.
             send_res = await client.post(
-                f"/api/v1/projects/{project.id}/messages",
-                json={"content": "ping"},
+                "/api/v1/messages",
+                json={"content": "ping", "project_id": str(project.id)},
             )
             assert send_res.status_code == 201, send_res.text
             body = send_res.json()
@@ -170,7 +170,7 @@ async def test_message_to_run_roundtrip_response_model_passes(
             await _drain_dispatch_tasks()
 
     # ── GET /runs hits the strict response_model. Pre-PR #53 this 500'd.
-    get_res = await client.get(f"/api/v1/requests/{request_id}/runs")
+    get_res = await client.get(f"/api/v1/runs?request_id={request_id}")
     assert get_res.status_code == 200, (
         f"GET /runs 500'd — likely a producer / response_model shape divergence. Body: {get_res.text}"
     )
@@ -232,8 +232,8 @@ async def test_message_dispatch_does_not_spawn_child_runs(
         ),
     ):
         send_res = await client.post(
-            f"/api/v1/projects/{project.id}/messages",
-            json={"content": "single dispatch"},
+            "/api/v1/messages",
+            json={"content": "single dispatch", "project_id": str(project.id)},
         )
         assert send_res.status_code == 201
         await _drain_dispatch_tasks()

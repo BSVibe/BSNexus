@@ -32,7 +32,7 @@ async def _make_project(client, name: str = "Proj") -> str:
 async def test_list_requests_empty(client):
     pid = await _make_project(client)
     resp = await client.get(
-        f"/api/v1/projects/{pid}/requests",
+        f"/api/v1/requests?project_id={pid}",
         headers={"Authorization": "Bearer fake"},
     )
     assert resp.status_code == 200
@@ -52,7 +52,7 @@ async def test_list_requests_returns_created(client, db_session, mock_tenant_id)
 
     rows = (
         await client.get(
-            f"/api/v1/projects/{pid}/requests",
+            f"/api/v1/requests?project_id={pid}",
             headers={"Authorization": "Bearer fake"},
         )
     ).json()
@@ -84,7 +84,7 @@ async def test_list_requests_filters_by_project(client, db_session, mock_tenant_
 
     a_rows = (
         await client.get(
-            f"/api/v1/projects/{pid_a}/requests",
+            f"/api/v1/requests?project_id={pid_a}",
             headers={"Authorization": "Bearer fake"},
         )
     ).json()
@@ -99,7 +99,7 @@ async def test_list_requests_filters_by_project(client, db_session, mock_tenant_
 async def test_list_deliverables_empty(client):
     pid = await _make_project(client)
     resp = await client.get(
-        f"/api/v1/projects/{pid}/deliverables",
+        f"/api/v1/deliverables?project_id={pid}",
         headers={"Authorization": "Bearer fake"},
     )
     assert resp.status_code == 200
@@ -122,7 +122,7 @@ async def test_list_deliverables_returns_rows(client, db_session, mock_tenant_id
 
     rows = (
         await client.get(
-            f"/api/v1/projects/{pid}/deliverables",
+            f"/api/v1/deliverables?project_id={pid}",
             headers={"Authorization": "Bearer fake"},
         )
     ).json()
@@ -138,7 +138,7 @@ async def test_list_deliverables_returns_rows(client, db_session, mock_tenant_id
 async def test_list_decisions_empty(client):
     pid = await _make_project(client)
     resp = await client.get(
-        f"/api/v1/projects/{pid}/decisions",
+        f"/api/v1/decisions?project_id={pid}",
         headers={"Authorization": "Bearer fake"},
     )
     assert resp.status_code == 200
@@ -167,7 +167,7 @@ async def test_list_decisions_orders_blocking_first(client, db_session, mock_ten
 
     rows = (
         await client.get(
-            f"/api/v1/projects/{pid}/decisions",
+            f"/api/v1/decisions?project_id={pid}",
             headers={"Authorization": "Bearer fake"},
         )
     ).json()

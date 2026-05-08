@@ -13,13 +13,13 @@ export interface WorkspaceFileContent {
 export const workspaceFilesApi = {
   list: async (projectId: string): Promise<WorkspaceFileEntry[]> => {
     const { data } = await apiClient.get<WorkspaceFileEntry[]>(
-      `/api/v1/projects/${projectId}/files`,
+      `/api/v1/workspace-files?project_id=${projectId}`,
     )
     return data
   },
   read: async (projectId: string, path: string): Promise<WorkspaceFileContent> => {
     const { data } = await apiClient.get<WorkspaceFileContent>(
-      `/api/v1/projects/${projectId}/files/${encodeURI(path)}`,
+      `/api/v1/workspace-files/content?project_id=${projectId}&path=${encodeURIComponent(path)}`,
     )
     return data
   },

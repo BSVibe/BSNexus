@@ -42,7 +42,7 @@ async def test_list_runs_for_request_empty(client, db_session, mock_tenant_id):
     req = await _seed_request(db_session, pid, mock_tenant_id)
 
     resp = await client.get(
-        f"/api/v1/requests/{req.id}/runs",
+        f"/api/v1/runs?request_id={req.id}",
         headers={"Authorization": "Bearer fake"},
     )
     assert resp.status_code == 200
@@ -76,7 +76,7 @@ async def test_list_runs_returns_runs_in_tree_order(client, db_session, mock_ten
 
     rows = (
         await client.get(
-            f"/api/v1/requests/{req.id}/runs",
+            f"/api/v1/runs?request_id={req.id}",
             headers={"Authorization": "Bearer fake"},
         )
     ).json()
@@ -116,7 +116,7 @@ async def test_list_runs_404_for_foreign_tenant(client, db_session):
     await db_session.refresh(req)
 
     resp = await client.get(
-        f"/api/v1/requests/{req.id}/runs",
+        f"/api/v1/runs?request_id={req.id}",
         headers={"Authorization": "Bearer fake"},
     )
     assert resp.status_code == 404

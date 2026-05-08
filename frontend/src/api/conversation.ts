@@ -26,14 +26,14 @@ export interface SendMessageResponse {
 export const conversationApi = {
   list: async (projectId: string): Promise<Message[]> => {
     const { data } = await apiClient.get<Message[]>(
-      `/api/v1/projects/${projectId}/messages`,
+      `/api/v1/messages?project_id=${projectId}`,
     )
     return data
   },
   send: async (projectId: string, content: string): Promise<SendMessageResponse> => {
     const { data } = await apiClient.post<SendMessageResponse>(
-      `/api/v1/projects/${projectId}/messages`,
-      { content },
+      `/api/v1/messages`,
+      { content, project_id: projectId },
     )
     return data
   },
