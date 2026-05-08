@@ -112,6 +112,12 @@ class ExecutionRun(Base):
     output_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
     output_ref: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
+    # Failure-mode aggregate populated at run terminal transition (PR7).
+    # Schema mirror lives in ``backend/src/schemas/run_summary.py``.
+    # Nullable — pre-existing rows stay NULL; the instrumentation
+    # path stamps it on every new run finalization.
+    run_summary: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
     estimated_cost_cents: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     actual_cost_cents: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
 
