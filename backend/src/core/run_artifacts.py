@@ -457,39 +457,89 @@ def _derive_title(
 ) -> str:
     """Pick a short descriptive title for the timeline card.
 
-    Priority:
-    1. First sentence of the assistant reply.
-    2. The run's directive (planner phase prompt) if set.
-    3. The request's intent_summary (founder's original wording).
+    Priority (revised PR8 — observed local-LLM preamble was leaking
+    titles like "I'll skip the workspace context-read step..."):
+
+    1. First *substantive* sentence of the reply (preamble lines like
+       "I'll …", "Let me …", "Sure, …" are skipped).
+    2. The request's intent_summary (founder's wording — the goal,
+       not what the LLM said about the goal). Promoted above
+       ``run.directive`` because it's the most stable, descriptive
+       title for the founder-facing surface.
+    3. The run's directive (planner phase prompt) when set.
+    4. ``"Deliverable"`` fallback.
     """
-    summary = _first_sentence(reply_text)
+    summary = _first_substantive_sentence(reply_text)
     if summary:
         return summary[:200]
-    if run.directive:
-        return _first_line(run.directive)[:200]
     if request and request.intent_summary:
         return request.intent_summary[:200]
+    if run.directive:
+        return _first_line(run.directive)[:200]
     return "Deliverable"
 
 
-def _first_sentence(text: str) -> str | None:
-    """Return the first meaningful sentence of a markdown doc."""
-    import re as _re
+# Future-tense / reaction preamble patterns that local LLMs (qwen3-coder
+# and similar) prepend to replies. ``_first_substantive_sentence``
+# skips lines whose stripped form starts with one of these — they're
+# not what the deliverable IS, they're what the LLM is about to do.
+import re as _re_module  # noqa: E402
 
-    without_code = _re.sub(r"```[\s\S]*?```", "", text)
+_PREAMBLE_PATTERNS = _re_module.compile(
+    r"^(?:"
+    r"i['’]ll\b"
+    r"|i['’]m\s+(?:going\s+to|about\s+to)?"
+    r"|i\s+will\b"
+    r"|i\s+am\s+(?:going\s+to|about\s+to)\b"
+    r"|let\s+me\b"
+    r"|let['’]s\b"
+    r"|sure[,!.\s]"
+    r"|got\s+it[,!.\s]"
+    r"|ok(?:ay)?[,!.\s]"
+    r"|first[,]?\s+i['’]ll\b"
+    r"|first[,]?\s+let"
+    r"|first[,]?\s+i\s+will\b"
+    r"|i\s+see\s+(?:that\b|what\b)"
+    r"|looking\s+at\b"
+    r"|considering\b"
+    r"|to\s+(?:start|begin)[,]?\s+i"
+    r")",
+    _re_module.IGNORECASE,
+)
+
+
+def _is_preamble(line: str) -> bool:
+    return bool(_PREAMBLE_PATTERNS.match(line))
+
+
+def _first_substantive_sentence(text: str) -> str | None:
+    """Return the first sentence that ISN'T preamble.
+
+    Walks lines top-to-bottom skipping blanks, markdown decoration,
+    code fences, and preamble patterns. Returns the first sentence
+    of the first non-preamble line.
+    """
+    without_code = _re_module.sub(r"```[\s\S]*?```", "", text)
     for raw in without_code.splitlines():
         line = raw.strip()
         if not line:
             continue
-        line = _re.sub(r"^[#*\->\s]+", "", line)
+        line = _re_module.sub(r"^[#*\->\s]+", "", line)
         line = line.strip("*_`\"'—– ")
         if not line:
             continue
-        m = _re.search(r"[.!?。！？]\s", line)
+        if _is_preamble(line):
+            continue
+        m = _re_module.search(r"[.!?。!?]\s", line)
         if m:
             return line[: m.end()].rstrip()
         return line
     return None
+
+
+# Back-compat alias — older code paths and tests may still call
+# ``_first_sentence``. New callers should use the substantive variant.
+_first_sentence = _first_substantive_sentence
 
 
 def _first_line(text: str) -> str:
