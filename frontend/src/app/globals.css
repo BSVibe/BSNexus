@@ -537,8 +537,8 @@ kbd {
      chat content. */
   .app--mobile-chat-fab {
     position: fixed;
-    right: 16px;
-    bottom: 16px;
+    right: max(16px, env(safe-area-inset-right));
+    bottom: max(16px, env(safe-area-inset-bottom));
     width: 48px;
     height: 48px;
     border-radius: 24px;
@@ -583,5 +583,62 @@ kbd {
   }
   .project-inspector__detail {
     min-width: 0;
+  }
+}
+
+/* ======================================================================
+ * PR5 — Mobile / PWA polish (decision-locks O2, 2026-05-08).
+ *
+ * Tightens the four founder-facing surfaces on mobile-web/PWA viewports
+ * (≤767px) so the locked first computer-independent interface — Direct,
+ * Decide, Review, Inspect — is usable from a phone without zooming or
+ * fighting safe-area insets.
+ *
+ * Touch-target floor is 44px (Apple HIG / WCAG 2.5.5 AAA). All net-new
+ * tappable elements get ``min-height: 44px`` and reasonable hit padding.
+ * ====================================================================== */
+@media (max-width: 767px) {
+  /* Brief — section gap is tighter on a phone, but card chrome stays
+     readable. The section header + count badge stack horizontally. */
+  .brief-section + .brief-section {
+    margin-top: 18px;
+  }
+
+  /* DeliverableCard footer (relTime · verifier_type · re-verify · copy ·
+     id) wraps onto two rows below ~390px so the buttons don't squeeze. */
+  .deliverable-card .deliverable-card__footer {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  /* Decision Inbox strip on Home — tap targets at the WCAG floor. */
+  [data-decision-inbox-strip] button {
+    min-height: 44px;
+  }
+
+  /* Re-verify / copy buttons inside DeliverableCard — same. */
+  .deliverable-card .btn-sm {
+    min-height: 36px;
+    padding-inline: 10px;
+  }
+
+  /* Decision inbox card and Brief section cards: respect safe-area
+     bottom inset on the last item so iOS home-pill doesn't clip. */
+  .brief-view {
+    padding-bottom: max(24px, env(safe-area-inset-bottom));
+  }
+}
+
+@supports (padding: env(safe-area-inset-top)) {
+  /* Standalone PWA on iOS — extend the body background up under the
+     status bar and bump the header area with the safe-area-inset so
+     the brand row + close-chat button aren't clipped. The display-mode
+     scope keeps these rules out of the regular browser session. */
+  @media (display-mode: standalone) {
+    body {
+      padding-top: env(safe-area-inset-top);
+      padding-left: env(safe-area-inset-left);
+      padding-right: env(safe-area-inset-right);
+    }
   }
 }

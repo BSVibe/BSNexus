@@ -1,8 +1,9 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import { JetBrains_Mono, Plus_Jakarta_Sans } from 'next/font/google'
 
 import './globals.css'
 import Providers from './providers'
+import { ServiceWorkerRegister } from '../components/pwa/ServiceWorkerRegister'
 
 const plusJakartaSans = Plus_Jakarta_Sans({
   subsets: ['latin'],
@@ -24,6 +25,28 @@ export const metadata: Metadata = {
   title: 'BSNexus',
   description:
     'BSNexus is the command layer for AI-native companies. AI handles the work. You make the decisions.',
+  manifest: '/manifest.webmanifest',
+  applicationName: 'BSNexus',
+  appleWebApp: {
+    capable: true,
+    title: 'BSNexus',
+    statusBarStyle: 'black-translucent',
+  },
+  icons: {
+    icon: [{ url: '/favicon.svg', type: 'image/svg+xml' }],
+    apple: [{ url: '/favicon.svg' }],
+  },
+}
+
+// Decision-locks O2 — mobile web/PWA is the first computer-independent
+// interface. ``viewport-fit=cover`` lets us read iOS safe-area insets
+// (notch / home indicator) so the chat FAB and Decision Inbox strip
+// don't end up under the status bar or the home pill.
+export const viewport: Viewport = {
+  themeColor: '#0b0d12',
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
 }
 
 export default function RootLayout({
@@ -55,6 +78,7 @@ export default function RootLayout({
       </head>
       <body suppressHydrationWarning>
         <Providers>{children}</Providers>
+        <ServiceWorkerRegister />
       </body>
     </html>
   )

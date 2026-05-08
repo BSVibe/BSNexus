@@ -21,6 +21,13 @@ Four user-facing surfaces per project:
 - **Inside** (opt-in) — execution-run tree + composition-snapshot viewer
   for debugging.
 
+Decision-locks **O2** locked mobile web/PWA as the first
+computer-independent interface. ``frontend/public/manifest.webmanifest``
++ ``frontend/public/sw.js`` make the app installable; the service
+worker is API-aware (stale-while-revalidate on GETs, never caches
+mutations or SSE) so a cold add-to-home open paints the Brief instead
+of a blank shell.
+
 There is no org chart, no per-agent chat, no @mentions, no Kanban board.
 Those surfaces retired with the agent/task/phase tables in the
 founder-metaphor migration.
