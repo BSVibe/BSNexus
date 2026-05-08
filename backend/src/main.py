@@ -306,9 +306,14 @@ def create_app(
     # is registered as a normal router; ``/mcp/http`` is a Starlette
     # ASGI mount (streamable-HTTP transport) because FastMCP returns
     # its own ASGI app.
-    from backend.src.mcp.server import attach_to_app, router as mcp_router  # noqa: PLC0415
+    from backend.src.mcp.server import (  # noqa: PLC0415
+        admin_router as mcp_admin_router,
+        attach_to_app,
+        router as mcp_router,
+    )
 
     _app.include_router(mcp_router)
+    _app.include_router(mcp_admin_router)
     attach_to_app(_app)
 
     # ─── Demo mode (separate deployment, BSVIBE_DEMO_MODE=true) ─────────
