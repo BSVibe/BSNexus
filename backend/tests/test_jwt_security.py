@@ -4,16 +4,17 @@ These tests exercise the *real* auth + tenant-context wiring (no
 ``dependency_overrides`` of ``get_current_user`` / ``get_tenant_id``)
 and assert the C3 vulnerability is closed:
 
-1. A bearer token whose JWT signature is invalid (i.e. ``verify_token``
-   raises ``AuthError``) MUST be rejected with 401, even when the
-   payload claims a valid-looking ``tenant_id`` — the unverified payload
-   in ``TenantMiddleware`` must not let the request reach a handler.
+1. A bearer token whose JWT signature is invalid (the bsvibe-authz
+   ``verify_user_jwt`` raises ``AuthError``) MUST be rejected with 401,
+   even when the payload claims a valid-looking ``tenant_id`` — the
+   unverified payload in ``TenantMiddleware`` must not let the request
+   reach a handler.
 
-2. A bearer token that *is* signed by bsvibe-auth but carries a
-   ``tenant_id`` claim pointing at a different tenant MUST NOT be
-   allowed to read or write rows belonging to that other tenant.
-   Concretely: rows seeded under tenant B are not returned to a request
-   whose verified user belongs to tenant A.
+2. A bearer token that *is* signed but carries a ``tenant_id`` claim
+   pointing at a different tenant MUST NOT be allowed to read or write
+   rows belonging to that other tenant. Concretely: rows seeded under
+   tenant B are not returned to a request whose verified user belongs
+   to tenant A.
 
 3. ``E2E_TEST_TOKEN`` MUST be ignored when ``ENVIRONMENT=production``,
    so a leaked dev bypass cannot grant admin in prod.
@@ -29,8 +30,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 import pytest_asyncio
+from bsvibe_authz import AuthError
 from bsvibe_auth import BSVibeUser
-from bsvibe_auth.errors import TokenInvalidError
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -119,8 +120,8 @@ async def test_forged_jwt_signature_returns_401(real_auth_client):
     with (
         patch("backend.src.core.auth.settings.e2e_test_token", ""),
         patch(
-            "backend.src.core.auth.auth_provider.verify_token",
-            new=AsyncMock(side_effect=TokenInvalidError("bad signature")),
+            "backend.src.core.auth.verify_user_jwt",
+            side_effect=AuthError("bad signature"),
         ),
     ):
         resp = await real_auth_client.get(
@@ -201,7 +202,7 @@ async def test_spoofed_tenant_claim_does_not_leak_other_tenant_rows(real_auth_cl
     with (
         patch("backend.src.core.auth.settings.e2e_test_token", ""),
         patch(
-            "backend.src.core.auth.auth_provider.verify_token",
+            "backend.src.core.auth._dispatch_token",
             new=AsyncMock(return_value=verified_attacker),
         ),
     ):
@@ -251,7 +252,7 @@ async def test_spoofed_tenant_claim_cannot_create_row_under_other_tenant(real_au
     with (
         patch("backend.src.core.auth.settings.e2e_test_token", ""),
         patch(
-            "backend.src.core.auth.auth_provider.verify_token",
+            "backend.src.core.auth._dispatch_token",
             new=AsyncMock(return_value=verified_attacker),
         ),
     ):
@@ -294,8 +295,8 @@ async def test_e2e_test_token_blocked_in_production_environment(real_auth_client
             "11111111-1111-4111-8111-111111111111",
         ),
         patch(
-            "backend.src.core.auth.auth_provider.verify_token",
-            new=AsyncMock(side_effect=TokenInvalidError("not a real jwt")),
+            "backend.src.core.auth.verify_user_jwt",
+            side_effect=AuthError("not a real jwt"),
         ),
     ):
         resp = await real_auth_client.get(
