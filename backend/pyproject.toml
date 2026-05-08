@@ -19,7 +19,7 @@ dependencies = [
     "structlog>=23.0.0",
     "bsvibe-auth[fastapi] @ git+https://github.com/BSVibe/BSVibe-Auth.git@v0.5.0#subdirectory=python",
     # the package lands on bsvibe-python main.
-    "bsvibe-authz @ git+https://github.com/BSVibe/bsvibe-python.git@67da60e#subdirectory=packages/bsvibe-authz",
+    "bsvibe-authz @ git+https://github.com/BSVibe/bsvibe-python.git@main#subdirectory=packages/bsvibe-authz",
     # Phase A Batch 5 + Phase Audit Batch 2 — all bsvibe-python packages
     # consumed by BSNexus are pinned to a single integration branch
     # (``integration/phase-audit-batch-2``) that carries
@@ -30,13 +30,13 @@ dependencies = [
     #
     # bsvibe-core: BsvibeSettings + configure_logging + shared exception
     # types. Adopted by ``backend/src/config.py`` + ``backend/src/main.py``.
-    "bsvibe-core @ git+https://github.com/BSVibe/bsvibe-python.git@feat/audit-decorator-extensions#subdirectory=packages/bsvibe-core",
+    "bsvibe-core @ git+https://github.com/BSVibe/bsvibe-python.git@main#subdirectory=packages/bsvibe-core",
     # bsvibe-llm: RunAuditMetadata is the wire-format contract between
     # BSGateway PR #24 and BSNexus PR #38. We adopt it for the metadata
     # dataclass only — the streaming + tool-loop in
     # orchestrator_adapter.py stays in BSNexus until bsvibe-llm grows
     # those features (follow-up issue).
-    "bsvibe-llm @ git+https://github.com/BSVibe/bsvibe-python.git@feat/audit-decorator-extensions#subdirectory=packages/bsvibe-llm",
+    "bsvibe-llm @ git+https://github.com/BSVibe/bsvibe-python.git@main#subdirectory=packages/bsvibe-llm",
     # Phase Audit Batch 2 — bsvibe-audit (BSVibe_Audit_Design.md §3 outbox
     # pattern). Provides AuditEmitter (in-transaction emit), OutboxRelay
     # (async polling shipper to BSVibe-Auth /api/audit/events), and the
@@ -49,7 +49,7 @@ dependencies = [
     # integration/phase-audit-batch-2 (which still carries the rest of
     # bsvibe-core / bsvibe-llm / bsvibe-audit Audit-1). Re-pin to a
     # release tag once both branches land on main.
-    "bsvibe-audit @ git+https://github.com/BSVibe/bsvibe-python.git@feat/audit-decorator-extensions#subdirectory=packages/bsvibe-audit",
+    "bsvibe-audit @ git+https://github.com/BSVibe/bsvibe-python.git@main#subdirectory=packages/bsvibe-audit",
     "mcp>=1.0",
     # Direct-LLM path for ``executor_type=llm_api`` (Phase 2b /
     # 2026-05-04). PR1 removed litellm because Direction §6 (reset
@@ -61,6 +61,11 @@ dependencies = [
     # Demo stack helpers — JWT, LLM mock guard, tenant GC, session service.
     # Lives on feat/bsvibe-demo until merged.
     "bsvibe-demo[sqlalchemy] @ git+https://github.com/BSVibe/bsvibe-python.git@main#subdirectory=packages/bsvibe-demo",
+    # Phase 5a — `bsnexus` Typer CLI built on bsvibe-cli-base. Provides
+    # cli_app + ProfileStore + OutputFormatter + CliHttpClient +
+    # DeviceFlowClient. Pinned to bsvibe-python main alongside the rest
+    # of the Phase 4/5 CLI rollout (see BSVibe_AI_Native_Control_Plane_Plan_2026-05-06.md §Phase 5).
+    "bsvibe-cli-base @ git+https://github.com/BSVibe/bsvibe-python.git@main#subdirectory=packages/bsvibe-cli-base",
 ]
 
 [project.optional-dependencies]
