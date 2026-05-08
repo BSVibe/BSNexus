@@ -90,6 +90,45 @@ export type RunStatus = 'pending' | 'running' | 'blocked' | 'done'
 export type RunPriority = 'low' | 'medium' | 'high' | 'critical'
 export type CompositionSource = 'bsage' | 'local'
 
+export type ReplyQualityKind =
+  | 'real_tool_calls'
+  | 'pseudocode_in_chat'
+  | 'fenced_block_only'
+  | 'empty'
+  | 'mixed'
+
+export interface RoundSummary {
+  round_idx: number
+  content_chars: number
+  tool_call_count: number
+  reply_quality: ReplyQualityKind
+  finish_reason: string | null
+}
+
+export type RunActivityLevel = 'milestone' | 'tool'
+
+export interface RunActivity {
+  id: string
+  run_id: string
+  project_id: string
+  level: RunActivityLevel
+  event_type: string
+  summary: string
+  detail: Record<string, unknown> | null
+  created_at: string
+}
+
+export interface RunSummary {
+  total_rounds: number
+  total_tool_calls: number
+  per_round: RoundSummary[]
+  dominant_reply_quality: ReplyQualityKind
+  did_emit_fenced_block: boolean
+  files_actually_written: string[]
+  failure_signals: string[]
+  extra?: Record<string, unknown> | null
+}
+
 export interface ExecutionRun {
   id: string
   tenant_id: string
@@ -110,6 +149,23 @@ export interface ExecutionRun {
   created_at: string
   started_at: string | null
   completed_at: string | null
+  run_summary: RunSummary | null
+}
+
+export interface RunSummaryItem {
+  run_id: string
+  project_id: string
+  status: RunStatus
+  created_at: string
+  completed_at: string | null
+  summary: RunSummary | null
+}
+
+export interface RunSummaryAggregate {
+  window_days: number
+  total_runs: number
+  counts: Partial<Record<ReplyQualityKind, number>>
+  project_id: string | null
 }
 
 export interface CompositionSnapshot {

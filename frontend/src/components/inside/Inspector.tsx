@@ -7,6 +7,9 @@ import { truncId } from '../../lib/fmt'
 import { statusTone } from '../../lib/tone'
 import { Badge, StatusDot } from '../common/Badge'
 import { requestsApi, compositionSnapshotsApi } from '../../api/founder'
+import RunQualityCard from './RunQualityCard'
+import RunActivityTimeline from './RunActivityTimeline'
+import FailureModeStrip from './FailureModeStrip'
 import type {
   CompositionSnapshot,
   ExecutionRun,
@@ -52,6 +55,10 @@ export default function Inspector({ projectId, focusRequestId }: InspectorProps)
         minHeight: 0,
       }}
     >
+          {/* PR7 — failure-mode dashboard strip pinned at the top of the
+              Inside panel so PR8 prompt iteration sees baseline + delta
+              counts in the project's last-20-runs window at a glance. */}
+          <FailureModeStrip projectId={projectId} />
           <div
             className="project-inspector__requests"
             style={{
@@ -278,6 +285,13 @@ function RunDetail({ run }: { run: ExecutionRun }) {
           {snapshot.persona_label}
         </div>
       </div>
+
+      {/* PR7 — failure-mode summary + activity timeline. Reads
+          run.run_summary stamped at terminal transition; activity
+          timeline polls /runs/{id}/activities. Both invisible /
+          minimal pre-completion. */}
+      <RunQualityCard summary={run.run_summary} />
+      <RunActivityTimeline runId={run.id} />
 
       <DetailRow label={t('row.toolsAllowed')}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>

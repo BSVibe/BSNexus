@@ -223,6 +223,12 @@ async def _dispatch_background(
             result = {"_error": str(exc)}
             if partial:
                 result["output_ref"] = {"inline": partial}
+            # Recover any tool-call activity the adapter logged before
+            # the failure — it's the most useful failure-mode signal
+            # for diagnosing why a run blocked (PR7).
+            partial_log = getattr(adapter, "_tool_activity_log", None)
+            if partial_log:
+                result["tool_activity_log"] = list(partial_log)
 
         # Async / worker executors return a "dispatched" sentinel —
         # they'll finalize via the worker-result consumer, not here.
@@ -275,6 +281,25 @@ async def _dispatch_background(
                     db_session=session,
                     stream_manager=stream_manager,
                 )
+                # Persist any partial activity log even on the failure
+                # path — failure-mode dashboard should still see what
+                # the LLM tried before it blocked (PR7).
+                partial_activity = result.get("tool_activity_log") or []
+                if partial_activity:
+                    from backend.src.core.llm.activity_persistence import (  # noqa: PLC0415
+                        persist_tool_activity_log,
+                    )
+                    from backend.src.core.llm.run_summary import compute_run_summary  # noqa: PLC0415
+
+                    await persist_tool_activity_log(run, partial_activity, session)
+                    final_reply = ""
+                    if isinstance(result.get("output_ref"), dict):
+                        final_reply = result["output_ref"].get("inline") or ""
+                    run.run_summary = compute_run_summary(
+                        activity_log=partial_activity,
+                        per_round_replies=[],  # adapter raised before we extracted them
+                        final_reply_text=final_reply,
+                    )
                 await session.commit()
                 return
 
@@ -288,6 +313,35 @@ async def _dispatch_background(
             if run.status == RunStatus.done:
                 knowledge = resolve_knowledge_client(integrations.bsage, auth_token=originator_token)
                 await publish_run_output(run, session, knowledge=knowledge, stream_manager=stream_manager)
+
+            # Persist any tool-call / round activity log the adapter
+            # accumulated during the LLM call (PR7 — failure-mode
+            # instrumentation). BSGatewayAdapter doesn't populate this
+            # key, so missing/empty list silently no-ops.
+            activity_log = result.get("tool_activity_log") if isinstance(result, dict) else None
+            if activity_log:
+                from backend.src.core.llm.activity_persistence import (  # noqa: PLC0415
+                    persist_tool_activity_log,
+                )
+
+                await persist_tool_activity_log(run, activity_log, session)
+
+            # Compute the run_summary aggregate the failure-mode
+            # dashboard reads from (PR7 TASK-004). Always stamp when
+            # we have an activity log — even an empty/blocked run
+            # carries dashboard signal.
+            if activity_log:
+                from backend.src.core.llm.run_summary import compute_run_summary  # noqa: PLC0415
+
+                final_reply = ""
+                if isinstance(result.get("output_ref"), dict):
+                    final_reply = result["output_ref"].get("inline") or ""
+                run.run_summary = compute_run_summary(
+                    activity_log=activity_log,
+                    per_round_replies=result.get("per_round_replies") or [],
+                    final_reply_text=final_reply,
+                )
+
             await session.commit()
     except asyncio.CancelledError:
         logger.info("background_dispatch_cancelled", run_id=str(run_id))

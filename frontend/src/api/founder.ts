@@ -5,6 +5,9 @@ import type {
   Deliverable,
   ExecutionRun,
   Request as FounderRequest,
+  RunActivity,
+  RunSummaryAggregate,
+  RunSummaryItem,
 } from '../types/founder'
 
 export const requestsApi = {
@@ -25,6 +28,18 @@ export const requestsApi = {
     const { data } = await apiClient.get<ExecutionRun[]>(
       `/api/v1/runs?request_id=${requestId}`,
     )
+    return data
+  },
+  listActivities: async (
+    runId: string,
+    params?: { level?: 'milestone' | 'tool' },
+  ): Promise<RunActivity[]> => {
+    const qs = new URLSearchParams()
+    if (params?.level) qs.set('level', params.level)
+    const url = qs.toString()
+      ? `/api/v1/runs/${runId}/activities?${qs}`
+      : `/api/v1/runs/${runId}/activities`
+    const { data } = await apiClient.get<RunActivity[]>(url)
     return data
   },
 }
@@ -94,6 +109,39 @@ export const compositionSnapshotsApi = {
   get: async (snapshotId: string): Promise<CompositionSnapshot> => {
     const { data } = await apiClient.get<CompositionSnapshot>(
       `/api/v1/composition-snapshots/${snapshotId}`,
+    )
+    return data
+  },
+}
+
+/**
+ * Run-summary surface (PR7 — failure-mode dashboard backend).
+ * Two query modes from one endpoint per A3 flat-REST shape: list of
+ * recent runs OR aggregate counts per dominant_reply_quality.
+ */
+export const runSummariesApi = {
+  list: async (params?: {
+    projectId?: string
+    days?: number
+    limit?: number
+  }): Promise<RunSummaryItem[]> => {
+    const qs = new URLSearchParams()
+    if (params?.projectId) qs.set('project_id', params.projectId)
+    if (params?.days !== undefined) qs.set('days', String(params.days))
+    if (params?.limit !== undefined) qs.set('limit', String(params.limit))
+    const url = qs.toString() ? `/api/v1/run-summaries?${qs}` : '/api/v1/run-summaries'
+    const { data } = await apiClient.get<RunSummaryItem[]>(url)
+    return data
+  },
+  aggregate: async (params?: {
+    projectId?: string
+    days?: number
+  }): Promise<RunSummaryAggregate> => {
+    const qs = new URLSearchParams({ aggregate: 'true' })
+    if (params?.projectId) qs.set('project_id', params.projectId)
+    if (params?.days !== undefined) qs.set('days', String(params.days))
+    const { data } = await apiClient.get<RunSummaryAggregate>(
+      `/api/v1/run-summaries?${qs}`,
     )
     return data
   },

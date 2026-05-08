@@ -233,6 +233,32 @@
         "output": "출력",
         "contextDocs": "컨텍스트 문서",
         "refsSuffix": "건"
+      },
+      "runQuality": {
+        "notYet": "아직 품질 요약 없음 — 실행 진행 중이거나 BSGateway 경로로 완료됨.",
+        "rounds": "라운드",
+        "toolCalls": "도구 호출",
+        "files": "파일",
+        "fencedBlock": "검증 블록",
+        "kind": {
+          "real_tool_calls": "실제 도구 호출",
+          "pseudocode_in_chat": "채팅에 의사코드",
+          "fenced_block_only": "검증 블록만",
+          "empty": "빈 응답",
+          "mixed": "혼합"
+        }
+      },
+      "activity": {
+        "loading": "활동 로딩 중…",
+        "empty": "아직 활동이 없습니다.",
+        "showToolLog": "도구 로그 보기 ({count}건)",
+        "hideToolLog": "도구 로그 숨기기",
+        "toolLogLabel": "도구 호출"
+      },
+      "failureModeStrip": {
+        "title": "최근 20개 실행",
+        "noRuns": "최근 7일간 실행 없음.",
+        "totalSuffix": "건"
       }
     },
     "chat": {

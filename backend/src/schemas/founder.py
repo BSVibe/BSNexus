@@ -136,6 +136,9 @@ class ExecutionRunResponse(BaseModel):
     created_at: datetime
     started_at: datetime | None
     completed_at: datetime | None
+    # Failure-mode aggregate (PR7). Nullable until the run hits a
+    # terminal transition that runs the aggregator.
+    run_summary: dict[str, Any] | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
