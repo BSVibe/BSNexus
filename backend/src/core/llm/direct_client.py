@@ -412,6 +412,7 @@ class DirectLLMAdapter:
                 finish_reason = this_finish
 
         tool_calls = [tool_calls_by_index[k] for k in sorted(tool_calls_by_index)]
+        tool_calls = _split_concatenated_tool_call_arguments(tool_calls)
         return content_parts, tool_calls, finish_reason
 
     async def _dispatch_tool_call(
@@ -484,6 +485,86 @@ class DirectLLMAdapter:
             "tool_call_id": call["id"],
             "content": content,
         }
+
+
+def _split_concatenated_tool_call_arguments(
+    tool_calls: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Split an accumulated tool_call slot whose ``arguments`` string
+    parses as multiple back-to-back JSON objects into one tool_call per
+    object.
+
+    Backstop for an Ollama streaming quirk surfaced by the live-LLM
+    e2e dogfood pass on 2026-05-08: ``ollama_chat/qwen3-coder:30b``
+    emitted two ``file_write`` tool_calls in a single response chunk
+    using the same streaming index (per the OpenAI streaming spec that
+    convention is "two distinct calls under different indices"); our
+    per-index accumulator concatenated their argument strings into
+    ``{"path": "a.py", ...}{"path": "tests/b.py", ...}``. Litellm's
+    ollama transform later raised ``JSONDecodeError: Extra data`` on
+    the next round, blocking the run with no recovery.
+
+    Reproduce: send a real-LLM request whose system prompt asks for two
+    files in one turn — pre-fix the run transitions to ``blocked`` on
+    round 1 with the litellm transform error visible in the uvicorn
+    log.
+    """
+    if not tool_calls:
+        return tool_calls
+
+    decoder = json.JSONDecoder()
+    expanded: list[dict[str, Any]] = []
+    for tc in tool_calls:
+        args = tc.get("function", {}).get("arguments") or ""
+        if not args:
+            expanded.append(tc)
+            continue
+        try:
+            json.loads(args)
+            expanded.append(tc)
+            continue
+        except json.JSONDecodeError:
+            pass
+
+        # Walk via raw_decode and emit one tool_call per parsed object.
+        cursor = 0
+        seq = 0
+        produced_any = False
+        text_len = len(args)
+        while cursor < text_len:
+            # Skip whitespace between JSON objects.
+            while cursor < text_len and args[cursor].isspace():
+                cursor += 1
+            if cursor >= text_len:
+                break
+            try:
+                obj, end = decoder.raw_decode(args, cursor)
+            except json.JSONDecodeError:
+                logger.warning(
+                    "tool_call_argument_split_remainder_dropped",
+                    tool_call_id=tc.get("id"),
+                    remaining=args[cursor : cursor + 80],
+                )
+                break
+            sub = dict(tc)
+            sub["function"] = dict(tc["function"])
+            sub["function"]["arguments"] = json.dumps(obj)
+            if seq > 0 and tc.get("id"):
+                # Suffix follow-on calls so each tool_message in the
+                # next round can address the right call_id.
+                sub["id"] = f"{tc['id']}-{seq}"
+            expanded.append(sub)
+            cursor = end
+            seq += 1
+            produced_any = True
+
+        if not produced_any:
+            # Couldn't recover anything — keep the original; the
+            # downstream tool dispatch will still fail cleanly with a
+            # JSON-parse error message we surface to the model.
+            expanded.append(tc)
+
+    return expanded
 
 
 # ── MCP ↔ OpenAI translation ──────────────────────────────────────────

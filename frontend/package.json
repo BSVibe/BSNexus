@@ -13,7 +13,8 @@
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:debug": "playwright test --debug",
-    "test:e2e:isolated": "node ./e2e/scripts/run-isolated.mjs"
+    "test:e2e:isolated": "node ./e2e/scripts/run-isolated.mjs",
+    "test:e2e:live-llm": "LIVE_LLM=1 playwright test e2e/specs/live-llm/ --project=chromium"
   },
   "dependencies": {
     "@bsvibe/demo": "^0.3.3",
