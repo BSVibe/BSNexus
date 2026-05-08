@@ -13,6 +13,7 @@ from sqlalchemy import text
 
 from backend.src.api import (
     auth,
+    brief,
     conversation,
     decisions as decisions_api,
     deliverables,
@@ -228,6 +229,7 @@ _ROUTERS = [
     requests_api.router,
     deliverables.router,
     decisions_api.router,
+    brief.router,
     inside.runs_router,
     inside.snapshot_router,
     integrations.router,

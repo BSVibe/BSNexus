@@ -95,6 +95,16 @@ export function useProjectEvents(projectId: string | null): ConnectionStatus {
 
       es.addEventListener('deliverable', () => {
         queryClient.invalidateQueries({ queryKey: ['deliverables', projectId] })
+        queryClient.invalidateQueries({ queryKey: ['brief', projectId] })
+      })
+
+      es.addEventListener('deliverable_proof', () => {
+        // Verifier Worker stamped a new proof_state on a deliverable in
+        // this project (decision-locks A1). Refetch both the deliverables
+        // list and the Brief so badge + section state both update.
+        queryClient.invalidateQueries({ queryKey: ['deliverables', projectId] })
+        queryClient.invalidateQueries({ queryKey: ['brief', projectId] })
+        queryClient.invalidateQueries({ queryKey: ['decisions', 'inbox', 'blocking'] })
       })
 
       es.addEventListener('decision', () => {

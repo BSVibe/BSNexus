@@ -8,18 +8,18 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { I } from '../../lib/icons'
 import { Modal } from '../common/Modal'
 import FilesView from '../files/FilesView'
-import ProgressView from '../progress/ProgressView'
+import BriefView from '../brief/BriefView'
 import DecisionsView from '../decisions/DecisionsView'
 import Inspector from '../inside/Inspector'
 import { projectsApi, type Project } from '../../api/projects'
 import { workspaceFilesApi } from '../../api/workspaceFiles'
 import { decisionsApi, deliverablesApi } from '../../api/founder'
 
-type TabId = 'progress' | 'files' | 'decisions' | 'inside'
+type TabId = 'brief' | 'files' | 'decisions' | 'inside'
 
 function parseTab(raw: string | null): TabId {
   if (raw === 'files' || raw === 'decisions' || raw === 'inside') return raw
-  return 'progress'
+  return 'brief'
 }
 
 export default function ProjectPage() {
@@ -91,7 +91,7 @@ export default function ProjectPage() {
 
   function setTab(id: TabId) {
     const next = new URLSearchParams(search.toString())
-    if (id === 'progress') next.delete('tab')
+    if (id === 'brief') next.delete('tab')
     else next.set('tab', id)
     if (id !== 'inside') next.delete('focusRequest')
     router.replace(buildProjectUrl(next))
@@ -140,10 +140,10 @@ export default function ProjectPage() {
     >
       <div className="tabs" style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
         <TabButton
-          label={t('tab.progress')}
+          label={t('tab.brief')}
           icon={<I.Timeline size={14} />}
-          active={tab === 'progress'}
-          onClick={() => setTab('progress')}
+          active={tab === 'brief'}
+          onClick={() => setTab('brief')}
           count={deliverables.length || null}
         />
         <TabButton
@@ -218,7 +218,7 @@ export default function ProjectPage() {
       </Modal>
 
       <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
-        {tab === 'progress' && <ProgressView projectId={projectId} />}
+        {tab === 'brief' && <BriefView projectId={projectId} />}
         {tab === 'files' && (
           <FilesView projectId={projectId} projectName={project?.name ?? t('fallbackTitle')} />
         )}

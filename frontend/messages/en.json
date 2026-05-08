@@ -139,7 +139,7 @@
     },
     "project": {
       "tab": {
-        "progress": "Progress",
+        "brief": "Brief",
         "files": "Files",
         "decisions": "Decisions",
         "inside": "Inside"
@@ -154,20 +154,49 @@
       "noProjectSelected": "No project selected.",
       "fallbackTitle": "Project"
     },
-    "progress": {
+    "brief": {
       "timeline": "Timeline",
       "itemsSuffix": "items",
       "filterAll": "All",
-      "empty": "No deliverables yet.",
-      "emptyHint": "Start a request in the chat.",
+      "loading": "Loading the brief…",
       "copyDeliverableId": "Copy deliverable id",
+      "section": {
+        "shipped": "Shipped",
+        "shippedEmpty": "Nothing verified yet — proof lands here once the verifier signs off.",
+        "needsDecision": "Needs your decision",
+        "needsDecisionEmpty": "Nothing needs your decision right now.",
+        "blocked": "Blocked",
+        "blockedEmpty": "Nothing is blocked.",
+        "running": "Running",
+        "runningEmpty": "Nothing running right now.",
+        "next": "Next",
+        "nextEmpty": "No recommended direction yet — give a new direction in the chat."
+      },
       "type": {
         "code": "code",
         "doc": "doc",
         "design": "design",
         "data": "data",
         "url": "url"
+      },
+      "proof": {
+        "verified": "Verified",
+        "verifying": "Verifying",
+        "verification_failed": "Verification failed",
+        "verification_missing": "No proof",
+        "human_review_required": "Needs human review",
+        "not_applicable": "No verifier"
+      },
+      "deliverable": {
+        "verifyButton": "Re-verify",
+        "verifyAria": "Re-run verification for this deliverable"
       }
+    },
+    "decisionInbox": {
+      "heading": "Needs your decision",
+      "empty": "Inbox clear.",
+      "viewAll": "Open inbox →",
+      "blockingBadge": "blocking"
     },
     "decisions": {
       "loading": "Loading…",

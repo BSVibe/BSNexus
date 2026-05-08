@@ -139,7 +139,7 @@
     },
     "project": {
       "tab": {
-        "progress": "진행",
+        "brief": "Brief",
         "files": "파일",
         "decisions": "의사결정",
         "inside": "Inside"
@@ -154,20 +154,49 @@
       "noProjectSelected": "선택된 프로젝트가 없습니다.",
       "fallbackTitle": "프로젝트"
     },
-    "progress": {
+    "brief": {
       "timeline": "타임라인",
       "itemsSuffix": "건",
       "filterAll": "전체",
-      "empty": "아직 납품물이 없습니다.",
-      "emptyHint": "채팅에서 요청을 시작하세요.",
-      "copyDeliverableId": "납품물 ID 복사",
+      "loading": "Brief 불러오는 중…",
+      "copyDeliverableId": "Deliverable ID 복사",
+      "section": {
+        "shipped": "Shipped",
+        "shippedEmpty": "아직 verified 된 deliverable 이 없습니다 — verifier 가 통과시키면 여기에 올라옵니다.",
+        "needsDecision": "당신의 결정 필요",
+        "needsDecisionEmpty": "지금은 결정할 게 없습니다.",
+        "blocked": "막힘",
+        "blockedEmpty": "막힌 작업이 없습니다.",
+        "running": "진행 중",
+        "runningEmpty": "지금 진행 중인 작업이 없습니다.",
+        "next": "다음",
+        "nextEmpty": "추천 방향이 아직 없습니다 — 채팅에서 새 방향을 지시하세요."
+      },
       "type": {
         "code": "코드",
         "doc": "문서",
         "design": "디자인",
         "data": "데이터",
         "url": "링크"
+      },
+      "proof": {
+        "verified": "검증됨",
+        "verifying": "검증 중",
+        "verification_failed": "검증 실패",
+        "verification_missing": "proof 없음",
+        "human_review_required": "사람 검토 필요",
+        "not_applicable": "verifier 없음"
+      },
+      "deliverable": {
+        "verifyButton": "재검증",
+        "verifyAria": "이 deliverable 의 검증을 다시 실행"
       }
+    },
+    "decisionInbox": {
+      "heading": "당신의 결정 필요",
+      "empty": "받은편지함 비어 있음.",
+      "viewAll": "받은편지함 열기 →",
+      "blockingBadge": "차단"
     },
     "decisions": {
       "loading": "로딩 중…",

@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { Badge, StatusDot } from '../common/Badge'
+import { DecisionInboxStrip } from '../dashboard/DecisionInboxStrip'
 import { I } from '../../lib/icons'
 import { relTime, truncId } from '../../lib/fmt'
 import { statusTone, type Tone } from '../../lib/tone'
@@ -158,6 +159,10 @@ export default function DashboardPage() {
           </button>
         </div>
       </div>
+
+      {/* Home Decision Inbox strip — locked first slot in core-ux-spec
+          §Default Home Layout (decision-locks A2 / A3). */}
+      <DecisionInboxStrip />
 
       {/* aggregate strip */}
       <div
