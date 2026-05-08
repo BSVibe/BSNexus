@@ -23,6 +23,7 @@ from backend.src.api import (
     project_events,
     projects,
     requests_api,
+    run_summaries,
     workspace_files,
 )
 from backend.src.config import settings as app_settings
@@ -236,6 +237,7 @@ _ROUTERS = [
     executor_configs.router,
     workspace_files.router,
     project_events.router,
+    run_summaries.router,
 ]
 
 
