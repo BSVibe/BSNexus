@@ -8,7 +8,7 @@ import { getAccessToken } from './useAuth'
 export type ConnectionStatus = 'idle' | 'connecting' | 'open' | 'reconnecting'
 
 /**
- * Subscribe to ``GET /api/v1/projects/{id}/events`` and feed react-query
+ * Subscribe to ``GET /api/v1/events?project_id={id}`` and feed react-query
  * caches in real time. Replaces the prior 3-second ``refetchInterval``
  * loops on chat / deliverables / decisions.
  *
@@ -40,7 +40,7 @@ export function useProjectEvents(projectId: string | null): ConnectionStatus {
     async function connect() {
       const token = await getAccessToken()
       if (cancelled || !token) return
-      const url = `${API_BASE_URL}/api/v1/projects/${projectId}/events?token=${encodeURIComponent(token)}`
+      const url = `${API_BASE_URL}/api/v1/events?project_id=${projectId}&token=${encodeURIComponent(token)}`
       setLiveStatus('connecting')
       es = new EventSource(url)
       esRef.current = es

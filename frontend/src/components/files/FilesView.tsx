@@ -19,7 +19,7 @@ interface Props {
 
 /**
  * Files tab — left tree + right viewer. Reads the project workspace
- * directory directly (``GET /api/v1/projects/{id}/files``). A workspace
+ * directory directly (``GET /api/v1/workspace-files?project_id={id}``). A workspace
  * entry is created for every fenced code block in a run's output, so
  * the file tree grows as the company ships.
  */

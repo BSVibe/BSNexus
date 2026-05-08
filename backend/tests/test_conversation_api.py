@@ -1,4 +1,10 @@
-"""Conversation API — list + send messages, with RequestExtractor side effect."""
+"""Conversation API — list + send messages, with RequestExtractor side effect.
+
+Endpoints (decision-locks A3 flat shape):
+
+- ``GET  /api/v1/messages?project_id={id}``
+- ``POST /api/v1/messages`` with ``project_id`` in the body.
+"""
 
 from __future__ import annotations
 
@@ -25,7 +31,6 @@ async def _stub_background_dispatch(monkeypatch):
     return calls
 
 
-@pytest.mark.asyncio
 async def _make_project(client, name: str = "Test") -> str:
     resp = await client.post(
         "/api/v1/projects",
@@ -36,11 +41,15 @@ async def _make_project(client, name: str = "Test") -> str:
     return resp.json()["id"]
 
 
+def _send(content: str, project_id: str) -> dict:
+    return {"content": content, "project_id": project_id}
+
+
 @pytest.mark.asyncio
 async def test_list_messages_empty(client):
     project_id = await _make_project(client)
     resp = await client.get(
-        f"/api/v1/projects/{project_id}/messages",
+        f"/api/v1/messages?project_id={project_id}",
         headers={"Authorization": "Bearer fake"},
     )
     assert resp.status_code == 200
@@ -55,8 +64,8 @@ async def test_send_empty_content_does_not_create_request(client):
     project_id = await _make_project(client)
 
     resp = await client.post(
-        f"/api/v1/projects/{project_id}/messages",
-        json={"content": "   "},
+        "/api/v1/messages",
+        json=_send("   ", project_id),
         headers={"Authorization": "Bearer fake"},
     )
     assert resp.status_code == 201
@@ -75,8 +84,8 @@ async def test_send_short_content_creates_request(client):
     project_id = await _make_project(client)
 
     resp = await client.post(
-        f"/api/v1/projects/{project_id}/messages",
-        json={"content": "hello"},
+        "/api/v1/messages",
+        json=_send("hello", project_id),
         headers={"Authorization": "Bearer fake"},
     )
     assert resp.status_code == 201
@@ -91,8 +100,8 @@ async def test_send_request_creates_request_and_links_message(client):
     project_id = await _make_project(client)
 
     resp = await client.post(
-        f"/api/v1/projects/{project_id}/messages",
-        json={"content": "Please implement the login screen"},
+        "/api/v1/messages",
+        json=_send("Please implement the login screen", project_id),
         headers={"Authorization": "Bearer fake"},
     )
     assert resp.status_code == 201, resp.text
@@ -110,20 +119,18 @@ async def test_send_request_seeds_top_level_run_and_dispatches(client, db_sessio
     project_id = await _make_project(client)
 
     resp = await client.post(
-        f"/api/v1/projects/{project_id}/messages",
-        json={"content": "Please implement the login screen"},
+        "/api/v1/messages",
+        json=_send("Please implement the login screen", project_id),
         headers={"Authorization": "Bearer fake"},
     )
     assert resp.status_code == 201, resp.text
     body = resp.json()
     request_id = uuid.UUID(body["request_id"])
 
-    # background dispatcher was invoked exactly once with this run
     assert len(_stub_background_dispatch) == 1
     run_id, _tenant, called_project_id, _stream = _stub_background_dispatch[0]
     assert called_project_id == uuid.UUID(project_id)
 
-    # and the run row actually exists, pending, linked to the new request
     from sqlalchemy import select
 
     row = (await db_session.execute(select(ExecutionRun).where(ExecutionRun.id == run_id))).scalar_one()
@@ -143,8 +150,8 @@ async def test_send_request_writes_immediate_ack_message(client, db_session, _st
 
     project_id = await _make_project(client)
     resp = await client.post(
-        f"/api/v1/projects/{project_id}/messages",
-        json={"content": "Please implement the login screen"},
+        "/api/v1/messages",
+        json=_send("Please implement the login screen", project_id),
         headers={"Authorization": "Bearer fake"},
     )
     assert resp.status_code == 201, resp.text
@@ -162,7 +169,6 @@ async def test_send_request_writes_immediate_ack_message(client, db_session, _st
         .all()
     )
 
-    # user message + ack
     assert len(rows) == 2
     assert rows[0].role == "user"
     ack = rows[1]
@@ -181,8 +187,8 @@ async def test_send_blank_content_does_not_write_ack(client, db_session, _stub_b
 
     project_id = await _make_project(client)
     resp = await client.post(
-        f"/api/v1/projects/{project_id}/messages",
-        json={"content": "   "},
+        "/api/v1/messages",
+        json=_send("   ", project_id),
         headers={"Authorization": "Bearer fake"},
     )
     assert resp.status_code == 201, resp.text
@@ -207,8 +213,8 @@ async def test_send_request_captures_originator_auth(client, db_session):
 
     project_id = await _make_project(client)
     resp = await client.post(
-        f"/api/v1/projects/{project_id}/messages",
-        json={"content": "Please build the dashboard"},
+        "/api/v1/messages",
+        json=_send("Please build the dashboard", project_id),
         headers={"Authorization": "Bearer user-jwt-abc"},
     )
     assert resp.status_code == 201
@@ -228,8 +234,8 @@ async def test_send_request_emits_nexus_request_created_audit(client, db_session
 
     project_id = await _make_project(client)
     resp = await client.post(
-        f"/api/v1/projects/{project_id}/messages",
-        json={"content": "Implement the login screen"},
+        "/api/v1/messages",
+        json=_send("Implement the login screen", project_id),
         headers={"Authorization": "Bearer fake"},
     )
     assert resp.status_code == 201
@@ -255,8 +261,8 @@ async def test_send_blank_content_does_not_emit_audit(client, db_session):
 
     project_id = await _make_project(client)
     await client.post(
-        f"/api/v1/projects/{project_id}/messages",
-        json={"content": "   "},
+        "/api/v1/messages",
+        json=_send("   ", project_id),
         headers={"Authorization": "Bearer fake"},
     )
 
@@ -276,15 +282,15 @@ async def test_each_user_message_creates_its_own_request(client, _stub_backgroun
 
     first = (
         await client.post(
-            f"/api/v1/projects/{project_id}/messages",
-            json={"content": "Please implement the login screen"},
+            "/api/v1/messages",
+            json=_send("Please implement the login screen", project_id),
             headers={"Authorization": "Bearer fake"},
         )
     ).json()
     second = (
         await client.post(
-            f"/api/v1/projects/{project_id}/messages",
-            json={"content": "change it to use magic links"},
+            "/api/v1/messages",
+            json=_send("change it to use magic links", project_id),
             headers={"Authorization": "Bearer fake"},
         )
     ).json()
@@ -299,8 +305,8 @@ async def test_send_blank_content_does_not_seed_run(client, _stub_background_dis
     project_id = await _make_project(client)
 
     await client.post(
-        f"/api/v1/projects/{project_id}/messages",
-        json={"content": "  \n  "},
+        "/api/v1/messages",
+        json=_send("  \n  ", project_id),
         headers={"Authorization": "Bearer fake"},
     )
     assert _stub_background_dispatch == []
@@ -311,19 +317,19 @@ async def test_list_messages_returns_chronological(client):
     project_id = await _make_project(client)
 
     await client.post(
-        f"/api/v1/projects/{project_id}/messages",
-        json={"content": "hi"},
+        "/api/v1/messages",
+        json=_send("hi", project_id),
         headers={"Authorization": "Bearer fake"},
     )
     await client.post(
-        f"/api/v1/projects/{project_id}/messages",
-        json={"content": "Please build X"},
+        "/api/v1/messages",
+        json=_send("Please build X", project_id),
         headers={"Authorization": "Bearer fake"},
     )
 
     rows = (
         await client.get(
-            f"/api/v1/projects/{project_id}/messages",
+            f"/api/v1/messages?project_id={project_id}",
             headers={"Authorization": "Bearer fake"},
         )
     ).json()
@@ -337,7 +343,6 @@ async def test_list_messages_returns_chronological(client):
     assert rows[1]["request_id"] == rows[0]["request_id"]
     assert rows[2]["request_id"] is not None
     assert rows[3]["request_id"] == rows[2]["request_id"]
-    # Each user msg gets its own Request now (no modification routing).
     assert rows[0]["request_id"] != rows[2]["request_id"]
 
 
@@ -361,8 +366,8 @@ async def test_send_message_404_for_foreign_project(client, db_session):
     await db_session.refresh(foreign)
 
     resp = await client.post(
-        f"/api/v1/projects/{foreign.id}/messages",
-        json={"content": "hi"},
+        "/api/v1/messages",
+        json={"content": "hi", "project_id": str(foreign.id)},
         headers={"Authorization": "Bearer fake"},
     )
     assert resp.status_code == 404

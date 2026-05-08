@@ -1,6 +1,6 @@
 /**
  * Mock project-file fixtures used by the Files tab until the backend
- * grows a `GET /api/v1/projects/{id}/files` endpoint.
+ * grows a `GET /api/v1/workspace-files?project_id={id}` endpoint.
  *
  * The sample set mirrors the Claude Design prototype's seed data so the
  * viewer can be exercised visually (admin dashboard .bsd with KPIs +

@@ -1,4 +1,11 @@
-"""Decisions API — approval inbox per project + resolve single."""
+"""Decisions API — flat resource shape (decision-locks A3, 2026-05-08).
+
+- ``GET /api/v1/decisions?project_id={id}&blocking_only=&resolved=&limit=``
+  - ``project_id`` omitted → tenant-wide cross-project (Home Decision Inbox).
+  - ``blocking_only=true`` filters to ``blocking AND resolved_at IS NULL``.
+  - ``resolved=false`` (default) hides resolved rows; ``resolved=true`` shows them.
+- ``POST /api/v1/decisions/{decision_id}/resolve`` — unchanged.
+"""
 
 from __future__ import annotations
 
@@ -6,7 +13,7 @@ import uuid
 from datetime import datetime, timezone
 
 from bsvibe_audit import audit_emit
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,8 +26,10 @@ from backend.src.models import Decision, Project
 from backend.src.schemas import DecisionResolve, DecisionResponse
 from backend.src.storage.database import get_db
 
-project_router = APIRouter(prefix="/api/v1/projects", tags=["decisions"])
-decision_router = APIRouter(prefix="/api/v1/decisions", tags=["decisions"])
+router = APIRouter(prefix="/api/v1/decisions", tags=["decisions"])
+
+_DEFAULT_LIMIT = 50
+_MAX_LIMIT = 200
 
 
 async def _assert_project_belongs(db: AsyncSession, project_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
@@ -29,30 +38,53 @@ async def _assert_project_belongs(db: AsyncSession, project_id: uuid.UUID, tenan
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
 
 
-@project_router.get(
-    "/{project_id}/decisions",
+@router.get(
+    "",
     response_model=list[DecisionResponse],
 )
 async def list_decisions(
-    project_id: uuid.UUID,
+    project_id: uuid.UUID | None = Query(
+        None, description="Filter to a single project. Omit for the tenant-wide inbox."
+    ),
+    blocking_only: bool = Query(False, description="When true, return only unresolved blocking decisions."),
+    resolved: bool | None = Query(
+        None,
+        description=(
+            "Tri-state filter for resolved rows. None (default) returns open + resolved sorted "
+            "open-first. true returns only resolved. false returns only unresolved."
+        ),
+    ),
+    limit: int = Query(_DEFAULT_LIMIT, ge=1, le=_MAX_LIMIT),
     _user=Depends(get_current_user),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> list[Decision]:
-    """Open decisions first (blocking → non-blocking), then resolved."""
-    await _assert_project_belongs(db, project_id, tenant_id)
-    stmt = (
-        select(Decision)
-        .where(
-            Decision.project_id == project_id,
-            Decision.tenant_id == tenant_id,
-        )
-        .order_by(
-            Decision.resolved_at.is_(None).desc(),
-            Decision.blocking.desc(),
-            Decision.created_at.desc(),
-        )
-    )
+    """Decision inbox.
+
+    Default ordering is open-first → blocking-first → newest-first, matching the
+    behaviour the per-project inbox relied on. Cross-project callers (Home strip,
+    Slack digest, voice) get the same ordering.
+    """
+    if project_id is not None:
+        await _assert_project_belongs(db, project_id, tenant_id)
+
+    stmt = select(Decision).where(Decision.tenant_id == tenant_id)
+    if project_id is not None:
+        stmt = stmt.where(Decision.project_id == project_id)
+
+    if blocking_only:
+        stmt = stmt.where(Decision.blocking.is_(True), Decision.resolved_at.is_(None))
+    elif resolved is True:
+        stmt = stmt.where(Decision.resolved_at.is_not(None))
+    elif resolved is False:
+        stmt = stmt.where(Decision.resolved_at.is_(None))
+
+    stmt = stmt.order_by(
+        Decision.resolved_at.is_(None).desc(),
+        Decision.blocking.desc(),
+        Decision.created_at.desc(),
+    ).limit(limit)
+
     return list((await db.execute(stmt)).scalars())
 
 
@@ -96,7 +128,7 @@ async def _apply_decision_resolution_with_audit(
     return decision
 
 
-@decision_router.post(
+@router.post(
     "/{decision_id}/resolve",
     response_model=DecisionResponse,
 )

@@ -1,6 +1,6 @@
 """S4 — SSE project_events endpoint coverage gap.
 
-The ``GET /api/v1/projects/{id}/events`` SSE endpoint is the single
+The ``GET /api/v1/events?project_id={id}`` SSE endpoint is the single
 delivery channel for live frontend updates. Audit §6 cites the
 ``ProjectEventBus`` + ``ResilientRunEventSource`` fan-in path as a
 coverage gap — only the static ``import-presence`` test exists.
@@ -111,7 +111,7 @@ async def test_sse_endpoint_404_for_foreign_project(client, db_session) -> None:
     await db_session.refresh(project)
 
     resp = await client.get(
-        f"/api/v1/projects/{project.id}/events",
+        f"/api/v1/events?project_id={project.id}",
         headers={"Authorization": "Bearer fake"},
     )
     assert resp.status_code == 404

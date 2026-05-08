@@ -1,14 +1,16 @@
-"""Inside panel APIs — read-only ExecutionRun + CompositionSnapshot views.
+"""Inside panel APIs — flat resource shape (decision-locks A3, 2026-05-08).
 
-These power the opt-in "Inside" surface in the frontend. They're always
-tenant-scoped and never expose another tenant's runs/snapshots.
+- ``GET /api/v1/runs?request_id={id}``               — execution runs for a request
+- ``GET /api/v1/composition-snapshots/{snapshot_id}`` — composition snapshot detail
+
+Always tenant-scoped; never expose another tenant's runs/snapshots.
 """
 
 from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,7 +20,7 @@ from backend.src.models import CompositionSnapshot, ExecutionRun, Request
 from backend.src.schemas import CompositionSnapshotResponse, ExecutionRunResponse
 from backend.src.storage.database import get_db
 
-runs_router = APIRouter(prefix="/api/v1/requests", tags=["inside"])
+runs_router = APIRouter(prefix="/api/v1/runs", tags=["inside"])
 snapshot_router = APIRouter(prefix="/api/v1/composition-snapshots", tags=["inside"])
 
 
@@ -31,11 +33,11 @@ async def _require_request(db: AsyncSession, request_id: uuid.UUID, tenant_id: u
 
 
 @runs_router.get(
-    "/{request_id}/runs",
+    "",
     response_model=list[ExecutionRunResponse],
 )
 async def list_runs(
-    request_id: uuid.UUID,
+    request_id: uuid.UUID = Query(..., description="Request whose runs to list."),
     _user=Depends(get_current_user),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),

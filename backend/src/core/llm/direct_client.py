@@ -330,7 +330,7 @@ class DirectLLMAdapter:
         # Match the BSGatewayAdapter / dispatcher contract: ``output_ref``
         # is a JSON object, not a bare string. ``ExecutionRunResponse``
         # types it as ``dict[str, Any] | None`` (founder.py:118), and the
-        # /api/v1/requests/{id}/runs endpoint 500s on ResponseValidationError
+        # /api/v1/runs?request_id={id} endpoint 500s on ResponseValidationError
         # if a row carries a string here. Convention is ``{"inline": text}``
         # for inline-text deliverables (see dispatcher.py:218).
         return {

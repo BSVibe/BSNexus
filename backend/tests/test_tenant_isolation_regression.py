@@ -57,7 +57,7 @@ async def test_list_requests_for_foreign_project_returns_404(client, db_session)
     sub-resources exist."""
     _foreign_tid, project = await _foreign_project(db_session)
     resp = await client.get(
-        f"/api/v1/projects/{project.id}/requests",
+        f"/api/v1/requests?project_id={project.id}",
         headers={"Authorization": "Bearer fake"},
     )
     assert resp.status_code == 404
@@ -67,7 +67,7 @@ async def test_list_requests_for_foreign_project_returns_404(client, db_session)
 async def test_list_deliverables_for_foreign_project_returns_404(client, db_session) -> None:
     _foreign_tid, project = await _foreign_project(db_session)
     resp = await client.get(
-        f"/api/v1/projects/{project.id}/deliverables",
+        f"/api/v1/deliverables?project_id={project.id}",
         headers={"Authorization": "Bearer fake"},
     )
     assert resp.status_code == 404
@@ -77,7 +77,7 @@ async def test_list_deliverables_for_foreign_project_returns_404(client, db_sess
 async def test_list_decisions_for_foreign_project_returns_404(client, db_session) -> None:
     _foreign_tid, project = await _foreign_project(db_session)
     resp = await client.get(
-        f"/api/v1/projects/{project.id}/decisions",
+        f"/api/v1/decisions?project_id={project.id}",
         headers={"Authorization": "Bearer fake"},
     )
     assert resp.status_code == 404
@@ -143,7 +143,7 @@ async def test_list_runs_for_foreign_request_returns_404(client, db_session) -> 
     await db_session.refresh(request)
 
     resp = await client.get(
-        f"/api/v1/requests/{request.id}/runs",
+        f"/api/v1/runs?request_id={request.id}",
         headers={"Authorization": "Bearer fake"},
     )
     assert resp.status_code == 404
@@ -208,7 +208,7 @@ async def test_list_requests_does_not_leak_foreign_rows(client, db_session, mock
     # Listing under the user's own project returns only their own row.
     rows = (
         await client.get(
-            f"/api/v1/projects/{own_pid}/requests",
+            f"/api/v1/requests?project_id={own_pid}",
             headers={"Authorization": "Bearer fake"},
         )
     ).json()

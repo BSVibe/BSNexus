@@ -1,4 +1,4 @@
-"""Conversation API — list + send project chat messages.
+"""Conversation API — list + send chat messages.
 
 Direction reset 2026-05-03 — request extraction is now a single rule:
 
@@ -9,6 +9,11 @@ The previous LLM-driven chit_chat / question / request / modification
 classifier is retired with ``request_extractor.py``. Modifications-on-
 in-flight-Request UX is folded into the next Request (BSGateway's CLI
 agent reads chat history on each turn).
+
+Resource shape (decision-locks A3, 2026-05-08):
+
+- ``GET /api/v1/messages?project_id={id}``
+- ``POST /api/v1/messages`` with ``project_id`` in the body.
 """
 
 from __future__ import annotations
@@ -17,7 +22,7 @@ import asyncio
 import uuid
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -44,7 +49,7 @@ from backend.src.storage.database import get_db
 
 logger = structlog.get_logger(__name__)
 
-router = APIRouter(prefix="/api/v1/projects", tags=["conversation"])
+router = APIRouter(prefix="/api/v1/messages", tags=["conversation"])
 
 
 def _build_ack_content(intent_summary: str) -> str:
@@ -71,11 +76,11 @@ async def _require_project(db: AsyncSession, project_id: uuid.UUID, tenant_id: u
 
 
 @router.get(
-    "/{project_id}/messages",
+    "",
     response_model=list[MessageResponse],
 )
 async def list_messages(
-    project_id: uuid.UUID,
+    project_id: uuid.UUID = Query(..., description="Project to list messages for."),
     _user=Depends(get_current_user),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),
@@ -90,18 +95,18 @@ async def list_messages(
 
 
 @router.post(
-    "/{project_id}/messages",
+    "",
     response_model=SendMessageResponse,
     status_code=status.HTTP_201_CREATED,
 )
 async def send_message(
-    project_id: uuid.UUID,
     payload: MessageCreate,
     request: Request,
     user=Depends(get_current_user),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> SendMessageResponse:
+    project_id = payload.project_id
     await _require_project(db, project_id, tenant_id)
 
     message = ConversationMessage(
@@ -235,9 +240,7 @@ async def send_message(
         # asyncio loop only weak-references in-flight tasks, so a fire-
         # and-forget ``create_task(...)`` whose return value isn't kept
         # may be garbage-collected mid-await on Python 3.11+.
-        task = asyncio.create_task(
-            _BACKGROUND_DISPATCH(run_to_dispatch, tenant_id, project_id, stream_manager)
-        )
+        task = asyncio.create_task(_BACKGROUND_DISPATCH(run_to_dispatch, tenant_id, project_id, stream_manager))
         _BACKGROUND_DISPATCH_TASKS.add(task)
         task.add_done_callback(_BACKGROUND_DISPATCH_TASKS.discard)
 

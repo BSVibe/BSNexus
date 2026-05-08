@@ -10,13 +10,20 @@ import type {
 export const requestsApi = {
   listForProject: async (projectId: string): Promise<FounderRequest[]> => {
     const { data } = await apiClient.get<FounderRequest[]>(
-      `/api/v1/projects/${projectId}/requests`,
+      `/api/v1/requests?project_id=${projectId}`,
     )
+    return data
+  },
+  list: async (params?: { limit?: number }): Promise<FounderRequest[]> => {
+    const qs = new URLSearchParams()
+    if (params?.limit !== undefined) qs.set('limit', String(params.limit))
+    const url = qs.toString() ? `/api/v1/requests?${qs}` : '/api/v1/requests'
+    const { data } = await apiClient.get<FounderRequest[]>(url)
     return data
   },
   listRuns: async (requestId: string): Promise<ExecutionRun[]> => {
     const { data } = await apiClient.get<ExecutionRun[]>(
-      `/api/v1/requests/${requestId}/runs`,
+      `/api/v1/runs?request_id=${requestId}`,
     )
     return data
   },
@@ -25,8 +32,15 @@ export const requestsApi = {
 export const deliverablesApi = {
   listForProject: async (projectId: string): Promise<Deliverable[]> => {
     const { data } = await apiClient.get<Deliverable[]>(
-      `/api/v1/projects/${projectId}/deliverables`,
+      `/api/v1/deliverables?project_id=${projectId}`,
     )
+    return data
+  },
+  list: async (params?: { limit?: number }): Promise<Deliverable[]> => {
+    const qs = new URLSearchParams()
+    if (params?.limit !== undefined) qs.set('limit', String(params.limit))
+    const url = qs.toString() ? `/api/v1/deliverables?${qs}` : '/api/v1/deliverables'
+    const { data } = await apiClient.get<Deliverable[]>(url)
     return data
   },
 }
@@ -34,8 +48,23 @@ export const deliverablesApi = {
 export const decisionsApi = {
   listForProject: async (projectId: string): Promise<Decision[]> => {
     const { data } = await apiClient.get<Decision[]>(
-      `/api/v1/projects/${projectId}/decisions`,
+      `/api/v1/decisions?project_id=${projectId}`,
     )
+    return data
+  },
+  list: async (params?: {
+    blockingOnly?: boolean
+    resolved?: boolean | null
+    limit?: number
+  }): Promise<Decision[]> => {
+    const qs = new URLSearchParams()
+    if (params?.blockingOnly) qs.set('blocking_only', 'true')
+    if (params?.resolved !== undefined && params?.resolved !== null) {
+      qs.set('resolved', String(params.resolved))
+    }
+    if (params?.limit !== undefined) qs.set('limit', String(params.limit))
+    const url = qs.toString() ? `/api/v1/decisions?${qs}` : '/api/v1/decisions'
+    const { data } = await apiClient.get<Decision[]>(url)
     return data
   },
   resolve: async (
