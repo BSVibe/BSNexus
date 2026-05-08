@@ -20,15 +20,24 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 import uuid
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from typing import Any
 
 import structlog
 from litellm import acompletion
 
 logger = structlog.get_logger(__name__)
+
+
+# Hard cap on the size of ``args`` we copy into the activity log.
+# file_write payloads can run several KB; we keep a 1KB excerpt for
+# debug context but don't blow the JSONB cell or duplicate the file
+# content (workspace is the source of truth for the actual write).
+_TOOL_ACTIVITY_ARGS_CAP = 1024
 
 
 # Mirrors ``BSGatewayAdapter.tools_supported`` — informational; the
@@ -119,6 +128,11 @@ class DirectLLMAdapter:
         self._iteration_timeout_s = iteration_timeout_s
         self._tool_call_timeout_s = tool_call_timeout_s
         self._max_tokens = max_tokens
+        # In-memory activity log accumulated during ``execute()`` and
+        # returned in the result dict so the dispatcher can persist
+        # rows after the LLM call finishes (PR7). DB session is NOT
+        # held during ``execute()`` — see dispatcher.py Phase 2 / 3.
+        self._tool_activity_log: list[dict[str, Any]] = []
 
     def set_run_audit_metadata(self, metadata: dict[str, Any] | None) -> None:
         self._run_audit_metadata = dict(metadata) if metadata else {}
@@ -141,9 +155,14 @@ class DirectLLMAdapter:
         history: list[dict[str, str]] | None = None,
     ) -> dict[str, Any]:
         """Run the completion + MCP tool loop. Returns the same
-        executor-result shape as :class:`BSGatewayAdapter`.
+        executor-result shape as :class:`BSGatewayAdapter`, plus a
+        ``tool_activity_log`` list the dispatcher persists as
+        ``ExecutionRunActivity`` rows after the LLM call finishes.
         """
         _ = tools_allowed  # informational; MCP server's list_tools is authoritative
+
+        # Fresh log per execute() — supports adapter reuse across runs.
+        self._tool_activity_log = []
 
         messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
         for turn in history or []:
@@ -317,7 +336,7 @@ class DirectLLMAdapter:
 
             # Dispatch each tool call via MCP, append the result, loop.
             for call in tool_calls:
-                tool_msg = await self._dispatch_tool_call(session, call)
+                tool_msg = await self._dispatch_tool_call(session, call, round_idx=round_idx)
                 messages.append(tool_msg)
         else:
             # Round cap hit — surface as error so the orchestrator
@@ -338,6 +357,7 @@ class DirectLLMAdapter:
             "output_ref": {"inline": "".join(aggregated_text)},
             "actual_cost_cents": 0,
             "finish_reason": finish_reason,
+            "tool_activity_log": list(self._tool_activity_log),
         }
 
     async def _run_iteration(
@@ -419,6 +439,8 @@ class DirectLLMAdapter:
         self,
         session: Any,
         call: dict[str, Any],
+        *,
+        round_idx: int = 0,
     ) -> dict[str, Any]:
         """Call the MCP tool, return the OpenAI ``tool``-role message
         to append to the next round's ``messages``.
@@ -438,13 +460,30 @@ class DirectLLMAdapter:
         except (ValueError, TypeError):
             args = {}
 
+        tool_call_id = call.get("id")
+        args_excerpt = raw_args[:_TOOL_ACTIVITY_ARGS_CAP]
+        started_at = datetime.now(timezone.utc)
+        started_perf = time.perf_counter()
+
         logger.info(
             "tool_call_start",
             tool=name,
             project_id=str(self._project_id),
-            tool_call_id=call.get("id"),
+            tool_call_id=tool_call_id,
+            round_idx=round_idx,
+        )
+        self._tool_activity_log.append(
+            {
+                "kind": "tool_call_start",
+                "round_idx": round_idx,
+                "tool_name": name,
+                "tool_call_id": tool_call_id,
+                "args": args_excerpt,
+                "occurred_at": started_at.isoformat(),
+            }
         )
 
+        error_message: str | None = None
         try:
             result = await asyncio.wait_for(
                 session.call_tool(name, args),
@@ -457,11 +496,12 @@ class DirectLLMAdapter:
                 "tool_call_timeout",
                 tool=name,
                 project_id=str(self._project_id),
-                tool_call_id=call.get("id"),
+                tool_call_id=tool_call_id,
                 timeout_s=self._tool_call_timeout_s,
             )
             content = json.dumps({"error": f"tool call timeout after {self._tool_call_timeout_s}s"})
             outcome = "timeout"
+            error_message = f"timeout after {self._tool_call_timeout_s}s"
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "direct_llm_tool_call_failed",
@@ -471,14 +511,31 @@ class DirectLLMAdapter:
             )
             content = json.dumps({"error": str(exc)})
             outcome = "error"
+            error_message = str(exc)
 
+        duration_ms = int((time.perf_counter() - started_perf) * 1000)
+        finished_at = datetime.now(timezone.utc)
         logger.info(
             "tool_call_done",
             tool=name,
             project_id=str(self._project_id),
-            tool_call_id=call.get("id"),
+            tool_call_id=tool_call_id,
             outcome=outcome,
+            duration_ms=duration_ms,
+            round_idx=round_idx,
         )
+        done_record: dict[str, Any] = {
+            "kind": "tool_call_done",
+            "round_idx": round_idx,
+            "tool_name": name,
+            "tool_call_id": tool_call_id,
+            "outcome": outcome,
+            "duration_ms": duration_ms,
+            "occurred_at": finished_at.isoformat(),
+        }
+        if error_message is not None:
+            done_record["error"] = error_message
+        self._tool_activity_log.append(done_record)
 
         return {
             "role": "tool",

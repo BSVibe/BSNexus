@@ -233,12 +233,12 @@ async def test_tool_loop_no_tool_calls_returns_text() -> None:
         AsyncMock(return_value=stream),
     ):
         result = await adapter._tool_loop([], session=None, openai_tools=None)
-    assert result == {
-        "output_type": "text",
-        "output_ref": {"inline": "Done"},
-        "actual_cost_cents": 0,
-        "finish_reason": "stop",
-    }
+    assert result["output_type"] == "text"
+    assert result["output_ref"] == {"inline": "Done"}
+    assert result["actual_cost_cents"] == 0
+    assert result["finish_reason"] == "stop"
+    # No MCP tools dispatched → empty activity log.
+    assert result["tool_activity_log"] == []
 
 
 @pytest.mark.asyncio
