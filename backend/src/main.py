@@ -180,10 +180,43 @@ async def lifespan(app: FastAPI):
     # mode (Round 1 finding 2026-05-07).
     from backend.src.mcp.server import fastmcp_session_manager_run  # noqa: PLC0415
 
+    # Decision-locks A1 — boot the Verifier Worker if enabled. A
+    # disabled worker is the degradable mode: new deliverables stay at
+    # ``proof_state = verification_missing``. The worker is never
+    # required for the API to serve.
+    verifier_worker = None
+    verifier_task: _asyncio_local.Task[None] | None = None
+    if app_settings.verifier_enabled:
+        from backend.src.core.verifier import (  # noqa: PLC0415
+            SubprocessVerifier,
+            default_registry,
+        )
+        from backend.src.workers.verifier_worker import (  # noqa: PLC0415
+            start_verifier_worker_task,
+        )
+
+        if not default_registry.supported_types():
+            default_registry.register(SubprocessVerifier())
+
+        verifier_worker, verifier_task = await start_verifier_worker_task(
+            registry=default_registry,
+            stream_manager=stream_manager,
+            session_factory=async_session,
+        )
+        app.state.verifier_worker = verifier_worker
+        app.state.verifier_task = verifier_task
+
     try:
         async with fastmcp_session_manager_run():
             yield
     finally:
+        if verifier_worker is not None:
+            verifier_worker.stop()
+        if verifier_task is not None:
+            try:
+                await _asyncio_local.wait_for(verifier_task, timeout=5)
+            except _asyncio_local.TimeoutError:
+                verifier_task.cancel()
         await audit_relay.stop()
         await close_redis()
 

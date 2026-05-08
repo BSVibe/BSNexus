@@ -12,6 +12,7 @@ from backend.src.models import (
     CompositionSource,
     DeliverableStatus,
     DeliverableType,
+    ProofState,
     RequestStatus,
     RunPriority,
     RunStatus,
@@ -66,6 +67,16 @@ class DeliverableResponse(BaseModel):
     current_version_id: uuid.UUID | None
     created_at: datetime
     updated_at: datetime
+
+    # Proof model (decision-locks A1) — see docs/BSNexus/product/06-verified-deliverables-and-proof.md
+    proof_state: ProofState
+    verifier_type: str | None = None
+    verifier_inputs: dict | None = None
+    verification_exit_code: int | None = None
+    proof_summary: str | None = None
+    proof_refs: list | None = None
+    risk_summary: str | None = None
+    verified_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

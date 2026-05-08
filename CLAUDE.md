@@ -205,6 +205,7 @@ the company brief, future Slack/email digests, etc.).
 | `/api/v1/messages`                             | POST          | Send message (body: `{content, project_id}`); runs the inline request rule |
 | `/api/v1/requests?project_id={id}&limit=`      | GET           | Requests; omit `project_id` for cross-project tenant view |
 | `/api/v1/deliverables?project_id={id}&limit=`  | GET           | Deliverables; omit `project_id` for cross-project tenant view |
+| `/api/v1/deliverables/{id}/verify`             | POST          | Manually re-enqueue Verifier Worker for this deliverable (decision-locks A1) |
 | `/api/v1/decisions?project_id={id}&blocking_only=&resolved=&limit=` | GET | Decision inbox; omit `project_id` for the Home Decision Inbox strip |
 | `/api/v1/decisions/{id}/resolve`               | POST          | Resolve a decision |
 | `/api/v1/runs?request_id={id}`                 | GET           | Inside panel — runs for a request |

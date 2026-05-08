@@ -287,7 +287,7 @@ async def _dispatch_background(
 
             if run.status == RunStatus.done:
                 knowledge = resolve_knowledge_client(integrations.bsage, auth_token=originator_token)
-                await publish_run_output(run, session, knowledge=knowledge)
+                await publish_run_output(run, session, knowledge=knowledge, stream_manager=stream_manager)
             await session.commit()
     except asyncio.CancelledError:
         logger.info("background_dispatch_cancelled", run_id=str(run_id))

@@ -64,6 +64,14 @@ class Settings(BsvibeSettings):
     # Per-project workspace root — where run outputs land as real files.
     workspace_root: str = "./data/workspaces"
 
+    # Verifier Worker (decision-locks A1, 2026-05-08). When enabled, the
+    # process boots a background ``VerifierWorker`` that consumes the
+    # ``verification:queue`` Redis Stream and runs ``Verifier``
+    # implementations against new Deliverables. Setting this to False
+    # leaves new Deliverables at ``proof_state = verification_missing``
+    # (degradable per the project's MUST rule).
+    verifier_enabled: bool = True
+
     # Claude Code executor (worker path)
     workspace_dir: str = "/workspace"
     execution_timeout_seconds: int = 3600

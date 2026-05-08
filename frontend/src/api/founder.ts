@@ -43,6 +43,17 @@ export const deliverablesApi = {
     const { data } = await apiClient.get<Deliverable[]>(url)
     return data
   },
+  /**
+   * Manually re-enqueue a deliverable's verification (decision-locks A1).
+   * Returns the deliverable with its current proof state — verification
+   * runs asynchronously and the SSE channel pushes the eventual transition.
+   */
+  verify: async (deliverableId: string): Promise<Deliverable> => {
+    const { data } = await apiClient.post<Deliverable>(
+      `/api/v1/deliverables/${deliverableId}/verify`,
+    )
+    return data
+  },
 }
 
 export const decisionsApi = {
