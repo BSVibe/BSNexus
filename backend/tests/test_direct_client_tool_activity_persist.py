@@ -204,8 +204,9 @@ async def test_execute_records_done_outcome_error_when_tool_raises() -> None:
 
 @pytest.mark.asyncio
 async def test_execute_returns_empty_log_when_no_tool_calls() -> None:
-    """Plain text run with zero tool calls → ``tool_activity_log`` is
-    an empty list (not None) so the dispatcher can iterate freely."""
+    """Plain text run with zero tool calls → no tool_call records in
+    the log (only the per-round llm_round_complete milestone). The
+    list is always present so the dispatcher can iterate freely."""
     adapter = DirectLLMAdapter(
         model="anthropic/claude-3-5-sonnet",
         api_key="k",
@@ -235,7 +236,9 @@ async def test_execute_returns_empty_log_when_no_tool_calls() -> None:
             tools_allowed=[],
         )
 
-    assert result["tool_activity_log"] == []
+    log = result["tool_activity_log"]
+    tool_records = [r for r in log if r["kind"].startswith("tool_call_")]
+    assert tool_records == []
 
 
 @pytest.mark.asyncio

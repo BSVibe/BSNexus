@@ -263,6 +263,7 @@ class DirectLLMAdapter:
         or the round cap fires.
         """
         aggregated_text: list[str] = []
+        per_round_replies: list[str] = []
         finish_reason: str | None = None
 
         for round_idx in range(self._max_tool_rounds):
@@ -309,15 +310,29 @@ class DirectLLMAdapter:
                     partial_output="".join(aggregated_text),
                 ) from exc
 
+            round_reply = "".join(content_parts)
+            content_chars = len(round_reply)
+            tool_call_count = len(tool_calls)
             logger.info(
                 "llm_iteration_returned",
                 project_id=str(self._project_id),
                 round_idx=round_idx,
-                content_chars=sum(len(c) for c in content_parts),
-                tool_call_count=len(tool_calls),
+                content_chars=content_chars,
+                tool_call_count=tool_call_count,
                 finish_reason=this_finish,
             )
+            self._tool_activity_log.append(
+                {
+                    "kind": "llm_round_complete",
+                    "round_idx": round_idx,
+                    "content_chars": content_chars,
+                    "tool_call_count": tool_call_count,
+                    "finish_reason": this_finish,
+                    "occurred_at": datetime.now(timezone.utc).isoformat(),
+                }
+            )
 
+            per_round_replies.append(round_reply)
             aggregated_text.extend(content_parts)
             finish_reason = this_finish
 
@@ -358,6 +373,7 @@ class DirectLLMAdapter:
             "actual_cost_cents": 0,
             "finish_reason": finish_reason,
             "tool_activity_log": list(self._tool_activity_log),
+            "per_round_replies": list(per_round_replies),
         }
 
     async def _run_iteration(

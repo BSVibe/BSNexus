@@ -237,8 +237,10 @@ async def test_tool_loop_no_tool_calls_returns_text() -> None:
     assert result["output_ref"] == {"inline": "Done"}
     assert result["actual_cost_cents"] == 0
     assert result["finish_reason"] == "stop"
-    # No MCP tools dispatched → empty activity log.
-    assert result["tool_activity_log"] == []
+    # No MCP tools dispatched → no tool_call records in the log
+    # (the log still carries the llm_round_complete milestone).
+    tool_records = [r for r in result["tool_activity_log"] if r["kind"].startswith("tool_call_")]
+    assert tool_records == []
 
 
 @pytest.mark.asyncio

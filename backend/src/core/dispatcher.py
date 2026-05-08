@@ -289,8 +289,17 @@ async def _dispatch_background(
                     from backend.src.core.llm.activity_persistence import (  # noqa: PLC0415
                         persist_tool_activity_log,
                     )
+                    from backend.src.core.llm.run_summary import compute_run_summary  # noqa: PLC0415
 
                     await persist_tool_activity_log(run, partial_activity, session)
+                    final_reply = ""
+                    if isinstance(result.get("output_ref"), dict):
+                        final_reply = result["output_ref"].get("inline") or ""
+                    run.run_summary = compute_run_summary(
+                        activity_log=partial_activity,
+                        per_round_replies=[],  # adapter raised before we extracted them
+                        final_reply_text=final_reply,
+                    )
                 await session.commit()
                 return
 
@@ -316,6 +325,22 @@ async def _dispatch_background(
                 )
 
                 await persist_tool_activity_log(run, activity_log, session)
+
+            # Compute the run_summary aggregate the failure-mode
+            # dashboard reads from (PR7 TASK-004). Always stamp when
+            # we have an activity log — even an empty/blocked run
+            # carries dashboard signal.
+            if activity_log:
+                from backend.src.core.llm.run_summary import compute_run_summary  # noqa: PLC0415
+
+                final_reply = ""
+                if isinstance(result.get("output_ref"), dict):
+                    final_reply = result["output_ref"].get("inline") or ""
+                run.run_summary = compute_run_summary(
+                    activity_log=activity_log,
+                    per_round_replies=result.get("per_round_replies") or [],
+                    final_reply_text=final_reply,
+                )
 
             await session.commit()
     except asyncio.CancelledError:
