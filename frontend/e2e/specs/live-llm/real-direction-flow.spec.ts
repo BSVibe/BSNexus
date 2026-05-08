@@ -21,10 +21,12 @@ const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://bsserver:11434'
 
 // Locally-hosted Ollama models on bsserver routinely take 3–4 minutes
 // for the easy / medium scenarios (qwen3-coder:30b walks 7–10 tool-call
-// rounds before emitting the bsnexus-verification block). Cap the
-// poller generously so a slow-but-correct run isn't reported as a
-// product regression.
-const DELIVERABLE_TIMEOUT_MS = 360_000
+// rounds before emitting the bsnexus-verification block). PR8 dogfood
+// observed occasional 6+ minute stalls under bsserver load even on
+// runs that eventually verified — bump to 10 min to absorb the
+// hardware variance instead of falsely reporting a hardware stall as
+// a product regression.
+const DELIVERABLE_TIMEOUT_MS = 600_000
 const PROOF_VERIFIED_TIMEOUT_MS = 60_000
 
 interface Project {

@@ -63,6 +63,9 @@ async def _seed(db_session, tenant_id, *, intent: str, reply: str) -> ExecutionR
         "I will write the test file now.",
         "I see that the artifact_list tool is not available.",
         "Looking at the workspace, I'll begin by writing add.py.",
+        "I need to build a FastAPI app with a test.",
+        "I should start with the structure.",
+        "First, I need to read stack.md.",
     ],
 )
 @pytest.mark.asyncio

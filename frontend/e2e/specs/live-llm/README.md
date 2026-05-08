@@ -113,11 +113,32 @@ e2e flow.
   proof_state to land at `verified`. Adjust if your LLM/verifier are
   slow.
 
-## Model compatibility — what we observed (2026-05-08 dogfood)
+## Model compatibility — what we observed (2026-05-08 / PR8 dogfood)
+
+PR8 dogfood ran 3 iterations × 3 scenarios = 9 attempts on
+`qwen3-coder:30b` running locally on bsserver (48GB Apple Silicon
+Mac Mini, Ollama via Tailscale). Refined-prompt results (after
+TASK-B3+B4 prompt iteration):
+
+| Scenario | Iter 1 (old prompt) | Iter 2 (refined) | Iter 3 (refined) | Refined reliability |
+|---|---|---|---|---|
+| smoke | ✅ (15s) | ✅ (8.7s) | ✅ (20.6s) | 2/2 = 100% |
+| easy | ❌ premature emit | ✅ (38.5s) | ✅ (24.3s) | 2/2 = 100% |
+| medium | ❌ no block, blocked | ✅ (28.3s) | ❌ preamble-only reply | 1/2 = 50% |
+
+Smoke + easy reached "actually working" reliability on the 48GB Mac
+Mini envelope. Medium remains flaky — the failure mode is the LLM
+emitting a single preamble-only sentence ("I need to build a FastAPI
+app with a test.") with no tool calls and no verification block,
+likely correlated with Ollama VRAM contention from concurrent models
+(`glm-4.7-flash:latest` was observed squatting on 26.6GB of VRAM
+during failed runs; pre-warming or unloading other models stabilises
+qwen3-coder load times).
 
 | Model (Ollama tag) | Tool-call quality | Notes |
 |---|---|---|
-| `qwen3-coder:30b` | smoke ✅, easy/medium ⚠️ hardware-bound | Smoke scenario reached `proof_state=verified` end-to-end (deliverable `1de609bc...` at 12:51 UTC, exit_code=0). Easy/medium intermittent — long multi-turn runs (10+ rounds) hit Ollama Metal OOM on bsserver (`Insufficient Memory ... kIOGPUCommandBufferCallbackErrorOutOfMemory`), surfaces in logs as `litellm.APIConnectionError: Ollama_chatException — KeyError: 'message'` followed by a downstream `RuntimeError: generator didn't stop after athrow()` from `_mcp_session()` cleanup. Hardware constraint, not code. |
+| `qwen3-coder:30b` (PR8 refined) | smoke ✅ 100%, easy ✅ 100%, medium ⚠️ ~50% | Refined prompt with mandatory work-then-block ordering closed the "premature block emission" gap. Multi-file medium scenarios still flake on cold-load + concurrent-model VRAM contention. PR9 will iterate further. |
+| `qwen3-coder:30b` (PR7 baseline, old prompt) | smoke 1/2, easy 0/1, medium 0/1 | Dominant failure was fenced-block emit (33% rate). Captured in `~/Docs/BSNexus/PR8_baseline_findings.md`. |
 | `qwen3-coder:30b` (multi-turn, pre-fix) | round 1 OK, round 2 crashed | The model returned a tool_call with two JSON objects concatenated in `arguments` (`{"path": "a"}{"path": "b"}`); litellm's `ollama/chat/transformation.py` raised `JSONDecodeError: Extra data`. Fixed in this PR by `_split_concatenated_tool_call_arguments()` in `direct_client.py` (uses `json.JSONDecoder().raw_decode()` to walk the buffer; pinned by `tests/test_direct_llm_tool_call_splitter.py`). |
 | `qwen3:14b` | silent — 0 tokens emitted | Reasoning model; Ollama treats it as "thinking mode" by default and the response budget gets eaten by the silent CoT. Per memory `ollama-reasoning-model-think-flag`, litellm doesn't forward `think: false` to ollama. |
 | `ministral-3:14b` | tool-call works, but ollama rejects | Ollama returned `{"error":"tool 'file_write' not found"}` — the model emitted a tool call referring to a tool it didn't have in its definitions. May be a tool-name mismatch that needs probing. |
@@ -131,11 +152,19 @@ Bugs caught and fixed during dogfood (in this PR):
 2. **Concatenated tool_call.arguments crash** — `_split_concatenated_tool_call_arguments()` recovers `{"a":1}{"b":2}` into two independent tool_calls before round 2 is sent back to litellm. Pinned by `tests/test_direct_llm_tool_call_splitter.py`.
 3. **MCP_INTERNAL_URL gotcha** — documented (default `localhost:18100` from main `CLAUDE.md` doesn't match the in-container uvicorn port `8000` of this dev flow; mismatch silently degrades to no-tools mode).
 
+PR8 stabilization fixes (built on top of the above):
+
+4. **Verifier worker enqueue race** — pre-PR8, `publish_run_output` enqueued the verification envelope from inside the writing transaction; the worker dequeued ~3ms later from a fresh session that couldn't see the uncommitted deliverable and skipped it as missing (`verifier_skipped_missing_deliverable`). Even runs where the LLM did the right thing dead-ended at `verification_missing`. Fixed by deferring enqueue to dispatcher Phase 3 AFTER `session.commit()`. Pinned by `tests/test_dispatcher_verifier_enqueue_after_commit.py`.
+5. **Title preamble leak** — local LLMs emit reaction / future-tense preamble ("I'll skip the workspace step…", "I need to build a FastAPI app…", "Let me look first…") that `_first_sentence` was picking up as the deliverable title. Now skipped by a regex against 12+ observed patterns; falls through to `Request.intent_summary` (founder's wording — far more descriptive). Pinned by 15 parametrized tests in `tests/test_run_artifacts_title_preamble.py`.
+6. **Verification block prompt strengthening** — PR7 baseline measured fenced-block emit rate at 33%. Refined `worker-shared-policy.yaml` with `NON-NEGOTIABLE` language, mandatory work-then-block ordering, a clean-reply few-shot example, and 6 documented anti-patterns (premature emission, forgotten block, mismatched command, etc.). Smoke + easy went from <50% → 100% reliability across 3 dogfood iterations. Pinned by 7 tests in `tests/test_worker_policy_verification_block.py`.
+
 Outstanding follow-ups (not blocking PR):
 
 1. **`_mcp_session()` cleanup robustness** — when the inner LLM stream raises (e.g. Ollama OOM mid-stream), the streamablehttp_client TaskGroup re-raises but our generator yields again, producing the misleading `RuntimeError: generator didn't stop after athrow()`. Wrap the body so the actual root-cause exception bubbles up untouched.
 2. **Tool-call history fallback** for the verification block — parse `shell_exec(...)` invocations from the run's tool-call log when the LLM forgets the fenced block.
 3. **Model probe matrix** in CI — a 2-round tool-loop probe per supported model gates which models the live-llm spec defaults to.
+4. **Medium-scenario reliability on 48GB Mac Mini** — PR9 prompt iteration round 2. Current ~50% reliability on multi-file scenarios; failure mode is preamble-only single-round replies under VRAM contention. Probably needs even-stronger task-completion-before-block instruction OR a tool-loop watchdog that detects "round 1 with 0 tool_calls and 0 fenced blocks" and re-prompts.
+5. **Worker pre-warm step** — emit a tiny throwaway prompt to Ollama before each scenario so qwen3-coder is already in VRAM. Eliminates the cold-load × concurrent-model contention failure mode in CI.
 
 ## When this fails
 

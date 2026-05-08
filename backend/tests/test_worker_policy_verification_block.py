@@ -68,3 +68,24 @@ def test_policy_documents_no_op_path_for_design_deliverables() -> None:
     body = _policy_body()
     assert '["true"]' in body
     assert "Pure design / docs deliverables" in body
+
+
+def test_policy_pins_mandatory_order_work_then_block() -> None:
+    """PR8 iteration 2 — local LLM observed emitting the block in
+    round 1 with zero tool calls because the strengthened
+    "NON-NEGOTIABLE" instruction shadowed the do-the-work
+    instruction. Mandatory ordering reasserts: do the work, run
+    verification, THEN emit the block."""
+    body = _policy_body()
+    assert "MANDATORY ORDER" in body
+    assert "FIRST: actually do the work" in body
+    assert "ONLY THEN: emit the verification block" in body
+
+
+def test_policy_flags_both_premature_and_forgotten_block_anti_patterns() -> None:
+    """PR8 iteration 2 — observed two opposing failure modes in the
+    same prompt. Pin both anti-patterns so the prompt iteration's
+    balance survives future cleanup."""
+    body = _policy_body()
+    assert "Premature block emission" in body
+    assert "Block forgotten after lots of work" in body

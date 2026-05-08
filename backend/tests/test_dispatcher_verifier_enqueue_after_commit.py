@@ -53,17 +53,11 @@ async def _seed(db_session, tenant_id, *, reply_text: str) -> ExecutionRun:
 
 
 @pytest.mark.asyncio
-async def test_publish_run_output_does_not_enqueue_inline(
-    db_session, mock_tenant_id, seeded_tenant
-) -> None:
+async def test_publish_run_output_does_not_enqueue_inline(db_session, mock_tenant_id, seeded_tenant) -> None:
     """``publish_run_output`` MUST NOT call ``stream_manager.publish``
     on its own — that's the race the dispatcher's post-commit hook
     fixed."""
-    reply = (
-        "Done.\n\n```bsnexus-verification\n"
-        '{"verifier_type": "software_test", "command": ["true"]}\n'
-        "```\n"
-    )
+    reply = 'Done.\n\n```bsnexus-verification\n{"verifier_type": "software_test", "command": ["true"]}\n```\n'
     run = await _seed(db_session, mock_tenant_id, reply_text=reply)
     stream_manager = AsyncMock()
     stream_manager.publish = AsyncMock(return_value="0-0")
@@ -82,11 +76,7 @@ async def test_post_commit_enqueue_sees_deliverable_in_fresh_session(
 ) -> None:
     """Simulate the dispatcher's post-commit ordering and confirm a
     fresh session can read the deliverable the worker would query."""
-    reply = (
-        "Done.\n\n```bsnexus-verification\n"
-        '{"verifier_type": "software_test", "command": ["true"]}\n'
-        "```\n"
-    )
+    reply = 'Done.\n\n```bsnexus-verification\n{"verifier_type": "software_test", "command": ["true"]}\n```\n'
     run = await _seed(db_session, mock_tenant_id, reply_text=reply)
     stream_manager = AsyncMock()
     stream_manager.publish = AsyncMock(return_value="0-0")
@@ -103,9 +93,7 @@ async def test_post_commit_enqueue_sees_deliverable_in_fresh_session(
     # against an UNCOMMITTED row and got nothing back.
     async with test_session_maker() as worker_session:
         found = (
-            await worker_session.execute(
-                select(Deliverable).where(Deliverable.id == deliverable_id)
-            )
+            await worker_session.execute(select(Deliverable).where(Deliverable.id == deliverable_id))
         ).scalar_one_or_none()
         assert found is not None
         assert found.verifier_type == "software_test"

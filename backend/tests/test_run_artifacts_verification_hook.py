@@ -118,9 +118,7 @@ Done — wrote add.py and tests/test_add.py. shell_exec exit=0.
 
 
 @pytest.mark.asyncio
-async def test_publish_run_output_skips_enqueue_when_block_missing(
-    db_session, mock_tenant_id, seeded_tenant
-) -> None:
+async def test_publish_run_output_skips_enqueue_when_block_missing(db_session, mock_tenant_id, seeded_tenant) -> None:
     """No fenced block ⇒ verifier_type stays None, no envelope enqueued.
     Deliverable still gets created with proof_state=verification_missing
     (the schema default). UI surfaces 'no proof'."""
@@ -149,9 +147,7 @@ async def test_publish_run_output_skips_enqueue_when_block_missing(
 
 
 @pytest.mark.asyncio
-async def test_deliverable_title_does_not_leak_verification_block(
-    db_session, mock_tenant_id, seeded_tenant
-) -> None:
+async def test_deliverable_title_does_not_leak_verification_block(db_session, mock_tenant_id, seeded_tenant) -> None:
     """Regression: live-LLM run 2026-05-08 produced a deliverable with
     ``title = "bsnexus-verification"`` because ``_first_sentence`` walked
     into the fenced block when the LLM's reply had no other prose.
@@ -174,9 +170,7 @@ async def test_deliverable_title_does_not_leak_verification_block(
     from sqlalchemy import select
 
     deliverable = (
-        await db_session.execute(
-            select(Deliverable).where(Deliverable.project_id == run.project_id)
-        )
+        await db_session.execute(select(Deliverable).where(Deliverable.project_id == run.project_id))
     ).scalar_one()
     assert deliverable.title != "bsnexus-verification"
     # verifier_type is still stamped (parsed from raw reply).
@@ -197,9 +191,7 @@ async def test_deliverable_title_does_not_leak_verification_block(
 
 
 @pytest.mark.asyncio
-async def test_publish_run_output_ignores_malformed_block(
-    db_session, mock_tenant_id, seeded_tenant
-) -> None:
+async def test_publish_run_output_ignores_malformed_block(db_session, mock_tenant_id, seeded_tenant) -> None:
     """Malformed fenced JSON ⇒ no-op, deliverable still created cleanly.
     The orchestrator must never propagate parser failures."""
     reply = """\
@@ -220,9 +212,7 @@ done.
     from sqlalchemy import select
 
     deliverable = (
-        await db_session.execute(
-            select(Deliverable).where(Deliverable.project_id == run.project_id)
-        )
+        await db_session.execute(select(Deliverable).where(Deliverable.project_id == run.project_id))
     ).scalar_one()
     assert deliverable.verifier_type is None
     stream_manager.publish.assert_not_awaited()

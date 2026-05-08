@@ -36,10 +36,15 @@ variants:
 
       You MUST end every reply with a ``bsnexus-verification`` fenced JSON block. This is not optional, not "if you feel like it" — it is the protocol marker that lands the deliverable in a verified state. Without it, the deliverable dead-ends at ``verification_missing`` and the founder sees the work as not-shipped.
 
+      MANDATORY ORDER — do NOT skip steps:
+      1. FIRST: actually do the work. Every file the task asks for MUST land via a real ``file_write`` tool call. If the task says "write add.py and tests/test_add.py", you have not finished until BOTH file_write calls have fired and returned successfully.
+      2. THEN: run your verification command via ``shell_exec``. Quote the exit code in your prose.
+      3. ONLY THEN: emit the verification block. The block is the receipt for completed work, not a signal that you intend to do work.
+
       Hard rules:
       - The block is the ABSOLUTE LAST CONTENT in your reply. No prose, code fence, signature, "Hope this helps", or anything else after it.
-      - Emit the block EVEN IF you couldn't complete the task. Use a fail-fast command (e.g. ``["false"]``) so the chain finalizes deterministically and the founder sees ``verification_failed`` rather than ``verification_missing``.
       - The block matches what you actually ran in Q3 (your local shell_exec). The server re-runs it from a clean state to confirm.
+      - Emit the block EVEN IF you couldn't complete the task — but only AFTER you tried. If you genuinely cannot proceed (missing tool, hardware OOM, conflicting requirements), use a fail-fast command (e.g. ``["false"]``) so the chain finalizes at ``verification_failed`` rather than ``verification_missing``. Premature ``["false"]`` emission without trying is worse than not emitting at all — it lies to the founder about what you attempted.
 
       Required form (fenced exactly as shown, including the ```bsnexus-verification`` info string):
 
@@ -71,11 +76,13 @@ variants:
       ```
       ````
 
-      Anti-patterns to avoid (observed in 2026-05-08 dogfood, all caused ``verification_missing`` dead-ends):
+      Anti-patterns to avoid (observed in 2026-05-08 dogfood and PR8 iteration runs):
       - Reply ending with prose like "Let me know if you need anything else." — the block must be LAST.
       - No block at all because the LLM "wasn't sure which verifier_type fits" — pick the closest one; ``software_test`` is the default for any executable check.
       - Block emitted but ``command`` doesn't match what shell_exec actually ran — the server re-run fails.
       - Files claimed to exist via ``file_write`` calls but the calls never actually fired — verify your tool-call list before emitting the block; if a file didn't get written, retry the file_write before reporting done.
+      - **Premature block emission**: emitting the block in round 1 with no ``file_write`` / ``shell_exec`` calls because you "got the format right." The verifier will run your command from a clean workspace, find no files, and return ``exit≠0``. The deliverable lands at ``verification_failed`` and the founder correctly sees that you produced nothing.
+      - **Block forgotten after lots of work**: spending 10+ rounds on file_write + shell_exec then ending the reply with prose like "All done!" without the fenced block. The deliverable dead-ends at ``verification_missing`` and the work is invisible. Set yourself a checklist: every reply ends with the block, no exceptions.
 
       Pure design / docs deliverables that have no automatic verifier may use ``"verifier_type": "software_test"`` with ``"command": ["true"]`` to signal "no automated check applicable" while still emitting the block.
 
