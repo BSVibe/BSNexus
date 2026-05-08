@@ -129,3 +129,51 @@ export interface CompositionSnapshot {
 
 export type IntegrationProvider = 'bsage' | 'bsupervisor'
 export type AuditFailMode = 'open' | 'closed'
+
+// ── Brief (decision-locks A2) ─────────────────────────────────────
+
+export interface BriefDeliverable {
+  id: string
+  project_id: string
+  title: string
+  type: DeliverableType
+  proof_state: ProofState
+  proof_summary: string | null
+  verifier_type: string | null
+  verified_at: string | null
+  created_at: string
+}
+
+export interface BriefDecision {
+  id: string
+  project_id: string
+  question: string
+  blocking: boolean
+  created_at: string
+}
+
+export interface BriefRun {
+  id: string
+  project_id: string
+  request_id: string | null
+  request_intent: string | null
+  status: RunStatus
+  started_at: string | null
+  created_at: string
+  error_message: string | null
+}
+
+export interface BriefNextHint {
+  summary: string
+  request_id: string | null
+}
+
+export interface BriefResponse {
+  project_id: string | null
+  generated_at: string
+  shipped: BriefDeliverable[]
+  needs_decision: BriefDecision[]
+  blocked: BriefRun[]
+  running: BriefRun[]
+  next: BriefNextHint[]
+}

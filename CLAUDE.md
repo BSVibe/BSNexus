@@ -14,8 +14,9 @@ Four user-facing surfaces per project:
 - **Direction** — single Chief-of-Staff conversation. User messages are
   auto-classified (chit_chat / question / request / modification) and
   Request rows are created/appended accordingly.
-- **Progress** — deliverable timeline + three trust cards showing whether
-  BSage / BSGateway / BSupervisor are connected.
+- **Brief** — 5-section summary surface (shipped, needs decision,
+  blocked, running, next). Decision-locks A2/O5: timeline became a
+  subsection in PR4, the lead is the founder cards.
 - **Decisions** — approval inbox, blocking items first.
 - **Inside** (opt-in) — execution-run tree + composition-snapshot viewer
   for debugging.
@@ -208,6 +209,7 @@ the company brief, future Slack/email digests, etc.).
 | `/api/v1/deliverables/{id}/verify`             | POST          | Manually re-enqueue Verifier Worker for this deliverable (decision-locks A1) |
 | `/api/v1/decisions?project_id={id}&blocking_only=&resolved=&limit=` | GET | Decision inbox; omit `project_id` for the Home Decision Inbox strip |
 | `/api/v1/decisions/{id}/resolve`               | POST          | Resolve a decision |
+| `/api/v1/brief?project_id={id}&limit=`         | GET           | 5-section Brief payload (decision-locks A2); omit `project_id` for the company Brief |
 | `/api/v1/runs?request_id={id}`                 | GET           | Inside panel — runs for a request |
 | `/api/v1/composition-snapshots/{id}`           | GET           | Inside panel — snapshot detail |
 | `/api/v1/events?project_id={id}`               | GET           | SSE stream for a project (chat / runs / deliverables / decisions) |

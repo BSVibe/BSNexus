@@ -33,10 +33,13 @@ const MIN_KEY_COUNT = 179
 
 // Surfaces in scope (CLAUDE.md §Project Structure — frontend/src/components):
 //   direction (single Chief-of-Staff conversation, lives in GlobalChat)
-//   progress  (deliverable timeline)
+//   brief     (5 founder-cards summary surface — replaces the legacy
+//              ``progress`` timeline-only namespace, locked O5 trigger
+//              reached 2026-05-08 with the surface restructure)
 //   decisions (approval inbox)
-//   inside    (execution-run tree + composition snapshot — Inspector.tsx)
-// Plus auth, common, layout, settings, dashboard, project, landing.
+//   inside    (execution-run tree + composition snapshot — InsideView)
+// Plus auth, common, layout, settings, dashboard, project, landing,
+// help, decisionInbox (Home strip).
 const REQUIRED_TOP_NAMESPACES = ['nexus']
 const REQUIRED_NEXUS_SUBSECTIONS = [
   'common',
@@ -45,7 +48,7 @@ const REQUIRED_NEXUS_SUBSECTIONS = [
   'palette',
   'dashboard',
   'project',
-  'progress',
+  'brief',
   'decisions',
   'inside',
   'chat',
