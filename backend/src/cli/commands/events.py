@@ -25,13 +25,10 @@ import asyncio
 import json
 from typing import Any
 
-import structlog
 import typer
 
 from backend.src.cli._client import build_http_client
 from backend.src.cli.commands._common import emit_dry_run, emit_http_error, run_async
-
-logger = structlog.get_logger(__name__)
 
 app = typer.Typer(
     name="events",
