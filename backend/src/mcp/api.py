@@ -102,6 +102,11 @@ class ToolContext:
     outbox INSERT (often the same session, but kept distinct so a
     handler that opens its own scoped session can still hand the
     dispatcher a session for the audit row).
+
+    ``run_id`` / ``project_id`` are populated for run-scoped
+    (domain-tool) callers; they come from the run-scoped HMAC token
+    claim that the FastMCP transport gate verifies before dispatch.
+    Admin-tool callers leave them ``None``.
     """
 
     settings: Any
@@ -109,6 +114,8 @@ class ToolContext:
     db: AsyncSession | None = None
     audit_session: AsyncSession | None = None
     logger: structlog.stdlib.BoundLogger | None = None
+    run_id: str | None = None
+    project_id: str | None = None
 
 
 ToolHandler = Callable[[BaseModel, ToolContext], Awaitable[BaseModel]]

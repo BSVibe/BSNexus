@@ -32,30 +32,18 @@ from __future__ import annotations
 import contextvars
 from typing import Any
 from urllib.parse import parse_qs
-from uuid import UUID
 
 import structlog
+from bsvibe_authz import User
 from fastapi import APIRouter, HTTPException, Query, status
 
 from backend.src.config import settings
-from backend.src.core.composer.knowledge_client import (
-    KnowledgeClient,
-    NoopKnowledgeClient,
-)
+from backend.src.mcp.api import ToolContext, ToolRegistry
 from backend.src.mcp.auth import (
     MCPAuthError,
     verify_run_scoped_token,
 )
-from backend.src.mcp.decision_queue import get_decision_queue
-from backend.src.mcp.tools import (
-    MCPToolError,
-    create_decision,
-    list_run_artifacts,
-    read_artifact,
-    report_deliverable,
-    search_knowledge,
-    wait_for_decision,
-)
+from backend.src.mcp.domain_tools import DOMAIN_RUN_SCOPE, register_domain_tools
 from backend.src.storage.database import async_session
 
 logger = structlog.get_logger(__name__)
@@ -84,121 +72,148 @@ async def mcp_health(token: str = Query(...)) -> dict[str, Any]:
     return {"ok": True, "claim": claim}
 
 
+_registry: ToolRegistry | None = None
+
+
+def get_registry() -> ToolRegistry:
+    """Return the process-wide :class:`ToolRegistry` for MCP dispatch.
+
+    Built lazily on first access so tests that import the module don't
+    pay for tool registration up-front. The registry holds every
+    domain tool today; admin tools (TASK-004) will register on the
+    same instance so HTTP+stdio share one catalog.
+    """
+    global _registry
+    if _registry is None:
+        reg = ToolRegistry()
+        register_domain_tools(reg)
+        _registry = reg
+    return _registry
+
+
+def _build_run_context(claim: dict[str, str], session) -> ToolContext:
+    """Build a :class:`ToolContext` for a run-scoped MCP call.
+
+    The synthetic :class:`User` carries ``DOMAIN_RUN_SCOPE`` so the
+    registry's scope gate grants every domain tool. Run / project / tenant
+    come from the verified token claim — never trusted from input.
+    """
+    user = User(
+        id=f"run:{claim['run_id']}",
+        is_service=True,
+        scope=[DOMAIN_RUN_SCOPE],
+        active_tenant_id=claim["tenant_id"],
+    )
+    return ToolContext(
+        settings=settings,
+        user=user,
+        db=session,
+        audit_session=session,
+        logger=logger,
+        run_id=claim["run_id"],
+        project_id=claim["project_id"],
+    )
+
+
 def _build_fastmcp() -> Any:
     """Construct the FastMCP server with the six BSNexus tools.
 
-    Tools read the per-request auth context from ``_auth_ctx``; the SSE
-    handler sets it before yielding to FastMCP's transport.
+    Each ``@app.tool()`` wrapper is a thin transport adapter — it reads
+    the verified run-scoped claim from the contextvar (set by
+    :func:`attach_to_app`'s ASGI gate), opens a DB session, builds a
+    :class:`ToolContext`, and dispatches through the shared
+    :class:`ToolRegistry`. The first-class :class:`Tool` definitions
+    in :mod:`backend.src.mcp.domain_tools` carry the Pydantic input /
+    output schemas, scope requirements, and ``audit_event`` for mutating
+    calls — the wrapper here does no business logic.
+
+    ``streamable_http_path="/"`` keeps FastMCP's transport route at the
+    mount root. The default ``/mcp`` would push the actual URL to
+    ``/mcp/http/mcp`` once mounted under ``/mcp/http``, and
+    ``dispatcher.py`` advertises the endpoint as
+    ``{base}/mcp/http?token=...`` — that 404s and the LLM tool loop
+    silently falls back to no-tools mode (Round 1 finding 2026-05-07).
     """
     from mcp.server.fastmcp import FastMCP  # noqa: PLC0415
 
-    # ``streamable_http_path="/"`` keeps FastMCP's transport route at
-    # the mount root. The default ``/mcp`` would push the actual URL to
-    # ``/mcp/http/mcp`` once mounted under ``/mcp/http`` (see
-    # ``attach_to_app``), and dispatcher.py advertises the endpoint as
-    # ``{base}/mcp/http?token=...`` — that 404s and the LLM tool loop
-    # silently falls back to no-tools mode (Round 1 finding 2026-05-07,
-    # ``tools_in_kwargs: false`` for every run).
     app = FastMCP("bsnexus", streamable_http_path="/")
+    registry = get_registry()
 
     @app.tool()
     async def decision_create(
         question: str, options: list[str] | None = None, context: str | None = None
     ) -> dict[str, str]:
         """Open a Decision row for the founder to resolve. Returns ``{decision_id}``."""
-        ctx = _auth_ctx.get()
+        claim = _auth_ctx.get()
         async with async_session() as session:
-            decision_id = await create_decision(
-                question=question,
-                options=options or [],
-                context=context,
-                run_id=UUID(ctx["run_id"]),
-                tenant_id=UUID(ctx["tenant_id"]),
-                project_id=UUID(ctx["project_id"]),
-                db=session,
+            ctx = _build_run_context(claim, session)
+            result = await registry.call_tool(
+                "decision_create",
+                {"question": question, "options": options or [], "context": context},
+                ctx,
             )
             await session.commit()
-        return {"decision_id": str(decision_id)}
+        return result.model_dump()
 
     @app.tool()
     async def decision_wait(decision_id: str, timeout_seconds: float = 3000.0) -> dict[str, Any]:
-        """Block until the founder resolves the decision. Returns ``{choice, notes}``."""
-        ctx = _auth_ctx.get()
+        """Block until the founder resolves the decision. Returns ``{choice, notes}`` or ``{error}``."""
+        claim = _auth_ctx.get()
         async with async_session() as session:
-            try:
-                return await wait_for_decision(
-                    decision_id=UUID(decision_id),
-                    tenant_id=UUID(ctx["tenant_id"]),
-                    queue=get_decision_queue(),
-                    timeout_seconds=timeout_seconds,
-                    db=session,
-                )
-            except MCPToolError as exc:
-                # MCP convention: tool errors are surfaced as the result
-                # rather than the transport blowing up — claude can
-                # decide how to handle.
-                return {"error": str(exc)}
+            ctx = _build_run_context(claim, session)
+            result = await registry.call_tool(
+                "decision_wait",
+                {"decision_id": decision_id, "timeout_seconds": timeout_seconds},
+                ctx,
+            )
+        # ``exclude_none`` keeps the wire shape compatible with the
+        # previous wrapper which returned ``{choice, notes}`` on success
+        # and ``{error}`` on failure — never the union with all fields.
+        return result.model_dump(exclude_none=True)
 
     @app.tool()
     async def artifact_list(request_id: str) -> list[dict[str, Any]]:
         """List deliverables for a request. Returns ``[{id, title, type, status}]``."""
-        ctx = _auth_ctx.get()
+        claim = _auth_ctx.get()
         async with async_session() as session:
-            return await list_run_artifacts(
-                request_id=UUID(request_id),
-                tenant_id=UUID(ctx["tenant_id"]),
-                db=session,
-            )
+            ctx = _build_run_context(claim, session)
+            result = await registry.call_tool("artifact_list", {"request_id": request_id}, ctx)
+        # FastMCP wire shape pinned by callers is a bare list; unwrap the
+        # ``items`` envelope from the typed output.
+        return [item.model_dump() for item in result.items]
 
     @app.tool()
     async def deliverable_report(title: str, body: str, links: list[str] | None = None) -> dict[str, str]:
         """Persist a Deliverable + DeliverableVersion. Returns ``{deliverable_id}``."""
-        ctx = _auth_ctx.get()
+        claim = _auth_ctx.get()
         async with async_session() as session:
-            deliv_id = await report_deliverable(
-                title=title,
-                body=body,
-                links=links,
-                run_id=UUID(ctx["run_id"]),
-                tenant_id=UUID(ctx["tenant_id"]),
-                project_id=UUID(ctx["project_id"]),
-                db=session,
+            ctx = _build_run_context(claim, session)
+            result = await registry.call_tool(
+                "deliverable_report",
+                {"title": title, "body": body, "links": links},
+                ctx,
             )
             await session.commit()
-        return {"deliverable_id": str(deliv_id)}
+        return result.model_dump()
 
     @app.tool()
     async def artifact_read(deliverable_id: str) -> dict[str, str]:
         """Return the inline body of a Deliverable's current version.
-        Returns ``{body}`` (may be empty for non-inline / unversioned)."""
-        ctx = _auth_ctx.get()
+        Returns ``{body}`` (may include ``error`` for non-inline / missing)."""
+        claim = _auth_ctx.get()
         async with async_session() as session:
-            try:
-                body = await read_artifact(
-                    deliverable_id=UUID(deliverable_id),
-                    tenant_id=UUID(ctx["tenant_id"]),
-                    db=session,
-                )
-            except MCPToolError as exc:
-                return {"error": str(exc), "body": ""}
-        return {"body": body}
+            ctx = _build_run_context(claim, session)
+            result = await registry.call_tool("artifact_read", {"deliverable_id": deliverable_id}, ctx)
+        return result.model_dump(exclude_none=True)
 
     @app.tool()
     async def knowledge_search(query: str, top_k: int = 10) -> list[dict[str, str]]:
         """Search BSage. Returns ``[{title, excerpt}]`` (empty if BSage disabled)."""
-        # BSage routing requires the tenant integration snapshot, which
-        # we resolve fresh so the tool stays correct across config edits.
-        from backend.src.core.composer import resolve_knowledge_client  # noqa: PLC0415
-        from backend.src.core.integrations import get_tenant_integration_snapshot  # noqa: PLC0415
-
-        ctx = _auth_ctx.get()
+        claim = _auth_ctx.get()
         async with async_session() as session:
-            integrations = await get_tenant_integration_snapshot(session, UUID(ctx["tenant_id"]))
-            knowledge: KnowledgeClient = resolve_knowledge_client(integrations.bsage)
-
-        if isinstance(knowledge, NoopKnowledgeClient):
-            return []
-        return await search_knowledge(query=query, knowledge_client=knowledge, top_k=top_k)
+            ctx = _build_run_context(claim, session)
+            result = await registry.call_tool("knowledge_search", {"query": query, "top_k": top_k}, ctx)
+        return [hit.model_dump() for hit in result.hits]
 
     return app
 
