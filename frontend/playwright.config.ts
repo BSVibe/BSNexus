@@ -9,8 +9,15 @@ const CONDA_LIB = resolve(homedir(), '.mamba/envs/pw-deps/lib')
 const CONDA_SHARE = resolve(homedir(), '.mamba/envs/pw-deps/share')
 const FONTCONFIG_DIR = resolve(homedir(), '.config/fontconfig')
 
+// Live-LLM specs hit a real backend + Ollama and are intentionally
+// excluded from the default run. Set ``LIVE_LLM=1`` (or use the
+// ``test:e2e:live-llm`` script) to opt in. See
+// ``e2e/specs/live-llm/README.md`` for the full setup checklist.
+const LIVE_LLM_ENABLED = process.env.LIVE_LLM === '1'
+
 export default defineConfig({
   testDir: './e2e/specs',
+  testIgnore: LIVE_LLM_ENABLED ? undefined : ['**/live-llm/**'],
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
