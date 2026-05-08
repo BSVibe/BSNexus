@@ -82,18 +82,10 @@ Done — wrote add.py and tests/test_add.py. shell_exec exit=0.
     stream_manager = AsyncMock()
     stream_manager.publish = AsyncMock(return_value="0-0")
 
-    await publish_run_output(run, db_session, stream_manager=stream_manager)
+    deliverable = await publish_run_output(run, db_session, stream_manager=stream_manager)
     await db_session.commit()
 
-    from backend.src.models import Deliverable
-    from sqlalchemy import select
-
-    deliverable = (
-        await db_session.execute(
-            select(Deliverable).where(Deliverable.project_id == run.project_id)
-        )
-    ).scalar_one()
-
+    assert deliverable is not None
     assert deliverable.verifier_type == "software_test"
     assert deliverable.verifier_inputs is not None
     assert deliverable.verifier_inputs["command"] == [
@@ -108,7 +100,15 @@ Done — wrote add.py and tests/test_add.py. shell_exec exit=0.
     # against the project workspace root.
     expected_cwd = (project_workspace.project_workspace_path(run.project_id) / "tests").resolve()
     assert deliverable.verifier_inputs["cwd"] == str(expected_cwd)
-    # Auto-enqueue ran.
+
+    # PR8 race fix — ``publish_run_output`` no longer enqueues from
+    # inside its session. The dispatcher commits then calls
+    # ``maybe_enqueue_for_deliverable`` post-commit. Verify the
+    # standalone helper behaves correctly when called against a
+    # committed deliverable.
+    from backend.src.core.verifier.enqueue import maybe_enqueue_for_deliverable  # noqa: PLC0415
+
+    await maybe_enqueue_for_deliverable(stream_manager, deliverable)
     stream_manager.publish.assert_awaited_once()
     args, _ = stream_manager.publish.call_args
     assert args[0] == VERIFICATION_QUEUE_STREAM
@@ -132,20 +132,19 @@ async def test_publish_run_output_skips_enqueue_when_block_missing(
     stream_manager = AsyncMock()
     stream_manager.publish = AsyncMock(return_value="0-0")
 
-    await publish_run_output(run, db_session, stream_manager=stream_manager)
+    deliverable = await publish_run_output(run, db_session, stream_manager=stream_manager)
     await db_session.commit()
 
-    from backend.src.models import Deliverable
-    from sqlalchemy import select
-
-    deliverable = (
-        await db_session.execute(
-            select(Deliverable).where(Deliverable.project_id == run.project_id)
-        )
-    ).scalar_one()
+    assert deliverable is not None
     assert deliverable.verifier_type is None
     assert deliverable.verifier_inputs is None
     assert deliverable.proof_state == ProofState.verification_missing
+
+    # No fenced block ⇒ ``publish_run_output`` returns the deliverable
+    # but downstream enqueue logic treats verifier_type=None as a no-op.
+    from backend.src.core.verifier.enqueue import maybe_enqueue_for_deliverable  # noqa: PLC0415
+
+    await maybe_enqueue_for_deliverable(stream_manager, deliverable)
     stream_manager.publish.assert_not_awaited()
 
 

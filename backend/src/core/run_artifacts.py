@@ -80,29 +80,38 @@ async def publish_run_output(
     *,
     knowledge: "KnowledgeClient | None" = None,
     stream_manager: "Any | None" = None,
-) -> None:
+) -> "Deliverable | None":
     """Materialise a completed run's chat reply + deliverable in the UI.
+
+    Returns the created/updated deliverable so the caller can enqueue
+    verification AFTER its enclosing transaction commits — see PR8 race
+    fix below. Returns ``None`` for runs that produced no output (chat-
+    only / empty) and runs whose status isn't ``done``.
 
     When ``knowledge`` is provided, the deliverable is also indexed back
     into BSage so future projects can find it via search. Indexing
     failures are logged but never raised — deliverable creation always
     succeeds regardless of BSage health.
 
-    When ``stream_manager`` is provided and the deliverable carries a
-    verifier_type (decision-locks A1), an envelope is enqueued onto the
-    verification queue so the Verifier Worker picks the deliverable up
-    asynchronously. No-op when the deliverable was created without a
-    verifier configured — the Verifier Worker pattern is degradable.
+    The ``stream_manager`` parameter is accepted for API stability but
+    NO LONGER triggers verifier enqueue here. PR3 (#68) had us enqueue
+    inside this function; PR7 baseline collection caught a race —
+    worker dequeued and read from a fresh session 3ms later, before
+    the dispatcher's commit, and skipped the deliverable as missing.
+    Caller MUST commit the session, then call
+    :func:`backend.src.core.verifier.enqueue.maybe_enqueue_for_deliverable`
+    on the returned deliverable.
     """
     if run.status != RunStatus.done:
-        return
+        return None
+    _ = stream_manager  # accepted for backwards compat; enqueue moved out
     summary = _extract_founder_summary(run.output_ref)
     inline = _extract_inline(run.output_ref)
     files = _extract_files(run.output_ref)
 
     if not summary and not inline and not files:
         logger.info("publish_run_output_empty", run_id=str(run.id))
-        return
+        return None
 
     raw_reply_text = summary or inline or _default_summary(files)
     # Strip the ``bsnexus-verification`` fenced block before downstream
@@ -116,10 +125,7 @@ async def publish_run_output(
     if knowledge is not None and deliverable is not None:
         await _index_deliverable(knowledge, run, deliverable, reply_text, files, session)
 
-    if deliverable is not None:
-        from backend.src.core.verifier.enqueue import maybe_enqueue_for_deliverable  # noqa: PLC0415
-
-        await maybe_enqueue_for_deliverable(stream_manager, deliverable)
+    return deliverable
 
 
 def _extract_inline(output_ref: object) -> str:
