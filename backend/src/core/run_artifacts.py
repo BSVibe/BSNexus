@@ -33,6 +33,7 @@ from backend.src.core.audit import (
 from backend.src.core.verification_parser import (
     parse_verification_block,
     resolve_workspace_cwd,
+    strip_verification_blocks,
 )
 from backend.src.models import (
     ConversationMessage,
@@ -103,9 +104,14 @@ async def publish_run_output(
         logger.info("publish_run_output_empty", run_id=str(run.id))
         return
 
-    reply_text = summary or inline or _default_summary(files)
+    raw_reply_text = summary or inline or _default_summary(files)
+    # Strip the ``bsnexus-verification`` fenced block before downstream
+    # consumers (chat surface, title derivation) see the reply. The
+    # parsed metadata is captured separately by
+    # ``_attach_verification_from_reply`` against the raw text.
+    reply_text = strip_verification_blocks(raw_reply_text)
     await _ensure_assistant_message(run, reply_text, session)
-    deliverable = await _ensure_deliverable(run, reply_text, files, session)
+    deliverable = await _ensure_deliverable(run, raw_reply_text, files, session, display_text=reply_text)
 
     if knowledge is not None and deliverable is not None:
         await _index_deliverable(knowledge, run, deliverable, reply_text, files, session)
@@ -281,6 +287,8 @@ async def _ensure_deliverable(
     reply_text: str,
     files: list[dict[str, Any]],
     session: AsyncSession,
+    *,
+    display_text: str | None = None,
 ) -> Deliverable | None:
     if run.request_id is None:
         return None
@@ -294,7 +302,9 @@ async def _ensure_deliverable(
 
     request_stmt = select(Request).where(Request.id == run.request_id)
     request = (await session.execute(request_stmt)).scalar_one_or_none()
-    title = _derive_title(reply_text, run, request)
+    # Title comes from the cleaned text the user sees (verification block
+    # stripped); verification stamping continues to read the raw reply.
+    title = _derive_title(display_text if display_text is not None else reply_text, run, request)
 
     deliverable = Deliverable(
         tenant_id=run.tenant_id,

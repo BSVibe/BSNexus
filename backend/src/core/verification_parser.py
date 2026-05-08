@@ -110,6 +110,23 @@ def parse_verification_block(reply_text: str) -> ParsedVerification | None:
     return ParsedVerification(verifier_type=verifier_type, inputs=inputs)
 
 
+def strip_verification_blocks(reply_text: str) -> str:
+    """Remove every ``bsnexus-verification`` fenced block from ``reply_text``.
+
+    The block is server-side metadata, not user-facing prose — leaving
+    it in the reply leaks JSON into the assistant chat message and into
+    the deliverable card title (``_derive_title`` walked into the body
+    after fence-stripping found no other prose). Strip after parsing so
+    downstream consumers see a clean reply.
+    """
+    if not reply_text:
+        return reply_text
+    cleaned = _FENCE_RE.sub("", reply_text)
+    # Collapse run-on blank lines the substitution leaves behind so the
+    # chat surface doesn't render a yawning gap.
+    return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+
+
 def _coerce_command(value: Any) -> list[str] | None:
     """Accept either a list of argv tokens or a string (left as-is for
     SubprocessVerifier's shlex.split fallback). Reject anything else."""

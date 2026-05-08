@@ -10,6 +10,7 @@ import pytest
 from backend.src.core.verification_parser import (
     parse_verification_block,
     resolve_workspace_cwd,
+    strip_verification_blocks,
 )
 from backend.src.core.verifier.protocol import VerifierType
 
@@ -175,3 +176,53 @@ def test_resolve_dot_cwd_treated_as_workspace_root(tmp_path: Path, dot: str) -> 
         workspace_root=tmp_path,
     )
     assert out["cwd"] == str(tmp_path.resolve())
+
+
+# ─── strip_verification_blocks ────────────────────────────────────
+
+
+def test_strip_removes_single_fenced_block() -> None:
+    """The block is server-side metadata; downstream consumers (chat
+    surface, deliverable title) must not see it. Live-LLM run on
+    2026-05-08 reproduced the leak — title became literally
+    "bsnexus-verification" because ``_first_sentence`` walked into the
+    fenced block when the LLM emitted no other prose. This regression
+    test guards the fix."""
+    reply = """\
+done — wrote add.py + tests/test_add.py.
+
+```bsnexus-verification
+{"verifier_type": "software_test", "command": ["pytest"]}
+```
+"""
+    cleaned = strip_verification_blocks(reply)
+    assert "bsnexus-verification" not in cleaned
+    assert "verifier_type" not in cleaned
+    assert "done — wrote add.py + tests/test_add.py." in cleaned
+
+
+def test_strip_removes_all_blocks_when_multiple_present() -> None:
+    reply = """\
+```bsnexus-verification
+{"verifier_type": "software_test", "command": ["pytest"]}
+```
+
+middle prose
+
+```bsnexus-verification
+{"verifier_type": "software_build", "command": ["pnpm", "build"]}
+```
+"""
+    cleaned = strip_verification_blocks(reply)
+    assert "bsnexus-verification" not in cleaned
+    assert "middle prose" in cleaned
+
+
+def test_strip_returns_input_unchanged_when_no_block() -> None:
+    reply = "just a regular reply with code:\n```python\nprint('hi')\n```"
+    cleaned = strip_verification_blocks(reply)
+    assert cleaned == reply.strip()
+
+
+def test_strip_handles_empty_input() -> None:
+    assert strip_verification_blocks("") == ""
