@@ -24,10 +24,16 @@ from bsvibe_audit.events.nexus import DeliverableCreated
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.src.core import project_workspace
 from backend.src.core.audit import (
     actor_orchestrator,
     resource_deliverable,
     safe_emit,
+)
+from backend.src.core.verification_parser import (
+    parse_verification_block,
+    resolve_workspace_cwd,
+    strip_verification_blocks,
 )
 from backend.src.models import (
     ConversationMessage,
@@ -46,6 +52,26 @@ if TYPE_CHECKING:
     from backend.src.models import ExecutionRun
 
 logger = structlog.get_logger(__name__)
+
+
+def _attach_verification_from_reply(deliverable: Deliverable, reply_text: str) -> None:
+    """Parse the worker's ``bsnexus-verification`` fenced block and stamp
+    ``verifier_type`` / ``verifier_inputs`` on the Deliverable in place.
+
+    No-ops on any failure path so a noisy / non-compliant reply never
+    breaks deliverable creation. Call before ``session.flush()``.
+    """
+    parsed = parse_verification_block(reply_text)
+    if parsed is None:
+        return
+    workspace_root = project_workspace.project_workspace_path(deliverable.project_id)
+    inputs = resolve_workspace_cwd(
+        parsed.inputs,
+        project_id=deliverable.project_id,
+        workspace_root=workspace_root,
+    )
+    deliverable.verifier_type = parsed.verifier_type.value
+    deliverable.verifier_inputs = inputs
 
 
 async def publish_run_output(
@@ -78,9 +104,14 @@ async def publish_run_output(
         logger.info("publish_run_output_empty", run_id=str(run.id))
         return
 
-    reply_text = summary or inline or _default_summary(files)
+    raw_reply_text = summary or inline or _default_summary(files)
+    # Strip the ``bsnexus-verification`` fenced block before downstream
+    # consumers (chat surface, title derivation) see the reply. The
+    # parsed metadata is captured separately by
+    # ``_attach_verification_from_reply`` against the raw text.
+    reply_text = strip_verification_blocks(raw_reply_text)
     await _ensure_assistant_message(run, reply_text, session)
-    deliverable = await _ensure_deliverable(run, reply_text, files, session)
+    deliverable = await _ensure_deliverable(run, raw_reply_text, files, session, display_text=reply_text)
 
     if knowledge is not None and deliverable is not None:
         await _index_deliverable(knowledge, run, deliverable, reply_text, files, session)
@@ -256,6 +287,8 @@ async def _ensure_deliverable(
     reply_text: str,
     files: list[dict[str, Any]],
     session: AsyncSession,
+    *,
+    display_text: str | None = None,
 ) -> Deliverable | None:
     if run.request_id is None:
         return None
@@ -269,7 +302,9 @@ async def _ensure_deliverable(
 
     request_stmt = select(Request).where(Request.id == run.request_id)
     request = (await session.execute(request_stmt)).scalar_one_or_none()
-    title = _derive_title(reply_text, run, request)
+    # Title comes from the cleaned text the user sees (verification block
+    # stripped); verification stamping continues to read the raw reply.
+    title = _derive_title(display_text if display_text is not None else reply_text, run, request)
 
     deliverable = Deliverable(
         tenant_id=run.tenant_id,
@@ -302,7 +337,16 @@ async def _ensure_deliverable(
     session.add(version)
     await session.flush()
     deliverable.current_version_id = version.id
+
+    # Decision-locks A1 — extract the worker's ``bsnexus-verification``
+    # fenced JSON block (if any) and stamp ``verifier_type`` /
+    # ``verifier_inputs`` on the Deliverable. The auto-enqueue hook in
+    # ``publish_run_output`` then enqueues an envelope onto the verifier
+    # queue. No block ⇒ proof_state stays at ``verification_missing``,
+    # which is the correct fail-soft per the spec.
+    _attach_verification_from_reply(deliverable, reply_text)
     await session.flush()
+
     logger.info(
         "deliverable_created",
         run_id=str(run.id),
@@ -310,6 +354,7 @@ async def _ensure_deliverable(
         deliverable_id=str(deliverable.id),
         type=deliverable.type.value,
         files=len(files),
+        verifier_type=deliverable.verifier_type,
     )
 
     # Phase Audit Batch 2 — emit ``nexus.deliverable.created``. The

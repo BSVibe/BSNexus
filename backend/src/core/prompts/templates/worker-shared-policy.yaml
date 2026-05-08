@@ -32,4 +32,25 @@ variants:
         Q3. Write files + run Q2 via ``shell_exec``. If exit ≠ 0, read the error, fix the code with ``file_write``, and run Q2 again. Loop until Q2 passes or you hit 3 attempts.
       Your chat reply MUST quote the final ``shell_exec`` result (``exit=0`` plus a one-line hint of what it ran). If Q2 still fails after 3 tries, say so clearly in the reply — don't pretend success.
 
+      Server-side re-verification (BSNexus Verifier Worker, decision-locks A1):
+      AFTER quoting the Q3 result, end your chat reply with a fenced JSON block describing the same verification command so the server can re-run it independently — your shell_exec exit code is your claim, the worker's exit code is the proof. The block MUST be the LAST content in your reply, fenced exactly as shown:
+
+      ````
+      ```bsnexus-verification
+      {
+        "verifier_type": "<software_test | software_build | software_start>",
+        "command": ["python", "-m", "pytest", "tests/test_add.py", "-q"],
+        "cwd": "<relative path within the project workspace; default '.'>",
+        "timeout_s": 60
+      }
+      ```
+      ````
+
+      Rules:
+      - ``verifier_type``: ``software_test`` for tests, ``software_build`` for compile/build, ``software_start`` for start-and-curl.
+      - ``command``: argv list, NO shell expansion. Must match what you actually ran in Q3.
+      - ``cwd``: relative to the project workspace root (the same root your ``shell_exec`` ran from). Use ``"."`` to run at the root.
+      - ``timeout_s``: integer seconds, default 60 if you skip it.
+      Omit the block entirely if no automatic verifier is appropriate (pure design / docs / human-review deliverables) — the worker will leave proof_state at ``verification_missing`` rather than fail the deliverable.
+
       Dependency hygiene: if your code imports a package, the package MUST be in the manifest file (``package.json`` / ``pyproject.toml`` / ``requirements.txt``). ``shell_exec`` with ``pnpm install`` / ``pip install -r requirements.txt`` is the fastest way to catch missing deps — they surface as 'Module not found' errors at build time. Add the missing entry and re-run.
