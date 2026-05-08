@@ -32,6 +32,40 @@ export interface MockRequest {
   updated_at: string
 }
 
+export type MockReplyQualityKind =
+  | 'real_tool_calls'
+  | 'pseudocode_in_chat'
+  | 'fenced_block_only'
+  | 'empty'
+  | 'mixed'
+
+export interface MockRunSummary {
+  total_rounds: number
+  total_tool_calls: number
+  per_round: Array<{
+    round_idx: number
+    content_chars: number
+    tool_call_count: number
+    reply_quality: MockReplyQualityKind
+    finish_reason: string | null
+  }>
+  dominant_reply_quality: MockReplyQualityKind
+  did_emit_fenced_block: boolean
+  files_actually_written: string[]
+  failure_signals: string[]
+}
+
+export interface MockRunActivity {
+  id: string
+  run_id: string
+  project_id: string
+  level: 'milestone' | 'tool'
+  event_type: string
+  summary: string
+  detail: Record<string, unknown> | null
+  created_at: string
+}
+
 export interface MockExecutionRun {
   id: string
   tenant_id: string
@@ -55,6 +89,7 @@ export interface MockExecutionRun {
   updated_at: string
   started_at: string | null
   completed_at: string | null
+  run_summary: MockRunSummary | null
 }
 
 export interface MockDecision {
@@ -136,6 +171,7 @@ export function makeRun(p: Partial<MockExecutionRun> & { id: string; project_id:
     updated_at: p.updated_at ?? new Date().toISOString(),
     started_at: p.started_at ?? null,
     completed_at: p.completed_at ?? null,
+    run_summary: p.run_summary ?? null,
   }
 }
 
@@ -189,6 +225,9 @@ export interface FounderMockState {
   runs: MockExecutionRun[]
   decisions: MockDecision[]
   deliverables: MockDeliverable[]
+  /** Per-run activity rows, keyed by run_id (PR7 — Inside-panel
+   * RunActivityTimeline reads ``/api/v1/runs/{id}/activities``). */
+  activities: MockRunActivity[]
   /** Pre-recorded SSE event blocks delivered when the client opens
    * ``/api/v1/projects/{id}/events``. Each entry is one ``event:``+``data:``
    * pair, joined with the SSE separator. */
@@ -206,6 +245,7 @@ export function makeFounderState(projectId: string, projectName = 'Test Project'
     runs: [],
     decisions: [],
     deliverables: [],
+    activities: [],
     sseEvents: [],
     posts: [],
   }
@@ -469,6 +509,84 @@ export async function installFounderMocks(page: Page, state: FounderMockState): 
         bsage: { provider: 'bsage', enabled: false, has_api_key: false, base_url: null, extra_config: {} },
         bsupervisor: { provider: 'bsupervisor', enabled: false, has_api_key: false, base_url: null, extra_config: {} },
       }),
+    })
+  })
+
+  // ─── A3 flat-REST routes (PR2 / 2026-05-08) ─────────────────────────
+  // ``requestsApi.listForProject(pid)`` hits ``/api/v1/requests?project_id=pid``.
+  await page.route(/\/api\/v1\/requests(\?|$)/, (route: Route) => {
+    const url = new URL(route.request().url())
+    const pidParam = url.searchParams.get('project_id')
+    const filtered = pidParam ? state.requests.filter((r) => r.project_id === pidParam) : state.requests
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(filtered),
+    })
+  })
+
+  // ``requestsApi.listRuns(reqId)`` hits ``/api/v1/runs?request_id=reqId``.
+  // ``listActivities(runId)`` hits ``/api/v1/runs/{id}/activities``.
+  await page.route(/\/api\/v1\/runs(\?|$)/, (route: Route) => {
+    const url = new URL(route.request().url())
+    const reqId = url.searchParams.get('request_id')
+    const runs = reqId ? state.runs.filter((r) => r.request_id === reqId) : state.runs
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(runs),
+    })
+  })
+  await page.route(/\/api\/v1\/runs\/[^/]+\/activities/, (route: Route) => {
+    const url = new URL(route.request().url())
+    const m = /\/runs\/([^/]+)\/activities/.exec(url.pathname)
+    const runId = m?.[1] ?? ''
+    const level = url.searchParams.get('level')
+    let rows = state.activities.filter((a) => a.run_id === runId)
+    if (level) rows = rows.filter((a) => a.level === level)
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(rows),
+    })
+  })
+
+  // PR7 — run-summaries surface (failure-mode dashboard backend).
+  await page.route(/\/api\/v1\/run-summaries(\?|$)/, (route: Route) => {
+    const url = new URL(route.request().url())
+    const isAggregate = url.searchParams.get('aggregate') === 'true'
+    const pidParam = url.searchParams.get('project_id')
+    const runs = pidParam ? state.runs.filter((r) => r.project_id === pidParam) : state.runs
+    if (isAggregate) {
+      const counts: Record<string, number> = {}
+      for (const r of runs) {
+        const kind = r.run_summary?.dominant_reply_quality
+        if (kind) counts[kind] = (counts[kind] ?? 0) + 1
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          window_days: Number(url.searchParams.get('days') ?? 7),
+          total_runs: runs.length,
+          counts,
+          project_id: pidParam,
+        }),
+      })
+    }
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(
+        runs.map((r) => ({
+          run_id: r.id,
+          project_id: r.project_id,
+          status: r.status,
+          created_at: r.created_at,
+          completed_at: r.completed_at,
+          summary: r.run_summary,
+        })),
+      ),
     })
   })
 }
