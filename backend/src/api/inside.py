@@ -45,6 +45,7 @@ class ActivityResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
 runs_router = APIRouter(prefix="/api/v1/runs", tags=["inside"])
 snapshot_router = APIRouter(prefix="/api/v1/composition-snapshots", tags=["inside"])
 

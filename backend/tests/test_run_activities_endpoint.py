@@ -34,9 +34,7 @@ async def _seed(db_session, tenant_id):
 
 
 @pytest.mark.asyncio
-async def test_activities_endpoint_returns_chronological_rows(
-    client, db_session, mock_tenant_id, seeded_tenant
-):
+async def test_activities_endpoint_returns_chronological_rows(client, db_session, mock_tenant_id, seeded_tenant):
     run = await _seed(db_session, mock_tenant_id)
     db_session.add_all(
         [
@@ -81,9 +79,7 @@ async def test_activities_endpoint_returns_chronological_rows(
 
 
 @pytest.mark.asyncio
-async def test_activities_endpoint_filters_by_level(
-    client, db_session, mock_tenant_id, seeded_tenant
-):
+async def test_activities_endpoint_filters_by_level(client, db_session, mock_tenant_id, seeded_tenant):
     run = await _seed(db_session, mock_tenant_id)
     db_session.add_all(
         [
