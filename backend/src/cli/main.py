@@ -12,10 +12,16 @@ from __future__ import annotations
 
 from bsvibe_cli_base import cli_app
 
+from backend.src.cli.commands import projects as projects_app
+from backend.src.cli.commands import requests as requests_app
+
 app = cli_app(
     name="bsnexus",
     help="bsnexus — BSNexus admin CLI (control-plane operator surface).",
 )
+
+app.add_typer(projects_app.app, name="projects")
+app.add_typer(requests_app.app, name="requests")
 
 
 def main() -> None:  # pragma: no cover - thin shim for console_scripts
