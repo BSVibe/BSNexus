@@ -52,6 +52,24 @@ def _request_params(project_id: str, since: str | None) -> dict[str, Any]:
     return params
 
 
+def _stream_headers(obj: Any) -> dict[str, str]:
+    """Compose Authorization + X-Tenant-Id for the SSE stream call.
+
+    ``CliHttpClient`` only merges its stored headers inside ``request()``;
+    a direct call against ``client.http.stream(...)`` bypasses that path,
+    so the SSE request would otherwise reach the backend without auth and
+    422/401 against ``get_current_user`` + ``get_tenant_id``.
+    """
+    headers: dict[str, str] = {}
+    token = getattr(obj, "token", None)
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    tenant_id = getattr(obj, "tenant_id", None)
+    if tenant_id:
+        headers["X-Tenant-Id"] = tenant_id
+    return headers
+
+
 async def _tail(
     client: Any,
     project_id: str,
@@ -59,6 +77,7 @@ async def _tail(
     type_filter: str | None,
     limit: int,
     timeout_s: float,
+    headers: dict[str, str] | None = None,
 ) -> tuple[Any, list[dict[str, Any]]]:
     events: list[dict[str, Any]] = []
     params = _request_params(project_id, since)
@@ -66,7 +85,7 @@ async def _tail(
     resp_holder: dict[str, Any] = {}
 
     async def _read() -> None:
-        async with client.http.stream("GET", _LIST_PATH, params=params) as resp:
+        async with client.http.stream("GET", _LIST_PATH, params=params, headers=headers) as resp:
             resp_holder["resp"] = resp
             if resp.status_code >= 400:
                 return
@@ -138,10 +157,20 @@ def list_cmd(
         )
         return
 
+    headers = _stream_headers(obj)
+
     async def _go() -> tuple[Any, list[dict[str, Any]]]:
         client = build_http_client(obj)
         try:
-            return await _tail(client, project_id, since, type_filter, limit, timeout_s)
+            return await _tail(
+                client,
+                project_id,
+                since,
+                type_filter,
+                limit,
+                timeout_s,
+                headers=headers or None,
+            )
         finally:
             await client.aclose()
 

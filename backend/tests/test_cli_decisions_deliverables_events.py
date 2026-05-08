@@ -677,3 +677,72 @@ def test_events_list_403_friendly(runner: CliRunner, monkeypatch: pytest.MonkeyP
     combined = result.stdout + result.stderr
     assert "403" in combined
     assert "Traceback" not in combined
+
+
+def test_events_list_forwards_auth_and_tenant_headers(
+    runner: CliRunner,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: SSE stream call MUST include Authorization + X-Tenant-Id.
+
+    ``CliHttpClient`` only merges its stored headers via :meth:`request`;
+    calling ``client.http.stream(...)`` against the underlying
+    ``httpx.AsyncClient`` would skip them. Production-traffic SSE would
+    then 401 against ``get_current_user`` even though the operator passed
+    ``--token`` / has a token on the active profile.
+    """
+
+    captured: dict[str, object] = {}
+
+    class _RecordingStreamCtx:
+        async def __aenter__(self) -> "_FakeStreamResponse":
+            return _FakeStreamResponse(200, [])
+
+        async def __aexit__(self, *exc_info: object) -> None:
+            return None
+
+    def _record_stream(method: str, path: str, **kw: object) -> _RecordingStreamCtx:
+        captured["method"] = method
+        captured["path"] = path
+        captured["kwargs"] = kw
+        return _RecordingStreamCtx()
+
+    inner = MagicMock(name="httpx.AsyncClient")
+    inner.stream = _record_stream
+    real_client = MagicMock(name="CliHttpClient[events-auth]")
+    real_client.http = inner
+    real_client.aclose = AsyncMock(return_value=None)
+    monkeypatch.setattr(
+        "backend.src.cli.commands.events.build_http_client",
+        lambda ctx: real_client,
+    )
+
+    from backend.src.cli.main import app
+
+    result = runner.invoke(
+        app,
+        [
+            "--url",
+            "http://nexus.test",
+            "--token",
+            "secret-token-xyz",
+            "--tenant",
+            TENANT,
+            "-o",
+            "json",
+            "events",
+            "list",
+            "--project-id",
+            PROJECT_ID,
+            "--limit",
+            "1",
+            "--timeout",
+            "0.5",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stderr
+    headers = captured.get("kwargs", {}).get("headers")
+    assert headers is not None, "stream() must receive an explicit headers kwarg"
+    assert headers.get("Authorization") == "Bearer secret-token-xyz"
+    assert headers.get("X-Tenant-Id") == TENANT
