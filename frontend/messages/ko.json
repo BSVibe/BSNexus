@@ -132,7 +132,7 @@
         "nameLabel": "이름",
         "namePlaceholder": "예: Pelago Billing Rework",
         "descriptionLabel": "한 줄 설명",
-        "descriptionPlaceholder": "에이전트가 무엇을 만들길 원하나요?",
+        "descriptionPlaceholder": "회사에 어떤 방향을 지시할까요?",
         "hint": "생성 후 해당 프로젝트로 이동합니다. 회사에 말을 걸 때 {mentionToken}을(를) 멘션하세요.",
         "submit": "생성 후 열기"
       }
@@ -142,7 +142,7 @@
         "progress": "진행",
         "files": "파일",
         "decisions": "의사결정",
-        "inspector": "내부"
+        "inside": "Inside"
       },
       "deleteModal": {
         "title": "이 프로젝트를 삭제할까요?",
@@ -349,23 +349,48 @@
       }
     },
     "landing": {
-      "tagline": "AI 에이전트를 디자인부터 배포까지 오케스트레이션하세요.",
+      "tagline": "AI가 일하고, 당신은 결정합니다.",
+      "subTagline": "BSNexus는 AI-native company의 지휘 레이어입니다.",
       "feature": {
         "planning": {
-          "title": "대화형 플래닝",
-          "description": "단일 채팅으로 회사에 무엇을 만들지 지시하세요."
+          "title": "Direction",
+          "description": "프로젝트당 단일 채팅. BSNexus에 무엇을 할지 적으면, 각 direction이 Request로 변환됩니다."
         },
         "live": {
-          "title": "실시간 진행",
-          "description": "실행이 끝나는 순간 납품물과 의사결정이 실시간으로 도착합니다."
+          "title": "Decisions & Brief",
+          "description": "AI가 단독으로 결정하면 안 되는 것만 해소하세요. brief가 무엇이 출시됐고, 막혔고, 당신이 필요한지 알려줍니다."
         },
         "workers": {
-          "title": "분산 워커",
-          "description": "원격 워커 노드가 자체 호스트의 CLI로 코드를 실행합니다."
+          "title": "검증된 Deliverable",
+          "description": "결과물은 proof와 함께 도착합니다 — verification 명령, exit code, artifact 링크. proof가 없으면 \"shipped\"가 아닙니다."
         }
       },
       "ctaGo": "대시보드로 이동",
       "footer": "Powered by BSVibe"
+    },
+    "help": {
+      "panel": {
+        "title": "도움말",
+        "closeLabel": "닫기"
+      },
+      "topic": {
+        "dashboard": {
+          "title": "대시보드",
+          "description": "당신이 결정해야 할 것, 최근 brief, 출시된 작업이 한 곳에 모입니다. \"새 프로젝트\"를 눌러 새 방향을 잡으세요."
+        },
+        "project": {
+          "title": "프로젝트",
+          "description": "각 프로젝트는 4개 surface로 구성됩니다. Direction은 BSNexus에 무엇을 시킬지 적는 단일 대화. Progress는 deliverable 타임라인. Decisions는 승인 inbox. Inside(선택)는 디버그할 때 execution run과 composition snapshot을 엽니다."
+        },
+        "settings": {
+          "title": "설정",
+          "description": "BSage / BSGateway / BSupervisor를 연결하고 작업을 실행할 LLM executor를 등록합니다. API 키는 암호화 저장되며, 보유 여부만 응답으로 노출됩니다."
+        },
+        "default": {
+          "title": "BSNexus",
+          "description": "BSNexus는 AI-native company의 지휘 레이어입니다. 당신은 지시하고, 결정하고, 검토합니다. AI가 일합니다."
+        }
+      }
     }
   }
 }

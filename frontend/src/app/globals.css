@@ -57,8 +57,8 @@
   --t-fast:100ms; --t-norm:200ms; --t-slow:300ms;
   --ease:cubic-bezier(0.4,0,0.2,1);
 
-  --font-ui: "Plus Jakarta Sans", system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --font-ui: var(--font-plus-jakarta-sans), "Plus Jakarta Sans", system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), "JetBrains Mono", ui-monospace, monospace;
 }
 
 *, *::before, *::after { box-sizing: border-box; }

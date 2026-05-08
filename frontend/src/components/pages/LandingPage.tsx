@@ -43,6 +43,9 @@ export default function LandingPage() {
             <p className="text-text-secondary mt-2 text-center text-sm leading-6 sm:text-base">
               {t('tagline')}
             </p>
+            <p className="text-text-tertiary mt-2 text-center text-xs leading-5 sm:text-sm">
+              {t('subTagline')}
+            </p>
           </div>
 
           <div className="grid grid-cols-1 gap-3 mb-6 sm:grid-cols-3 sm:gap-4 sm:mb-8">

@@ -15,10 +15,10 @@ import { projectsApi, type Project } from '../../api/projects'
 import { workspaceFilesApi } from '../../api/workspaceFiles'
 import { decisionsApi, deliverablesApi } from '../../api/founder'
 
-type TabId = 'progress' | 'files' | 'decisions' | 'inspector'
+type TabId = 'progress' | 'files' | 'decisions' | 'inside'
 
 function parseTab(raw: string | null): TabId {
-  if (raw === 'files' || raw === 'decisions' || raw === 'inspector') return raw
+  if (raw === 'files' || raw === 'decisions' || raw === 'inside') return raw
   return 'progress'
 }
 
@@ -93,25 +93,25 @@ export default function ProjectPage() {
     const next = new URLSearchParams(search.toString())
     if (id === 'progress') next.delete('tab')
     else next.set('tab', id)
-    if (id !== 'inspector') next.delete('focusRequest')
+    if (id !== 'inside') next.delete('focusRequest')
     router.replace(buildProjectUrl(next))
   }
 
   useEffect(() => {
-    function onOpenInspector(e: Event) {
+    function onOpenInside(e: Event) {
       const ce = e as CustomEvent<{ requestId?: string }>
       const rid = ce.detail?.requestId
       const next = new URLSearchParams(search.toString())
-      next.set('tab', 'inspector')
+      next.set('tab', 'inside')
       if (rid) next.set('focusRequest', rid)
       else next.delete('focusRequest')
       router.replace(buildProjectUrl(next))
     }
-    document.addEventListener('bsn:open-inspector', onOpenInspector as EventListener)
+    document.addEventListener('bsn:open-inside', onOpenInside as EventListener)
     return () =>
       document.removeEventListener(
-        'bsn:open-inspector',
-        onOpenInspector as EventListener,
+        'bsn:open-inside',
+        onOpenInside as EventListener,
       )
   }, [search, router, buildProjectUrl])
 
@@ -162,10 +162,10 @@ export default function ProjectPage() {
           toneRose={openDecisions > 0}
         />
         <TabButton
-          label={t('tab.inspector')}
+          label={t('tab.inside')}
           icon={<I.Eye size={14} />}
-          active={tab === 'inspector'}
-          onClick={() => setTab('inspector')}
+          active={tab === 'inside'}
+          onClick={() => setTab('inside')}
         />
         <span style={{ flex: 1 }} />
         <button
@@ -223,7 +223,7 @@ export default function ProjectPage() {
           <FilesView projectId={projectId} projectName={project?.name ?? t('fallbackTitle')} />
         )}
         {tab === 'decisions' && <DecisionsView projectId={projectId} />}
-        {tab === 'inspector' && (
+        {tab === 'inside' && (
           <Inspector projectId={projectId} focusRequestId={focusRequestId} />
         )}
       </div>
