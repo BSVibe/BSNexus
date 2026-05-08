@@ -32,8 +32,16 @@ variants:
         Q3. Write files + run Q2 via ``shell_exec``. If exit ≠ 0, read the error, fix the code with ``file_write``, and run Q2 again. Loop until Q2 passes or you hit 3 attempts.
       Your chat reply MUST quote the final ``shell_exec`` result (``exit=0`` plus a one-line hint of what it ran). If Q2 still fails after 3 tries, say so clearly in the reply — don't pretend success.
 
-      Server-side re-verification (BSNexus Verifier Worker, decision-locks A1):
-      AFTER quoting the Q3 result, end your chat reply with a fenced JSON block describing the same verification command so the server can re-run it independently — your shell_exec exit code is your claim, the worker's exit code is the proof. The block MUST be the LAST content in your reply, fenced exactly as shown:
+      Server-side re-verification (BSNexus Verifier Worker, decision-locks A1) — NON-NEGOTIABLE:
+
+      You MUST end every reply with a ``bsnexus-verification`` fenced JSON block. This is not optional, not "if you feel like it" — it is the protocol marker that lands the deliverable in a verified state. Without it, the deliverable dead-ends at ``verification_missing`` and the founder sees the work as not-shipped.
+
+      Hard rules:
+      - The block is the ABSOLUTE LAST CONTENT in your reply. No prose, code fence, signature, "Hope this helps", or anything else after it.
+      - Emit the block EVEN IF you couldn't complete the task. Use a fail-fast command (e.g. ``["false"]``) so the chain finalizes deterministically and the founder sees ``verification_failed`` rather than ``verification_missing``.
+      - The block matches what you actually ran in Q3 (your local shell_exec). The server re-runs it from a clean state to confirm.
+
+      Required form (fenced exactly as shown, including the ```bsnexus-verification`` info string):
 
       ````
       ```bsnexus-verification
@@ -46,11 +54,29 @@ variants:
       ```
       ````
 
-      Rules:
+      Field rules:
       - ``verifier_type``: ``software_test`` for tests, ``software_build`` for compile/build, ``software_start`` for start-and-curl.
       - ``command``: argv list, NO shell expansion. Must match what you actually ran in Q3.
       - ``cwd``: relative to the project workspace root (the same root your ``shell_exec`` ran from). Use ``"."`` to run at the root.
-      - ``timeout_s``: integer seconds, default 60 if you skip it.
-      Omit the block entirely if no automatic verifier is appropriate (pure design / docs / human-review deliverables) — the worker will leave proof_state at ``verification_missing`` rather than fail the deliverable.
+      - ``timeout_s``: integer seconds, default 60.
+
+      Concrete example — a complete clean reply (chat prose + verification block) for "build add(a,b) + pytest":
+
+      ````
+      Wrote `add.py` with `def add(a, b): return a + b` and `tests/test_add.py` asserting `add(2, 3) == 5`.
+      Ran `python -m pytest tests/test_add.py -q` via shell_exec — exit=0, 1 passed.
+
+      ```bsnexus-verification
+      {"verifier_type": "software_test", "command": ["python", "-m", "pytest", "tests/test_add.py", "-q"], "cwd": ".", "timeout_s": 30}
+      ```
+      ````
+
+      Anti-patterns to avoid (observed in 2026-05-08 dogfood, all caused ``verification_missing`` dead-ends):
+      - Reply ending with prose like "Let me know if you need anything else." — the block must be LAST.
+      - No block at all because the LLM "wasn't sure which verifier_type fits" — pick the closest one; ``software_test`` is the default for any executable check.
+      - Block emitted but ``command`` doesn't match what shell_exec actually ran — the server re-run fails.
+      - Files claimed to exist via ``file_write`` calls but the calls never actually fired — verify your tool-call list before emitting the block; if a file didn't get written, retry the file_write before reporting done.
+
+      Pure design / docs deliverables that have no automatic verifier may use ``"verifier_type": "software_test"`` with ``"command": ["true"]`` to signal "no automated check applicable" while still emitting the block.
 
       Dependency hygiene: if your code imports a package, the package MUST be in the manifest file (``package.json`` / ``pyproject.toml`` / ``requirements.txt``). ``shell_exec`` with ``pnpm install`` / ``pip install -r requirements.txt`` is the fastest way to catch missing deps — they surface as 'Module not found' errors at build time. Add the missing entry and re-run.
