@@ -11,6 +11,7 @@ from backend.src.models.deliverable import (
     DeliverableStatus,
     DeliverableType,
     DeliverableVersion,
+    ProofState,
     StorageBackend,
 )
 from backend.src.models.execution_run import (
@@ -49,6 +50,7 @@ __all__ = [
     "DeliverableType",
     "IntegrationProvider",
     "ProjectStatus",
+    "ProofState",
     "RequestStatus",
     "RunPriority",
     "RunStatus",

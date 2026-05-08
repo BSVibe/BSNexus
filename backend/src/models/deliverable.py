@@ -15,7 +15,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Index, Integer, String, Uuid, func
+from sqlalchemy import DateTime, Enum, ForeignKey, Index, Integer, String, Text, Uuid, func
 from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -42,11 +42,29 @@ class StorageBackend(str, enum.Enum):
     url = "url"
 
 
+class ProofState(str, enum.Enum):
+    """States in the Deliverable proof-state machine.
+
+    Disjoint from ``DeliverableStatus`` (which marks "the AI run produced
+    this") and from ``RunStatus``. The proof state is the founder-visible
+    "did this actually work" signal — only ``verified`` deliverables are
+    presented as shipped in the UI.
+    """
+
+    verification_missing = "verification_missing"
+    verifying = "verifying"
+    verified = "verified"
+    verification_failed = "verification_failed"
+    human_review_required = "human_review_required"
+    not_applicable = "not_applicable"
+
+
 class Deliverable(Base):
     __tablename__ = "deliverables"
     __table_args__ = (
         Index("ix_deliverables_project_status", "project_id", "status"),
         Index("ix_deliverables_request", "request_id"),
+        Index("ix_deliverables_project_proof_state", "project_id", "proof_state"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
@@ -61,6 +79,21 @@ class Deliverable(Base):
     status: Mapped[DeliverableStatus] = mapped_column(
         Enum(DeliverableStatus), nullable=False, default=DeliverableStatus.draft
     )
+
+    # Proof model (decision-locks A1, 2026-05-08).
+    proof_state: Mapped[ProofState] = mapped_column(
+        Enum(ProofState),
+        nullable=False,
+        default=ProofState.verification_missing,
+        server_default=ProofState.verification_missing.value,
+    )
+    verifier_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    verifier_inputs: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    verification_exit_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    proof_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    proof_refs: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    risk_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     current_version_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid,

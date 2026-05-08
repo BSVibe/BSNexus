@@ -22,6 +22,20 @@ export type DeliverableType = 'code' | 'doc' | 'design' | 'data' | 'url'
 export type DeliverableStatus = 'draft' | 'ready' | 'delivered'
 export type StorageBackend = 'git' | 'object' | 'url'
 
+export type ProofState =
+  | 'verification_missing'
+  | 'verifying'
+  | 'verified'
+  | 'verification_failed'
+  | 'human_review_required'
+  | 'not_applicable'
+
+export interface ProofRef {
+  label: string
+  type: string
+  href: string
+}
+
 export interface Deliverable {
   id: string
   tenant_id: string
@@ -33,6 +47,16 @@ export interface Deliverable {
   current_version_id: string | null
   created_at: string
   updated_at: string
+
+  // Proof model (decision-locks A1, 2026-05-08).
+  proof_state: ProofState
+  verifier_type: string | null
+  verifier_inputs: Record<string, unknown> | null
+  verification_exit_code: number | null
+  proof_summary: string | null
+  proof_refs: ProofRef[] | null
+  risk_summary: string | null
+  verified_at: string | null
 }
 
 export interface DeliverableVersion {

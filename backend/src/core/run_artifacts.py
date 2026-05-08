@@ -53,6 +53,7 @@ async def publish_run_output(
     session: AsyncSession,
     *,
     knowledge: "KnowledgeClient | None" = None,
+    stream_manager: "Any | None" = None,
 ) -> None:
     """Materialise a completed run's chat reply + deliverable in the UI.
 
@@ -60,6 +61,12 @@ async def publish_run_output(
     into BSage so future projects can find it via search. Indexing
     failures are logged but never raised — deliverable creation always
     succeeds regardless of BSage health.
+
+    When ``stream_manager`` is provided and the deliverable carries a
+    verifier_type (decision-locks A1), an envelope is enqueued onto the
+    verification queue so the Verifier Worker picks the deliverable up
+    asynchronously. No-op when the deliverable was created without a
+    verifier configured — the Verifier Worker pattern is degradable.
     """
     if run.status != RunStatus.done:
         return
@@ -77,6 +84,11 @@ async def publish_run_output(
 
     if knowledge is not None and deliverable is not None:
         await _index_deliverable(knowledge, run, deliverable, reply_text, files, session)
+
+    if deliverable is not None:
+        from backend.src.core.verifier.enqueue import maybe_enqueue_for_deliverable  # noqa: PLC0415
+
+        await maybe_enqueue_for_deliverable(stream_manager, deliverable)
 
 
 def _extract_inline(output_ref: object) -> str:
