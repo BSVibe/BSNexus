@@ -309,10 +309,13 @@ async def resolve_tool_context(
     """
     # case-insensitive header lookup
     auth = ""
+    tenant_override: str | None = None
     for key, value in headers.items():
-        if key.lower() == "authorization":
+        lk = key.lower()
+        if lk == "authorization":
             auth = value
-            break
+        elif lk == "x-tenant-id":
+            tenant_override = value
     if not auth.lower().startswith("bearer "):
         raise ToolPermissionError("missing bearer token")
     token = auth.split(" ", 1)[1].strip()
@@ -348,6 +351,14 @@ async def resolve_tool_context(
         # happened can monkeypatch the verify functions directly.
         logger.info("mcp_auth_rejected", reason=type(exc).__name__)
         raise ToolPermissionError("invalid bearer token") from exc
+
+    # Bootstrap users have no ``active_tenant_id`` baked into the token —
+    # the X-Tenant-Id header is the established BSNexus convention for
+    # admin operators to pin a tenant per request (mirrors what
+    # TenantMiddleware does for the REST surface). Honour it only when
+    # the principal didn't already carry one to avoid privilege widening.
+    if tenant_override and not user.active_tenant_id:
+        user = user.model_copy(update={"active_tenant_id": tenant_override})
 
     return ToolContext(
         settings=settings,

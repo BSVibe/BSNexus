@@ -39,12 +39,23 @@ async def test_mcp_health_returns_claim_for_valid_token(client) -> None:
     assert "run_id" in body["claim"]
     assert "tenant_id" in body["claim"]
     assert "project_id" in body["claim"]
+    # Liveness now also surfaces the registry's tool count for ops.
+    assert isinstance(body["tool_count"], int)
+    assert body["tool_count"] >= 26
 
 
 @pytest.mark.asyncio
-async def test_mcp_health_rejects_missing_token(client) -> None:
+async def test_mcp_health_without_token_is_public_liveness(client) -> None:
+    """TASK-005: ``GET /mcp/health`` without ``token=`` is the public
+    liveness check that returns the registered tool count. Operators /
+    load balancers use it to confirm the catalog booted."""
     res = await client.get("/mcp/health")
-    assert res.status_code == 422  # FastAPI Query(...) required
+    assert res.status_code == 200
+    body = res.json()
+    assert body["ok"] is True
+    assert "claim" not in body
+    assert isinstance(body["tool_count"], int)
+    assert body["tool_count"] >= 26
 
 
 @pytest.mark.asyncio

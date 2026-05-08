@@ -16,6 +16,7 @@ from backend.src.cli.commands import decisions as decisions_app
 from backend.src.cli.commands import deliverables as deliverables_app
 from backend.src.cli.commands import events as events_app
 from backend.src.cli.commands import integrations as integrations_app
+from backend.src.cli.commands import mcp as mcp_app
 from backend.src.cli.commands import projects as projects_app
 from backend.src.cli.commands import requests as requests_app
 
@@ -30,6 +31,7 @@ app.add_typer(decisions_app.app, name="decisions")
 app.add_typer(deliverables_app.app, name="deliverables")
 app.add_typer(events_app.app, name="events")
 app.add_typer(integrations_app.app, name="integrations")
+app.add_typer(mcp_app.app, name="mcp")
 
 
 def main() -> None:  # pragma: no cover - thin shim for console_scripts

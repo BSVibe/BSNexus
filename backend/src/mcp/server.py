@@ -35,16 +35,27 @@ from urllib.parse import parse_qs
 
 import structlog
 from bsvibe_authz import User
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from pydantic import ValidationError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.config import settings
-from backend.src.mcp.api import ToolContext, ToolRegistry
+from backend.src.mcp.admin_tools import register_admin_tools
+from backend.src.mcp.api import (
+    ToolContext,
+    ToolHandlerError,
+    ToolNotFoundError,
+    ToolPermissionError,
+    ToolRegistry,
+    ToolValidationError,
+    resolve_tool_context,
+)
 from backend.src.mcp.auth import (
     MCPAuthError,
     verify_run_scoped_token,
 )
 from backend.src.mcp.domain_tools import DOMAIN_RUN_SCOPE, register_domain_tools
-from backend.src.storage.database import async_session
+from backend.src.storage.database import async_session, get_db
 
 logger = structlog.get_logger(__name__)
 
@@ -65,11 +76,25 @@ def _verify(token: str) -> dict[str, Any]:
 
 
 @router.get("/health")
-async def mcp_health(token: str = Query(...)) -> dict[str, Any]:
-    """Smoke-test that a run-scoped token verifies cleanly. Returns the
-    claim payload (run_id / tenant_id / project_id / iat / exp)."""
-    claim = _verify(token)
-    return {"ok": True, "claim": claim}
+async def mcp_health(token: str | None = Query(None)) -> dict[str, Any]:
+    """MCP liveness + tool-count probe.
+
+    Two modes:
+
+    * ``GET /mcp/health`` (no token) — public liveness, returns
+      ``{ok, tool_count}``. Operators / load balancers use it to confirm
+      the registry booted before forwarding traffic.
+    * ``GET /mcp/health?token=...`` — verifies a run-scoped HMAC token
+      and additionally returns its claim. Bad / expired tokens still
+      surface as ``401`` so ops can smoke-test dispatcher tokens.
+    """
+    body: dict[str, Any] = {
+        "ok": True,
+        "tool_count": len(get_registry().names()),
+    }
+    if token is not None:
+        body["claim"] = _verify(token)
+    return body
 
 
 _registry: ToolRegistry | None = None
@@ -87,6 +112,7 @@ def get_registry() -> ToolRegistry:
     if _registry is None:
         reg = ToolRegistry()
         register_domain_tools(reg)
+        register_admin_tools(reg)
         _registry = reg
     return _registry
 
@@ -324,3 +350,118 @@ def attach_to_app(app) -> None:  # type: ignore[no-untyped-def]
             _auth_ctx.reset(token_value)
 
     app.mount("/mcp/http", _gated)
+
+
+# ── admin HTTP transport (TASK-005) ────────────────────────────────
+#
+# A small REST envelope on top of the shared :class:`ToolRegistry` so
+# operators / scripts can call admin tools with the same bearer tokens
+# they use against REST. The full MCP wire protocol (JSON-RPC over
+# streamable-HTTP) at ``/mcp/http`` stays reserved for run workers
+# whose auth model is the per-run HMAC token; admin tools are
+# different enough (3-way bearer, no run binding, scope-checked) that
+# overloading the FastMCP transport would couple two unrelated auth
+# layers. The wire shape here is deliberately minimal:
+#
+# * ``GET /mcp/admin/tools`` → ``{tools: [...]}`` (the same JSON
+#   schemas ``ListTools`` would surface).
+# * ``POST /mcp/admin/tools/{name}`` with JSON body → calls the tool.
+#
+# Both endpoints authenticate via :func:`resolve_tool_context` so the
+# bootstrap / opaque / JWT 3-way dispatch is identical to REST.
+
+
+admin_router = APIRouter(prefix="/mcp/admin", tags=["mcp-admin"])
+
+
+def _serialize_tool(tool: Any) -> dict[str, Any]:
+    return {
+        "name": tool.name,
+        "description": tool.description,
+        "input_schema": tool.input_schema.model_json_schema(),
+        "output_schema": tool.output_schema.model_json_schema(),
+        "required_scopes": list(tool.required_scopes),
+        "audit_event": tool.audit_event,
+    }
+
+
+async def _resolve_admin_context(request: Request, session) -> ToolContext:
+    """Build a :class:`ToolContext` from the request's bearer header.
+
+    Failures map to ``401`` so the transport surfaces them uniformly
+    without leaking the underlying authz exception text.
+    """
+    headers = {k: v for k, v in request.headers.items()}
+    try:
+        return await resolve_tool_context(
+            headers,
+            settings=settings,
+            db=session,
+            audit_session=session,
+        )
+    except ToolPermissionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(exc),
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
+
+
+@admin_router.get("/tools")
+async def admin_list_tools(request: Request) -> dict[str, Any]:
+    """List the full registry catalog as JSON. Auth: bearer only."""
+    await _resolve_admin_context(request, None)
+    registry = get_registry()
+    return {"tools": [_serialize_tool(registry.get(n)) for n in registry.names()]}
+
+
+@admin_router.post("/tools/{name}")
+async def admin_call_tool(
+    name: str,
+    request: Request,
+    session: AsyncSession = Depends(get_db),
+) -> Any:
+    """Dispatch ``name`` through the shared registry. Body is the
+    tool's input arguments (validated server-side by the dispatcher).
+    The DB session arrives via ``Depends(get_db)`` so test fixtures'
+    ``dependency_overrides`` swap in the SQLite session — using
+    ``async_session()`` directly would reach for the real Postgres URL
+    and DNS-fail in CI / unit tests.
+    """
+    ctx = await _resolve_admin_context(request, session)
+    registry = get_registry()
+    try:
+        payload = await request.json()
+    except Exception:  # noqa: BLE001 — empty / malformed body
+        payload = {}
+    if not isinstance(payload, dict):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="tool input must be a JSON object",
+        )
+    try:
+        result = await registry.call_tool(name, payload, ctx)
+    except ToolNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ToolPermissionError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except ToolValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+    except ToolHandlerError as exc:
+        # Class-name-only message preserved by the dispatcher; safe to
+        # echo. Surface as 500 so transport callers can tell the
+        # difference between bad input (4xx) and tool-internal
+        # failure (5xx).
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(exc),
+        ) from exc
+    # Best-effort serialisation — every output_schema is a Pydantic
+    # model, so ``model_dump()`` is always available.
+    try:
+        return result.model_dump(mode="json", exclude_none=True)
+    except (AttributeError, ValidationError):
+        return result
