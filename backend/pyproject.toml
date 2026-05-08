@@ -68,6 +68,34 @@ dependencies = [
     "bsvibe-cli-base @ git+https://github.com/BSVibe/bsvibe-python.git@main#subdirectory=packages/bsvibe-cli-base",
 ]
 
+[project.scripts]
+# Phase 5a — `bsnexus` Typer CLI built on bsvibe-cli-base. The wheel
+# (see ``[tool.hatch.build.targets.wheel]`` below) ships only the CLI
+# subtree, remapped from ``backend/src/cli/`` to a top-level
+# ``bsnexus_cli`` package so ``uv run bsnexus`` resolves
+# ``bsnexus_cli.main:app``. Tests still import the same files via
+# ``backend.src.cli.…`` (see pytest ``pythonpath=[".."]``).
+bsnexus = "bsnexus_cli.main:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+# Minimal wheel — only the CLI subtree is shipped (packaging the whole
+# backend would conflict with the in-tree ``backend.src.…`` import
+# path the rest of the repo uses). ``force-include`` remaps
+# ``src/cli/`` → ``bsnexus_cli/`` so the installed entrypoint resolves.
+# ``bypass-selection`` skips hatch's auto-package discovery so it
+# doesn't error on the absence of a top-level ``bsnexus_backend``.
+bypass-selection = true
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/cli" = "bsnexus_cli"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=7.4.0",
