@@ -87,10 +87,15 @@ async def test_title_skips_preamble_when_intent_summary_available(
 
 
 @pytest.mark.asyncio
-async def test_title_uses_first_sentence_when_reply_is_substantive(db_session, mock_tenant_id, seeded_tenant) -> None:
-    """A non-preamble first sentence is still preferred — we don't
-    want to over-flag and lose informative LLM-authored titles like
-    'Shipped a hello app.'"""
+async def test_title_always_prefers_intent_summary_over_reply(db_session, mock_tenant_id, seeded_tenant) -> None:
+    """PR8 round 2 — title NEVER reads the LLM reply when intent_summary
+    exists, even if the reply has a substantive non-preamble sentence.
+
+    Rationale: local LLMs hallucinate language (qwen3-coder under
+    certain prompts answers in Chinese to English questions, etc.)
+    and we don't want a hallucinated reply leaking into the
+    deliverable card title — a system-critical surface. Founder's
+    intent_summary is the language-stable source of truth."""
     intent = "Build a FastAPI hello endpoint and pytest"
     reply = "Shipped a hello app with FastAPI + pytest. All tests pass."
     run = await _seed(db_session, mock_tenant_id, intent=intent, reply=reply)
@@ -100,26 +105,49 @@ async def test_title_uses_first_sentence_when_reply_is_substantive(db_session, m
     deliverable = (
         await db_session.execute(select(Deliverable).where(Deliverable.project_id == run.project_id))
     ).scalar_one()
-    assert deliverable.title.startswith("Shipped a hello app")
+    # NOT "Shipped a hello app" — intent_summary always wins.
+    assert deliverable.title == intent
 
 
 @pytest.mark.asyncio
-async def test_title_uses_substantive_sentence_after_preamble(db_session, mock_tenant_id, seeded_tenant) -> None:
-    """If the reply starts with preamble but has a substantive sentence
-    after, prefer the substantive one."""
-    intent = "Build a FastAPI hello endpoint and pytest"
-    reply = (
-        "I'll build the app now.\n\n"
-        'Built `app.py` with `GET /hello` returning JSON `{"message": "hello"}`. '
-        "All pytests pass."
+async def test_title_falls_through_to_reply_only_when_intent_and_directive_missing(
+    db_session, mock_tenant_id, seeded_tenant
+) -> None:
+    """The reply-substantive-sentence fallback exists for orphan runs
+    that have neither intent_summary nor directive. Pin the
+    fallback so a future refactor doesn't drop it entirely."""
+    project = Project(tenant_id=mock_tenant_id, name="P", description="")
+    db_session.add(project)
+    await db_session.flush()
+    request = Request(
+        tenant_id=mock_tenant_id,
+        project_id=project.id,
+        intent_summary="",  # neither intent
+        status=RequestStatus.open,
     )
-    run = await _seed(db_session, mock_tenant_id, intent=intent, reply=reply)
+    db_session.add(request)
+    await db_session.flush()
+    run = ExecutionRun(
+        tenant_id=mock_tenant_id,
+        project_id=project.id,
+        request_id=request.id,
+        status=RunStatus.done,
+        directive=None,  # nor directive
+        output_type="text",
+        output_ref={"inline": "Built `app.py`. Tests pass."},
+    )
+    db_session.add(run)
+    await db_session.commit()
+    await db_session.refresh(run)
+
     await publish_run_output(run, db_session)
     await db_session.commit()
 
     deliverable = (
         await db_session.execute(select(Deliverable).where(Deliverable.project_id == run.project_id))
     ).scalar_one()
+    # Last-resort: reply substantive sentence wins when nothing else
+    # is available.
     assert deliverable.title.startswith("Built `app.py`")
 
 

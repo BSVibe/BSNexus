@@ -457,25 +457,34 @@ def _derive_title(
 ) -> str:
     """Pick a short descriptive title for the timeline card.
 
-    Priority (revised PR8 — observed local-LLM preamble was leaking
-    titles like "I'll skip the workspace context-read step..."):
+    Priority (revised PR8 round 2 — LLM-output parsing for
+    system-critical fields is fragile):
 
-    1. First *substantive* sentence of the reply (preamble lines like
-       "I'll …", "Let me …", "Sure, …" are skipped).
-    2. The request's intent_summary (founder's wording — the goal,
-       not what the LLM said about the goal). Promoted above
-       ``run.directive`` because it's the most stable, descriptive
-       title for the founder-facing surface.
-    3. The run's directive (planner phase prompt) when set.
+    1. ``Request.intent_summary`` — the founder's literal wording.
+       Language-stable by definition (whatever the founder typed),
+       always descriptive, decoupled from LLM output quality.
+    2. ``run.directive`` — planner-phase prompt for child runs that
+       don't carry a request_id. Same stability properties.
+    3. First *substantive* sentence of the reply (preamble-filtered)
+       — last-resort fallback for orphan runs missing both 1 and 2.
+       Local LLMs hallucinate language (e.g. qwen3-coder on certain
+       prompts emits Chinese when asked English) and we don't want
+       a hallucinated title showing up on the deliverable card; the
+       chat surface absorbing the hallucination is acceptable, the
+       deliverable title is not.
     4. ``"Deliverable"`` fallback.
+
+    Rationale: never let LLM output decide system semantics. Stable
+    inputs (founder intent, planner directive) own the title; the
+    LLM owns the chat narrative.
     """
-    summary = _first_substantive_sentence(reply_text)
-    if summary:
-        return summary[:200]
     if request and request.intent_summary:
         return request.intent_summary[:200]
     if run.directive:
         return _first_line(run.directive)[:200]
+    summary = _first_substantive_sentence(reply_text)
+    if summary:
+        return summary[:200]
     return "Deliverable"
 
 
