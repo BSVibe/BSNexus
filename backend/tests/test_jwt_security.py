@@ -28,9 +28,10 @@ import os
 import uuid
 from unittest.mock import AsyncMock, patch
 
+from fastapi import HTTPException
+
 import pytest
 import pytest_asyncio
-from bsvibe_authz import AuthError
 from bsvibe_auth import BSVibeUser
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import event
@@ -120,8 +121,8 @@ async def test_forged_jwt_signature_returns_401(real_auth_client):
     with (
         patch("backend.src.core.auth.settings.e2e_test_token", ""),
         patch(
-            "backend.src.core.auth.verify_user_jwt",
-            side_effect=AuthError("bad signature"),
+            "backend.src.core.auth.bsvibe_authz_get_current_user",
+            new=AsyncMock(side_effect=HTTPException(status_code=401, detail="bad signature")),
         ),
     ):
         resp = await real_auth_client.get(
@@ -295,8 +296,8 @@ async def test_e2e_test_token_blocked_in_production_environment(real_auth_client
             "11111111-1111-4111-8111-111111111111",
         ),
         patch(
-            "backend.src.core.auth.verify_user_jwt",
-            side_effect=AuthError("not a real jwt"),
+            "backend.src.core.auth.bsvibe_authz_get_current_user",
+            new=AsyncMock(side_effect=HTTPException(status_code=401, detail="not a real jwt")),
         ),
     ):
         resp = await real_auth_client.get(
