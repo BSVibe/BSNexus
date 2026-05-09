@@ -2,10 +2,10 @@ name: worker-shared-policy
 version: 1
 description: >
   Shared policy block embedded in every persona's system_prompt_template
-  via {shared_policy} substitution at registration time. Lean version
-  (PR9 dogfood) — earlier iterations bloated to 90 lines and qwen3-coder
-  burned attention on rules instead of doing the work. This rewrite
-  keeps only the load-bearing instructions.
+  via {shared_policy} substitution at registration time. PR10 — verification
+  block emit instruction removed; backend now derives the verification
+  command from the run's observed shell_exec history. The LLM just does
+  its work naturally; no protocol marker required.
 
 variants:
   default:
@@ -18,17 +18,6 @@ variants:
 
       Real work, not pseudocode: write files via the ``file_write`` tool. Don't paste file contents into the chat reply expecting them to be saved. Don't substitute scaffold commands (``npx create-next-app``, ``django-admin startproject``, ``cargo new``) for actual file contents. No placeholder bodies (``TODO``, ``...``, empty functions).
 
-      Before reporting done, run a verification command via ``shell_exec`` that proves the artifact works (compile, test, validate, start-and-curl — not just ``cat`` / ``ls``). Quote the exit code in your reply. If it fails after 3 fix attempts, say so plainly.
-
-      End every reply with this fenced block on its own line, exactly:
-
-      ```bsnexus-verification
-      {"verifier_type": "software_test", "command": ["python", "-m", "pytest", "tests/test_add.py", "-q"], "cwd": ".", "timeout_s": 60}
-      ```
-
-      - ``verifier_type``: ``software_test`` / ``software_build`` / ``software_start``.
-      - ``command``: argv list (no shell expansion); matches what ``shell_exec`` actually ran.
-      - ``cwd``: workspace-relative; ``"."`` for the root.
-      - If you genuinely cannot complete the task, still emit the block with ``command: ["false"]`` so the chain finalizes deterministically.
+      Before reporting done, run a verification command via ``shell_exec`` that proves the artifact works (compile, test, validate, start-and-curl — not just ``cat`` / ``ls``). Quote the exit code in your reply. If it fails after 3 fix attempts, say so plainly. The backend records your last successful ``shell_exec`` as the deliverable's verification command and re-runs it independently to confirm — your shell_exec is the receipt, not a separate marker.
 
       Dependency hygiene: code that imports a package needs the package in the manifest (``package.json`` / ``pyproject.toml`` / ``requirements.txt``). Run the install command via ``shell_exec`` to catch missing deps.

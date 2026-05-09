@@ -74,6 +74,59 @@ def _attach_verification_from_reply(deliverable: Deliverable, reply_text: str) -
     deliverable.verifier_inputs = inputs
 
 
+def _attach_verification_from_local_tool_log(
+    deliverable: Deliverable,
+    local_tool_log: dict | None,
+) -> None:
+    """Derive a verification block from the run's observed shell_exec
+    history when the LLM didn't emit one explicitly (PR10).
+
+    Picks the LAST successful (``exit_code == 0``) shell_exec command
+    and stamps it as ``software_test`` (the most common case for
+    code deliverables; future PRs can branch on filename heuristics).
+    No-op if no successful invocations OR if the deliverable already
+    has ``verifier_type`` stamped (LLM-emitted block wins — it can
+    encode a more specific cwd / timeout / type than we'd infer).
+    """
+    if deliverable.verifier_type is not None:
+        return
+    if not isinstance(local_tool_log, dict):
+        return
+    shells = local_tool_log.get("shell_invocations") or []
+    if not isinstance(shells, list):
+        return
+
+    last_ok = None
+    for entry in shells:
+        if isinstance(entry, dict) and entry.get("exit_code") == 0:
+            last_ok = entry
+
+    if last_ok is None:
+        return
+
+    command_str = last_ok.get("command")
+    if not isinstance(command_str, str) or not command_str.strip():
+        return
+
+    import shlex
+
+    try:
+        command_argv = shlex.split(command_str)
+    except ValueError:
+        return
+    if not command_argv:
+        return
+
+    workspace_root = project_workspace.project_workspace_path(deliverable.project_id)
+    deliverable.verifier_type = "software_test"
+    deliverable.verifier_inputs = {
+        "command": command_argv,
+        "cwd": str(workspace_root),
+        "timeout_s": 60,
+        "derived_from": "local_tool_log.shell_exec",
+    }
+
+
 async def publish_run_output(
     run: "ExecutionRun",
     session: AsyncSession,
@@ -337,11 +390,14 @@ async def _ensure_deliverable(
 
     # Decision-locks A1 — extract the worker's ``bsnexus-verification``
     # fenced JSON block (if any) and stamp ``verifier_type`` /
-    # ``verifier_inputs`` on the Deliverable. The auto-enqueue hook in
-    # ``publish_run_output`` then enqueues an envelope onto the verifier
-    # queue. No block ⇒ proof_state stays at ``verification_missing``,
-    # which is the correct fail-soft per the spec.
+    # ``verifier_inputs`` on the Deliverable. PR10 falls back to
+    # deriving from the run's local_tool_log shell_exec history when
+    # the LLM didn't emit one (which on local 30B models is most
+    # runs — see local-llm-runtime-nudge-ceiling skill).
     _attach_verification_from_reply(deliverable, reply_text)
+    if deliverable.verifier_type is None:
+        local_tool_log = (run.output_ref or {}).get("local_tool_log") if isinstance(run.output_ref, dict) else None
+        _attach_verification_from_local_tool_log(deliverable, local_tool_log)
     await session.flush()
 
     logger.info(

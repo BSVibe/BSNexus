@@ -30,28 +30,15 @@ from typing import Any
 import structlog
 from litellm import acompletion
 
-from backend.src.core.verification_parser import _FENCE_RE
-
 logger = structlog.get_logger(__name__)
 
 
-# PR9 — system nudge injected by the tool-loop watchdog when the
-# loop is about to break with no fenced verification block in the
-# aggregate reply. One nudge text covers both observed failure modes
-# (idle-stop and block-forgotten); telling the model what to DO is
-# stronger than enumerating what NOT to do.
-_WATCHDOG_NUDGE = (
-    "Your reply needs the ``bsnexus-verification`` fenced JSON block at the end. "
-    "If the work isn't done yet, do it now (file_write / shell_exec). "
-    "If the work is done, emit the block and stop."
-)
-
-# Watchdog fires up to this many times per run. PR9 iter 3 observed
-# qwen3-coder responding to a single nudge with more tool calls
-# instead of the block — re-nudge after each subsequent quiet round.
-# Synthesis fallback (PR10) will replace this once the model ceiling
-# is honestly hit.
-_WATCHDOG_MAX_FIRES = 3
+# PR10 — built-in tool names dispatched LOCALLY (not via MCP). The
+# names match ``backend.src.core.tools`` handlers. MCP server's
+# domain tools (decision_create, knowledge_search, etc.) take
+# whatever names the MCP server registers — handled by the else
+# branch in ``_dispatch_tool_call``.
+_LOCAL_TOOL_NAMES: frozenset[str] = frozenset({"file_write", "file_read", "file_list", "shell_exec"})
 
 
 # Hard cap on the size of ``args`` we copy into the activity log.
@@ -149,6 +136,13 @@ class DirectLLMAdapter:
         # rows after the LLM call finishes (PR7). DB session is NOT
         # held during ``execute()`` — see dispatcher.py Phase 2 / 3.
         self._tool_activity_log: list[dict[str, Any]] = []
+        # PR10 — local-tool log (filesystem writes + shell invocations)
+        # accumulated during ``execute()``. Lazy-default so callers
+        # that hit ``_tool_loop`` directly (tests) don't AttributeError;
+        # ``execute()`` overwrites with a fresh per-run instance.
+        from backend.src.core.tools import ToolRunLog as _ToolRunLog  # noqa: PLC0415
+
+        self._local_tool_log = _ToolRunLog(project_id=project_id)
 
     def set_run_audit_metadata(self, metadata: dict[str, Any] | None) -> None:
         self._run_audit_metadata = dict(metadata) if metadata else {}
@@ -170,12 +164,23 @@ class DirectLLMAdapter:
         tools_allowed: list[str],
         history: list[dict[str, str]] | None = None,
     ) -> dict[str, Any]:
-        """Run the completion + MCP tool loop. Returns the same
+        """Run the completion + tool loop. Returns the same
         executor-result shape as :class:`BSGatewayAdapter`, plus a
         ``tool_activity_log`` list the dispatcher persists as
-        ``ExecutionRunActivity`` rows after the LLM call finishes.
+        ``ExecutionRunActivity`` rows after the LLM call finishes
+        AND a ``local_tool_log`` summary (file writes + shell
+        invocations) so ``publish_run_output`` can auto-derive the
+        deliverable's verification block.
         """
-        _ = tools_allowed  # informational; MCP server's list_tools is authoritative
+        _ = tools_allowed  # informational; tool surface union below is authoritative
+
+        # PR10 — local-tool log (filesystem writes + shell invocations).
+        # ``core.tools.execute_tool_call`` writes into this; the result
+        # exposes it so the dispatcher can stamp the verification
+        # block from observed shell_exec history.
+        from backend.src.core.tools import ToolRunLog  # noqa: PLC0415
+
+        self._local_tool_log = ToolRunLog(project_id=self._project_id)
 
         # Fresh log per execute() — supports adapter reuse across runs.
         self._tool_activity_log = []
@@ -257,10 +262,21 @@ class DirectLLMAdapter:
             yield None
 
     async def _fetch_openai_tools(self, session: Any | None) -> list[dict[str, Any]] | None:
+        """Union the local built-in tool schemas with the MCP server's
+        domain tools and present one list to the LLM. Local tools
+        (file_write / file_read / file_list / shell_exec) execute
+        in-process; MCP tools (decision_create, knowledge_search,
+        etc.) round-trip to the configured server. The LLM doesn't
+        need to know which is which — it just sees one tool surface.
+        """
+        from backend.src.core.tools import tool_schemas as local_tool_schemas  # noqa: PLC0415
+
+        local = local_tool_schemas()
         if session is None:
-            return None
+            return local or None
         result = await session.list_tools()
-        return [_mcp_tool_to_openai(t) for t in result.tools]
+        mcp = [_mcp_tool_to_openai(t) for t in result.tools]
+        return local + mcp
 
     # ── Tool loop ─────────────────────────────────────────────────────
 
@@ -281,12 +297,6 @@ class DirectLLMAdapter:
         aggregated_text: list[str] = []
         per_round_replies: list[str] = []
         finish_reason: str | None = None
-        # PR9 — tool-loop watchdog: fires when the loop is about to
-        # break with no fenced verification block in the aggregate
-        # reply. PR10 will replace this with server-side block
-        # synthesis once the model-compliance ceiling is honestly
-        # documented (see skill local-llm-runtime-nudge-ceiling).
-        watchdog_fire_count = 0
 
         for round_idx in range(self._max_tool_rounds):
             kwargs: dict[str, Any] = {
@@ -367,39 +377,14 @@ class DirectLLMAdapter:
             messages.append(assistant_msg)
 
             if not tool_calls or session is None:
-                # PR9 — tool-loop watchdog. About to break the loop;
-                # if no fenced block in the aggregate reply (and
-                # session is available and we haven't hit the fire
-                # cap), inject one nudge and let the loop continue.
-                aggregate_so_far = "".join(per_round_replies)
-                if (
-                    watchdog_fire_count < _WATCHDOG_MAX_FIRES
-                    and session is not None
-                    and not _FENCE_RE.search(aggregate_so_far)
-                ):
-                    watchdog_fire_count += 1
-                    messages.append({"role": "system", "content": _WATCHDOG_NUDGE})
-                    logger.info(
-                        "tool_loop_watchdog_nudged",
-                        project_id=str(self._project_id),
-                        round_idx=round_idx,
-                        attempt=watchdog_fire_count,
-                        round_reply_chars=content_chars,
-                    )
-                    self._tool_activity_log.append(
-                        {
-                            "kind": "tool_loop_watchdog_nudged",
-                            "round_idx": round_idx,
-                            "attempt": watchdog_fire_count,
-                            "occurred_at": datetime.now(timezone.utc).isoformat(),
-                        }
-                    )
-                    continue
                 # Done — model returned plain text or there's no MCP
-                # session to dispatch tool calls on.
+                # session to dispatch tool calls on. PR10 dropped the
+                # PR9 watchdog: verification block is auto-derived
+                # from the local-tool log's shell_exec history rather
+                # than coerced out of the LLM via re-nudges.
                 break
 
-            # Dispatch each tool call via MCP, append the result, loop.
+            # Dispatch each tool call (local or MCP), append result, loop.
             for call in tool_calls:
                 tool_msg = await self._dispatch_tool_call(session, call, round_idx=round_idx)
                 messages.append(tool_msg)
@@ -424,6 +409,13 @@ class DirectLLMAdapter:
             "finish_reason": finish_reason,
             "tool_activity_log": list(self._tool_activity_log),
             "per_round_replies": list(per_round_replies),
+            "local_tool_log": {
+                "written_files": [w.to_ref() for w in self._local_tool_log.written],
+                "shell_invocations": [
+                    {"command": s.command, "exit_code": s.exit_code, "duration_ms": s.duration_ms}
+                    for s in self._local_tool_log.shells
+                ],
+            },
         }
 
     async def _run_iteration(
@@ -551,12 +543,33 @@ class DirectLLMAdapter:
 
         error_message: str | None = None
         try:
-            result = await asyncio.wait_for(
-                session.call_tool(name, args),
-                timeout=self._tool_call_timeout_s,
-            )
-            content = _serialise_tool_result(result)
-            outcome = "ok"
+            if name in _LOCAL_TOOL_NAMES:
+                # PR10 — built-in tools (file_write / file_read /
+                # file_list / shell_exec) execute LOCALLY against the
+                # project workspace. Mirrors claude-code's architecture:
+                # filesystem / shell are local; MCP is for backend
+                # domain extension only.
+                from backend.src.core.tools import execute_tool_call  # noqa: PLC0415
+
+                content = await asyncio.wait_for(
+                    execute_tool_call(
+                        name=name,
+                        raw_arguments=raw_args,
+                        log=self._local_tool_log,
+                    ),
+                    timeout=self._tool_call_timeout_s,
+                )
+                # Local handler returns "error: ..." strings; keep
+                # them as the tool message but flag outcome=error so
+                # the activity log distinguishes them.
+                outcome = "error" if content.startswith("error:") else "ok"
+            else:
+                result = await asyncio.wait_for(
+                    session.call_tool(name, args),
+                    timeout=self._tool_call_timeout_s,
+                )
+                content = _serialise_tool_result(result)
+                outcome = "ok"
         except asyncio.TimeoutError:
             logger.warning(
                 "tool_call_timeout",

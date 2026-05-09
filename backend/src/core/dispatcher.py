@@ -303,6 +303,17 @@ async def _dispatch_background(
                 await session.commit()
                 return
 
+            # PR10 — fold the DirectLLMAdapter local_tool_log into
+            # ``result["output_ref"]`` so it persists with the run row
+            # and ``_attach_verification_from_local_tool_log`` (in
+            # publish_run_output) can derive a verification block from
+            # the observed shell_exec history when the LLM didn't emit
+            # one. BSGatewayAdapter doesn't populate this key — no-op.
+            if isinstance(result, dict) and result.get("local_tool_log"):
+                merged_output = dict(result.get("output_ref") or {})
+                merged_output["local_tool_log"] = result["local_tool_log"]
+                result["output_ref"] = merged_output
+
             await get_run_orchestrator().on_run_completed(
                 run,
                 result=result,
