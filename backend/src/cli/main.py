@@ -12,13 +12,16 @@ from __future__ import annotations
 
 from bsvibe_cli_base import cli_app
 
-from backend.src.cli.commands import decisions as decisions_app
-from backend.src.cli.commands import deliverables as deliverables_app
-from backend.src.cli.commands import events as events_app
-from backend.src.cli.commands import integrations as integrations_app
-from backend.src.cli.commands import mcp as mcp_app
-from backend.src.cli.commands import projects as projects_app
-from backend.src.cli.commands import requests as requests_app
+# Relative imports — wheel build remaps `src/cli/` → `bsnexus_cli/`, so
+# absolute imports of `backend.src.cli.…` only resolve in the source tree.
+# Using package-relative names keeps both contexts working.
+from .commands import decisions as decisions_app
+from .commands import deliverables as deliverables_app
+from .commands import events as events_app
+from .commands import integrations as integrations_app
+from .commands import mcp as mcp_app
+from .commands import projects as projects_app
+from .commands import requests as requests_app
 
 app = cli_app(
     name="bsnexus",

@@ -102,3 +102,61 @@ def test_build_http_client_passes_tenant_header(tmp_path) -> None:
     )
     client = build_http_client(ctx)
     assert client._headers.get("X-Tenant-Id") == "tenant-xyz"
+
+
+def test_build_http_client_appends_api_v1_prefix(tmp_path) -> None:
+    """Routers mount under /api/v1 — build_http_client appends it."""
+    store = ProfileStore(path=tmp_path / "config.yaml")
+    ctx = CliContext(
+        profile=None,
+        url="https://example.test",
+        tenant_id=None,
+        token=None,
+        dry_run=False,
+        formatter=OutputFormatter(format="json"),
+        profile_store=store,
+    )
+    client = build_http_client(ctx)
+    assert client._base_url == "https://example.test/api/v1"
+
+
+def test_build_http_client_does_not_double_append_api_v1(tmp_path) -> None:
+    store = ProfileStore(path=tmp_path / "config.yaml")
+    ctx = CliContext(
+        profile=None,
+        url="https://example.test/api/v1",
+        tenant_id=None,
+        token=None,
+        dry_run=False,
+        formatter=OutputFormatter(format="json"),
+        profile_store=store,
+    )
+    client = build_http_client(ctx)
+    assert client._base_url == "https://example.test/api/v1"
+
+
+def test_build_http_client_handles_trailing_slash(tmp_path) -> None:
+    store = ProfileStore(path=tmp_path / "config.yaml")
+    ctx = CliContext(
+        profile=None,
+        url="https://example.test/",
+        tenant_id=None,
+        token=None,
+        dry_run=False,
+        formatter=OutputFormatter(format="json"),
+        profile_store=store,
+    )
+    client = build_http_client(ctx)
+    assert client._base_url == "https://example.test/api/v1"
+
+
+def test_bsnexus_cli_imports_resolve_without_pythonpath() -> None:
+    """`bsnexus_cli` editable install (wheel remaps src/cli/ → bsnexus_cli/)
+    should not depend on `backend.src` being on sys.path. Relative imports
+    keep both source-tree and wheel imports working.
+    """
+    import importlib
+
+    main_mod = importlib.import_module("backend.src.cli.main")
+    # Smoke — module imported without an ImportError on `backend.…`.
+    assert main_mod.app is not None

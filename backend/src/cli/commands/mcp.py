@@ -22,7 +22,7 @@ from typing import Any
 import structlog
 import typer
 
-from backend.src.cli.commands._common import emit_dry_run, run_async
+from ._common import emit_dry_run, run_async
 
 app = typer.Typer(
     name="mcp",
