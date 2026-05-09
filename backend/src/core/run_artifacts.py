@@ -457,101 +457,22 @@ def _derive_title(
 ) -> str:
     """Pick a short descriptive title for the timeline card.
 
-    Priority (revised PR8 round 2 — LLM-output parsing for
-    system-critical fields is fragile):
+    Stable-inputs only — never parses the LLM reply (PR8 principle:
+    LLM owns chat narrative, stable inputs own system semantics).
+    Local LLMs hallucinate language and format; reading their reply
+    text to populate a system-critical field is silently fragile.
 
-    1. ``Request.intent_summary`` — the founder's literal wording.
-       Language-stable by definition (whatever the founder typed),
-       always descriptive, decoupled from LLM output quality.
-    2. ``run.directive`` — planner-phase prompt for child runs that
-       don't carry a request_id. Same stability properties.
-    3. First *substantive* sentence of the reply (preamble-filtered)
-       — last-resort fallback for orphan runs missing both 1 and 2.
-       Local LLMs hallucinate language (e.g. qwen3-coder on certain
-       prompts emits Chinese when asked English) and we don't want
-       a hallucinated title showing up on the deliverable card; the
-       chat surface absorbing the hallucination is acceptable, the
-       deliverable title is not.
-    4. ``"Deliverable"`` fallback.
-
-    Rationale: never let LLM output decide system semantics. Stable
-    inputs (founder intent, planner directive) own the title; the
-    LLM owns the chat narrative.
+    Priority:
+    1. ``Request.intent_summary`` — founder's literal wording.
+    2. ``run.directive`` — planner-phase prompt for child runs.
+    3. ``"Deliverable"`` fallback.
     """
+    _ = reply_text  # accepted for API stability; intentionally unused
     if request and request.intent_summary:
         return request.intent_summary[:200]
     if run.directive:
         return _first_line(run.directive)[:200]
-    summary = _first_substantive_sentence(reply_text)
-    if summary:
-        return summary[:200]
     return "Deliverable"
-
-
-# Future-tense / reaction preamble patterns that local LLMs (qwen3-coder
-# and similar) prepend to replies. ``_first_substantive_sentence``
-# skips lines whose stripped form starts with one of these — they're
-# not what the deliverable IS, they're what the LLM is about to do.
-import re as _re_module  # noqa: E402
-
-_PREAMBLE_PATTERNS = _re_module.compile(
-    r"^(?:"
-    r"i['’]ll\b"
-    r"|i['’]m\s+(?:going\s+to|about\s+to)?"
-    r"|i\s+will\b"
-    r"|i\s+am\s+(?:going\s+to|about\s+to)\b"
-    r"|i\s+need\s+to\b"
-    r"|i\s+should\b"
-    r"|let\s+me\b"
-    r"|let['’]s\b"
-    r"|sure[,!.\s]"
-    r"|got\s+it[,!.\s]"
-    r"|ok(?:ay)?[,!.\s]"
-    r"|first[,]?\s+i['’]ll\b"
-    r"|first[,]?\s+let"
-    r"|first[,]?\s+i\s+will\b"
-    r"|first[,]?\s+i\s+need"
-    r"|i\s+see\s+(?:that\b|what\b)"
-    r"|looking\s+at\b"
-    r"|considering\b"
-    r"|to\s+(?:start|begin)[,]?\s+i"
-    r")",
-    _re_module.IGNORECASE,
-)
-
-
-def _is_preamble(line: str) -> bool:
-    return bool(_PREAMBLE_PATTERNS.match(line))
-
-
-def _first_substantive_sentence(text: str) -> str | None:
-    """Return the first sentence that ISN'T preamble.
-
-    Walks lines top-to-bottom skipping blanks, markdown decoration,
-    code fences, and preamble patterns. Returns the first sentence
-    of the first non-preamble line.
-    """
-    without_code = _re_module.sub(r"```[\s\S]*?```", "", text)
-    for raw in without_code.splitlines():
-        line = raw.strip()
-        if not line:
-            continue
-        line = _re_module.sub(r"^[#*\->\s]+", "", line)
-        line = line.strip("*_`\"'—– ")
-        if not line:
-            continue
-        if _is_preamble(line):
-            continue
-        m = _re_module.search(r"[.!?。!?]\s", line)
-        if m:
-            return line[: m.end()].rstrip()
-        return line
-    return None
-
-
-# Back-compat alias — older code paths and tests may still call
-# ``_first_sentence``. New callers should use the substantive variant.
-_first_sentence = _first_substantive_sentence
 
 
 def _first_line(text: str) -> str:
