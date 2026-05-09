@@ -67,18 +67,18 @@ async def test_alembic_upgrade_head_on_fresh_pg():
     await engine.dispose()
 
     expected = {
-        "composition_snapshots",
-        "conversation_messages",
+        "brief_snapshots",
         "decisions",
-        "deliverable_versions",
         "deliverables",
-        "execution_run_activities",
-        "execution_run_dependencies",
-        "execution_run_history",
-        "execution_runs",
+        "directions",
+        "proof_attempts",
+        "proof_policies",
         "projects",
         "requests",
-        "tenant_integration_configs",
+        "run_attempts",
+        "tool_events",
+        "work_plans",
+        "work_steps",
     }
     missing = expected - set(tables)
     assert not missing, f"Missing tables after upgrade: {missing}"

@@ -1,78 +1,61 @@
-"""BSNexus domain models."""
-
 from bsvibe_audit import register_audit_outbox_with
 
-from backend.src.models.budget import CostRecord
-from backend.src.models.composition_snapshot import CompositionSnapshot, CompositionSource
-from backend.src.models.conversation import ConversationMessage
-from backend.src.models.decision import Decision
-from backend.src.models.deliverable import (
-    Deliverable,
+from backend.src.core.domain import (
+    BriefScope,
     DeliverableStatus,
     DeliverableType,
-    DeliverableVersion,
+    DirectionSource,
+    ProofAttemptStatus,
     ProofState,
-    StorageBackend,
+    RequestStatus,
+    RunAttemptPhase,
+    RunAttemptStatus,
+    WorkPlanCreatedBy,
+    WorkPlanStatus,
+    WorkStepStatus,
 )
-from backend.src.models.execution_run import (
-    ExecutionRun,
-    ExecutionRunHistory,
-    RunPriority,
-    RunStatus,
-    execution_run_dependencies,
-)
-from backend.src.models.execution_run_activity import ActivityLevel, ExecutionRunActivity
-from backend.src.models.executor_config import ExecutorConfig
+from backend.src.models.brief_snapshot import BriefSnapshot
+from backend.src.models.decision import Decision
+from backend.src.models.deliverable import Deliverable
+from backend.src.models.direction import Direction
 from backend.src.models.project import Project, ProjectStatus, WorkspaceType
-from backend.src.models.project_channel import ProjectChannel
-from backend.src.models.request import Request, RequestStatus
-from backend.src.models.setting import Setting
+from backend.src.models.proof import ProofAttempt, ProofPolicy
+from backend.src.models.request import Request
+from backend.src.models.run_attempt import RunAttempt, ToolEvent
 from backend.src.models.tenant import Tenant, TenantMember
-from backend.src.models.tenant_integration_config import (
-    IntegrationProvider,
-    TenantIntegrationConfig,
-)
+from backend.src.models.work_plan import WorkPlan
+from backend.src.models.work_step import WorkStep
 from backend.src.storage.database import Base
 
-# Phase Audit Batch 2 — register the bsvibe-audit ``audit_outbox`` table
-# onto BSNexus's declarative ``Base.metadata`` so a single Alembic
-# ``target_metadata`` covers both domain rows and the outbox. The helper
-# is idempotent (no-op on second call) which makes it safe even if a
-# test imports models twice. See BSVibe_Audit_Design.md §3.1 + §6.1.
 register_audit_outbox_with(Base.metadata)
 
-
 __all__ = [
-    # Enums
-    "ActivityLevel",
-    "CompositionSource",
-    "DeliverableStatus",
-    "DeliverableType",
-    "IntegrationProvider",
-    "ProjectStatus",
-    "ProofState",
-    "RequestStatus",
-    "RunPriority",
-    "RunStatus",
-    "StorageBackend",
-    "WorkspaceType",
-    # Core models
-    "CompositionSnapshot",
-    "ConversationMessage",
-    "CostRecord",
+    "BriefScope",
+    "BriefSnapshot",
     "Decision",
     "Deliverable",
-    "DeliverableVersion",
-    "ExecutionRun",
-    "ExecutionRunActivity",
-    "ExecutionRunHistory",
-    "ExecutorConfig",
+    "DeliverableStatus",
+    "DeliverableType",
+    "Direction",
+    "DirectionSource",
+    "ProofAttempt",
+    "ProofAttemptStatus",
+    "ProofPolicy",
+    "ProofState",
     "Project",
-    "ProjectChannel",
+    "ProjectStatus",
     "Request",
-    "Setting",
+    "RequestStatus",
+    "RunAttempt",
+    "RunAttemptPhase",
+    "RunAttemptStatus",
     "Tenant",
-    "TenantIntegrationConfig",
     "TenantMember",
-    "execution_run_dependencies",
+    "ToolEvent",
+    "WorkPlan",
+    "WorkPlanCreatedBy",
+    "WorkPlanStatus",
+    "WorkStep",
+    "WorkStepStatus",
+    "WorkspaceType",
 ]
