@@ -80,46 +80,52 @@ async def publish_run_output(
     *,
     knowledge: "KnowledgeClient | None" = None,
     stream_manager: "Any | None" = None,
-) -> None:
+) -> "Deliverable | None":
     """Materialise a completed run's chat reply + deliverable in the UI.
+
+    Returns the created/updated deliverable so the caller can enqueue
+    verification AFTER its enclosing transaction commits — see PR8 race
+    fix below. Returns ``None`` for runs that produced no output (chat-
+    only / empty) and runs whose status isn't ``done``.
 
     When ``knowledge`` is provided, the deliverable is also indexed back
     into BSage so future projects can find it via search. Indexing
     failures are logged but never raised — deliverable creation always
     succeeds regardless of BSage health.
 
-    When ``stream_manager`` is provided and the deliverable carries a
-    verifier_type (decision-locks A1), an envelope is enqueued onto the
-    verification queue so the Verifier Worker picks the deliverable up
-    asynchronously. No-op when the deliverable was created without a
-    verifier configured — the Verifier Worker pattern is degradable.
+    The ``stream_manager`` parameter is accepted for API stability but
+    NO LONGER triggers verifier enqueue here. PR3 (#68) had us enqueue
+    inside this function; PR7 baseline collection caught a race —
+    worker dequeued and read from a fresh session 3ms later, before
+    the dispatcher's commit, and skipped the deliverable as missing.
+    Caller MUST commit the session, then call
+    :func:`backend.src.core.verifier.enqueue.maybe_enqueue_for_deliverable`
+    on the returned deliverable.
     """
     if run.status != RunStatus.done:
-        return
+        return None
+    _ = stream_manager  # accepted for backwards compat; enqueue moved out
     summary = _extract_founder_summary(run.output_ref)
     inline = _extract_inline(run.output_ref)
     files = _extract_files(run.output_ref)
 
     if not summary and not inline and not files:
         logger.info("publish_run_output_empty", run_id=str(run.id))
-        return
+        return None
 
     raw_reply_text = summary or inline or _default_summary(files)
-    # Strip the ``bsnexus-verification`` fenced block before downstream
-    # consumers (chat surface, title derivation) see the reply. The
-    # parsed metadata is captured separately by
-    # ``_attach_verification_from_reply`` against the raw text.
+    # Strip the ``bsnexus-verification`` fenced block from the chat
+    # surface so the founder doesn't see the protocol marker as prose.
+    # Verification stamping uses the RAW reply via
+    # ``_attach_verification_from_reply``.
     reply_text = strip_verification_blocks(raw_reply_text)
     await _ensure_assistant_message(run, reply_text, session)
-    deliverable = await _ensure_deliverable(run, raw_reply_text, files, session, display_text=reply_text)
+    deliverable = await _ensure_deliverable(run, raw_reply_text, files, session)
 
     if knowledge is not None and deliverable is not None:
         await _index_deliverable(knowledge, run, deliverable, reply_text, files, session)
 
-    if deliverable is not None:
-        from backend.src.core.verifier.enqueue import maybe_enqueue_for_deliverable  # noqa: PLC0415
-
-        await maybe_enqueue_for_deliverable(stream_manager, deliverable)
+    return deliverable
 
 
 def _extract_inline(output_ref: object) -> str:
@@ -287,8 +293,6 @@ async def _ensure_deliverable(
     reply_text: str,
     files: list[dict[str, Any]],
     session: AsyncSession,
-    *,
-    display_text: str | None = None,
 ) -> Deliverable | None:
     if run.request_id is None:
         return None
@@ -302,9 +306,7 @@ async def _ensure_deliverable(
 
     request_stmt = select(Request).where(Request.id == run.request_id)
     request = (await session.execute(request_stmt)).scalar_one_or_none()
-    # Title comes from the cleaned text the user sees (verification block
-    # stripped); verification stamping continues to read the raw reply.
-    title = _derive_title(display_text if display_text is not None else reply_text, run, request)
+    title = _derive_title(run, request)
 
     deliverable = Deliverable(
         tenant_id=run.tenant_id,
@@ -444,46 +446,24 @@ def _slug(text: str) -> str:
     return cleaned or "project"
 
 
-def _derive_title(
-    reply_text: str,
-    run: "ExecutionRun",
-    request: "Request | None",
-) -> str:
+def _derive_title(run: "ExecutionRun", request: "Request | None") -> str:
     """Pick a short descriptive title for the timeline card.
 
+    Stable-inputs only — never parses the LLM reply (PR8 principle:
+    LLM owns chat narrative, stable inputs own system semantics).
+    Local LLMs hallucinate language and format; reading their reply
+    text to populate a system-critical field is silently fragile.
+
     Priority:
-    1. First sentence of the assistant reply.
-    2. The run's directive (planner phase prompt) if set.
-    3. The request's intent_summary (founder's original wording).
+    1. ``Request.intent_summary`` — founder's literal wording.
+    2. ``run.directive`` — planner-phase prompt for child runs.
+    3. ``"Deliverable"`` fallback.
     """
-    summary = _first_sentence(reply_text)
-    if summary:
-        return summary[:200]
-    if run.directive:
-        return _first_line(run.directive)[:200]
     if request and request.intent_summary:
         return request.intent_summary[:200]
+    if run.directive:
+        return _first_line(run.directive)[:200]
     return "Deliverable"
-
-
-def _first_sentence(text: str) -> str | None:
-    """Return the first meaningful sentence of a markdown doc."""
-    import re as _re
-
-    without_code = _re.sub(r"```[\s\S]*?```", "", text)
-    for raw in without_code.splitlines():
-        line = raw.strip()
-        if not line:
-            continue
-        line = _re.sub(r"^[#*\->\s]+", "", line)
-        line = line.strip("*_`\"'—– ")
-        if not line:
-            continue
-        m = _re.search(r"[.!?。！？]\s", line)
-        if m:
-            return line[: m.end()].rstrip()
-        return line
-    return None
 
 
 def _first_line(text: str) -> str:

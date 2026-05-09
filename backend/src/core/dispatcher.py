@@ -310,9 +310,12 @@ async def _dispatch_background(
                 stream_manager=stream_manager,
             )
 
+            published_deliverable = None
             if run.status == RunStatus.done:
                 knowledge = resolve_knowledge_client(integrations.bsage, auth_token=originator_token)
-                await publish_run_output(run, session, knowledge=knowledge, stream_manager=stream_manager)
+                published_deliverable = await publish_run_output(
+                    run, session, knowledge=knowledge, stream_manager=stream_manager
+                )
 
             # Persist any tool-call / round activity log the adapter
             # accumulated during the LLM call (PR7 — failure-mode
@@ -343,6 +346,20 @@ async def _dispatch_background(
                 )
 
             await session.commit()
+
+            # PR8 race fix — enqueue verification ONLY after the
+            # transaction that created the deliverable has committed.
+            # Pre-PR8 we enqueued from inside ``publish_run_output``
+            # against an uncommitted row; the worker dequeued 3ms
+            # later from a fresh session that couldn't see the row
+            # and skipped it as missing. Now we hand the verifier a
+            # committed row id and the worker's session can find it.
+            if published_deliverable is not None and stream_manager is not None:
+                from backend.src.core.verifier.enqueue import (  # noqa: PLC0415
+                    maybe_enqueue_for_deliverable,
+                )
+
+                await maybe_enqueue_for_deliverable(stream_manager, published_deliverable)
     except asyncio.CancelledError:
         logger.info("background_dispatch_cancelled", run_id=str(run_id))
         raise

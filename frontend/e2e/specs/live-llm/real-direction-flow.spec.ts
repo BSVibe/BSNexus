@@ -21,10 +21,12 @@ const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://bsserver:11434'
 
 // Locally-hosted Ollama models on bsserver routinely take 3–4 minutes
 // for the easy / medium scenarios (qwen3-coder:30b walks 7–10 tool-call
-// rounds before emitting the bsnexus-verification block). Cap the
-// poller generously so a slow-but-correct run isn't reported as a
-// product regression.
-const DELIVERABLE_TIMEOUT_MS = 360_000
+// rounds before emitting the bsnexus-verification block). PR8 dogfood
+// observed occasional 6+ minute stalls under bsserver load even on
+// runs that eventually verified — bump to 10 min to absorb the
+// hardware variance instead of falsely reporting a hardware stall as
+// a product regression.
+const DELIVERABLE_TIMEOUT_MS = 600_000
 const PROOF_VERIFIED_TIMEOUT_MS = 60_000
 
 interface Project {
@@ -118,7 +120,13 @@ async function pollDeliverable(
 }
 
 test.describe('live-llm — Direction → Verifier Worker → verified', () => {
-  test.describe.configure({ mode: 'serial', timeout: DELIVERABLE_TIMEOUT_MS + PROOF_VERIFIED_TIMEOUT_MS + 60_000 })
+  // ``workers: 1`` in playwright.config.ts already serialises across
+  // the whole config; we don't need ``mode: 'serial'`` here. Removing
+  // it makes each scenario independent — one failing test doesn't
+  // skip the others, so a single dogfood run produces measurements
+  // for all three scenarios even if smoke flakes (PR8 baseline data
+  // collection rationale).
+  test.describe.configure({ timeout: DELIVERABLE_TIMEOUT_MS + PROOF_VERIFIED_TIMEOUT_MS + 60_000 })
 
   test('smoke: python --version via shell_exec ends at proof_state=verified', async () => {
     // Minimum-trust live-LLM smoke: no file_write needed, just one
@@ -160,6 +168,47 @@ test.describe('live-llm — Direction → Verifier Worker → verified', () => {
         timeoutMs: PROOF_VERIFIED_TIMEOUT_MS,
         predicate: (d: Deliverable) => d.id === stamped.id && d.proof_state === 'verified',
         label: 'deliverable proof_state=verified',
+      })
+      expect(verified.verification_exit_code).toBe(0)
+    } finally {
+      await api.dispose()
+    }
+  })
+
+  test('easy: add(a,b) + pytest verifies clean', async () => {
+    // Minimum-real-work scenario between smoke (no files) and medium
+    // (FastAPI). Two file_writes + one shell_exec + the verification
+    // block. Stresses multi-step tool-call discipline (the medium
+    // scenario from PR7 baseline showed the LLM stopping after the
+    // first artifact); easy is the smallest scenario that exercises
+    // that behavior.
+    const api = await authedRequest()
+    try {
+      await bootstrapExecutor(api)
+      const project = await createProject(api, `live-easy-${Date.now()}`)
+      await sendDirection(
+        api,
+        project.id,
+        [
+          'Create a tiny Python module with `add(a, b)` returning a + b in',
+          '`add.py`, and a pytest at `tests/test_add.py` asserting',
+          '`add(2, 3) == 5`. Use file_write for both files and run',
+          '`python -m pytest tests/test_add.py -q` via shell_exec to verify.',
+          'Pytest is already installed — no extra dependency install needed.',
+        ].join(' '),
+      )
+
+      const stamped = await pollDeliverable(api, project.id, {
+        timeoutMs: DELIVERABLE_TIMEOUT_MS,
+        predicate: (d: Deliverable) => d.verifier_type !== null,
+        label: 'easy-scenario deliverable with verifier_type stamped',
+      })
+      expect(stamped.verifier_type).toBe('software_test')
+
+      const verified = await pollDeliverable(api, project.id, {
+        timeoutMs: PROOF_VERIFIED_TIMEOUT_MS,
+        predicate: (d: Deliverable) => d.id === stamped.id && d.proof_state === 'verified',
+        label: 'easy-scenario deliverable proof_state=verified',
       })
       expect(verified.verification_exit_code).toBe(0)
     } finally {

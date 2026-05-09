@@ -90,7 +90,11 @@ async def test_publishes_assistant_message_and_deliverable_from_tool_file_list(
     # Had a .py file → code type.
     assert deliverable.type == DeliverableType.code
     assert deliverable.status == DeliverableStatus.delivered
-    assert deliverable.title.startswith("Shipped a hello app")
+    # PR8 — title comes from Request.intent_summary (founder's literal
+    # wording, language-stable), NOT from the LLM reply text. The chat
+    # message above carries the LLM's "Shipped a hello app" prose; the
+    # deliverable card title reflects what the founder asked for.
+    assert deliverable.title.startswith("Build a tiny thing")
 
     version = (
         await db_session.execute(select(DeliverableVersion).where(DeliverableVersion.deliverable_id == deliverable.id))
@@ -316,4 +320,6 @@ async def test_publishes_skips_index_when_no_knowledge_client(db_session, mock_t
     deliverable = (
         await db_session.execute(select(Deliverable).where(Deliverable.request_id == run.request_id))
     ).scalar_one()
-    assert deliverable.title.startswith("Built the thing")
+    # PR8 — title comes from Request.intent_summary (founder's literal
+    # wording), not from the LLM-emitted "Built the thing" reply.
+    assert deliverable.title.startswith("Build a tiny thing")
