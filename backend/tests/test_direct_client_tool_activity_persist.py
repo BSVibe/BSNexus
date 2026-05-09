@@ -98,9 +98,12 @@ async def test_execute_records_paired_tool_call_start_done_in_activity_log() -> 
             _delta_chunk(finish_reason="tool_calls"),
         ]
     )
+    # PR9 — round 2 includes the fenced block to short-circuit the
+    # block-forgotten watchdog.
     round2 = _async_iter(
         [
             _delta_chunk(content="done"),
+            _delta_chunk(content='\n```bsnexus-verification\n{"verifier_type": "software_test", "command": ["true"]}\n```'),
             _delta_chunk(finish_reason="stop"),
         ]
     )
@@ -171,9 +174,12 @@ async def test_execute_records_done_outcome_error_when_tool_raises() -> None:
             _delta_chunk(finish_reason="tool_calls"),
         ]
     )
+    # PR9 — round 2 includes the fenced block to short-circuit the
+    # block-forgotten watchdog (else a 3rd round would fire).
     round2 = _async_iter(
         [
             _delta_chunk(content="recovered"),
+            _delta_chunk(content='\n```bsnexus-verification\n{"verifier_type": "software_test", "command": ["true"]}\n```'),
             _delta_chunk(finish_reason="stop"),
         ]
     )
@@ -267,9 +273,12 @@ async def test_execute_truncates_long_tool_args_in_activity_log() -> None:
             _delta_chunk(finish_reason="tool_calls"),
         ]
     )
+    # PR9 — round 2 includes the fenced block to short-circuit the
+    # block-forgotten watchdog.
     round2 = _async_iter(
         [
             _delta_chunk(content="ok"),
+            _delta_chunk(content='\n```bsnexus-verification\n{"verifier_type": "software_test", "command": ["true"]}\n```'),
             _delta_chunk(finish_reason="stop"),
         ]
     )

@@ -35,16 +35,34 @@ from backend.src.core.verification_parser import _FENCE_RE
 logger = structlog.get_logger(__name__)
 
 
-# PR9 — system nudge injected by the tool-loop watchdog when round 1
-# produces zero tool calls AND no fenced block. The wording is short
-# and ends with the explicit protocol marker requirement so the model
-# can't miss it.
-_WATCHDOG_NUDGE = (
+# PR9 — system nudge injected by the tool-loop watchdog when the
+# loop is about to break with no fenced verification block in the
+# aggregate reply. Wording adapts based on whether prior tool calls
+# happened (block-forgotten vs idle-stop). Both variants end with the
+# protocol-marker requirement so the model can't miss it.
+_WATCHDOG_NUDGE_IDLE = (
     "You stopped before doing the work. Use the file_write / shell_exec "
     "tools to actually complete the task, then end your reply with the "
     "``bsnexus-verification`` fenced JSON block. Do NOT just describe "
     "what you intend to do — DO it."
 )
+_WATCHDOG_NUDGE_BLOCK_FORGOTTEN = (
+    "STOP. Do NOT do more work. Do NOT call any more tools. Do NOT write more prose. "
+    "Your ONLY job in your next reply is to emit the ``bsnexus-verification`` fenced "
+    "JSON block — nothing else. The block is the ABSOLUTE ONLY content in your next "
+    "reply, fenced exactly:\n"
+    "```bsnexus-verification\n"
+    '{"verifier_type": "software_test", "command": [...], "cwd": ".", "timeout_s": 60}\n'
+    "```\n"
+    "Without this block, all the work you've done so far is invisible to the founder — "
+    "the deliverable lands at ``verification_missing`` and reads as not-shipped."
+)
+
+# Watchdog fires up to this many times per run. PR9 iter 3 observed
+# qwen3-coder responding to a single nudge with more tool calls
+# instead of the block — we need to be able to re-nudge after each
+# subsequent quiet round.
+_WATCHDOG_MAX_FIRES = 3
 
 
 # Hard cap on the size of ``args`` we copy into the activity log.
@@ -279,12 +297,18 @@ class DirectLLMAdapter:
         aggregated_text: list[str] = []
         per_round_replies: list[str] = []
         finish_reason: str | None = None
-        # PR9 — tool-loop watchdog: fires at most once per run, after
-        # round 1 if the model emitted zero tool calls AND no fenced
-        # verification block. Injects a system nudge and lets the loop
-        # continue. Catches the qwen3-coder "I need to build the app"
-        # preamble-only failure mode observed in PR8 baseline.
-        watchdog_fired = False
+        # PR9 — tool-loop watchdog: fires at most once per run when the
+        # loop is about to break (no tool_calls this round, session
+        # available) AND no fenced verification block is in the
+        # aggregate reply. Two variants of the nudge:
+        # - "idle stop" (no tool calls anywhere): the model bailed
+        #   without doing work — observed as preamble-only round 1 in
+        #   PR8 dogfood.
+        # - "block forgotten" (tool calls happened, no block): model
+        #   did the work but forgot to emit the protocol marker —
+        #   observed in PR9 iter 1+2 easy scenario.
+        watchdog_fire_count = 0
+        any_tool_calls_this_run = False
 
         for round_idx in range(self._max_tool_rounds):
             kwargs: dict[str, Any] = {
@@ -365,29 +389,40 @@ class DirectLLMAdapter:
             messages.append(assistant_msg)
 
             if not tool_calls or session is None:
-                # PR9 — tool-loop idle watchdog. If round 1 produced
-                # zero tool calls AND no fenced verification block
-                # (and we have an MCP session, so tools are available),
-                # inject a system nudge once and keep looping.
+                # PR9 — tool-loop watchdog. About to break the loop;
+                # check if the aggregate reply is missing the fenced
+                # verification block. If yes (and session is available
+                # and watchdog hasn't fired), inject a nudge that
+                # adapts to "idle stop" vs "block forgotten" and let
+                # the loop continue. Fires at most once per run.
+                aggregate_so_far = "".join(per_round_replies)
                 if (
-                    not watchdog_fired
+                    watchdog_fire_count < _WATCHDOG_MAX_FIRES
                     and session is not None
-                    and round_idx == 0
-                    and tool_call_count == 0
-                    and not _FENCE_RE.search(round_reply)
+                    and not _FENCE_RE.search(aggregate_so_far)
                 ):
-                    watchdog_fired = True
-                    messages.append({"role": "system", "content": _WATCHDOG_NUDGE})
+                    watchdog_fire_count += 1
+                    if any_tool_calls_this_run:
+                        nudge = _WATCHDOG_NUDGE_BLOCK_FORGOTTEN
+                        kind = "block_forgotten"
+                    else:
+                        nudge = _WATCHDOG_NUDGE_IDLE
+                        kind = "idle_stop"
+                    messages.append({"role": "system", "content": nudge})
                     logger.info(
                         "tool_loop_watchdog_nudged",
                         project_id=str(self._project_id),
                         round_idx=round_idx,
+                        kind=kind,
+                        attempt=watchdog_fire_count,
                         round_reply_chars=content_chars,
                     )
                     self._tool_activity_log.append(
                         {
                             "kind": "tool_loop_watchdog_nudged",
                             "round_idx": round_idx,
+                            "watchdog_kind": kind,
+                            "attempt": watchdog_fire_count,
                             "occurred_at": datetime.now(timezone.utc).isoformat(),
                         }
                     )
@@ -395,6 +430,8 @@ class DirectLLMAdapter:
                 # Done — model returned plain text or there's no MCP
                 # session to dispatch tool calls on.
                 break
+
+            any_tool_calls_this_run = True
 
             # Dispatch each tool call via MCP, append the result, loop.
             for call in tool_calls:

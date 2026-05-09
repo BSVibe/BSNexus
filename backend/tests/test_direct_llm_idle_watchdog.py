@@ -104,9 +104,12 @@ async def test_watchdog_nudges_after_round1_zero_tools_no_block() -> None:
             _delta_chunk(finish_reason="tool_calls"),
         ]
     )
+    # PR9 multi-fire watchdog — round 3 must include the fenced block
+    # to satisfy the watchdog and exit the loop. Otherwise the
+    # block-forgotten variant fires again after round 3.
     round3 = _async_iter(
         [
-            _delta_chunk(content="Done."),
+            _delta_chunk(content='Done.\n```bsnexus-verification\n{"verifier_type": "software_test", "command": ["true"]}\n```'),
             _delta_chunk(finish_reason="stop"),
         ]
     )
@@ -144,8 +147,9 @@ async def test_watchdog_nudges_after_round1_zero_tools_no_block() -> None:
 
 
 @pytest.mark.asyncio
-async def test_watchdog_does_not_fire_when_round1_emits_tool_call() -> None:
-    """Round 1 with at least one tool_call is healthy — no nudge."""
+async def test_watchdog_does_not_fire_on_healthy_run_with_block() -> None:
+    """Round 1 tool_call → round 2 completes WITH the fenced block.
+    No nudge — the run produced everything it needed."""
     adapter = DirectLLMAdapter(
         model="ollama_chat/qwen3-coder:30b",
         api_key="k",
@@ -166,7 +170,9 @@ async def test_watchdog_does_not_fire_when_round1_emits_tool_call() -> None:
     )
     round2 = _async_iter(
         [
-            _delta_chunk(content="Done."),
+            _delta_chunk(
+                content='Done.\n```bsnexus-verification\n{"verifier_type": "software_test", "command": ["true"]}\n```',
+            ),
             _delta_chunk(finish_reason="stop"),
         ]
     )
@@ -190,13 +196,10 @@ async def test_watchdog_does_not_fire_when_round1_emits_tool_call() -> None:
     ):
         await adapter.execute(system_prompt="s", user_prompt="u", tools_allowed=[])
 
-    # Two rounds, no nudge injected.
+    # Two rounds, no nudge.
     assert len(captured_messages) == 2
-    round2_msgs = captured_messages[1]
-    nudge_msgs = [
-        m for m in round2_msgs if m.get("role") == "system" and "you stopped" in (m.get("content") or "").lower()
-    ]
-    assert nudge_msgs == []
+    nudges = [r for r in adapter._tool_activity_log if r.get("kind") == "tool_loop_watchdog_nudged"]
+    assert nudges == []
 
 
 @pytest.mark.asyncio
@@ -243,10 +246,12 @@ async def test_watchdog_does_not_fire_when_round1_emits_fenced_block() -> None:
 
 
 @pytest.mark.asyncio
-async def test_watchdog_fires_at_most_once_per_run() -> None:
-    """If round 1 AND round 2 both emit zero tools / no block, the
-    watchdog fires only after round 1 — round 2 still triggers the
-    normal early-break since tool_calls is empty."""
+async def test_watchdog_block_forgotten_after_tool_calls() -> None:
+    """PR9 iter-2 observation: easy scenario LLM completes the work
+    (file_write × 2, shell_exec × 1) but the final round emits prose
+    only — no fenced block. Watchdog fires the
+    ``block_forgotten`` variant; final round emits the block
+    correctly."""
     adapter = DirectLLMAdapter(
         model="ollama_chat/qwen3-coder:30b",
         api_key="k",
@@ -255,13 +260,38 @@ async def test_watchdog_fires_at_most_once_per_run() -> None:
     session = _session_with_tools()
     captured_messages: list[list[dict]] = []
 
-    round1 = _async_iter([_delta_chunk(content="I'll do it."), _delta_chunk(finish_reason="stop")])
-    round2 = _async_iter([_delta_chunk(content="Still thinking."), _delta_chunk(finish_reason="stop")])
+    # Round 1: tool call → MCP dispatch
+    round1 = _async_iter(
+        [
+            _delta_chunk(
+                tool_calls=[
+                    {"index": 0, "id": "c1", "function_name": "file_write", "function_arguments": '{"path": "x"}'}
+                ]
+            ),
+            _delta_chunk(finish_reason="tool_calls"),
+        ]
+    )
+    # Round 2: prose only, NO fenced block (the bug)
+    round2 = _async_iter(
+        [
+            _delta_chunk(content="All done! Tests pass."),
+            _delta_chunk(finish_reason="stop"),
+        ]
+    )
+    # Round 3 (after watchdog nudge): the fenced block
+    round3 = _async_iter(
+        [
+            _delta_chunk(
+                content='```bsnexus-verification\n{"verifier_type": "software_test", "command": ["true"]}\n```',
+            ),
+            _delta_chunk(finish_reason="stop"),
+        ]
+    )
 
     async def _fake_acompletion(**kwargs):
         captured_messages.append([dict(m) for m in kwargs["messages"]])
         idx = len(captured_messages)
-        return [round1, round2][idx - 1]
+        return [round1, round2, round3][idx - 1]
 
     @asynccontextmanager
     async def _session_ctx():
@@ -277,10 +307,66 @@ async def test_watchdog_fires_at_most_once_per_run() -> None:
     ):
         await adapter.execute(system_prompt="s", user_prompt="u", tools_allowed=[])
 
-    # Exactly two rounds — watchdog fired once between them, then
-    # round 2 also emitted no tools so the loop broke without a
-    # second nudge.
-    assert len(captured_messages) == 2
-    # The activity log should record exactly one watchdog event.
+    # Three rounds. Round 3 messages must include the
+    # block_forgotten nudge.
+    assert len(captured_messages) == 3
+    round3_msgs = captured_messages[2]
+    nudge_msgs = [
+        m
+        for m in round3_msgs
+        if m.get("role") == "system" and "do not do more work" in (m.get("content") or "").lower()
+    ]
+    assert len(nudge_msgs) == 1
+    # Activity log records the kind.
+    nudges = [r for r in adapter._tool_activity_log if r.get("kind") == "tool_loop_watchdog_nudged"]
+    assert len(nudges) == 1
+    assert nudges[0].get("watchdog_kind") == "block_forgotten"
+
+
+@pytest.mark.asyncio
+async def test_watchdog_caps_at_max_fires_per_run() -> None:
+    """PR9 iter 3 observed qwen3-coder responding to a single watchdog
+    nudge with more tool calls instead of the requested block. Allow
+    the watchdog to fire up to ``_WATCHDOG_MAX_FIRES`` times so we can
+    re-nudge after each subsequent quiet round, then break to avoid
+    runaway nudge loops."""
+    from backend.src.core.llm.direct_client import _WATCHDOG_MAX_FIRES
+
+    adapter = DirectLLMAdapter(
+        model="ollama_chat/qwen3-coder:30b",
+        api_key="k",
+        project_id=uuid.uuid4(),
+    )
+    session = _session_with_tools()
+    captured_messages: list[list[dict]] = []
+
+    # Five rounds of preamble-only — model never emits the block. The
+    # watchdog should fire ``_WATCHDOG_MAX_FIRES`` times then give up.
+    rounds = [
+        _async_iter([_delta_chunk(content=f"thought {i}"), _delta_chunk(finish_reason="stop")])
+        for i in range(_WATCHDOG_MAX_FIRES + 2)
+    ]
+
+    async def _fake_acompletion(**kwargs):
+        captured_messages.append([dict(m) for m in kwargs["messages"]])
+        idx = len(captured_messages)
+        return rounds[idx - 1]
+
+    @asynccontextmanager
+    async def _session_ctx():
+        yield session
+
+    with (
+        patch.object(adapter, "_mcp_session", _session_ctx),
+        patch.object(adapter, "_fetch_openai_tools", AsyncMock(return_value=[{"name": "file_write"}])),
+        patch(
+            "backend.src.core.llm.direct_client.acompletion",
+            AsyncMock(side_effect=_fake_acompletion),
+        ),
+    ):
+        await adapter.execute(system_prompt="s", user_prompt="u", tools_allowed=[])
+
+    # ``_WATCHDOG_MAX_FIRES`` nudges + 1 final round that breaks the loop.
+    assert len(captured_messages) == _WATCHDOG_MAX_FIRES + 1
     nudges_in_log = [r for r in adapter._tool_activity_log if r.get("kind") == "tool_loop_watchdog_nudged"]
-    assert len(nudges_in_log) == 1
+    assert len(nudges_in_log) == _WATCHDOG_MAX_FIRES
