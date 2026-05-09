@@ -1,15 +1,10 @@
-"""3-way auth dispatch via ``bsvibe-authz``.
+"""Auth dispatch via ``bsvibe-authz``.
 
-Token routing by prefix:
-
-  * ``bsv_admin_*`` — :func:`bsvibe_authz.verify_bootstrap_token`
-    (constant-time digest compare against
-    :attr:`Settings.bootstrap_token_hash`).
-  * ``bsv_sk_*``    — :func:`bsvibe_authz.verify_opaque_token`
-    (RFC 7662 introspection against
-    :attr:`Settings.introspection_url`).
-  * other           — :func:`bsvibe_authz.verify_user_jwt`
-    (HS256/RS256/ES256/EdDSA, configured via ``USER_JWT_*`` env vars).
+Delegates token verification to :func:`bsvibe_authz.deps.get_current_user`,
+which performs the canonical bootstrap → opaque → JWT → PAT-JWT
+introspection-fallback flow. Future bsvibe-authz auth changes
+propagate to BSNexus automatically — same shape as BSage's
+``combined_principal``.
 
 The pre-existing ``E2E_TEST_TOKEN`` bypass short-circuits BEFORE
 dispatch in non-production environments. It is the only path that
@@ -29,10 +24,9 @@ from bsvibe_authz import (
     IntrospectionClient,
     Settings as AuthzSettings,
     User as AuthzUser,
-    verify_bootstrap_token,
-    verify_opaque_token,
     verify_user_jwt,
 )
+from bsvibe_authz.deps import get_current_user as bsvibe_authz_get_current_user
 from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -47,13 +41,6 @@ from backend.src.storage.database import get_db
 
 BOOTSTRAP_TOKEN_PREFIX = "bsv_admin_"
 OPAQUE_TOKEN_PREFIX = "bsv_sk_"
-
-
-def _looks_like_jwt(token: str) -> bool:
-    """Three base64url segments — gates the introspection fallback so a
-    stray garbage string doesn't trigger a network round-trip."""
-    parts = token.split(".")
-    return len(parts) == 3 and all(p for p in parts)
 
 
 def _is_production_environment() -> bool:
@@ -245,48 +232,55 @@ def _bsvibe_user_from_jwt_payload(payload: dict[str, Any]) -> BSVibeUser:
 
 
 async def _dispatch_token(token: str) -> BSVibeUser:
-    """Run the 3-way bsvibe-authz dispatch and return a BSVibeUser.
+    """Run the bsvibe-authz dispatch and return a BSVibeUser.
 
-    All AuthError failures surface as 401 with ``WWW-Authenticate: Bearer``.
-    The error detail mirrors :class:`AuthError` strings — they never echo
-    the raw token (bsvibe-authz hashes the opaque token before logging).
+    Delegates to :func:`bsvibe_authz.deps.get_current_user` for the full
+    bootstrap → opaque → JWT → PAT-JWT-introspection flow, then maps the
+    returned :class:`bsvibe_authz.User` to BSNexus's :class:`BSVibeUser`
+    shape. Library-level dispatch changes propagate here automatically.
+
+    For the user-JWT path we additionally lift ``app_metadata`` /
+    ``user_metadata`` from the verified payload — :func:`parse_user_token`
+    intentionally drops them, but BSNexus's RBAC keys off
+    ``app_metadata['role']`` from Supabase claims.
     """
     az_settings = _authz_settings()
     try:
-        if token.startswith(BOOTSTRAP_TOKEN_PREFIX):
-            authz_user = verify_bootstrap_token(token, az_settings)
-            return _to_bsvibe_user(authz_user)
-        if token.startswith(OPAQUE_TOKEN_PREFIX):
-            client = _get_introspection_client()
-            if client is None:
-                raise AuthError("opaque token path is not configured")
-            authz_user = await verify_opaque_token(
-                token,
-                client,
-                _get_introspection_cache(),
-            )
-            return _to_bsvibe_user(authz_user)
+        authz_user = await bsvibe_authz_get_current_user(
+            authorization=f"Bearer {token}",
+            settings=az_settings,
+            introspection_client=_get_introspection_client(),
+            introspection_cache=_get_introspection_cache(),
+        )
+    except HTTPException as exc:
+        # bsvibe-authz raises plain HTTPException on auth failure.
+        # RFC 6750 §3 requires the ``WWW-Authenticate: Bearer`` challenge
+        # on 401 — re-raise with the header attached.
+        if exc.status_code == status.HTTP_401_UNAUTHORIZED:
+            existing = {k.lower() for k in (exc.headers or {})}
+            if "www-authenticate" not in existing:
+                raise HTTPException(
+                    status_code=exc.status_code,
+                    detail=exc.detail,
+                    headers={"WWW-Authenticate": "Bearer"},
+                ) from exc
+        raise
+
+    user = _to_bsvibe_user(authz_user)
+
+    # User-JWT path only — preserve Supabase ``app_metadata`` claims so
+    # RBAC sees the original role. Bootstrap/opaque tokens carry no JWT
+    # payload to lift; for PAT JWTs the introspection response is the
+    # source of truth and metadata is irrelevant (scope-based).
+    if not (token.startswith(BOOTSTRAP_TOKEN_PREFIX) or token.startswith(OPAQUE_TOKEN_PREFIX)):
         try:
             payload = verify_user_jwt(token, az_settings)
-            return _bsvibe_user_from_jwt_payload(payload)
         except AuthError:
-            # PAT JWTs from BSVibe-Auth's device grant are signed with
-            # SERVICE_TOKEN_SIGNING_SECRET (not USER_JWT_SECRET), so they
-            # fail user_jwt verification. The /api/tokens/introspect
-            # endpoint accepts them by jti — fall through when the
-            # introspection client is configured and the token is
-            # JWT-shaped.
-            client = _get_introspection_client()
-            if client is None or not _looks_like_jwt(token):
-                raise
-            authz_user = await verify_opaque_token(token, client, _get_introspection_cache())
-            return _to_bsvibe_user(authz_user)
-    except AuthError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=str(exc),
-            headers={"WWW-Authenticate": "Bearer"},
-        ) from exc
+            # User-JWT verification failed but get_current_user succeeded —
+            # introspection-fallback path. Skip metadata lift.
+            return user
+        user = _bsvibe_user_from_jwt_payload(payload)
+    return user
 
 
 async def get_current_user(
