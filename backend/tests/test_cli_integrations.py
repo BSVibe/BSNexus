@@ -108,7 +108,7 @@ def test_integrations_list_calls_get(runner: CliRunner, monkeypatch: pytest.Monk
     assert result.exit_code == 0, result.stderr
     fake.get.assert_awaited_once()
     args, _ = fake.get.await_args
-    assert args[0] == "/api/v1/integrations"
+    assert args[0] == "/integrations"
     payload = json.loads(result.stdout)
     assert payload["bsage"]["has_api_key"] is True
 
@@ -127,7 +127,7 @@ def test_integrations_list_dry_run(runner: CliRunner, monkeypatch: pytest.Monkey
     payload = json.loads(result.stdout)
     assert payload["dry_run"] is True
     assert payload["method"] == "GET"
-    assert payload["path"] == "/api/v1/integrations"
+    assert payload["path"] == "/integrations"
 
 
 def test_integrations_list_empty_table_does_not_crash(runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -179,7 +179,7 @@ def test_integrations_add_patches_provider(runner: CliRunner, monkeypatch: pytes
     assert result.exit_code == 0, result.stderr
     fake.patch.assert_awaited_once()
     args, kwargs = fake.patch.await_args
-    assert args[0] == "/api/v1/integrations/bsage"
+    assert args[0] == "/integrations/bsage"
     body = kwargs["json"]
     assert body["enabled"] is True
     assert body["base_url"] == "https://bsage.test"
@@ -237,7 +237,7 @@ def test_integrations_add_dry_run_redacts_api_key(runner: CliRunner, monkeypatch
     payload = json.loads(result.stdout)
     assert payload["dry_run"] is True
     assert payload["method"] == "PATCH"
-    assert payload["path"] == "/api/v1/integrations/bsupervisor"
+    assert payload["path"] == "/integrations/bsupervisor"
     assert payload["body"]["api_key"] == "***"
     assert payload["body"]["base_url"] == "https://bsup.test"
     assert payload["body"]["enabled"] is True
@@ -318,7 +318,7 @@ def test_integrations_remove_disables_and_clears(runner: CliRunner, monkeypatch:
     assert result.exit_code == 0, result.stderr
     fake.patch.assert_awaited_once()
     args, kwargs = fake.patch.await_args
-    assert args[0] == "/api/v1/integrations/bsage"
+    assert args[0] == "/integrations/bsage"
     body = kwargs["json"]
     assert body["enabled"] is False
     assert body["api_key"] is None
@@ -347,7 +347,7 @@ def test_integrations_remove_dry_run(runner: CliRunner, monkeypatch: pytest.Monk
     fake.patch.assert_not_awaited()
     payload = json.loads(result.stdout)
     assert payload["method"] == "PATCH"
-    assert payload["path"] == "/api/v1/integrations/bsupervisor"
+    assert payload["path"] == "/integrations/bsupervisor"
     assert payload["body"]["enabled"] is False
 
 
@@ -376,7 +376,7 @@ def test_integrations_test_calls_probe(runner: CliRunner, monkeypatch: pytest.Mo
     assert result.exit_code == 0, result.stderr
     fake.post.assert_awaited_once()
     args, _ = fake.post.await_args
-    assert args[0] == "/api/v1/integrations/bsage/test"
+    assert args[0] == "/integrations/bsage/test"
     payload = json.loads(result.stdout)
     assert payload["ok"] is True
     assert payload["status"] == "healthy"
@@ -415,7 +415,7 @@ def test_integrations_test_dry_run(runner: CliRunner, monkeypatch: pytest.Monkey
     fake.post.assert_not_awaited()
     payload = json.loads(result.stdout)
     assert payload["method"] == "POST"
-    assert payload["path"] == "/api/v1/integrations/bsage/test"
+    assert payload["path"] == "/integrations/bsage/test"
 
 
 def test_integrations_test_4xx_friendly(runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -40,7 +40,7 @@ _DEFAULT_LIMIT = 50
 
 
 def _list_path() -> str:
-    return "/api/v1/requests"
+    return "/requests"
 
 
 def _list_params(project_id: str | None, limit: int) -> dict[str, Any]:
@@ -140,7 +140,7 @@ def show_cmd(
 
 def _send_message(obj: Any, project_id: str, content: str) -> None:
     body = {"project_id": project_id, "content": content}
-    path = "/api/v1/messages"
+    path = "/messages"
 
     if obj.dry_run:
         emit_dry_run(obj, {"method": "POST", "path": path, "body": body})

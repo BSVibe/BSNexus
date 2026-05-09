@@ -38,7 +38,7 @@ app = typer.Typer(
     add_completion=False,
 )
 
-_LIST_PATH = "/api/v1/integrations"
+_LIST_PATH = "/integrations"
 _VALID_PROVIDERS = ("bsage", "bsupervisor")
 
 
@@ -100,7 +100,7 @@ def add_cmd(
 ) -> None:
     obj = ctx.obj
     prov = _normalize_provider(provider)
-    path = f"/api/v1/integrations/{prov}"
+    path = f"/integrations/{prov}"
 
     body: dict[str, Any] = {}
     if base_url is not None:
@@ -136,7 +136,7 @@ def remove_cmd(
 ) -> None:
     obj = ctx.obj
     prov = _normalize_provider(provider)
-    path = f"/api/v1/integrations/{prov}"
+    path = f"/integrations/{prov}"
     body: dict[str, Any] = {"enabled": False, "base_url": None, "api_key": None}
 
     if obj.dry_run:
@@ -165,7 +165,7 @@ def test_cmd(
 ) -> None:
     obj = ctx.obj
     prov = _normalize_provider(provider)
-    path = f"/api/v1/integrations/{prov}/test"
+    path = f"/integrations/{prov}/test"
 
     if obj.dry_run:
         emit_dry_run(obj, {"method": "POST", "path": path})

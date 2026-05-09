@@ -39,7 +39,7 @@ app = typer.Typer(
 )
 
 _DEFAULT_LIMIT = 50
-_LIST_PATH = "/api/v1/decisions"
+_LIST_PATH = "/decisions"
 
 
 def _list_params(project_id: str | None, blocking_only: bool, limit: int) -> dict[str, Any]:
@@ -157,7 +157,7 @@ def lock_cmd(
     body: dict[str, Any] = {"resolution": resolution}
     if resolved_by is not None:
         body["resolved_by"] = resolved_by
-    path = f"/api/v1/decisions/{decision_id}/resolve"
+    path = f"/decisions/{decision_id}/resolve"
 
     if obj.dry_run:
         emit_dry_run(obj, {"method": "POST", "path": path, "body": body})
@@ -184,7 +184,7 @@ def unlock_cmd(
     decision_id: str = typer.Argument(..., help="Decision UUID."),
 ) -> None:
     obj = ctx.obj
-    path = f"/api/v1/decisions/{decision_id}/resolve"
+    path = f"/decisions/{decision_id}/resolve"
 
     if obj.dry_run:
         emit_dry_run(

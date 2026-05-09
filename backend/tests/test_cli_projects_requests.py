@@ -97,7 +97,7 @@ def test_projects_list_emits_json(runner: CliRunner, monkeypatch: pytest.MonkeyP
     result = runner.invoke(app, _base("projects", "list"))
 
     assert result.exit_code == 0, result.stderr
-    fake.get.assert_awaited_once_with("/api/v1/projects")
+    fake.get.assert_awaited_once_with("/projects")
     payload = json.loads(result.stdout)
     assert payload[0]["id"] == PROJECT_ID
     assert payload[0]["name"] == "demo"
@@ -117,7 +117,7 @@ def test_projects_list_dry_run_skips_http(runner: CliRunner, monkeypatch: pytest
     payload = json.loads(result.stdout)
     assert payload["dry_run"] is True
     assert payload["method"] == "GET"
-    assert payload["path"] == "/api/v1/projects"
+    assert payload["path"] == "/projects"
 
 
 def test_projects_list_empty_table_does_not_crash(runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -144,7 +144,7 @@ def test_projects_show(runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> No
     result = runner.invoke(app, _base("projects", "show", PROJECT_ID))
 
     assert result.exit_code == 0, result.stderr
-    fake.get.assert_awaited_once_with(f"/api/v1/projects/{PROJECT_ID}")
+    fake.get.assert_awaited_once_with(f"/projects/{PROJECT_ID}")
     assert json.loads(result.stdout)["id"] == PROJECT_ID
 
 
@@ -187,7 +187,7 @@ def test_projects_create_posts_payload(runner: CliRunner, monkeypatch: pytest.Mo
     assert result.exit_code == 0, result.stderr
     fake.post.assert_awaited_once()
     args, kwargs = fake.post.await_args
-    assert args[0] == "/api/v1/projects"
+    assert args[0] == "/projects"
     body = kwargs["json"]
     assert body["name"] == "Acme"
     assert body["description"] == "demo project"
@@ -219,7 +219,7 @@ def test_projects_create_dry_run(runner: CliRunner, monkeypatch: pytest.MonkeyPa
     payload = json.loads(result.stdout)
     assert payload["dry_run"] is True
     assert payload["method"] == "POST"
-    assert payload["path"] == "/api/v1/projects"
+    assert payload["path"] == "/projects"
     assert payload["body"]["name"] == "Acme"
 
 
@@ -236,7 +236,7 @@ def test_projects_archive(runner: CliRunner, monkeypatch: pytest.MonkeyPatch) ->
     result = runner.invoke(app, _base("projects", "archive", PROJECT_ID))
 
     assert result.exit_code == 0, result.stderr
-    fake.delete.assert_awaited_once_with(f"/api/v1/projects/{PROJECT_ID}")
+    fake.delete.assert_awaited_once_with(f"/projects/{PROJECT_ID}")
 
 
 def test_projects_archive_dry_run(runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -262,7 +262,7 @@ def test_projects_archive_dry_run(runner: CliRunner, monkeypatch: pytest.MonkeyP
     payload = json.loads(result.stdout)
     assert payload["dry_run"] is True
     assert payload["method"] == "DELETE"
-    assert payload["path"] == f"/api/v1/projects/{PROJECT_ID}"
+    assert payload["path"] == f"/projects/{PROJECT_ID}"
 
 
 # ---------------------------------------------------------------------------
@@ -296,7 +296,7 @@ def test_requests_list_cross_project(runner: CliRunner, monkeypatch: pytest.Monk
     assert result.exit_code == 0, result.stderr
     fake.get.assert_awaited_once()
     args, kwargs = fake.get.await_args
-    assert args[0] == "/api/v1/requests"
+    assert args[0] == "/requests"
     params = kwargs.get("params", {})
     assert "project_id" not in params
     assert params.get("limit") == 50
@@ -321,7 +321,7 @@ def test_requests_list_scoped_to_project(runner: CliRunner, monkeypatch: pytest.
 
     assert result.exit_code == 0, result.stderr
     args, kwargs = fake.get.await_args
-    assert args[0] == "/api/v1/requests"
+    assert args[0] == "/requests"
     assert kwargs["params"]["project_id"] == PROJECT_ID
     assert kwargs["params"]["limit"] == 20
 
@@ -350,7 +350,7 @@ def test_requests_list_dry_run(runner: CliRunner, monkeypatch: pytest.MonkeyPatc
     payload = json.loads(result.stdout)
     assert payload["dry_run"] is True
     assert payload["method"] == "GET"
-    assert payload["path"] == "/api/v1/requests"
+    assert payload["path"] == "/requests"
     assert payload["params"]["project_id"] == PROJECT_ID
 
 
@@ -423,7 +423,7 @@ def test_requests_create_posts_message(runner: CliRunner, monkeypatch: pytest.Mo
     assert result.exit_code == 0, result.stderr
     fake.post.assert_awaited_once()
     args, kwargs = fake.post.await_args
-    assert args[0] == "/api/v1/messages"
+    assert args[0] == "/messages"
     body = kwargs["json"]
     assert body["project_id"] == PROJECT_ID
     assert body["content"] == "ship it"
@@ -455,7 +455,7 @@ def test_requests_create_dry_run(runner: CliRunner, monkeypatch: pytest.MonkeyPa
     payload = json.loads(result.stdout)
     assert payload["dry_run"] is True
     assert payload["method"] == "POST"
-    assert payload["path"] == "/api/v1/messages"
+    assert payload["path"] == "/messages"
     assert payload["body"]["project_id"] == PROJECT_ID
     assert payload["body"]["content"] == "ship it"
 
@@ -485,7 +485,7 @@ def test_requests_update_posts_message(runner: CliRunner, monkeypatch: pytest.Mo
 
     assert result.exit_code == 0, result.stderr
     args, kwargs = fake.post.await_args
-    assert args[0] == "/api/v1/messages"
+    assert args[0] == "/messages"
     body = kwargs["json"]
     assert body["project_id"] == PROJECT_ID
     assert body["content"] == "actually use postgres"
