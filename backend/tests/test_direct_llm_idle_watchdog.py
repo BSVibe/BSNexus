@@ -246,12 +246,10 @@ async def test_watchdog_does_not_fire_when_round1_emits_fenced_block() -> None:
 
 
 @pytest.mark.asyncio
-async def test_watchdog_block_forgotten_after_tool_calls() -> None:
-    """PR9 iter-2 observation: easy scenario LLM completes the work
-    (file_write × 2, shell_exec × 1) but the final round emits prose
-    only — no fenced block. Watchdog fires the
-    ``block_forgotten`` variant; final round emits the block
-    correctly."""
+async def test_watchdog_fires_when_block_missing_after_tool_calls() -> None:
+    """PR9 iter-2 observation: LLM completes the work (file_write × 2,
+    shell_exec × 1) but the final round emits prose only — no fenced
+    block. Watchdog injects nudge; final round emits the block."""
     adapter = DirectLLMAdapter(
         model="ollama_chat/qwen3-coder:30b",
         api_key="k",
@@ -307,20 +305,17 @@ async def test_watchdog_block_forgotten_after_tool_calls() -> None:
     ):
         await adapter.execute(system_prompt="s", user_prompt="u", tools_allowed=[])
 
-    # Three rounds. Round 3 messages must include the
-    # block_forgotten nudge.
+    # Three rounds. Round 3 messages must include the watchdog nudge.
     assert len(captured_messages) == 3
     round3_msgs = captured_messages[2]
     nudge_msgs = [
         m
         for m in round3_msgs
-        if m.get("role") == "system" and "do not do more work" in (m.get("content") or "").lower()
+        if m.get("role") == "system" and "bsnexus-verification" in (m.get("content") or "")
     ]
     assert len(nudge_msgs) == 1
-    # Activity log records the kind.
     nudges = [r for r in adapter._tool_activity_log if r.get("kind") == "tool_loop_watchdog_nudged"]
     assert len(nudges) == 1
-    assert nudges[0].get("watchdog_kind") == "block_forgotten"
 
 
 @pytest.mark.asyncio
