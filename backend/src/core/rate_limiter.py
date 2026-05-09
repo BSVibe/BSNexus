@@ -160,9 +160,9 @@ class RateLimiter:
             retry_after_ms = int(result[1])
             return allowed, retry_after_ms / 1000.0
 
-        except Exception:
+        except Exception as exc:
             # Redis failure: degrade gracefully — allow the request
-            logger.warning("rate_limiter_redis_error", client_id=client_id, path=path, exc_info=True)
+            logger.warning("rate_limiter_redis_error", client_id=client_id, path=path, error=str(exc))
             return True, 0.0
 
 

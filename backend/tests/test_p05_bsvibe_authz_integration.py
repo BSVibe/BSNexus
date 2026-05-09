@@ -152,13 +152,15 @@ def test_service_token_payload_scope_audience_binding():
     # Build a token whose scope is mismatched with audience.
     import jwt as pyjwt
 
+    signing_secret = "dev-shared-secret-with-at-least-32-bytes"
+
     settings = Settings(
         bsvibe_auth_url="https://auth.bsvibe.dev",
         openfga_api_url="http://fga",
         openfga_store_id="s",
         openfga_auth_model_id="m",
-        service_token_signing_secret="dev-shared-secret",
-        user_jwt_secret="dev-shared-secret",
+        service_token_signing_secret=signing_secret,
+        user_jwt_secret=signing_secret,
     )
 
     bad_payload = {
@@ -170,7 +172,7 @@ def test_service_token_payload_scope_audience_binding():
         "exp": 9999999999,
         "token_type": "service",
     }
-    token = pyjwt.encode(bad_payload, "dev-shared-secret", algorithm="HS256")
+    token = pyjwt.encode(bad_payload, signing_secret, algorithm="HS256")
 
     with pytest.raises(AuthError) as exc_info:
         verify_service_jwt(token, settings, "bsage")

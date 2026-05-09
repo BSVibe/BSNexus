@@ -1,4 +1,7 @@
+import warnings
+
 from bsvibe_audit import register_audit_outbox_with
+from sqlalchemy.exc import SADeprecationWarning
 
 from backend.src.core.domain import (
     BriefScope,
@@ -27,7 +30,13 @@ from backend.src.models.work_plan import WorkPlan
 from backend.src.models.work_step import WorkStep
 from backend.src.storage.database import Base
 
-register_audit_outbox_with(Base.metadata)
+with warnings.catch_warnings():
+    warnings.filterwarnings(
+        "ignore",
+        message=r"Table\.tometadata\(\) is renamed to Table\.to_metadata\(\)",
+        category=SADeprecationWarning,
+    )
+    register_audit_outbox_with(Base.metadata)
 
 __all__ = [
     "BriefScope",

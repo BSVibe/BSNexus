@@ -114,5 +114,5 @@ async def logout(request: Request, user: BSVibeUser = Depends(get_current_user))
     if token:
         try:
             await auth_provider.logout(token)
-        except Exception:
-            logger.warning("bsvibe_logout_failed", user_id=user.id, exc_info=True)
+        except Exception as exc:
+            logger.warning("bsvibe_logout_failed", user_id=user.id, error=str(exc))
