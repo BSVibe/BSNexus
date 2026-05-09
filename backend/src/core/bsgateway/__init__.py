@@ -1,12 +1,9 @@
-"""BSGateway HTTP client — single LLM/CLI entry point for BSNexus.
+"""BSGateway client substrate.
 
-After the Direction reset 2026-05-03, BSNexus delegates **all** LLM and
-CLI execution to BSGateway via ``POST /api/v1/chat/completions``. This
-module is the only place in BSNexus that issues outbound LLM HTTP
-requests — ``litellm`` is intentionally *not* a dependency.
+The greenfield reset deletes the legacy ExecutionRun adapter. The raw
+client remains REVIEW_LATER substrate for a future execution boundary.
 """
 
-from backend.src.core.bsgateway.adapter import BSGatewayAdapter
 from backend.src.core.bsgateway.client import BSGatewayClient, BSGatewayError
 
-__all__ = ["BSGatewayAdapter", "BSGatewayClient", "BSGatewayError"]
+__all__ = ["BSGatewayClient", "BSGatewayError"]

@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Text, Uuid, func
-from sqlalchemy.dialects.postgresql import JSON
+from sqlalchemy import JSON
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.src.storage.database import Base
@@ -30,8 +30,8 @@ class Decision(Base):
     request_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("requests.id", ondelete="SET NULL"), nullable=True
     )
-    origin_run_id: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid, ForeignKey("execution_runs.id", ondelete="SET NULL"), nullable=True
+    work_step_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("work_steps.id", ondelete="SET NULL"), nullable=True
     )
 
     question: Mapped[str] = mapped_column(Text, nullable=False)

@@ -45,7 +45,7 @@ OPAQUE_TOKEN_PREFIX = "bsv_sk_"
 
 def _is_production_environment() -> bool:
     """Return ``True`` if the runtime environment is production."""
-    env = (settings.environment or os.getenv("ENVIRONMENT") or "").strip().lower()
+    env = (os.getenv("ENVIRONMENT") or settings.environment or "").strip().lower()
     return env == "production"
 
 

@@ -133,11 +133,10 @@ omit = [
 ]
 
 [tool.coverage.report]
-# 81 — Sprint 4 PR #37 baseline preserved through Phase Audit Batch 2.
-# (Previously 75 during the iterative-replanner migration; restored
-# once the SSE follow-up landed and Phase Audit Batch 2 covers the
-# new emit surfaces.)
-fail_under = 81
+# G0 greenfield backend reset deleted legacy execution/proof/API tests with
+# their legacy surfaces. This temporary baseline keeps the CI coverage gate
+# meaningful for the reduced backend while G1 rebuilds proof/execution tests.
+fail_under = 50
 show_missing = true
 
 [dependency-groups]

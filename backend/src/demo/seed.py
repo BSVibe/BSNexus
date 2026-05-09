@@ -1,17 +1,8 @@
 """BSNexus demo data seeding for a single ephemeral tenant.
 
-Populates a realistic snapshot so the visitor's dashboard renders
-immediately:
-
-- 1 demo project (status=active)
-- 5 conversation messages (user / assistant alternating)
-- 2 Requests (one open, one running)
-- 1 ExecutionRun with status=done (avoids prod orchestrator dispatch)
-- 2 Deliverables (delivered)
-- 1 Decision (blocking, awaiting approval)
-
-Called by ``DemoSessionServiceSqlAlchemy`` after the new tenant row is
-inserted, within the same transaction.
+G0 backend reset removed conversation/run-summary tables. Demo seed data now
+uses the greenfield contract directly: projects, directions, requests,
+deliverables, and decisions.
 """
 
 from __future__ import annotations
@@ -28,15 +19,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 logger = structlog.get_logger(__name__)
 
 
-async def seed_demo(*, tenant_id: UUID, session: AsyncSession) -> None:
-    """Populate BSNexus demo data for ``tenant_id``."""
-    project_id = _uuid.uuid4()
-    now = datetime.now(UTC)
-
-    # ─── Project ───────────────────────────────────────────────────────
-    # Schema: id, name, description (NOT NULL), status (projectstatus enum),
-    # tenant_id, max_concurrent_runs, workspace_type (workspacetype enum),
-    # created_at, updated_at.
+async def _insert_project(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    project_id: UUID,
+    name: str,
+    description: str,
+    created_at: datetime,
+    updated_at: datetime,
+) -> None:
     await session.execute(
         text(
             "INSERT INTO projects (id, tenant_id, name, description, "
@@ -47,277 +39,284 @@ async def seed_demo(*, tenant_id: UUID, session: AsyncSession) -> None:
         {
             "id": project_id,
             "tid": tenant_id,
-            "name": "Launch landing page redesign",
-            "description": (
-                "Modernize the marketing site with a unified design system "
-                "and ship a new public demo of all 4 BSVibe products."
-            ),
-            "created": now - timedelta(days=3),
-            "updated": now - timedelta(hours=2),
+            "name": name,
+            "description": description,
+            "created": created_at,
+            "updated": updated_at,
         },
     )
 
-    # ─── Conversation messages ─────────────────────────────────────────
-    # Schema: id, project_id, role, content, actions (json default '[]'),
-    # source, created_at. No tenant_id (scoped via project_id FK).
-    sample_messages = [
-        ("user", "Hey, I want to redesign the landing page", now - timedelta(days=3)),
-        (
-            "assistant",
-            "Great. What's the primary goal — conversion, brand, or product clarity?",
-            now - timedelta(days=3, minutes=-1),
-        ),
-        (
-            "user",
-            "Conversion. Visitors aren't getting past the hero section.",
-            now - timedelta(days=2, hours=18),
-        ),
-        (
-            "user",
-            "Also need a public demo so people can try without signing up",
-            now - timedelta(days=1, hours=4),
-        ),
-        (
-            "assistant",
-            "Drafting a plan with two parallel tracks: hero rewrite + demo stack. "
-            "Will share the run.",
-            now - timedelta(days=1, hours=3, minutes=-58),
-        ),
-    ]
-    for role, content, ts in sample_messages:
-        await session.execute(
-            text(
-                "INSERT INTO conversation_messages "
-                "(id, project_id, role, content, source, created_at) "
-                "VALUES (:id, :pid, :role, :content, 'web', :created)"
-            ),
-            {
-                "id": _uuid.uuid4(),
-                "pid": project_id,
-                "role": role,
-                "content": content,
-                "created": ts,
-            },
-        )
 
-    # ─── Requests ──────────────────────────────────────────────────────
-    # Schema: id, tenant_id, project_id, intent_summary (NOT NULL), status
-    # (requeststatus enum: open/running/completed/abandoned), user_confirmed,
-    # created_at, updated_at.
-    request_ids = [_uuid.uuid4() for _ in range(2)]
-    for idx, req_id in enumerate(request_ids):
-        await session.execute(
-            text(
-                "INSERT INTO requests (id, tenant_id, project_id, "
-                "intent_summary, status, user_confirmed, created_at, "
-                "updated_at) "
-                "VALUES (:id, :tid, :pid, :summary, :status, TRUE, "
-                ":created, :updated)"
-            ),
-            {
-                "id": req_id,
-                "tid": tenant_id,
-                "pid": project_id,
-                "summary": (
-                    "Rewrite the hero section with a stronger CTA"
-                    if idx == 0
-                    else "Build the public interactive demo for 4 products"
-                ),
-                "status": "running" if idx == 0 else "open",
-                "created": now - timedelta(days=2 - idx),
-                "updated": now - timedelta(hours=4 - idx),
-            },
-        )
-
-    # ─── ExecutionRun (status=done — avoids prod orchestrator dispatch) ─
-    # Schema: id, tenant_id, project_id, request_id, status (runstatus
-    # enum: pending/running/blocked/done), priority (runpriority enum),
-    # directive (NOT prompt — that column doesn't exist),
-    # created_at, updated_at.
-    run_id = _uuid.uuid4()
+async def _insert_direction(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    project_id: UUID,
+    body: str,
+    created_at: datetime,
+) -> UUID:
+    direction_id = _uuid.uuid4()
     await session.execute(
         text(
-            "INSERT INTO execution_runs (id, tenant_id, project_id, "
-            "request_id, status, priority, directive, "
-            "created_at, updated_at) "
-            "VALUES (:id, :tid, :pid, :rid, 'done', 'medium', :directive, "
-            ":created, :updated)"
+            "INSERT INTO directions (id, tenant_id, project_id, source, actor_id, body, created_at) "
+            "VALUES (:id, :tid, :pid, 'web', 'demo-user', :body, :created)"
         ),
         {
-            "id": run_id,
+            "id": direction_id,
             "tid": tenant_id,
             "pid": project_id,
-            "rid": request_ids[0],
-            "directive": (
-                "Rewrite the hero section with a stronger conversion CTA. "
-                "Use the BSVibe design system tokens."
-            ),
-            "created": now - timedelta(hours=6),
-            "updated": now - timedelta(minutes=30),
+            "body": body,
+            "created": created_at,
+        },
+    )
+    return direction_id
+
+
+async def _insert_request(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    project_id: UUID,
+    origin_direction_id: UUID,
+    intent: str,
+    status: str,
+    created_at: datetime,
+    updated_at: datetime,
+) -> UUID:
+    request_id = _uuid.uuid4()
+    await session.execute(
+        text(
+            "INSERT INTO requests (id, tenant_id, project_id, origin_direction_id, intent, "
+            "status, created_at, updated_at) "
+            "VALUES (:id, :tid, :pid, :direction_id, :intent, :status, :created, :updated)"
+        ),
+        {
+            "id": request_id,
+            "tid": tenant_id,
+            "pid": project_id,
+            "direction_id": origin_direction_id,
+            "intent": intent,
+            "status": status,
+            "created": created_at,
+            "updated": updated_at,
+        },
+    )
+    return request_id
+
+
+async def _insert_deliverable(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    project_id: UUID,
+    request_id: UUID,
+    deliverable_type: str,
+    title: str,
+    summary: str,
+    status: str,
+    proof_state: str,
+    created_at: datetime,
+    updated_at: datetime,
+) -> None:
+    await session.execute(
+        text(
+            "INSERT INTO deliverables (id, tenant_id, project_id, request_id, type, title, "
+            "summary, artifact_refs, status, proof_state, created_at, updated_at) "
+            "VALUES (:id, :tid, :pid, :rid, :dtype, :title, :summary, "
+            "CAST(:artifact_refs AS json), :status, :proof_state, :created, :updated)"
+        ),
+        {
+            "id": _uuid.uuid4(),
+            "tid": tenant_id,
+            "pid": project_id,
+            "rid": request_id,
+            "dtype": deliverable_type,
+            "title": title,
+            "summary": summary,
+            "artifact_refs": json.dumps([]),
+            "status": status,
+            "proof_state": proof_state,
+            "created": created_at,
+            "updated": updated_at,
         },
     )
 
-    # ─── Deliverables ──────────────────────────────────────────────────
-    # Schema: id, tenant_id, project_id, request_id, type (deliverabletype
-    # enum: code/doc/design/data/url — not 'note'), title, status
-    # (deliverablestatus enum: draft/ready/delivered — not 'completed'),
-    # created_at, updated_at.
-    for idx, title in enumerate(["Hero copy v2", "New screenshot set"]):
-        await session.execute(
-            text(
-                "INSERT INTO deliverables (id, tenant_id, project_id, "
-                "request_id, type, title, status, created_at, updated_at) "
-                "VALUES (:id, :tid, :pid, :rid, :dtype, :title, 'delivered', "
-                ":created, :updated)"
-            ),
-            {
-                "id": _uuid.uuid4(),
-                "tid": tenant_id,
-                "pid": project_id,
-                "rid": request_ids[idx],
-                "dtype": "doc" if idx == 0 else "design",
-                "title": title,
-                "created": now - timedelta(hours=8 - idx),
-                "updated": now - timedelta(hours=4 - idx),
-            },
-        )
 
-    # ─── Decisions (one blocking, one resolved — populates inbox) ─────
-    # Schema: id, tenant_id, project_id, request_id, origin_run_id,
-    # question (NOT NULL — not title/body), options (json default '[]'),
-    # blocking, resolved_at, resolution, resolved_by, created_at.
+async def seed_demo(*, tenant_id: UUID, session: AsyncSession) -> None:
+    """Populate BSNexus demo data for ``tenant_id``."""
+    now = datetime.now(UTC)
+    project_id = _uuid.uuid4()
+    project_id_2 = _uuid.uuid4()
+
+    await _insert_project(
+        session,
+        tenant_id=tenant_id,
+        project_id=project_id,
+        name="Launch landing page redesign",
+        description=(
+            "Modernize the marketing site with a unified design system "
+            "and ship a new public demo of all 4 BSVibe products."
+        ),
+        created_at=now - timedelta(days=3),
+        updated_at=now - timedelta(hours=2),
+    )
+    await _insert_project(
+        session,
+        tenant_id=tenant_id,
+        project_id=project_id_2,
+        name="Customer onboarding playbook",
+        description=(
+            "Codify the first-7-day customer journey into a playbook "
+            "the agent can follow autonomously."
+        ),
+        created_at=now - timedelta(days=7),
+        updated_at=now - timedelta(days=1),
+    )
+
+    hero_direction_id = await _insert_direction(
+        session,
+        tenant_id=tenant_id,
+        project_id=project_id,
+        body="Rewrite the landing page hero with a stronger conversion CTA.",
+        created_at=now - timedelta(days=3),
+    )
+    demo_direction_id = await _insert_direction(
+        session,
+        tenant_id=tenant_id,
+        project_id=project_id,
+        body="Build the public interactive demo for all four products.",
+        created_at=now - timedelta(days=1, hours=4),
+    )
+    onboarding_direction_id = await _insert_direction(
+        session,
+        tenant_id=tenant_id,
+        project_id=project_id_2,
+        body="Draft the v1 onboarding playbook with day-by-day actions.",
+        created_at=now - timedelta(days=7),
+    )
+
+    hero_request_id = await _insert_request(
+        session,
+        tenant_id=tenant_id,
+        project_id=project_id,
+        origin_direction_id=hero_direction_id,
+        intent="Rewrite the hero section with a stronger CTA",
+        status="running",
+        created_at=now - timedelta(days=2),
+        updated_at=now - timedelta(hours=4),
+    )
+    demo_request_id = await _insert_request(
+        session,
+        tenant_id=tenant_id,
+        project_id=project_id,
+        origin_direction_id=demo_direction_id,
+        intent="Build the public interactive demo for 4 products",
+        status="open",
+        created_at=now - timedelta(days=1),
+        updated_at=now - timedelta(hours=3),
+    )
+    onboarding_request_id = await _insert_request(
+        session,
+        tenant_id=tenant_id,
+        project_id=project_id_2,
+        origin_direction_id=onboarding_direction_id,
+        intent="Draft the v1 onboarding playbook with day-by-day actions",
+        status="shipped",
+        created_at=now - timedelta(days=6),
+        updated_at=now - timedelta(days=1, hours=4),
+    )
+
+    await _insert_deliverable(
+        session,
+        tenant_id=tenant_id,
+        project_id=project_id,
+        request_id=hero_request_id,
+        deliverable_type="doc",
+        title="Hero copy v2",
+        summary="Conversion-focused hero copy and CTA hierarchy.",
+        status="review_ready",
+        proof_state="human_review_required",
+        created_at=now - timedelta(hours=8),
+        updated_at=now - timedelta(hours=4),
+    )
+    await _insert_deliverable(
+        session,
+        tenant_id=tenant_id,
+        project_id=project_id,
+        request_id=demo_request_id,
+        deliverable_type="design",
+        title="New screenshot set",
+        summary="Demo-ready screenshots for the product tour.",
+        status="draft",
+        proof_state="verification_missing",
+        created_at=now - timedelta(hours=7),
+        updated_at=now - timedelta(hours=3),
+    )
+    await _insert_deliverable(
+        session,
+        tenant_id=tenant_id,
+        project_id=project_id_2,
+        request_id=onboarding_request_id,
+        deliverable_type="doc",
+        title="Onboarding playbook v1",
+        summary="Seven-day onboarding flow for first customer activation.",
+        status="shipped",
+        proof_state="verified",
+        created_at=now - timedelta(days=2),
+        updated_at=now - timedelta(days=1, hours=4),
+    )
+
     decisions = [
         {
-            "id": _uuid.uuid4(),
+            "request_id": hero_request_id,
             "question": "Approve the new hero copy variant?",
             "options": ["Approve", "Request changes"],
             "blocking": True,
             "resolved_at": None,
             "resolution": None,
+            "resolved_by": None,
             "created": now - timedelta(hours=2),
         },
         {
-            "id": _uuid.uuid4(),
+            "request_id": demo_request_id,
             "question": "Pick the primary CTA color for the demo banner",
             "options": ["Brand blue", "High-contrast amber", "Subtle slate"],
             "blocking": False,
             "resolved_at": now - timedelta(hours=5),
             "resolution": "Brand blue",
+            "resolved_by": "demo-user",
             "created": now - timedelta(hours=18),
         },
     ]
-    for d in decisions:
+    for decision in decisions:
         await session.execute(
             text(
-                "INSERT INTO decisions (id, tenant_id, project_id, "
-                "origin_run_id, question, options, blocking, resolved_at, "
-                "resolution, created_at) "
-                "VALUES (:id, :tid, :pid, :run_id, :question, "
-                "CAST(:options AS json), :blocking, :resolved_at, "
-                ":resolution, :created)"
-            ),
-            {
-                "id": d["id"],
-                "tid": tenant_id,
-                "pid": project_id,
-                "run_id": run_id,
-                "question": d["question"],
-                "options": json.dumps(d["options"]),
-                "blocking": d["blocking"],
-                "resolved_at": d["resolved_at"],
-                "resolution": d["resolution"],
-                "created": d["created"],
-            },
-        )
-
-    # ─── Second project (different status, gives the dashboard breadth) ─
-    project_id_2 = _uuid.uuid4()
-    await session.execute(
-        text(
-            "INSERT INTO projects (id, tenant_id, name, description, "
-            "status, workspace_type, created_at, updated_at) "
-            "VALUES (:id, :tid, :name, :description, 'active', "
-            "'server_managed', :created, :updated)"
-        ),
-        {
-            "id": project_id_2,
-            "tid": tenant_id,
-            "name": "Customer onboarding playbook",
-            "description": (
-                "Codify the first-7-day customer journey into a playbook "
-                "the agent can follow autonomously."
-            ),
-            "created": now - timedelta(days=7),
-            "updated": now - timedelta(days=1),
-        },
-    )
-    # A few messages + a completed request for the second project so its
-    # detail view also has content.
-    second_messages = [
-        ("user", "I want a real onboarding flow, not a generic email drip.", now - timedelta(days=7)),
-        (
-            "assistant",
-            "Got it. Should the playbook branch on plan tier, or stay flat for v1?",
-            now - timedelta(days=7, minutes=-2),
-        ),
-        ("user", "Flat for v1. Iterate after 30 customers.", now - timedelta(days=6, hours=20)),
-    ]
-    for role, content, ts in second_messages:
-        await session.execute(
-            text(
-                "INSERT INTO conversation_messages "
-                "(id, project_id, role, content, source, created_at) "
-                "VALUES (:id, :pid, :role, :content, 'web', :created)"
+                "INSERT INTO decisions (id, tenant_id, project_id, request_id, question, options, "
+                "blocking, resolved_at, resolution, resolved_by, created_at) "
+                "VALUES (:id, :tid, :pid, :rid, :question, CAST(:options AS json), "
+                ":blocking, :resolved_at, :resolution, :resolved_by, :created)"
             ),
             {
                 "id": _uuid.uuid4(),
-                "pid": project_id_2,
-                "role": role,
-                "content": content,
-                "created": ts,
+                "tid": tenant_id,
+                "pid": project_id,
+                "rid": decision["request_id"],
+                "question": decision["question"],
+                "options": json.dumps(decision["options"]),
+                "blocking": decision["blocking"],
+                "resolved_at": decision["resolved_at"],
+                "resolution": decision["resolution"],
+                "resolved_by": decision["resolved_by"],
+                "created": decision["created"],
             },
         )
-    completed_req_id = _uuid.uuid4()
-    await session.execute(
-        text(
-            "INSERT INTO requests (id, tenant_id, project_id, "
-            "intent_summary, status, user_confirmed, created_at, updated_at) "
-            "VALUES (:id, :tid, :pid, :summary, 'completed', TRUE, "
-            ":created, :updated)"
-        ),
-        {
-            "id": completed_req_id,
-            "tid": tenant_id,
-            "pid": project_id_2,
-            "summary": "Draft the v1 onboarding playbook with day-by-day actions",
-            "created": now - timedelta(days=6),
-            "updated": now - timedelta(days=1, hours=4),
-        },
-    )
-    await session.execute(
-        text(
-            "INSERT INTO deliverables (id, tenant_id, project_id, "
-            "request_id, type, title, status, created_at, updated_at) "
-            "VALUES (:id, :tid, :pid, :rid, 'doc', :title, 'delivered', "
-            ":created, :updated)"
-        ),
-        {
-            "id": _uuid.uuid4(),
-            "tid": tenant_id,
-            "pid": project_id_2,
-            "rid": completed_req_id,
-            "title": "Onboarding playbook v1",
-            "created": now - timedelta(days=2),
-            "updated": now - timedelta(days=1, hours=4),
-        },
-    )
 
     logger.info(
         "demo_seed_complete",
         tenant_id=str(tenant_id),
         projects=2,
-        messages=len(sample_messages) + len(second_messages),
-        requests=len(request_ids) + 1,
+        directions=3,
+        requests=3,
         deliverables=3,
         decisions=len(decisions),
     )

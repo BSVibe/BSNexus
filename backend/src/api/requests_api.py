@@ -1,9 +1,3 @@
-"""Requests list — flat resource shape (decision-locks A3, 2026-05-08).
-
-- ``GET /api/v1/requests?project_id={id}``  — scoped to a project
-- ``GET /api/v1/requests``                  — cross-project (tenant-scoped)
-"""
-
 from __future__ import annotations
 
 import uuid
@@ -30,14 +24,9 @@ async def _assert_project_belongs(db: AsyncSession, project_id: uuid.UUID, tenan
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
 
 
-@router.get(
-    "",
-    response_model=list[RequestResponse],
-)
+@router.get("", response_model=list[RequestResponse])
 async def list_requests(
-    project_id: uuid.UUID | None = Query(
-        None, description="Filter to a single project. Omit for tenant-wide cross-project list."
-    ),
+    project_id: uuid.UUID | None = Query(None),
     limit: int = Query(_DEFAULT_LIMIT, ge=1, le=_MAX_LIMIT),
     _user=Depends(get_current_user),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
