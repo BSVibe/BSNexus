@@ -1,15 +1,14 @@
-"""Pin the worker-shared-policy verification-block essentials.
+"""Pin the worker-shared-policy essentials.
 
-PR9 dogfood iter 4 surfaced that the bloated PR8 prompt
-(``NON-NEGOTIABLE`` / ``MANDATORY ORDER`` / 6 anti-patterns / hard
-rules / field rules / concrete example, ~90 lines) was actually
-counterproductive on qwen3-coder:30b — the model burned attention on
-rules and missed the core "do work, emit block" pattern.
-PR9-fixup rewrote the policy lean (~30 lines).
+PR10 — backend now derives the verification command from the run's
+observed shell_exec history (PR9 dogfood proved the LLM-emit-block
+approach hits a model compliance ceiling). The prompt no longer
+mentions the bsnexus-verification fenced block at all; the LLM
+just does its work naturally and the backend records what was run.
 
-These tests pin the load-bearing essentials so a future "let's add
-more guidance!" PR can't bloat the prompt back to 90 lines without
-flipping these assertions deliberately.
+These tests pin the load-bearing essentials so the prompt can't
+bloat back to 90 lines under future "let's add more guidance!"
+PRs without flipping the assertions deliberately.
 """
 
 from __future__ import annotations
@@ -21,44 +20,41 @@ def _policy_body() -> str:
     return load_prompt("worker-shared-policy")
 
 
-def test_policy_includes_verification_block_required_form() -> None:
-    """The block format MUST be in the prompt — that's the protocol
-    contract the parser keys off."""
+def test_policy_instructs_real_tool_use_not_pseudocode() -> None:
     body = _policy_body()
-    assert "bsnexus-verification" in body
-    assert '"verifier_type"' in body
-    assert '"command"' in body
-    assert '"cwd"' in body
-    assert '"timeout_s"' in body
+    assert "file_write" in body
+    assert "shell_exec" in body
+    assert "Real work, not pseudocode" in body
 
 
-def test_policy_documents_field_rules_for_block() -> None:
+def test_policy_requires_verification_via_shell_exec() -> None:
+    """The verification step is the LLM running shell_exec — backend
+    records it as the deliverable's verification command. No marker
+    emit required."""
     body = _policy_body()
-    assert "software_test" in body
-    assert "software_build" in body
-    assert "software_start" in body
+    assert "verification command" in body.lower()
+    assert "shell_exec" in body
 
 
-def test_policy_documents_fail_fast_path() -> None:
-    """If the LLM cannot complete the task it MUST still emit the
-    block (with a fail-fast command) so the chain finalizes at
-    ``verification_failed`` instead of dead-ending at
-    ``verification_missing``."""
+def test_policy_no_longer_requires_fenced_block_emit() -> None:
+    """PR10 — block emit instruction removed. The backend derives
+    the block from the LLM's last successful shell_exec; this lifts
+    the runtime-nudge ceiling we hit in PR8/PR9."""
     body = _policy_body()
-    assert '["false"]' in body
+    # Negative pin — these were the load-bearing-but-ineffective
+    # phrases of PR8/PR9. Their absence is the PR10 architectural
+    # commitment.
+    assert "bsnexus-verification" not in body
+    assert "fenced JSON block" not in body
+    assert "verifier_type" not in body
 
 
 def test_policy_stays_lean() -> None:
-    """PR9-fixup hard cap: keep the prompt concise. Earlier
-    iterations bloated it past 80 lines and qwen3-coder:30b's
-    medium-scenario reliability dropped. If a future PR needs to
-    add guidance, prefer dropping less-effective text first.
-
-    Threshold (50 lines) is a budget, not a hard physical limit;
-    flipping this test means deliberately accepting the
-    attention-budget tradeoff."""
+    """Hard cap. Earlier iterations bloated past 80 lines and
+    qwen3-coder reliability dropped. PR10 reduces further to ~23
+    lines by dropping the block-emit instruction entirely."""
     body = _policy_body()
-    assert len(body.splitlines()) < 50, (
-        f"prompt grew to {len(body.splitlines())} lines — see PR9 "
+    assert len(body.splitlines()) < 30, (
+        f"prompt grew to {len(body.splitlines())} lines — see PR9/PR10 "
         "dogfood findings on local-LLM attention budget"
     )

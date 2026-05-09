@@ -158,7 +158,10 @@ async def test_execute_records_done_outcome_error_when_tool_raises() -> None:
         api_key="k",
         project_id=uuid.uuid4(),
     )
-    session = _session_mock(tool_results={"file_read": RuntimeError("vault down")})
+    # PR10 — file_read is now a LOCAL tool (handled in-process, not
+    # via MCP). Use ``knowledge_search`` (an MCP-only domain tool) to
+    # exercise the exception-on-MCP-dispatch path the test pins.
+    session = _session_mock(tool_results={"knowledge_search": RuntimeError("vault down")})
     round1 = _async_iter(
         [
             _delta_chunk(
@@ -166,8 +169,8 @@ async def test_execute_records_done_outcome_error_when_tool_raises() -> None:
                     {
                         "index": 0,
                         "id": "c1",
-                        "function_name": "file_read",
-                        "function_arguments": '{"path": "x"}',
+                        "function_name": "knowledge_search",
+                        "function_arguments": '{"query": "x"}',
                     }
                 ]
             ),

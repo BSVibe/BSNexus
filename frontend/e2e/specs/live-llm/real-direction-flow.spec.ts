@@ -176,13 +176,12 @@ test.describe('live-llm — Direction → Verifier Worker → verified', () => {
     await preWarmOllama()
   })
 
-  test('smoke: python --version via shell_exec ends at proof_state=verified', async () => {
-    // Minimum-trust live-LLM smoke: no file_write needed, just one
-    // shell_exec + the bsnexus-verification block. The infrastructure
-    // (parser → enqueue → SubprocessVerifier → state machine) is what
-    // we're validating end-to-end here; ``add(a,b) + pytest``-grade
-    // scenarios stress the LLM's tool-calling compliance and ride on
-    // top of this passing first.
+  test('smoke: shell_exec true → derived verification → verified', async () => {
+    // Minimum-trust live-LLM smoke: one shell_exec, backend derives
+    // the verification block from it (PR10 architecture). The
+    // infrastructure (local-tool-log → derive → SubprocessVerifier →
+    // state machine) is what we're validating end-to-end; the
+    // easy / medium scenarios stress multi-step tool-calling on top.
     const api = await authedRequest()
     try {
       await bootstrapExecutor(api)
@@ -191,11 +190,9 @@ test.describe('live-llm — Direction → Verifier Worker → verified', () => {
         api,
         project.id,
         [
-          'Smoke check the verifier handoff. Skip the workspace context-read step,',
-          'skip shell_exec, and end your chat reply with this EXACT text (copy it',
-          'verbatim):',
-          '\n\n```bsnexus-verification\n{"verifier_type": "software_test", "command": ["true"], "cwd": ".", "timeout_s": 10}\n```',
-        ].join(' '),
+          'Run ``true`` via the shell_exec tool to confirm the executor works. ',
+          "That's the entire task — no files needed. Quote the exit code in your reply.",
+        ].join(''),
       )
 
       // Wait for the run to materialise a deliverable that carries the
