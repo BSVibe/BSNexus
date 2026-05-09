@@ -208,10 +208,42 @@ async def lifespan(app: FastAPI):
         app.state.verifier_worker = verifier_worker
         app.state.verifier_task = verifier_task
 
+    # PR9 — periodic stale-verification reclaim. Defense in depth for
+    # dropped enqueue / worker-crash mid-process scenarios that leave
+    # a deliverable stuck at ``verification_missing`` despite having a
+    # ``verifier_type`` stamped. Disabled when the verifier subsystem
+    # is off (no point reclaiming a queue nothing reads from).
+    stale_reclaim_task: _asyncio_local.Task[None] | None = None
+    if app_settings.verifier_enabled:
+        from backend.src.core.verifier.stale_reclaim import (  # noqa: PLC0415
+            reclaim_stale_verifications,
+        )
+
+        async def _stale_reclaim_loop() -> None:
+            interval_s = 60
+            while True:
+                try:
+                    await _asyncio_local.sleep(interval_s)
+                    async with async_session() as sess:
+                        await reclaim_stale_verifications(sess, stream_manager)
+                except _asyncio_local.CancelledError:
+                    raise
+                except Exception:  # noqa: BLE001 — never break the loop
+                    pass
+
+        stale_reclaim_task = _asyncio_local.create_task(_stale_reclaim_loop())
+        app.state.stale_reclaim_task = stale_reclaim_task
+
     try:
         async with fastmcp_session_manager_run():
             yield
     finally:
+        if stale_reclaim_task is not None:
+            stale_reclaim_task.cancel()
+            try:
+                await stale_reclaim_task
+            except _asyncio_local.CancelledError:
+                pass
         if verifier_worker is not None:
             verifier_worker.stop()
         if verifier_task is not None:
