@@ -511,12 +511,28 @@ class DirectLLMAdapter:
         next round (``session.call_tool`` succeeded once already, the
         next try might).
         """
-        name = call["function"]["name"]
+        original_name = call["function"]["name"]
         raw_args = call["function"]["arguments"] or "{}"
         try:
             args = json.loads(raw_args)
         except (ValueError, TypeError):
             args = {}
+
+        # PR11 — qwen3-coder dogfood iter 3 showed weak coder models
+        # consolidate to one tool name (typically ``shell_exec``) and
+        # emit file_write payloads under it. Recover the intent from
+        # unambiguous arg shape BEFORE routing. ``execute_tool_call``
+        # also recovers internally; doing it here too keeps the
+        # local/MCP routing decision honest if the model misnames in a
+        # way that crosses the boundary.
+        recovery_note: str | None = None
+        if isinstance(args, dict):
+            from backend.src.core.tools import recover_misnamed_local_tool  # noqa: PLC0415
+
+            recovered_name, recovery_note = recover_misnamed_local_tool(original_name, args)
+            name = recovered_name
+        else:
+            name = original_name
 
         tool_call_id = call.get("id")
         args_excerpt = raw_args[:_TOOL_ACTIVITY_ARGS_CAP]
@@ -529,17 +545,20 @@ class DirectLLMAdapter:
             project_id=str(self._project_id),
             tool_call_id=tool_call_id,
             round_idx=round_idx,
+            recovered_from=original_name if recovery_note else None,
         )
-        self._tool_activity_log.append(
-            {
-                "kind": "tool_call_start",
-                "round_idx": round_idx,
-                "tool_name": name,
-                "tool_call_id": tool_call_id,
-                "args": args_excerpt,
-                "occurred_at": started_at.isoformat(),
-            }
-        )
+        activity_entry: dict[str, Any] = {
+            "kind": "tool_call_start",
+            "round_idx": round_idx,
+            "tool_name": name,
+            "tool_call_id": tool_call_id,
+            "args": args_excerpt,
+            "occurred_at": started_at.isoformat(),
+        }
+        if recovery_note:
+            activity_entry["recovered_from"] = original_name
+            activity_entry["recovery_note"] = recovery_note
+        self._tool_activity_log.append(activity_entry)
 
         error_message: str | None = None
         try:

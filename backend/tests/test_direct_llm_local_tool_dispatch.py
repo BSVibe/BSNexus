@@ -258,3 +258,71 @@ async def test_shell_exec_local_dispatch_records_invocation(tmp_path, monkeypatc
     assert shells[0]["command"] == "echo hello"
     assert shells[0]["exit_code"] == 0
     session.call_tool.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_shell_exec_with_file_write_args_recovers_to_file_write(tmp_path, monkeypatch) -> None:
+    """PR11 — qwen3-coder:30b dogfood iter 3 emitted ``shell_exec``
+    with ``{path, content}`` args (file_write payload under the wrong
+    name). Adapter must recover the intent: write the file, record it
+    in ``written_files``, do NOT shell-execute the JSON."""
+    project_id = uuid.uuid4()
+    from backend.src.core import project_workspace
+
+    monkeypatch.setattr(project_workspace, "_root", lambda: tmp_path)
+
+    adapter = DirectLLMAdapter(
+        model="ollama_chat/qwen3-coder:30b",
+        api_key="k",
+        project_id=project_id,
+    )
+
+    session = AsyncMock()
+    list_result = MagicMock()
+    list_result.tools = []
+    session.list_tools = AsyncMock(return_value=list_result)
+    session.call_tool = AsyncMock(side_effect=AssertionError("recovered call must NOT go via MCP"))
+
+    round1 = _async_iter(
+        [
+            _delta_chunk(
+                tool_calls=[
+                    {
+                        "index": 0,
+                        "id": "c1",
+                        "function_name": "shell_exec",
+                        "function_arguments": '{"path": "add.py", "content": "def add(a, b):\\n    return a + b\\n"}',
+                    }
+                ]
+            ),
+            _delta_chunk(finish_reason="tool_calls"),
+        ]
+    )
+    round2 = _async_iter(
+        [
+            _delta_chunk(content="wrote it"),
+            _delta_chunk(finish_reason="stop"),
+        ]
+    )
+
+    @asynccontextmanager
+    async def _session_ctx():
+        yield session
+
+    with (
+        patch.object(adapter, "_mcp_session", _session_ctx),
+        patch(
+            "backend.src.core.llm.direct_client.acompletion",
+            AsyncMock(side_effect=[round1, round2]),
+        ),
+    ):
+        result = await adapter.execute(system_prompt="s", user_prompt="u", tools_allowed=[])
+
+    written = (project_workspace.project_workspace_path(project_id) / "add.py").read_text()
+    assert "def add(a, b):" in written
+    log = result["local_tool_log"]
+    assert any(w["path"] == "add.py" for w in log["written_files"])
+    # Crucially: NO shell invocation recorded — the misnamed call was
+    # rerouted to file_write, not run as a JSON-payload shell command.
+    assert log["shell_invocations"] == []
+    session.call_tool.assert_not_awaited()

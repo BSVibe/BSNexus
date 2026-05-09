@@ -127,6 +127,66 @@ def _attach_verification_from_local_tool_log(
     }
 
 
+def _attach_verification_from_test_files(
+    deliverable: Deliverable,
+    local_tool_log: dict | None,
+) -> None:
+    """Synthesize a pytest verification when the LLM wrote test files
+    but didn't run them via shell_exec (PR11).
+
+    PR10 dogfood found qwen3-coder treats trivial code (e.g.
+    ``add(a,b)``) as "obviously correct" and skips ``shell_exec``
+    entirely — no shell history to derive from. But the test files
+    are right there in ``files_actually_written``; running pytest
+    against them server-side recovers the verification path.
+
+    Conservative scope: pytest-pattern Python files only. Future
+    extensions could detect ``package.json`` + ``"test"`` script,
+    ``Cargo.toml``, etc. No-op when:
+    - ``verifier_type`` already stamped (LLM-emitted block or PR10
+      shell-derived path won)
+    - No matching test files in the run's writes
+    """
+    if deliverable.verifier_type is not None:
+        return
+    if not isinstance(local_tool_log, dict):
+        return
+    written = local_tool_log.get("written_files") or []
+    if not isinstance(written, list):
+        return
+
+    test_paths: list[str] = []
+    for entry in written:
+        if not isinstance(entry, dict):
+            continue
+        path = entry.get("path")
+        if not isinstance(path, str) or not path:
+            continue
+        # Pytest discovery patterns: ``test_*.py`` or ``*_test.py``,
+        # at any directory depth (pytest's default rootdir walks).
+        basename = path.rsplit("/", 1)[-1]
+        if basename.startswith("test_") and basename.endswith(".py"):
+            test_paths.append(path)
+        elif basename.endswith("_test.py"):
+            test_paths.append(path)
+
+    if not test_paths:
+        return
+
+    workspace_root = project_workspace.project_workspace_path(deliverable.project_id)
+    # Single pytest invocation covering all detected test files —
+    # one verifier run, not N. ``-q`` for compact output the
+    # verifier captures into ``proof_summary`` cleanly.
+    paths_str = " ".join(test_paths)
+    deliverable.verifier_type = "software_test"
+    deliverable.verifier_inputs = {
+        "command": ["bash", "-c", f"python -m pytest {paths_str} -q"],
+        "cwd": str(workspace_root),
+        "timeout_s": 60,
+        "derived_from": "workspace_test_files",
+    }
+
+
 async def publish_run_output(
     run: "ExecutionRun",
     session: AsyncSession,
@@ -155,14 +215,31 @@ async def publish_run_output(
     :func:`backend.src.core.verifier.enqueue.maybe_enqueue_for_deliverable`
     on the returned deliverable.
     """
-    if run.status != RunStatus.done:
+    # PR11 — also publish for ``blocked`` runs that have salvageable
+    # output. qwen3-coder occasionally hits the round-cap in a tool
+    # loop (e.g. running pytest 20 times against a missing file)
+    # leaving the run blocked. The files / shell history captured in
+    # local_tool_log are still real work — surface them as a
+    # deliverable so the founder sees what was attempted and the
+    # verifier can run against whatever's on disk.
+    if run.status not in (RunStatus.done, RunStatus.blocked):
         return None
     _ = stream_manager  # accepted for backwards compat; enqueue moved out
     summary = _extract_founder_summary(run.output_ref)
     inline = _extract_inline(run.output_ref)
     files = _extract_files(run.output_ref)
 
-    if not summary and not inline and not files:
+    # PR11 — when the LLM hits the round-cap with no chat content (qwen3-coder
+    # tool-loop pattern), ``inline`` and ``files`` are empty but
+    # ``local_tool_log`` carries the actual work (written files,
+    # shell invocations). Treat that as publishable too — the derive
+    # chain will synthesise a verification command from it.
+    local_tool_log = run.output_ref.get("local_tool_log") if isinstance(run.output_ref, dict) else None
+    has_local_work = isinstance(local_tool_log, dict) and (
+        bool(local_tool_log.get("written_files")) or bool(local_tool_log.get("shell_invocations"))
+    )
+
+    if not summary and not inline and not files and not has_local_work:
         logger.info("publish_run_output_empty", run_id=str(run.id))
         return None
 
@@ -398,6 +475,13 @@ async def _ensure_deliverable(
     if deliverable.verifier_type is None:
         local_tool_log = (run.output_ref or {}).get("local_tool_log") if isinstance(run.output_ref, dict) else None
         _attach_verification_from_local_tool_log(deliverable, local_tool_log)
+    if deliverable.verifier_type is None:
+        # PR11 — third tier: when the LLM wrote test files but
+        # didn't run them via shell_exec, synthesize a pytest call
+        # against those files. Recovers verification for the
+        # qwen3-coder "trivial code, no need to test" case.
+        local_tool_log = (run.output_ref or {}).get("local_tool_log") if isinstance(run.output_ref, dict) else None
+        _attach_verification_from_test_files(deliverable, local_tool_log)
     await session.flush()
 
     logger.info(

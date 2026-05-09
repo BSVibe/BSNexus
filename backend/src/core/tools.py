@@ -103,6 +103,43 @@ def tool_schemas(allowed: list[str] | None = None) -> list[dict[str, Any]]:
     return [s for s in all_schemas if s["function"]["name"] in allow_set]
 
 
+def recover_misnamed_local_tool(name: str, args: dict[str, Any]) -> tuple[str, str | None]:
+    """Recover a local-tool call when the LLM picked the wrong name.
+
+    PR11 dogfood (qwen3-coder:30b iter 3) showed weak coder models
+    consolidate to ONE tool name (typically ``shell_exec``) and emit
+    every call under it — including ``{"path": ..., "content": ...}``
+    payloads that are obviously ``file_write``. Routing by name then
+    runs the JSON as a shell command, which fails and burns the round
+    budget.
+
+    Recovery rule: only rewrite when the args are *unambiguously*
+    shaped for another tool (e.g. ``shell_exec`` with no command but a
+    path and content → ``file_write``). Empty / mixed args pass through
+    so the original handler can return its normal error.
+
+    Returns ``(recovered_name, recovery_note)`` where ``recovery_note``
+    is ``None`` when no recovery happened.
+    """
+
+    def _has(key: str) -> bool:
+        v = args.get(key)
+        return isinstance(v, str) and v.strip() != ""
+
+    has_command = _has("command")
+    has_path = _has("path")
+    has_content = isinstance(args.get("content"), str)  # empty string is legal for file_write
+
+    if name == "shell_exec" and not has_command:
+        if has_path and has_content:
+            return "file_write", "shell_exec→file_write (path+content, no command)"
+        if has_path:
+            return "file_read", "shell_exec→file_read (path only, no command)"
+    if name == "file_write" and has_command and not (has_path and has_content):
+        return "shell_exec", "file_write→shell_exec (command, no path+content)"
+    return name, None
+
+
 async def execute_tool_call(
     *,
     name: str,
@@ -126,6 +163,17 @@ async def execute_tool_call(
     if not isinstance(arguments, dict):
         log.errors += 1
         return "error: arguments must be a JSON object"
+
+    recovered_name, recovery_note = recover_misnamed_local_tool(name, arguments)
+    if recovery_note is not None:
+        logger.info(
+            "tool_name_recovered",
+            project_id=str(log.project_id),
+            original=name,
+            recovered=recovered_name,
+            note=recovery_note,
+        )
+        name = recovered_name
 
     try:
         if name == "file_write":
