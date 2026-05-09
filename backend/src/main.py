@@ -14,17 +14,11 @@ from sqlalchemy import text
 from backend.src.api import (
     auth,
     brief,
-    conversation,
     decisions as decisions_api,
     deliverables,
-    executor_configs,
-    inside,
-    integrations,
-    project_events,
+    directions,
     projects,
     requests_api,
-    run_summaries,
-    workspace_files,
 )
 from backend.src.config import settings as app_settings
 from backend.src.core.rate_limiter import RateLimitMiddleware
@@ -156,11 +150,6 @@ async def lifespan(app: FastAPI):
 
     from backend.src.storage.database import async_session
 
-    # Direction reset 2026-05-03 — BSNexus no longer hosts workers; the
-    # worker_result_consumer that drained runs:results into
-    # on_run_completed is gone. BSGateway-dispatched runs complete
-    # synchronously via the chat completion stream (BSGatewayClient).
-
     # Phase Audit Batch 2 — bsvibe-audit OutboxRelay. Reads
     # ``audit_outbox`` rows that domain code wrote inside their own
     # transactions and ships them to BSVibe-Auth. Disabled (no-op
@@ -173,84 +162,9 @@ async def lifespan(app: FastAPI):
     await audit_relay.start()
     app.state.audit_relay = audit_relay
 
-    # Direction reset 2026-05-03 — FastMCP transport's session manager
-    # owns an internal task group that must be entered at process
-    # startup. ``attach_to_app`` mounts the sub-app but Starlette mounts
-    # don't auto-propagate sub-app lifespans, so we chain it here.
-    # Without this every request to ``/mcp/http`` 500s with "Task group
-    # is not initialized" and the LLM tool loop falls back to no-tools
-    # mode (Round 1 finding 2026-05-07).
-    from backend.src.mcp.server import fastmcp_session_manager_run  # noqa: PLC0415
-
-    # Decision-locks A1 — boot the Verifier Worker if enabled. A
-    # disabled worker is the degradable mode: new deliverables stay at
-    # ``proof_state = verification_missing``. The worker is never
-    # required for the API to serve.
-    verifier_worker = None
-    verifier_task: _asyncio_local.Task[None] | None = None
-    if app_settings.verifier_enabled:
-        from backend.src.core.verifier import (  # noqa: PLC0415
-            SubprocessVerifier,
-            default_registry,
-        )
-        from backend.src.workers.verifier_worker import (  # noqa: PLC0415
-            start_verifier_worker_task,
-        )
-
-        if not default_registry.supported_types():
-            default_registry.register(SubprocessVerifier())
-
-        verifier_worker, verifier_task = await start_verifier_worker_task(
-            registry=default_registry,
-            stream_manager=stream_manager,
-            session_factory=async_session,
-        )
-        app.state.verifier_worker = verifier_worker
-        app.state.verifier_task = verifier_task
-
-    # PR9 — periodic stale-verification reclaim. Defense in depth for
-    # dropped enqueue / worker-crash mid-process scenarios that leave
-    # a deliverable stuck at ``verification_missing`` despite having a
-    # ``verifier_type`` stamped. Disabled when the verifier subsystem
-    # is off (no point reclaiming a queue nothing reads from).
-    stale_reclaim_task: _asyncio_local.Task[None] | None = None
-    if app_settings.verifier_enabled:
-        from backend.src.core.verifier.stale_reclaim import (  # noqa: PLC0415
-            reclaim_stale_verifications,
-        )
-
-        async def _stale_reclaim_loop() -> None:
-            interval_s = 60
-            while True:
-                try:
-                    await _asyncio_local.sleep(interval_s)
-                    async with async_session() as sess:
-                        await reclaim_stale_verifications(sess, stream_manager)
-                except _asyncio_local.CancelledError:
-                    raise
-                except Exception:  # noqa: BLE001 — never break the loop
-                    pass
-
-        stale_reclaim_task = _asyncio_local.create_task(_stale_reclaim_loop())
-        app.state.stale_reclaim_task = stale_reclaim_task
-
     try:
-        async with fastmcp_session_manager_run():
-            yield
+        yield
     finally:
-        if stale_reclaim_task is not None:
-            stale_reclaim_task.cancel()
-            try:
-                await stale_reclaim_task
-            except _asyncio_local.CancelledError:
-                pass
-        if verifier_worker is not None:
-            verifier_worker.stop()
-        if verifier_task is not None:
-            try:
-                await _asyncio_local.wait_for(verifier_task, timeout=5)
-            except _asyncio_local.TimeoutError:
-                verifier_task.cancel()
         await audit_relay.stop()
         await close_redis()
 
@@ -258,18 +172,11 @@ async def lifespan(app: FastAPI):
 _ROUTERS = [
     auth.router,
     projects.router,
-    conversation.router,
+    directions.router,
     requests_api.router,
     deliverables.router,
     decisions_api.router,
     brief.router,
-    inside.runs_router,
-    inside.snapshot_router,
-    integrations.router,
-    executor_configs.router,
-    workspace_files.router,
-    project_events.router,
-    run_summaries.router,
 ]
 
 
@@ -335,20 +242,6 @@ def create_app(
 
     for router in _ROUTERS:
         _app.include_router(router)
-
-    # Direction reset 2026-05-03 — BSNexus MCP server. ``/mcp/health``
-    # is registered as a normal router; ``/mcp/http`` is a Starlette
-    # ASGI mount (streamable-HTTP transport) because FastMCP returns
-    # its own ASGI app.
-    from backend.src.mcp.server import (  # noqa: PLC0415
-        admin_router as mcp_admin_router,
-        attach_to_app,
-        router as mcp_router,
-    )
-
-    _app.include_router(mcp_router)
-    _app.include_router(mcp_admin_router)
-    attach_to_app(_app)
 
     # ─── Demo mode (separate deployment, BSVIBE_DEMO_MODE=true) ─────────
     # Demo backend exposes /api/v1/demo/session and swaps the prod

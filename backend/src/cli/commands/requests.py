@@ -1,4 +1,4 @@
-"""``bsnexus requests`` sub-app — wraps requests + conversation routers.
+"""``bsnexus requests`` sub-app — wraps greenfield requests/directions.
 
 Maps to:
 
@@ -9,13 +9,10 @@ Maps to:
   ``GET /api/v1/requests/{id}``; once it does, this lookup will switch
   to a single GET. Surfacing ``show`` here gives operators the same
   command shape as the other resources.
-* ``requests create --project-id --content`` → ``POST /api/v1/messages``
-  with ``{project_id, content}``. The conversation router runs the
-  inline request rule, which opens a new Request row when the content
-  is non-empty.
+* ``requests create --project-id --content`` → ``POST /api/v1/directions``
+  with ``{project_id, source, body}``.
 * ``requests update --project-id --content`` → same endpoint, intended
-  for follow-up messages on an in-flight request. The backend folds
-  modification semantics into the next Request automatically.
+  for follow-up directions.
 
 ``--dry-run`` skips HTTP and renders the planned request shape.
 """
@@ -139,8 +136,8 @@ def show_cmd(
 
 
 def _send_message(obj: Any, project_id: str, content: str) -> None:
-    body = {"project_id": project_id, "content": content}
-    path = "/messages"
+    body = {"project_id": project_id, "source": "cli", "body": content}
+    path = "/directions"
 
     if obj.dry_run:
         emit_dry_run(obj, {"method": "POST", "path": path, "body": body})
