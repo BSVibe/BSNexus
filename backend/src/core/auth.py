@@ -49,6 +49,13 @@ BOOTSTRAP_TOKEN_PREFIX = "bsv_admin_"
 OPAQUE_TOKEN_PREFIX = "bsv_sk_"
 
 
+def _looks_like_jwt(token: str) -> bool:
+    """Three base64url segments — gates the introspection fallback so a
+    stray garbage string doesn't trigger a network round-trip."""
+    parts = token.split(".")
+    return len(parts) == 3 and all(p for p in parts)
+
+
 def _is_production_environment() -> bool:
     """Return ``True`` if the runtime environment is production."""
     env = (settings.environment or os.getenv("ENVIRONMENT") or "").strip().lower()
@@ -259,8 +266,21 @@ async def _dispatch_token(token: str) -> BSVibeUser:
                 _get_introspection_cache(),
             )
             return _to_bsvibe_user(authz_user)
-        payload = verify_user_jwt(token, az_settings)
-        return _bsvibe_user_from_jwt_payload(payload)
+        try:
+            payload = verify_user_jwt(token, az_settings)
+            return _bsvibe_user_from_jwt_payload(payload)
+        except AuthError:
+            # PAT JWTs from BSVibe-Auth's device grant are signed with
+            # SERVICE_TOKEN_SIGNING_SECRET (not USER_JWT_SECRET), so they
+            # fail user_jwt verification. The /api/tokens/introspect
+            # endpoint accepts them by jti — fall through when the
+            # introspection client is configured and the token is
+            # JWT-shaped.
+            client = _get_introspection_client()
+            if client is None or not _looks_like_jwt(token):
+                raise
+            authz_user = await verify_opaque_token(token, client, _get_introspection_cache())
+            return _to_bsvibe_user(authz_user)
     except AuthError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
