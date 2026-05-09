@@ -37,6 +37,17 @@ class DirectionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class DirectionRoutingOption(BaseModel):
+    project_id: uuid.UUID
+    name: str
+
+
+class DirectionRoutingPrompt(BaseModel):
+    required: bool = True
+    question: str
+    options: list[DirectionRoutingOption]
+
+
 class RequestResponse(BaseModel):
     id: uuid.UUID
     tenant_id: uuid.UUID
@@ -50,6 +61,13 @@ class RequestResponse(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class DirectionAckResponse(BaseModel):
+    direction: DirectionResponse
+    request: RequestResponse | None
+    routing: DirectionRoutingPrompt | None
+    acknowledgement: str
 
 
 class DecisionResolve(BaseModel):
