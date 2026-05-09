@@ -229,6 +229,19 @@ async def _dispatch_background(
             partial_log = getattr(adapter, "_tool_activity_log", None)
             if partial_log:
                 result["tool_activity_log"] = list(partial_log)
+            # PR11 — also recover the local_tool_log (files written /
+            # shells run) so the blocked-path publish_run_output can
+            # still create a deliverable + derive verification from
+            # whatever made it onto disk before the LLM stalled.
+            partial_local = getattr(adapter, "_local_tool_log", None)
+            if partial_local is not None:
+                result["local_tool_log"] = {
+                    "written_files": [w.to_ref() for w in partial_local.written],
+                    "shell_invocations": [
+                        {"command": s.command, "exit_code": s.exit_code, "duration_ms": s.duration_ms}
+                        for s in partial_local.shells
+                    ],
+                }
 
         # Async / worker executors return a "dispatched" sentinel —
         # they'll finalize via the worker-result consumer, not here.
@@ -266,12 +279,17 @@ async def _dispatch_background(
                 # — pre-merge review caught the regression.
                 from backend.src.core.state_machine import RunStateMachine  # noqa: PLC0415
 
-                # Persist any partial output streamed before the failure so
-                # the founder sees what claude actually produced rather than
-                # a blank Inside panel after the stream cuts out.
-                if isinstance(result.get("output_ref"), dict) and result["output_ref"].get("inline"):
+                # PR11 — fold local_tool_log into output_ref on the
+                # blocked path too, so the publish_run_output salvage
+                # below can derive a verification block from the
+                # files / shells the LLM actually produced before it
+                # got stuck.
+                merged_output = dict(result.get("output_ref") or {})
+                if result.get("local_tool_log"):
+                    merged_output["local_tool_log"] = result["local_tool_log"]
+                if merged_output.get("inline") or merged_output.get("local_tool_log"):
                     run.output_type = "text"
-                    run.output_ref = result["output_ref"]
+                    run.output_ref = merged_output
                 state_machine = RunStateMachine()
                 await state_machine.transition(
                     run,
@@ -300,7 +318,22 @@ async def _dispatch_background(
                         per_round_replies=[],  # adapter raised before we extracted them
                         final_reply_text=final_reply,
                     )
+
+                # PR11 — salvage path: still create a deliverable for
+                # the blocked run if the LLM produced any work. The
+                # derive chain (PR10 shell_exec history + PR11 test
+                # files) runs against ``run.output_ref.local_tool_log``
+                # the same way as the success path.
+                published = await publish_run_output(
+                    run, session, knowledge=resolve_knowledge_client(integrations.bsage, auth_token=originator_token), stream_manager=stream_manager
+                )
                 await session.commit()
+                if published is not None and stream_manager is not None:
+                    from backend.src.core.verifier.enqueue import (  # noqa: PLC0415
+                        maybe_enqueue_for_deliverable,
+                    )
+
+                    await maybe_enqueue_for_deliverable(stream_manager, published)
                 return
 
             # PR10 — fold the DirectLLMAdapter local_tool_log into
