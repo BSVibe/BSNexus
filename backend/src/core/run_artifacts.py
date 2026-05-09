@@ -114,13 +114,13 @@ async def publish_run_output(
         return None
 
     raw_reply_text = summary or inline or _default_summary(files)
-    # Strip the ``bsnexus-verification`` fenced block before downstream
-    # consumers (chat surface, title derivation) see the reply. The
-    # parsed metadata is captured separately by
-    # ``_attach_verification_from_reply`` against the raw text.
+    # Strip the ``bsnexus-verification`` fenced block from the chat
+    # surface so the founder doesn't see the protocol marker as prose.
+    # Verification stamping uses the RAW reply via
+    # ``_attach_verification_from_reply``.
     reply_text = strip_verification_blocks(raw_reply_text)
     await _ensure_assistant_message(run, reply_text, session)
-    deliverable = await _ensure_deliverable(run, raw_reply_text, files, session, display_text=reply_text)
+    deliverable = await _ensure_deliverable(run, raw_reply_text, files, session)
 
     if knowledge is not None and deliverable is not None:
         await _index_deliverable(knowledge, run, deliverable, reply_text, files, session)
@@ -293,8 +293,6 @@ async def _ensure_deliverable(
     reply_text: str,
     files: list[dict[str, Any]],
     session: AsyncSession,
-    *,
-    display_text: str | None = None,
 ) -> Deliverable | None:
     if run.request_id is None:
         return None
@@ -308,9 +306,7 @@ async def _ensure_deliverable(
 
     request_stmt = select(Request).where(Request.id == run.request_id)
     request = (await session.execute(request_stmt)).scalar_one_or_none()
-    # Title comes from the cleaned text the user sees (verification block
-    # stripped); verification stamping continues to read the raw reply.
-    title = _derive_title(display_text if display_text is not None else reply_text, run, request)
+    title = _derive_title(run, request)
 
     deliverable = Deliverable(
         tenant_id=run.tenant_id,
@@ -450,11 +446,7 @@ def _slug(text: str) -> str:
     return cleaned or "project"
 
 
-def _derive_title(
-    reply_text: str,
-    run: "ExecutionRun",
-    request: "Request | None",
-) -> str:
+def _derive_title(run: "ExecutionRun", request: "Request | None") -> str:
     """Pick a short descriptive title for the timeline card.
 
     Stable-inputs only — never parses the LLM reply (PR8 principle:
@@ -467,7 +459,6 @@ def _derive_title(
     2. ``run.directive`` — planner-phase prompt for child runs.
     3. ``"Deliverable"`` fallback.
     """
-    _ = reply_text  # accepted for API stability; intentionally unused
     if request and request.intent_summary:
         return request.intent_summary[:200]
     if run.directive:
