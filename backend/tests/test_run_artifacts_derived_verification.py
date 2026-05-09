@@ -87,7 +87,7 @@ async def test_derives_verification_from_last_successful_shell_exec(
     ).scalar_one()
     assert refreshed.verifier_type == "software_test"
     assert refreshed.verifier_inputs is not None
-    assert refreshed.verifier_inputs["command"] == ["python", "-m", "pytest", "tests/test_add.py", "-q"]
+    assert refreshed.verifier_inputs["command"] == ["bash", "-c", "python -m pytest tests/test_add.py -q"]
 
 
 @pytest.mark.asyncio
@@ -181,5 +181,5 @@ async def test_derive_picks_last_successful_invocation(
         await db_session.execute(select(Deliverable).where(Deliverable.id == deliverable.id))
     ).scalar_one()
     assert refreshed.verifier_inputs["command"] == [
-        "python", "-m", "pytest", "tests/test_app.py", "-q",
+        "bash", "-c", "python -m pytest tests/test_app.py -q",
     ]

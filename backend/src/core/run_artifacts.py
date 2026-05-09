@@ -108,19 +108,19 @@ def _attach_verification_from_local_tool_log(
     if not isinstance(command_str, str) or not command_str.strip():
         return
 
-    import shlex
-
-    try:
-        command_argv = shlex.split(command_str)
-    except ValueError:
-        return
-    if not command_argv:
-        return
-
     workspace_root = project_workspace.project_workspace_path(deliverable.project_id)
+    # Wrap in ``bash -c`` so shell operators (``&&``, ``|``, env-var
+    # expansion, etc.) work the same way they did during the LLM's
+    # original ``shell_exec`` call. ``shell_exec`` itself uses
+    # ``asyncio.create_subprocess_shell``, so the verifier needs a
+    # shell too — passing the raw argv list to ``subprocess.run``
+    # treats ``&&`` as a literal arg and the verifier blows up with
+    # "[Errno 2] No such file" trying to spawn ``cd`` (PR10 dogfood
+    # iter 1 medium captured this as ``proof_summary='Failed to spawn
+    # verifier: [Errno 2] No such file or directory'``).
     deliverable.verifier_type = "software_test"
     deliverable.verifier_inputs = {
-        "command": command_argv,
+        "command": ["bash", "-c", command_str],
         "cwd": str(workspace_root),
         "timeout_s": 60,
         "derived_from": "local_tool_log.shell_exec",
