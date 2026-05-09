@@ -128,28 +128,23 @@ async def publish_run_output(
     return deliverable
 
 
-def _extract_inline(output_ref: object) -> str:
+def _extract_str_field(output_ref: object, key: str) -> str:
+    """Extract a stripped string field from an output_ref dict, or ""
+    if missing/wrong-shape. Used for both ``inline`` (raw worker prose)
+    and ``founder_summary`` (worker-authored 1-3 sentence summary)."""
     if not isinstance(output_ref, dict):
         return ""
-    val = output_ref.get("inline")
-    if isinstance(val, str):
-        return val.strip()
-    return ""
+    val = output_ref.get(key)
+    return val.strip() if isinstance(val, str) else ""
+
+
+# Back-compat shims — call sites still use the old names.
+def _extract_inline(output_ref: object) -> str:
+    return _extract_str_field(output_ref, "inline")
 
 
 def _extract_founder_summary(output_ref: object) -> str:
-    """Worker-authored 1-3 sentence summary for the founder chat.
-
-    Distinct from ``inline`` which is the raw worker prose; this is the
-    explicit "what to tell the founder" field. Workers should populate
-    it; falls back to ``inline``.
-    """
-    if not isinstance(output_ref, dict):
-        return ""
-    val = output_ref.get("founder_summary")
-    if isinstance(val, str):
-        return val.strip()
-    return ""
+    return _extract_str_field(output_ref, "founder_summary")
 
 
 def _extract_files(output_ref: object) -> list[dict[str, Any]]:

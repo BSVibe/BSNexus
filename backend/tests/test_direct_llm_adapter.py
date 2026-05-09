@@ -269,10 +269,14 @@ async def test_tool_loop_dispatches_tool_call_then_continues() -> None:
             _delta_chunk(finish_reason="tool_calls"),
         ]
     )
+    # PR9 — round 2 now must include the fenced verification block to
+    # avoid triggering the block-forgotten watchdog (which would
+    # otherwise inject a system nudge and run a 3rd round).
     round2 = _async_iter(
         [
             _delta_chunk(content="Got "),
             _delta_chunk(content="answer"),
+            _delta_chunk(content='\n```bsnexus-verification\n{"verifier_type": "software_test", "command": ["true"]}\n```'),
             _delta_chunk(finish_reason="stop"),
         ]
     )
@@ -284,7 +288,8 @@ async def test_tool_loop_dispatches_tool_call_then_continues() -> None:
         result = await adapter._tool_loop([], session=session, openai_tools=[])
 
     session.call_tool.assert_awaited_once_with("knowledge_search", {"query": "x"})
-    assert result["output_ref"] == {"inline": "Got answer"}
+    assert "Got answer" in result["output_ref"]["inline"]
+    assert "bsnexus-verification" in result["output_ref"]["inline"]
     assert result["finish_reason"] == "stop"
 
 
@@ -319,9 +324,12 @@ async def test_tool_loop_failed_tool_call_appends_error_message() -> None:
             _delta_chunk(finish_reason="tool_calls"),
         ]
     )
+    # PR9 — round 2 includes the fenced block to short-circuit the
+    # block-forgotten watchdog.
     round2 = _async_iter(
         [
             _delta_chunk(content="Sorry, decisions unavailable"),
+            _delta_chunk(content='\n```bsnexus-verification\n{"verifier_type": "software_test", "command": ["false"]}\n```'),
             _delta_chunk(finish_reason="stop"),
         ]
     )

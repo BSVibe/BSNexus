@@ -1,16 +1,15 @@
-"""PR8 — pin the worker-shared-policy strengthened verification-block
-instruction.
+"""Pin the worker-shared-policy verification-block essentials.
 
-PR7 baseline collection on 2026-05-08 measured fenced-block emit rate
-at 33% on qwen3-coder:30b. The PR8 prompt iteration strengthened the
-instruction with NON-NEGOTIABLE language, a concrete clean-reply
-example, anti-patterns (preamble after block, missing block, mismatched
-command, claimed-but-not-emitted file_writes), and an explicit
-fail-fast emission path so the chain finalizes deterministically.
+PR9 dogfood iter 4 surfaced that the bloated PR8 prompt
+(``NON-NEGOTIABLE`` / ``MANDATORY ORDER`` / 6 anti-patterns / hard
+rules / field rules / concrete example, ~90 lines) was actually
+counterproductive on qwen3-coder:30b — the model burned attention on
+rules and missed the core "do work, emit block" pattern.
+PR9-fixup rewrote the policy lean (~30 lines).
 
-This test pins the strengthened content so a future "cleanup"
-refactor doesn't dilute the language and silently drop the emit
-rate again.
+These tests pin the load-bearing essentials so a future "let's add
+more guidance!" PR can't bloat the prompt back to 90 lines without
+flipping these assertions deliberately.
 """
 
 from __future__ import annotations
@@ -22,70 +21,44 @@ def _policy_body() -> str:
     return load_prompt("worker-shared-policy")
 
 
-def test_policy_marks_block_as_non_negotiable() -> None:
+def test_policy_includes_verification_block_required_form() -> None:
+    """The block format MUST be in the prompt — that's the protocol
+    contract the parser keys off."""
     body = _policy_body()
-    assert "NON-NEGOTIABLE" in body, (
-        "PR8 strengthened the block from 'should' to 'MUST' / 'NON-NEGOTIABLE'. "
-        "If you removed this language, the prompt regressed back to PR6 wording "
-        "and the local-LLM emit rate will drop below 50% again."
-    )
+    assert "bsnexus-verification" in body
+    assert '"verifier_type"' in body
+    assert '"command"' in body
+    assert '"cwd"' in body
+    assert '"timeout_s"' in body
 
 
-def test_policy_includes_concrete_clean_reply_example() -> None:
-    """Few-shot: a 'good' reply showing the block as the LAST content."""
+def test_policy_documents_field_rules_for_block() -> None:
     body = _policy_body()
-    assert "Wrote `add.py`" in body
-    assert "exit=0, 1 passed" in body
-    # The example must reference a verification block right after the
-    # prose so the LLM sees the structural pattern.
-    example_idx = body.index("Wrote `add.py`")
-    block_idx = body.index('"verifier_type": "software_test"', example_idx)
-    assert block_idx > example_idx, "verification block must appear AFTER the prose in the example"
+    assert "software_test" in body
+    assert "software_build" in body
+    assert "software_start" in body
 
 
-def test_policy_lists_anti_patterns_observed_in_dogfood() -> None:
-    body = _policy_body()
-    # Each anti-pattern from the PR7 baseline must be flagged.
-    assert "block must be LAST" in body
-    assert "No block at all" in body
-    assert "doesn't match what shell_exec actually ran" in body
-    assert "tool-call list before emitting the block" in body
-
-
-def test_policy_documents_fail_fast_emission_path() -> None:
+def test_policy_documents_fail_fast_path() -> None:
     """If the LLM cannot complete the task it MUST still emit the
     block (with a fail-fast command) so the chain finalizes at
     ``verification_failed`` instead of dead-ending at
     ``verification_missing``."""
     body = _policy_body()
-    assert "EVEN IF you couldn't complete" in body
-    assert '["false"]' in body, "fail-fast command example must be present"
+    assert '["false"]' in body
 
 
-def test_policy_documents_no_op_path_for_design_deliverables() -> None:
-    """Pure design / docs deliverables (no automated check) may emit
-    the block with ``["true"]`` rather than skip it."""
+def test_policy_stays_lean() -> None:
+    """PR9-fixup hard cap: keep the prompt concise. Earlier
+    iterations bloated it past 80 lines and qwen3-coder:30b's
+    medium-scenario reliability dropped. If a future PR needs to
+    add guidance, prefer dropping less-effective text first.
+
+    Threshold (50 lines) is a budget, not a hard physical limit;
+    flipping this test means deliberately accepting the
+    attention-budget tradeoff."""
     body = _policy_body()
-    assert '["true"]' in body
-    assert "Pure design / docs deliverables" in body
-
-
-def test_policy_pins_mandatory_order_work_then_block() -> None:
-    """PR8 iteration 2 — local LLM observed emitting the block in
-    round 1 with zero tool calls because the strengthened
-    "NON-NEGOTIABLE" instruction shadowed the do-the-work
-    instruction. Mandatory ordering reasserts: do the work, run
-    verification, THEN emit the block."""
-    body = _policy_body()
-    assert "MANDATORY ORDER" in body
-    assert "FIRST: actually do the work" in body
-    assert "ONLY THEN: emit the verification block" in body
-
-
-def test_policy_flags_both_premature_and_forgotten_block_anti_patterns() -> None:
-    """PR8 iteration 2 — observed two opposing failure modes in the
-    same prompt. Pin both anti-patterns so the prompt iteration's
-    balance survives future cleanup."""
-    body = _policy_body()
-    assert "Premature block emission" in body
-    assert "Block forgotten after lots of work" in body
+    assert len(body.splitlines()) < 50, (
+        f"prompt grew to {len(body.splitlines())} lines — see PR9 "
+        "dogfood findings on local-LLM attention budget"
+    )

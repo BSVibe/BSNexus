@@ -30,7 +30,28 @@ from typing import Any
 import structlog
 from litellm import acompletion
 
+from backend.src.core.verification_parser import _FENCE_RE
+
 logger = structlog.get_logger(__name__)
+
+
+# PR9 — system nudge injected by the tool-loop watchdog when the
+# loop is about to break with no fenced verification block in the
+# aggregate reply. One nudge text covers both observed failure modes
+# (idle-stop and block-forgotten); telling the model what to DO is
+# stronger than enumerating what NOT to do.
+_WATCHDOG_NUDGE = (
+    "Your reply needs the ``bsnexus-verification`` fenced JSON block at the end. "
+    "If the work isn't done yet, do it now (file_write / shell_exec). "
+    "If the work is done, emit the block and stop."
+)
+
+# Watchdog fires up to this many times per run. PR9 iter 3 observed
+# qwen3-coder responding to a single nudge with more tool calls
+# instead of the block — re-nudge after each subsequent quiet round.
+# Synthesis fallback (PR10) will replace this once the model ceiling
+# is honestly hit.
+_WATCHDOG_MAX_FIRES = 3
 
 
 # Hard cap on the size of ``args`` we copy into the activity log.
@@ -38,13 +59,6 @@ logger = structlog.get_logger(__name__)
 # debug context but don't blow the JSONB cell or duplicate the file
 # content (workspace is the source of truth for the actual write).
 _TOOL_ACTIVITY_ARGS_CAP = 1024
-
-
-# Mirrors ``BSGatewayAdapter.tools_supported`` — informational; the
-# actual tool surface comes from the live MCP server's ``list_tools``
-# call. The orchestrator hands ``tools_allowed`` for caller info; we
-# don't filter here because MCP is the authoritative tool registry.
-_TOOLS_SUPPORTED = ["file_read", "file_write", "file_list", "shell_exec"]
 
 # Cap the inner tool loop. claude with MCP rarely exceeds 5-6 tool
 # rounds for M0 tasks; 20 is a generous ceiling that catches runaway
@@ -95,7 +109,9 @@ class DirectLLMAdapter:
     changes downstream.
     """
 
-    tools_supported: list[str] = list(_TOOLS_SUPPORTED)
+    # Class-level default; overridden by tests / orchestrator. Live
+    # tool surface comes from the MCP server's ``list_tools`` call.
+    tools_supported: list[str] = ["file_read", "file_write", "file_list", "shell_exec"]
 
     def __init__(
         self,
@@ -265,6 +281,12 @@ class DirectLLMAdapter:
         aggregated_text: list[str] = []
         per_round_replies: list[str] = []
         finish_reason: str | None = None
+        # PR9 — tool-loop watchdog: fires when the loop is about to
+        # break with no fenced verification block in the aggregate
+        # reply. PR10 will replace this with server-side block
+        # synthesis once the model-compliance ceiling is honestly
+        # documented (see skill local-llm-runtime-nudge-ceiling).
+        watchdog_fire_count = 0
 
         for round_idx in range(self._max_tool_rounds):
             kwargs: dict[str, Any] = {
@@ -345,6 +367,34 @@ class DirectLLMAdapter:
             messages.append(assistant_msg)
 
             if not tool_calls or session is None:
+                # PR9 — tool-loop watchdog. About to break the loop;
+                # if no fenced block in the aggregate reply (and
+                # session is available and we haven't hit the fire
+                # cap), inject one nudge and let the loop continue.
+                aggregate_so_far = "".join(per_round_replies)
+                if (
+                    watchdog_fire_count < _WATCHDOG_MAX_FIRES
+                    and session is not None
+                    and not _FENCE_RE.search(aggregate_so_far)
+                ):
+                    watchdog_fire_count += 1
+                    messages.append({"role": "system", "content": _WATCHDOG_NUDGE})
+                    logger.info(
+                        "tool_loop_watchdog_nudged",
+                        project_id=str(self._project_id),
+                        round_idx=round_idx,
+                        attempt=watchdog_fire_count,
+                        round_reply_chars=content_chars,
+                    )
+                    self._tool_activity_log.append(
+                        {
+                            "kind": "tool_loop_watchdog_nudged",
+                            "round_idx": round_idx,
+                            "attempt": watchdog_fire_count,
+                            "occurred_at": datetime.now(timezone.utc).isoformat(),
+                        }
+                    )
+                    continue
                 # Done — model returned plain text or there's no MCP
                 # session to dispatch tool calls on.
                 break

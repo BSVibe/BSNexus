@@ -89,6 +89,48 @@ async function sendDirection(api: APIRequestContext, projectId: string, content:
   expect(resp.ok(), `direction send failed: ${resp.status()} ${await resp.text()}`).toBe(true)
 }
 
+/**
+ * PR9 — pre-warm the target Ollama model before each scenario.
+ *
+ * PR8 dogfood observed medium-scenario stalls (6+ min) when
+ * ``qwen3-coder:30b`` had to cold-load while another model
+ * (``glm-4.7-flash:latest``, 26.6GB VRAM) was already resident on
+ * the 48GB Mac Mini. A trivial generation request unloads contenders
+ * via Ollama's keep_alive contract and leaves the target model warm
+ * in VRAM, eliminating the cold-load × concurrent-model contention
+ * failure mode.
+ *
+ * Best-effort: any failure (Ollama unreachable, model not found) is
+ * logged and ignored so the test still proceeds — pre-warm is a
+ * stability boost, not a hard prerequisite.
+ */
+async function preWarmOllama(): Promise<void> {
+  // ``ollama_chat/qwen3-coder:30b`` → strip the litellm provider
+  // prefix; Ollama's HTTP API expects bare model tags.
+  const modelTag = LIVE_LLM_MODEL.replace(/^ollama_chat\//, '').replace(/^ollama\//, '')
+  try {
+    const ctx = await playwrightRequest.newContext({ baseURL: OLLAMA_BASE_URL, timeout: 120_000 })
+    try {
+      // Single-token generation primes the model into VRAM. ``keep_alive``
+      // 10m gives the scenario room to run without an early eviction.
+      await ctx.post('/api/generate', {
+        data: {
+          model: modelTag,
+          prompt: 'ok',
+          stream: false,
+          keep_alive: '10m',
+          options: { num_predict: 1 },
+        },
+      })
+    } finally {
+      await ctx.dispose()
+    }
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn(`[live-llm] pre-warm failed for ${modelTag}: ${err instanceof Error ? err.message : err}`)
+  }
+}
+
 async function pollDeliverable(
   api: APIRequestContext,
   projectId: string,
@@ -127,6 +169,12 @@ test.describe('live-llm — Direction → Verifier Worker → verified', () => {
   // for all three scenarios even if smoke flakes (PR8 baseline data
   // collection rationale).
   test.describe.configure({ timeout: DELIVERABLE_TIMEOUT_MS + PROOF_VERIFIED_TIMEOUT_MS + 60_000 })
+
+  // PR9 — pre-warm before EACH scenario to absorb cold-load + concurrent-
+  // model VRAM contention on the 48GB Mac Mini envelope. Best-effort.
+  test.beforeEach(async () => {
+    await preWarmOllama()
+  })
 
   test('smoke: python --version via shell_exec ends at proof_state=verified', async () => {
     // Minimum-trust live-LLM smoke: no file_write needed, just one
