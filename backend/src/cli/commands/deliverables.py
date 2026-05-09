@@ -34,7 +34,7 @@ app = typer.Typer(
 )
 
 _DEFAULT_LIMIT = 50
-_LIST_PATH = "/api/v1/deliverables"
+_LIST_PATH = "/deliverables"
 
 
 def _list_params(project_id: str | None, limit: int) -> dict[str, Any]:
@@ -149,7 +149,7 @@ def attach_cmd(
             obj,
             {
                 "method": "POST",
-                "path": f"/api/v1/deliverables/{deliverable_id}/attach",
+                "path": f"/deliverables/{deliverable_id}/attach",
                 "body": {"path": path},
                 "supported": False,
                 "reason": "backend exposes no attach endpoint",

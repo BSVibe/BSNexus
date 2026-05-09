@@ -102,7 +102,7 @@ def test_decisions_list_cross_project(runner: CliRunner, monkeypatch: pytest.Mon
     assert result.exit_code == 0, result.stderr
     fake.get.assert_awaited_once()
     args, kwargs = fake.get.await_args
-    assert args[0] == "/api/v1/decisions"
+    assert args[0] == "/decisions"
     params = kwargs.get("params", {})
     assert "project_id" not in params
     assert params.get("limit") == 50
@@ -130,7 +130,7 @@ def test_decisions_list_blocking_only(runner: CliRunner, monkeypatch: pytest.Mon
 
     assert result.exit_code == 0, result.stderr
     args, kwargs = fake.get.await_args
-    assert args[0] == "/api/v1/decisions"
+    assert args[0] == "/decisions"
     assert kwargs["params"]["project_id"] == PROJECT_ID
     assert kwargs["params"]["blocking_only"] is True
     assert kwargs["params"]["limit"] == 10
@@ -150,7 +150,7 @@ def test_decisions_list_dry_run(runner: CliRunner, monkeypatch: pytest.MonkeyPat
     payload = json.loads(result.stdout)
     assert payload["dry_run"] is True
     assert payload["method"] == "GET"
-    assert payload["path"] == "/api/v1/decisions"
+    assert payload["path"] == "/decisions"
 
 
 def test_decisions_list_empty_table_does_not_crash(runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -225,7 +225,7 @@ def test_decisions_lock_posts_resolve(runner: CliRunner, monkeypatch: pytest.Mon
     assert result.exit_code == 0, result.stderr
     fake.post.assert_awaited_once()
     args, kwargs = fake.post.await_args
-    assert args[0] == f"/api/v1/decisions/{DECISION_ID}/resolve"
+    assert args[0] == f"/decisions/{DECISION_ID}/resolve"
     body = kwargs["json"]
     assert body["resolution"] == "approved"
     assert body["resolved_by"] == "founder@bsvibe.dev"
@@ -256,7 +256,7 @@ def test_decisions_lock_dry_run(runner: CliRunner, monkeypatch: pytest.MonkeyPat
     payload = json.loads(result.stdout)
     assert payload["dry_run"] is True
     assert payload["method"] == "POST"
-    assert payload["path"] == f"/api/v1/decisions/{DECISION_ID}/resolve"
+    assert payload["path"] == f"/decisions/{DECISION_ID}/resolve"
     assert payload["body"]["resolution"] == "approved"
 
 
@@ -344,7 +344,7 @@ def test_deliverables_list_cross_project(runner: CliRunner, monkeypatch: pytest.
     assert result.exit_code == 0, result.stderr
     fake.get.assert_awaited_once()
     args, kwargs = fake.get.await_args
-    assert args[0] == "/api/v1/deliverables"
+    assert args[0] == "/deliverables"
     params = kwargs.get("params", {})
     assert "project_id" not in params
     assert params.get("limit") == 50
@@ -362,7 +362,7 @@ def test_deliverables_list_scoped(runner: CliRunner, monkeypatch: pytest.MonkeyP
 
     assert result.exit_code == 0, result.stderr
     args, kwargs = fake.get.await_args
-    assert args[0] == "/api/v1/deliverables"
+    assert args[0] == "/deliverables"
     assert kwargs["params"]["project_id"] == PROJECT_ID
     assert kwargs["params"]["limit"] == 20
 
@@ -380,7 +380,7 @@ def test_deliverables_list_dry_run(runner: CliRunner, monkeypatch: pytest.Monkey
     fake.get.assert_not_awaited()
     payload = json.loads(result.stdout)
     assert payload["dry_run"] is True
-    assert payload["path"] == "/api/v1/deliverables"
+    assert payload["path"] == "/deliverables"
 
 
 def test_deliverables_list_empty_table_does_not_crash(runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -513,7 +513,7 @@ def test_events_list_dry_run(runner: CliRunner, monkeypatch: pytest.MonkeyPatch)
     payload = json.loads(result.stdout)
     assert payload["dry_run"] is True
     assert payload["method"] == "GET"
-    assert payload["path"] == "/api/v1/events"
+    assert payload["path"] == "/events"
     assert payload["params"]["project_id"] == PROJECT_ID
     assert payload["filters"]["type"] == "run_transition"
     assert payload["filters"]["limit"] == 5

@@ -30,7 +30,7 @@ app = typer.Typer(
 @app.command("list", help="List projects in the active tenant.")
 def list_cmd(ctx: typer.Context) -> None:
     obj = ctx.obj
-    path = "/api/v1/projects"
+    path = "/projects"
 
     if obj.dry_run:
         emit_dry_run(obj, {"method": "GET", "path": path})
@@ -57,7 +57,7 @@ def show_cmd(
     project_id: str = typer.Argument(..., help="Project UUID."),
 ) -> None:
     obj = ctx.obj
-    path = f"/api/v1/projects/{project_id}"
+    path = f"/projects/{project_id}"
 
     if obj.dry_run:
         emit_dry_run(obj, {"method": "GET", "path": path})
@@ -101,7 +101,7 @@ def create_cmd(
     if bsupervisor_policy_id is not None:
         body["bsupervisor_policy_id"] = bsupervisor_policy_id
 
-    path = "/api/v1/projects"
+    path = "/projects"
     if obj.dry_run:
         emit_dry_run(obj, {"method": "POST", "path": path, "body": body})
         return
@@ -127,7 +127,7 @@ def archive_cmd(
     project_id: str = typer.Argument(..., help="Project UUID."),
 ) -> None:
     obj = ctx.obj
-    path = f"/api/v1/projects/{project_id}"
+    path = f"/projects/{project_id}"
 
     if obj.dry_run:
         emit_dry_run(obj, {"method": "DELETE", "path": path})

@@ -37,7 +37,7 @@ app = typer.Typer(
     add_completion=False,
 )
 
-_LIST_PATH = "/api/v1/events"
+_LIST_PATH = "/events"
 _DEFAULT_LIMIT = 10
 _DEFAULT_TIMEOUT_S = 5.0
 

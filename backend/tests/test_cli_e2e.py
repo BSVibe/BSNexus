@@ -128,12 +128,15 @@ def _wire_cli_client(monkeypatch: pytest.MonkeyPatch, app) -> None:
         # New httpx.AsyncClient per CLI invocation so ASGI lifespans
         # don't leak between commands. CliHttpClient.aclose() will
         # tear it down.
+        # Mirror the real ``_resolve_base_url`` behavior — append
+        # /api/v1 so CLI commands' relative paths (``/projects``,
+        # ``/integrations``, …) hit the FastAPI app's mounted routes.
         async_client = httpx.AsyncClient(
             transport=ASGITransport(app=app),
-            base_url="http://test",
+            base_url="http://test/api/v1",
         )
         return CliHttpClient(
-            base_url="http://test",
+            base_url="http://test/api/v1",
             token="dev-token",
             http=async_client,
         )
