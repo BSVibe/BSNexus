@@ -19,12 +19,10 @@ import os
 from typing import Any, cast
 
 from bsvibe_authz import (
-    AuthError,
     IntrospectionCache,
     IntrospectionClient,
     Settings as AuthzSettings,
     User as AuthzUser,
-    verify_user_jwt,
 )
 from bsvibe_authz.deps import get_current_user as bsvibe_authz_get_current_user
 from fastapi import Depends, HTTPException, Request, status
@@ -39,6 +37,8 @@ from backend.src.core.tenant_context import (
 )
 from backend.src.storage.database import get_db
 
+# Kept for downstream test imports + matrix lookups; no longer consumed
+# inside this module since the dispatch is fully delegated.
 BOOTSTRAP_TOKEN_PREFIX = "bsv_admin_"
 OPAQUE_TOKEN_PREFIX = "bsv_sk_"
 
@@ -200,34 +200,34 @@ def _to_bsvibe_user(authz_user: AuthzUser, *, default_role: str = "viewer") -> B
     """Translate a ``bsvibe_authz.User`` into the BSVibeUser shape BSNexus
     consumes (``app_metadata['role']`` + ``app_metadata['tenant_id']``).
 
-    Bootstrap (``is_service`` + ``scope == ['*']``) maps to admin.
+    Trust order for ``app_metadata``:
+
+    1. ``authz_user.app_metadata`` — populated by the lib's
+       :func:`parse_user_token` from the verified user-JWT payload. For
+       Supabase admins this carries ``role: "admin"``.
+    2. Empty (bootstrap, opaque, PAT-JWT-introspection paths). Fall back
+       to ``"admin"`` for ``is_service`` / ``"*"``-scope principals,
+       otherwise ``default_role``.
+
+    Tenant id falls back from ``authz_user.active_tenant_id`` (which the
+    lib already lifts from ``app_metadata.tenant_id`` when the
+    top-level claim is absent).
     """
-    if authz_user.is_service or "*" in authz_user.scope:
-        role = "admin"
-    else:
-        role = default_role
-    app_meta: dict[str, Any] = {"role": role}
-    if authz_user.active_tenant_id:
-        app_meta["tenant_id"] = authz_user.active_tenant_id
+    raw_meta = dict(authz_user.app_metadata) if authz_user.app_metadata else {}
+
+    role = raw_meta.get("role")
+    if not isinstance(role, str) or not role:
+        role = "admin" if (authz_user.is_service or "*" in authz_user.scope) else default_role
+    raw_meta["role"] = role
+
+    if authz_user.active_tenant_id and not raw_meta.get("tenant_id"):
+        raw_meta["tenant_id"] = authz_user.active_tenant_id
+
     return BSVibeUser(
         id=authz_user.id,
         email=authz_user.email,
-        app_metadata=app_meta,
-        user_metadata={},
-    )
-
-
-def _bsvibe_user_from_jwt_payload(payload: dict[str, Any]) -> BSVibeUser:
-    """Translate a verified JWT payload into BSVibeUser, preserving
-    ``app_metadata`` / ``user_metadata`` so role/tenant claims survive."""
-    sub = payload.get("sub")
-    if not isinstance(sub, str) or not sub:
-        raise AuthError("user JWT missing sub")
-    return BSVibeUser(
-        id=sub,
-        email=payload.get("email"),
-        app_metadata=payload.get("app_metadata") or {},
-        user_metadata=payload.get("user_metadata") or {},
+        app_metadata=raw_meta,
+        user_metadata=dict(authz_user.user_metadata) if authz_user.user_metadata else {},
     )
 
 
@@ -239,23 +239,22 @@ async def _dispatch_token(token: str) -> BSVibeUser:
     returned :class:`bsvibe_authz.User` to BSNexus's :class:`BSVibeUser`
     shape. Library-level dispatch changes propagate here automatically.
 
-    For the user-JWT path we additionally lift ``app_metadata`` /
-    ``user_metadata`` from the verified payload — :func:`parse_user_token`
-    intentionally drops them, but BSNexus's RBAC keys off
-    ``app_metadata['role']`` from Supabase claims.
+    Since bsvibe-authz #22 the lib's ``parse_user_token`` lifts
+    ``app_metadata`` / ``user_metadata`` off the verified JWT payload and
+    falls back ``active_tenant_id`` to ``app_metadata.tenant_id`` —
+    BSNexus no longer re-decodes the token. ``_to_bsvibe_user`` is the
+    sole adapter.
     """
-    az_settings = _authz_settings()
     try:
         authz_user = await bsvibe_authz_get_current_user(
             authorization=f"Bearer {token}",
-            settings=az_settings,
+            settings=_authz_settings(),
             introspection_client=_get_introspection_client(),
             introspection_cache=_get_introspection_cache(),
         )
     except HTTPException as exc:
-        # bsvibe-authz raises plain HTTPException on auth failure.
-        # RFC 6750 §3 requires the ``WWW-Authenticate: Bearer`` challenge
-        # on 401 — re-raise with the header attached.
+        # RFC 6750 §3 requires ``WWW-Authenticate: Bearer`` on 401 —
+        # re-raise with the header attached when the lib didn't.
         if exc.status_code == status.HTTP_401_UNAUTHORIZED:
             existing = {k.lower() for k in (exc.headers or {})}
             if "www-authenticate" not in existing:
@@ -266,21 +265,7 @@ async def _dispatch_token(token: str) -> BSVibeUser:
                 ) from exc
         raise
 
-    user = _to_bsvibe_user(authz_user)
-
-    # User-JWT path only — preserve Supabase ``app_metadata`` claims so
-    # RBAC sees the original role. Bootstrap/opaque tokens carry no JWT
-    # payload to lift; for PAT JWTs the introspection response is the
-    # source of truth and metadata is irrelevant (scope-based).
-    if not (token.startswith(BOOTSTRAP_TOKEN_PREFIX) or token.startswith(OPAQUE_TOKEN_PREFIX)):
-        try:
-            payload = verify_user_jwt(token, az_settings)
-        except AuthError:
-            # User-JWT verification failed but get_current_user succeeded —
-            # introspection-fallback path. Skip metadata lift.
-            return user
-        user = _bsvibe_user_from_jwt_payload(payload)
-    return user
+    return _to_bsvibe_user(authz_user)
 
 
 async def get_current_user(
