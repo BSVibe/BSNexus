@@ -30,7 +30,21 @@ from typing import Any
 import structlog
 from litellm import acompletion
 
+from backend.src.core.verification_parser import _FENCE_RE
+
 logger = structlog.get_logger(__name__)
+
+
+# PR9 — system nudge injected by the tool-loop watchdog when round 1
+# produces zero tool calls AND no fenced block. The wording is short
+# and ends with the explicit protocol marker requirement so the model
+# can't miss it.
+_WATCHDOG_NUDGE = (
+    "You stopped before doing the work. Use the file_write / shell_exec "
+    "tools to actually complete the task, then end your reply with the "
+    "``bsnexus-verification`` fenced JSON block. Do NOT just describe "
+    "what you intend to do — DO it."
+)
 
 
 # Hard cap on the size of ``args`` we copy into the activity log.
@@ -265,6 +279,12 @@ class DirectLLMAdapter:
         aggregated_text: list[str] = []
         per_round_replies: list[str] = []
         finish_reason: str | None = None
+        # PR9 — tool-loop watchdog: fires at most once per run, after
+        # round 1 if the model emitted zero tool calls AND no fenced
+        # verification block. Injects a system nudge and lets the loop
+        # continue. Catches the qwen3-coder "I need to build the app"
+        # preamble-only failure mode observed in PR8 baseline.
+        watchdog_fired = False
 
         for round_idx in range(self._max_tool_rounds):
             kwargs: dict[str, Any] = {
@@ -345,6 +365,33 @@ class DirectLLMAdapter:
             messages.append(assistant_msg)
 
             if not tool_calls or session is None:
+                # PR9 — tool-loop idle watchdog. If round 1 produced
+                # zero tool calls AND no fenced verification block
+                # (and we have an MCP session, so tools are available),
+                # inject a system nudge once and keep looping.
+                if (
+                    not watchdog_fired
+                    and session is not None
+                    and round_idx == 0
+                    and tool_call_count == 0
+                    and not _FENCE_RE.search(round_reply)
+                ):
+                    watchdog_fired = True
+                    messages.append({"role": "system", "content": _WATCHDOG_NUDGE})
+                    logger.info(
+                        "tool_loop_watchdog_nudged",
+                        project_id=str(self._project_id),
+                        round_idx=round_idx,
+                        round_reply_chars=content_chars,
+                    )
+                    self._tool_activity_log.append(
+                        {
+                            "kind": "tool_loop_watchdog_nudged",
+                            "round_idx": round_idx,
+                            "occurred_at": datetime.now(timezone.utc).isoformat(),
+                        }
+                    )
+                    continue
                 # Done — model returned plain text or there's no MCP
                 # session to dispatch tool calls on.
                 break
