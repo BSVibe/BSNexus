@@ -44,30 +44,14 @@ test.describe('Production smoke — public endpoints', () => {
     expect(body.postgresql).toBe('connected')
   })
 
-  test('MCP /mcp/health rejects missing/invalid token with 401', async ({ request }) => {
-    // Endpoint contract: token=... query param required, 401 on
-    // bad/missing token. Verifies that the new MCP server (post-2026-05-04
-    // streamable-HTTP migration) is actually mounted in prod.
-    const respMissing = await request.get(`${API}/mcp/health`)
-    expect([401, 422]).toContain(respMissing.status())
-
-    const respBad = await request.get(`${API}/mcp/health?token=not-a-real-token`)
-    expect(respBad.status()).toBe(401)
-  })
-
-  test('MCP /mcp/http streamable-HTTP transport mount responds', async ({ request }) => {
-    // The streamable-HTTP transport is mounted via a Starlette ASGI
-    // app, gated by the same query-param token check. We don't speak
-    // the full protocol here — just verify the gate is reachable
-    // (anything other than a connection error means the mount wired).
-    const resp = await request.get(`${API}/mcp/http?token=invalid`, {
-      headers: { Accept: 'text/event-stream' },
-    })
-    // Expect a 4xx (token rejection) — anything in the 2xx/3xx/4xx
-    // family proves the mount is live. 5xx or connection error means
-    // the mount didn't wire.
-    expect(resp.status()).toBeGreaterThanOrEqual(400)
-    expect(resp.status()).toBeLessThan(500)
+  test('legacy MCP routes are absent post G0 reset', async ({ request }) => {
+    // BSNexus retired the MCP transport (`/mcp/health`, `/mcp/http`)
+    // in the 2026-05-09 greenfield reset (G0). The
+    // `test_greenfield_legacy_erasure` suite enforces this server-side;
+    // this prod check just verifies the live deploy doesn't accidentally
+    // re-expose the routes.
+    expect((await request.get(`${API}/mcp/health`)).status()).toBe(404)
+    expect((await request.get(`${API}/mcp/http?token=x`)).status()).toBe(404)
   })
 
   test('frontend serves the new Phase 2 chunks (post-rename build)', async ({
