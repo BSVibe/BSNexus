@@ -18,6 +18,7 @@ from backend.src.api import (
     deliverables,
     directions,
     events as events_api,
+    integrations as integrations_api,
     projects,
     requests_api,
 )
@@ -179,6 +180,7 @@ _ROUTERS = [
     decisions_api.router,
     brief.router,
     events_api.router,
+    integrations_api.router,
 ]
 
 

@@ -28,7 +28,7 @@ from backend.src.models.tenant_integration_config import (
     IntegrationProvider,
     TenantIntegrationConfig,
 )
-from backend.src.schemas import (
+from backend.src.schemas.integration import (
     IntegrationConfigList,
     IntegrationConfigResponse,
     IntegrationConfigUpdate,
