@@ -30,8 +30,8 @@ export default function DecisionsView({ projectId }: { projectId: string }) {
   const resolved = decisions.filter((d) => d.resolved_at)
 
   return (
-    <div style={{ overflow: 'auto', height: '100%', padding: '24px 32px' }}>
-      <div style={{ maxWidth: 820, margin: '0 auto' }}>
+    <div className="decisions-view" style={{ overflow: 'auto', height: '100%' }}>
+      <div className="decisions-view__inner" style={{ maxWidth: 820, margin: '0 auto' }}>
         {isLoading ? (
           <p className="faded" style={{ fontSize: 13 }}>
             {t('loading')}

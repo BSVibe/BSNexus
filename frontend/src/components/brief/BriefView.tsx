@@ -43,8 +43,8 @@ export default function BriefView({ projectId }: { projectId: string }) {
   }
 
   return (
-    <div style={{ overflow: 'auto', height: '100%', padding: '24px 32px' }}>
-      <div style={{ maxWidth: 900, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 28 }}>
+    <div className="brief-view" data-brief-surface style={{ overflow: 'auto', height: '100%' }}>
+      <div className="brief-view__inner" style={{ maxWidth: 900, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 28 }}>
         <Section title={t('section.shipped')} count={data.shipped.length} emptyText={t('section.shippedEmpty')}>
           {data.shipped.map((d) => (
             <DeliverableCard key={d.id} d={d} />

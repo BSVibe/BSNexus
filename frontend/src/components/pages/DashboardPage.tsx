@@ -7,6 +7,7 @@ import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/rea
 
 import { Badge, StatusDot } from '../common/Badge'
 import { DecisionInboxStrip } from '../dashboard/DecisionInboxStrip'
+import { DirectionInputCard } from '../dashboard/DirectionInputCard'
 import { I } from '../../lib/icons'
 import { relTime, truncId } from '../../lib/fmt'
 import { statusTone, type Tone } from '../../lib/tone'
@@ -163,6 +164,11 @@ export default function DashboardPage() {
       {/* Home Decision Inbox strip — locked first slot in core-ux-spec
           §Default Home Layout (decision-locks A2 / A3). */}
       <DecisionInboxStrip />
+
+      {/* G7 — Direction input. Founder primitive: short directive opens
+          a Request via POST /api/v1/directions. Sits below the Inbox so
+          the locked priority slot is preserved. */}
+      <DirectionInputCard />
 
       {/* aggregate strip */}
       <div

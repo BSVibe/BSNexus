@@ -135,6 +135,15 @@
         "descriptionPlaceholder": "회사에 어떤 방향을 지시할까요?",
         "hint": "생성 후 해당 프로젝트로 이동합니다. 회사에 말을 걸 때 {mentionToken}을(를) 멘션하세요.",
         "submit": "생성 후 열기"
+      },
+      "direction": {
+        "heading": "지시 보내기",
+        "placeholder": "BSNexus 가 다음에 할 일을 짧고 명확하게 적으세요.",
+        "textareaLabel": "지시 내용",
+        "hint": "mobile_web · greenfield direction",
+        "submit": "지시하기",
+        "submitting": "보내는 중…",
+        "error": "지시를 보내지 못했습니다. 다시 시도해 주세요."
       }
     },
     "project": {
@@ -360,8 +369,7 @@
           "nameLabel": "이름",
           "namePlaceholder": "예: GPT-4o production",
           "descriptionLabel": "설명 (선택)",
-          "descriptionPlaceholder": "간단한 메모"
-        ,
+          "descriptionPlaceholder": "간단한 메모",
           "useThis": "이것을 사용 (현재 사용 중인 항목을 대체)"
         },
         "card": {
