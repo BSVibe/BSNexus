@@ -269,10 +269,6 @@
         "integrations": {
           "label": "Integrations",
           "summary": "Connect BSNexus to sibling services. Keys are stored tenant-scoped and encrypted at rest; only whether a key is present is ever returned."
-        },
-        "language": {
-          "label": "Language",
-          "summary": "Choose the interface language. The selection is stored in your browser and persists across reloads."
         }
       },
       "languageSwitcher": {
@@ -375,10 +371,6 @@
         },
         "tokenPlaceholderHint": "Generate an install token above — the command in step 3 auto-updates with the real value while it's on screen.",
         "heartbeat": "heartbeat {when}"
-      },
-      "integrationsPlaceholder": {
-        "title": "Integrations console — coming soon",
-        "body": "BSage / BSGateway / BSupervisor integration controls land together with the redesigned admin surface in a future milestone."
       }
     },
     "landing": {
@@ -424,6 +416,9 @@
           "description": "BSNexus is the command layer for AI-native companies. You direct, decide, and review. AI handles the work."
         }
       }
+    },
+    "errors": {
+      "loadIntegrationsFailed": "Failed to load integration configs."
     }
   }
 }

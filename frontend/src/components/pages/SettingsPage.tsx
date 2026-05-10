@@ -1,102 +1,35 @@
 'use client'
 
 import { useTranslations } from 'next-intl'
-import { useRouter, useSearchParams } from 'next/navigation'
 
-import LanguageSwitcher from '../settings/LanguageSwitcher'
-import { I } from '../../lib/icons'
-
-type SectionId = 'integrations' | 'language'
-
-interface Section {
-  id: SectionId
-  icon: (p: { size?: number }) => React.ReactElement
-}
-
-const SECTIONS: Section[] = [
-  { id: 'integrations', icon: I.Zap },
-  { id: 'language', icon: I.Settings },
-]
-
-function parseSection(raw: string | null): SectionId {
-  if (raw === 'language') return raw
-  return 'integrations'
-}
+import IntegrationsTab from '../settings/IntegrationsTab'
 
 /**
- * SettingsPage — G7.1 keeps two sections: Integrations and Language.
- * The Integrations section currently renders a deferred-state
- * placeholder; the prod-shape backend route + admin UI ship together
- * during the BSage / BSGateway / BSupervisor integration cycle (per
- * file-disposition.md REVIEW_LATER). Showing a quiet "redesign 예정"
- * card is honest and fails predictably; the previous infinite spinner
- * triggered by a 404 response was worse than no surface.
+ * SettingsPage — Integrations admin only.
+ *
+ * G7.5a (post-PR #93 recovery): the Integrations section was wrongly
+ * classified DELETE in PR #93 (file-disposition.md actually marks
+ * `IntegrationsTab` / `IntegrationCard` / `api/integrations.ts` as
+ * REVIEW_LATER, not DELETE) and replaced with a "redesign 예정"
+ * placeholder in G7.1. Restored on top of the existing
+ * ``api/v1/integrations`` backend (which was always live but
+ * unmounted).
+ *
+ * Language switcher lives in the sidebar (BSVibe common UI spec) so
+ * the duplicate Settings section is gone — no nav, no second copy of
+ * the same control.
  */
 export default function SettingsPage() {
   const t = useTranslations('nexus.settings')
-  const search = useSearchParams()
-  const router = useRouter()
-  const active = parseSection(search.get('section'))
-  const activeSection = SECTIONS.find((s) => s.id === active) ?? SECTIONS[0]
-
-  function go(id: SectionId) {
-    const next = new URLSearchParams(search.toString())
-    if (id === 'integrations') next.delete('section')
-    else next.set('section', id)
-    const qs = next.toString()
-    router.replace(qs ? `/settings?${qs}` : '/settings')
-  }
-
   return (
-    <div className="settings-grid">
-      <nav className="settings-nav">
-        <div className="settings-nav__title">{t('title')}</div>
-        {SECTIONS.map((s) => (
-          <button
-            key={s.id}
-            type="button"
-            className={`sb-item ${active === s.id ? 'active' : ''}`}
-            onClick={() => go(s.id)}
-          >
-            <s.icon size={14} />
-            <span className="label">{t(`sections.${s.id}.label`)}</span>
-          </button>
-        ))}
-      </nav>
-
-      <div className="settings-main">
-        <div className="settings-main__inner">
-          <div style={{ marginBottom: 24 }}>
-            <h1 className="page-title">{t(`sections.${activeSection.id}.label`)}</h1>
-            <div className="page-sub">{t(`sections.${activeSection.id}.summary`)}</div>
-          </div>
-          {active === 'integrations' && <IntegrationsDeferredPlaceholder />}
-          {active === 'language' && <LanguageSwitcher />}
+    <div className="settings-main">
+      <div className="settings-main__inner">
+        <div style={{ marginBottom: 24 }}>
+          <h1 className="page-title">{t('sections.integrations.label')}</h1>
+          <div className="page-sub">{t('sections.integrations.summary')}</div>
         </div>
+        <IntegrationsTab />
       </div>
-    </div>
-  )
-}
-
-function IntegrationsDeferredPlaceholder() {
-  const t = useTranslations('nexus.settings.integrationsPlaceholder')
-  return (
-    <div
-      role="status"
-      data-testid="integrations-deferred"
-      className="card"
-      style={{
-        padding: 24,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 8,
-        textAlign: 'left',
-      }}
-    >
-      <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--gray-50)' }}>{t('title')}</div>
-      <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: '20px', margin: 0 }}>
-        {t('body')}
-      </p>
     </div>
   )
 }
