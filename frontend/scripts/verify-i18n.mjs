@@ -18,14 +18,15 @@
  * frontend has no JS unit-test runner today and pytest would be the wrong
  * layer regardless. CI runs this via ``pnpm i18n:verify``.
  */
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { dirname, resolve } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(__dirname, '..')
 const KO_PATH = resolve(REPO_ROOT, 'messages/ko.json')
 const EN_PATH = resolve(REPO_ROOT, 'messages/en.json')
+const SRC_ROOT = resolve(REPO_ROOT, 'src')
 
 // Target string count for BSNexus per Phase C plan. The exact number can
 // shift slightly as surfaces evolve; we treat 179 as the floor.
@@ -107,6 +108,63 @@ function hasNested(obj, path) {
   }, obj) !== undefined
 }
 
+// ─── Orphan-namespace lint (G7.4) ─────────────────────────────────────
+// PR #93 deleted ``nexus.errors`` keys without removing the
+// ``useTranslations('nexus.errors')`` consumer in IntegrationsTab. The
+// site rendered fine until Settings → Integrations mounted, then the
+// console exploded with ``IntlError: MISSING_MESSAGE``. This lint
+// catches that regression class at PR time.
+//
+// Walk ``src/**/*.{ts,tsx,js,jsx}`` for every ``useTranslations(<lit>)``
+// call; assert the namespace literal exists in both bundles. Template
+// literals / dynamic args are skipped (too few in this codebase to
+// justify AST parsing; if that changes, swap in @typescript-eslint
+// AST visitor).
+
+const _SRC_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx'])
+const _SKIP_DIRS = new Set(['node_modules', '.next', 'dist', 'build', '__pycache__'])
+// Match ``useTranslations('foo.bar')`` or ``useTranslations("foo.bar")``.
+// The namespace must be a single-quoted or double-quoted string literal
+// (no template-literal interpolation). Whitespace is tolerated between
+// the call and the opening paren.
+const _USE_TRANSLATIONS_RE = /useTranslations\s*\(\s*(['"])((?:(?!\1).)+)\1\s*\)/g
+
+function* _walkSourceFiles(dir) {
+  for (const entry of readdirSync(dir)) {
+    if (_SKIP_DIRS.has(entry)) continue
+    const full = join(dir, entry)
+    const st = statSync(full)
+    if (st.isDirectory()) {
+      yield* _walkSourceFiles(full)
+    } else if (_SRC_EXTENSIONS.has(full.slice(full.lastIndexOf('.')))) {
+      yield full
+    }
+  }
+}
+
+/**
+ * @returns Map<namespace, Array<{file: string, line: number}>>
+ */
+function collectUseTranslationsCalls(srcRoot) {
+  const out = new Map()
+  if (!existsSync(srcRoot)) return out
+  for (const file of _walkSourceFiles(srcRoot)) {
+    const text = readFileSync(file, 'utf8')
+    let match
+    _USE_TRANSLATIONS_RE.lastIndex = 0
+    while ((match = _USE_TRANSLATIONS_RE.exec(text)) !== null) {
+      const namespace = match[2]
+      // Compute the 1-based line number of this match for diagnostics.
+      const line = text.slice(0, match.index).split('\n').length
+      const rel = relative(REPO_ROOT, file)
+      const sites = out.get(namespace) ?? []
+      sites.push({ file: rel, line })
+      out.set(namespace, sites)
+    }
+  }
+  return out
+}
+
 function main() {
   const ko = loadBundle(KO_PATH, 'ko')
   const en = loadBundle(EN_PATH, 'en')
@@ -156,6 +214,26 @@ function main() {
     }
   }
 
+  // 6. G7.4 orphan-namespace lint — every ``useTranslations('foo.bar')``
+  //    call site must reference a namespace that exists in both
+  //    bundles. PR #93 regression class: deleting i18n keys without
+  //    sweeping consumers blew up the Settings page at runtime.
+  const callSites = collectUseTranslationsCalls(SRC_ROOT)
+  let orphanCount = 0
+  for (const [ns, sites] of callSites) {
+    const inKo = hasNested(ko, ns)
+    const inEn = hasNested(en, ns)
+    if (!inKo || !inEn) {
+      orphanCount += 1
+      const where = sites.map((s) => `${s.file}:${s.line}`).join(', ')
+      const missing = [!inKo && 'ko', !inEn && 'en'].filter(Boolean).join(' + ')
+      errors.push(
+        `useTranslations('${ns}') has no entry in ${missing} bundle (called from ${where}). ` +
+          `Remove the consumer or add the namespace to messages/{en,ko}.json.`,
+      )
+    }
+  }
+
   if (errors.length > 0) {
     console.error('[verify-i18n] FAILED')
     for (const e of errors) console.error('  -', e)
@@ -164,7 +242,8 @@ function main() {
 
   console.log(
     `[verify-i18n] OK — ${koKeys.size} keys per locale across ` +
-      `${REQUIRED_NEXUS_SUBSECTIONS.length} nexus.* subsections.`,
+      `${REQUIRED_NEXUS_SUBSECTIONS.length} nexus.* subsections; ` +
+      `${callSites.size} useTranslations namespaces all bound.`,
   )
 }
 
