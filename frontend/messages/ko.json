@@ -142,20 +142,15 @@
     },
     "project": {
       "tab": {
-        "direction": "지시",
-        "summary": "요약",
-        "decisions": "의사결정",
-        "shipped": "납품",
-        "running": "진행",
-        "blocked": "막힘",
+        "home": "홈",
+        "decisions": "결정",
+        "work": "작업",
         "files": "파일"
       },
-      "summary": {
+      "home": {
         "countsHeading": "한눈에",
-        "shippedLabel": "납품",
-        "runningLabel": "진행",
-        "blockedLabel": "막힘",
-        "needsDecisionLabel": "결정",
+        "decisionsLabel": "결정",
+        "workLabel": "작업",
         "nextHeading": "다음",
         "nextEmpty": "대기 중인 작업이 없습니다 — 마무리하거나 새 지시를 열어 다음을 추가하세요."
       },
@@ -187,8 +182,8 @@
       "loading": "Brief 불러오는 중…",
       "copyDeliverableId": "Deliverable ID 복사",
       "section": {
-        "shipped": "Shipped",
-        "shippedEmpty": "아직 verified 된 deliverable 이 없습니다 — verifier 가 통과시키면 여기에 올라옵니다.",
+        "shipped": "완료",
+        "shippedEmpty": "아직 검증된 결과물이 없습니다 — verifier 통과 시 여기에 올라옵니다.",
         "needsDecision": "당신의 결정 필요",
         "needsDecisionEmpty": "지금은 결정할 게 없습니다.",
         "blocked": "막힘",
@@ -307,13 +302,13 @@
         "loadFailed": "실행기 설정을 불러오지 못했습니다.",
         "kindLabel": "경로",
         "kind": {
-          "llm_api": {
-            "label": "LLM API (직접)",
-            "blurb": "litellm 직접 호출 — 프로바이더 URL + 모델 + 키. BSGateway 없이도 동작합니다."
-          },
           "bsgateway": {
-            "label": "BSGateway 풀",
-            "blurb": "BSGateway 워커 풀 경유 — 게이트웨이 URL + 등록 토큰."
+            "label": "BSGateway",
+            "blurb": "BSGateway 경유. 기본은 SaaS — 인증은 SSO가 처리합니다."
+          },
+          "llm_api": {
+            "label": "LLM API",
+            "blurb": "litellm 직접 호출 — 프로바이더 URL + 모델 + 키. BSGateway 없이도 동작합니다."
           }
         },
         "field": {
@@ -322,9 +317,11 @@
           "model": "모델",
           "modelHint": "litellm 모델 ID",
           "gatewayUrl": "게이트웨이 URL",
-          "registrationToken": "등록 토큰"
+          "registrationToken": "등록 토큰",
+          "bsgatewaySsoHint": "SaaS 경로는 SSO로 인증됩니다. 자체 호스팅이 아니면 비워두세요."
         },
         "apiKeyStored": "(저장됨)",
+        "apiKeyOptional": "(선택)",
         "apiKeyPlaceholderEmpty": "sk-…",
         "apiKeyPlaceholderStored": "••••••••",
         "clearKeyTitle": "저장된 키를 다음 저장 시 삭제"

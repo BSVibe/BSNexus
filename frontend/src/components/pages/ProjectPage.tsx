@@ -9,7 +9,7 @@ import { I } from '../../lib/icons'
 import { Modal } from '../common/Modal'
 import DecisionsView from '../decisions/DecisionsView'
 import { DirectionInputCard } from '../dashboard/DirectionInputCard'
-import SummaryView from '../brief/SummaryView'
+import HomeView from '../brief/HomeView'
 import WorkspaceIndex from '../workspace/WorkspaceIndex'
 import { Section, DeliverableCard, RequestRow, BlockedRow } from '../brief/sections'
 import { briefApi } from '../../api/brief'
@@ -17,15 +17,27 @@ import { projectsApi, type Project } from '../../api/projects'
 import { decisionsApi } from '../../api/founder'
 import type { BriefResponse } from '../../types/founder'
 
-type TabId = 'direction' | 'summary' | 'decisions' | 'shipped' | 'running' | 'blocked' | 'files'
+type TabId = 'home' | 'decisions' | 'work' | 'files'
 
-const TAB_IDS: TabId[] = ['direction', 'summary', 'decisions', 'shipped', 'running', 'blocked', 'files']
+const TAB_IDS: TabId[] = ['home', 'decisions', 'work', 'files']
 
 function parseTab(raw: string | null): TabId {
   if (raw && (TAB_IDS as readonly string[]).includes(raw)) return raw as TabId
-  return 'summary'
+  return 'home'
 }
 
+/**
+ * ProjectPage — 4-tab founder surface (G7.5e).
+ *
+ * Consolidated from the G7.5d 7-tab layout (지시 / 요약 / 의사결정 /
+ * 납품 / 진행 / 막힘 / 파일) — the seven shorter sections were each
+ * too thin individually and crowded the tab bar on mobile.
+ *
+ *   - 홈        : DirectionInputCard + summary counts + "다음" list
+ *   - 결정      : blocking decisions ∪ verification_failed deliverables ∪ blocked requests
+ *   - 작업      : running requests + verified shipped deliverables
+ *   - 파일      : WorkspaceIndex
+ */
 export default function ProjectPage() {
   const t = useTranslations('nexus.project')
   const tBrief = useTranslations('nexus.brief')
@@ -78,19 +90,23 @@ export default function ProjectPage() {
     [decisions],
   )
 
+  // Counts for the merged tabs.
+  // 결정 = open decisions + blocked (verification_failed deliverables + blocked requests).
+  // 작업 = running requests + shipped deliverables.
   const tabCounts = useMemo(() => {
-    if (!brief) return { shipped: null, running: null, blocked: null }
-    const { shipped, running, blocked } = brief.sections
+    const blockedCount = brief?.sections.blocked.length ?? 0
+    const runningCount = brief?.sections.running.length ?? 0
+    const shippedCount = brief?.sections.shipped.length ?? 0
     return {
-      shipped: shipped.length || null,
-      running: running.length || null,
-      blocked: blocked.length || null,
+      decisions: openDecisions + blockedCount,
+      decisionsRose: openDecisions > 0 || blockedCount > 0,
+      work: runningCount + shippedCount,
     }
-  }, [brief])
+  }, [brief, openDecisions])
 
   function setTab(id: TabId) {
     const next = new URLSearchParams(search.toString())
-    if (id === 'summary') next.delete('tab')
+    if (id === 'home') next.delete('tab')
     else next.set('tab', id)
     router.replace(buildProjectUrl(next))
   }
@@ -129,46 +145,25 @@ export default function ProjectPage() {
         }}
       >
         <TabButton
-          label={t('tab.direction')}
-          icon={<I.Chat size={14} />}
-          active={tab === 'direction'}
-          onClick={() => setTab('direction')}
-        />
-        <TabButton
-          label={t('tab.summary')}
-          icon={<I.Timeline size={14} />}
-          active={tab === 'summary'}
-          onClick={() => setTab('summary')}
+          label={t('tab.home')}
+          icon={<I.Home size={14} />}
+          active={tab === 'home'}
+          onClick={() => setTab('home')}
         />
         <TabButton
           label={t('tab.decisions')}
           icon={<I.Inbox size={14} />}
           active={tab === 'decisions'}
           onClick={() => setTab('decisions')}
-          count={openDecisions || null}
-          toneRose={openDecisions > 0}
+          count={tabCounts.decisions || null}
+          toneRose={tabCounts.decisionsRose}
         />
         <TabButton
-          label={t('tab.shipped')}
-          icon={<I.Check size={14} />}
-          active={tab === 'shipped'}
-          onClick={() => setTab('shipped')}
-          count={tabCounts.shipped}
-        />
-        <TabButton
-          label={t('tab.running')}
+          label={t('tab.work')}
           icon={<I.Zap size={14} />}
-          active={tab === 'running'}
-          onClick={() => setTab('running')}
-          count={tabCounts.running}
-        />
-        <TabButton
-          label={t('tab.blocked')}
-          icon={<I.Alert size={14} />}
-          active={tab === 'blocked'}
-          onClick={() => setTab('blocked')}
-          count={tabCounts.blocked}
-          toneRose={(brief?.sections.blocked.length ?? 0) > 0}
+          active={tab === 'work'}
+          onClick={() => setTab('work')}
+          count={tabCounts.work || null}
         />
         <TabButton
           label={t('tab.files')}
@@ -266,42 +261,43 @@ export default function ProjectPage() {
       </Modal>
 
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
-        {tab === 'direction' && (
-          <div className="project-tab-pad">
+        {tab === 'home' && (
+          <div style={{ maxWidth: 900, margin: '0 auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 20 }}>
             <DirectionInputCard boundProject={project ?? null} />
+            <HomeView brief={brief} openDecisions={openDecisions} />
           </div>
         )}
-        {tab === 'summary' && <SummaryView brief={brief} />}
-        {tab === 'decisions' && <DecisionsView projectId={projectId} />}
-        {tab === 'shipped' && (
-          <div style={{ maxWidth: 900, margin: '0 auto', padding: 16 }}>
-            <Section
-              count={brief?.sections.shipped.length ?? 0}
-              emptyText={tBrief('section.shippedEmpty')}
-            >
-              {brief?.sections.shipped.map((d) => <DeliverableCard key={d.id} d={d} />)}
-            </Section>
+        {tab === 'decisions' && (
+          <div style={{ maxWidth: 900, margin: '0 auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 24 }}>
+            <DecisionsView projectId={projectId} />
+            {(brief?.sections.blocked.length ?? 0) > 0 && (
+              <Section
+                title={tBrief('section.blocked')}
+                count={brief?.sections.blocked.length ?? 0}
+                emptyText={tBrief('section.blockedEmpty')}
+              >
+                {brief?.sections.blocked.map((item) => (
+                  <BlockedRow key={`${item.kind}-${item.id}`} item={item} />
+                ))}
+              </Section>
+            )}
           </div>
         )}
-        {tab === 'running' && (
-          <div style={{ maxWidth: 900, margin: '0 auto', padding: 16 }}>
+        {tab === 'work' && (
+          <div style={{ maxWidth: 900, margin: '0 auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 24 }}>
             <Section
+              title={tBrief('section.running')}
               count={brief?.sections.running.length ?? 0}
               emptyText={tBrief('section.runningEmpty')}
             >
               {brief?.sections.running.map((r) => <RequestRow key={r.id} r={r} />)}
             </Section>
-          </div>
-        )}
-        {tab === 'blocked' && (
-          <div style={{ maxWidth: 900, margin: '0 auto', padding: 16 }}>
             <Section
-              count={brief?.sections.blocked.length ?? 0}
-              emptyText={tBrief('section.blockedEmpty')}
+              title={tBrief('section.shipped')}
+              count={brief?.sections.shipped.length ?? 0}
+              emptyText={tBrief('section.shippedEmpty')}
             >
-              {brief?.sections.blocked.map((item) => (
-                <BlockedRow key={`${item.kind}-${item.id}`} item={item} />
-              ))}
+              {brief?.sections.shipped.map((d) => <DeliverableCard key={d.id} d={d} />)}
             </Section>
           </div>
         )}

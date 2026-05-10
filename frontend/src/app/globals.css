@@ -349,6 +349,23 @@ kbd {
 .project-tab-pad {
   padding: 24px 32px;
 }
+
+/* Settings ▸ LLM dispatch ▸ KindPicker — 2-up on desktop, stacks on
+   mobile (override below in the @media block). */
+.kind-picker {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.kind-picker__option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 10px 12px;
+  gap: 4px;
+  min-height: 56px;
+  text-align: left;
+}
 @media (max-width: 767px) {
   .project-tab-pad {
     padding: 16px;
@@ -469,6 +486,12 @@ kbd {
   .workspace-index {
     grid-template-columns: minmax(0, 1fr) !important;
     grid-template-rows: auto 1fr !important;
+  }
+
+  /* LLM-dispatch KindPicker — 2-up grid clips the right card's blurb on
+     a phone. Stack vertically so each option's blurb wraps cleanly. */
+  .kind-picker {
+    grid-template-columns: minmax(0, 1fr) !important;
   }
 
   .brief-view {

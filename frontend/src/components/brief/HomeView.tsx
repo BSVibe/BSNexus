@@ -6,34 +6,59 @@ import { Section } from './sections'
 import type { BriefResponse } from '../../types/founder'
 
 /**
- * Summary tab — one-screen overview of the four section counts plus
- * the "next" list (the 5th section in the old Brief). Sits in the new
- * 요약 tab so the next-up queue keeps a home now that the monolithic
- * Brief is split.
+ * HomeView — top-level project overview that lives under the
+ * DirectionInputCard in the 홈 tab (G7.5e).
+ *
+ * G7.5e collapses the previous "지시" + "요약" tabs into a single 홈
+ * surface, with the input card on top and this view's roll-up below.
+ * Counts here mirror the new 4-tab structure:
+ *   - 결정 = open blocking decisions ∪ verification_failed deliverables ∪ blocked requests
+ *   - 작업 = running requests + verified shipped deliverables
  */
-export default function SummaryView({ brief }: { brief: BriefResponse | null | undefined }) {
-  const t = useTranslations('nexus.project.summary')
+export default function HomeView({
+  brief,
+  openDecisions,
+}: {
+  brief: BriefResponse | null | undefined
+  openDecisions: number
+}) {
+  const t = useTranslations('nexus.project.home')
   const tBrief = useTranslations('nexus.brief')
 
   if (!brief) {
     return (
-      <div style={{ padding: 24, color: 'var(--text-tertiary)', fontSize: 13 }}>
+      <div style={{ padding: 8, color: 'var(--text-tertiary)', fontSize: 13 }}>
         {tBrief('loading')}
       </div>
     )
   }
 
-  const { shipped, needs_decision, blocked, running, next } = brief.sections
+  const { shipped, blocked, running, next } = brief.sections
+  const decisionsCount = openDecisions + blocked.length
+  const workCount = running.length + shipped.length
 
-  const counts: { key: string; label: string; count: number; tone?: 'rose' | 'blue' | 'amber' | 'emerald' }[] = [
-    { key: 'shipped', label: t('shippedLabel'), count: shipped.length, tone: 'emerald' },
-    { key: 'needsDecision', label: t('needsDecisionLabel'), count: needs_decision.length, tone: needs_decision.length > 0 ? 'rose' : undefined },
-    { key: 'running', label: t('runningLabel'), count: running.length, tone: 'blue' },
-    { key: 'blocked', label: t('blockedLabel'), count: blocked.length, tone: blocked.length > 0 ? 'rose' : undefined },
+  const counts: {
+    key: string
+    label: string
+    count: number
+    tone?: 'rose' | 'blue' | 'amber' | 'emerald'
+  }[] = [
+    {
+      key: 'decisions',
+      label: t('decisionsLabel'),
+      count: decisionsCount,
+      tone: decisionsCount > 0 ? 'rose' : undefined,
+    },
+    {
+      key: 'work',
+      label: t('workLabel'),
+      count: workCount,
+      tone: 'blue',
+    },
   ]
 
   return (
-    <div style={{ maxWidth: 900, margin: '0 auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 24 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       <section>
         <h2
           style={{
@@ -58,9 +83,17 @@ export default function SummaryView({ brief }: { brief: BriefResponse | null | u
         </div>
       </section>
 
-      <Section title={t('nextHeading')} count={next.length} emptyText={t('nextEmpty')}>
+      <Section
+        title={t('nextHeading')}
+        count={next.length}
+        emptyText={t('nextEmpty')}
+      >
         {next.map((n, i) => (
-          <div key={i} className="card" style={{ padding: 14, fontSize: 13, color: 'var(--gray-100)' }}>
+          <div
+            key={i}
+            className="card"
+            style={{ padding: 14, fontSize: 13, color: 'var(--gray-100)' }}
+          >
             {n.summary}
           </div>
         ))}

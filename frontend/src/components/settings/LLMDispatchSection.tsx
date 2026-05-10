@@ -13,20 +13,27 @@ import {
   type ExecutorKind,
 } from '../../api/executors'
 
+const BSGATEWAY_DEFAULT_URL = 'https://gateway.bsvibe.dev'
+
 /**
  * LLMDispatchSection — single per-tenant executor config card.
  *
  * Two-path LLM dispatch (CLAUDE.md MUST rule): the founder picks
- * between routing through BSGateway's worker pool or calling litellm
- * directly. Switching paths is a kind change on the same row, not a
- * new row — exactly one config per tenant.
+ * between BSGateway (SaaS — SSO covers auth, token optional) and
+ * litellm direct (provider URL + model + key). Switching paths is a
+ * kind change on the same row, not a new row — exactly one config
+ * per tenant.
  *
- * Without this, no LLM can run; quality engineering is blocked.
+ * G7.5e:
+ *   - The "사용 중" toggle is gone. Existence of the row IS the
+ *     activation signal — there's only one config, so a toggle is
+ *     redundant.
+ *   - BSGateway defaults to the SaaS endpoint; the registration token
+ *     field is optional (SSO carries auth on the SaaS path).
  */
 export default function LLMDispatchSection() {
   const t = useTranslations('nexus.settings.llmDispatch')
   const tCommon = useTranslations('nexus.common')
-  const tStatus = useTranslations('nexus.status')
   const queryClient = useQueryClient()
 
   const { data, isLoading, error } = useQuery<ExecutorConfigResponse | null>({
@@ -69,7 +76,6 @@ export default function LLMDispatchSection() {
       }
       t={t}
       tCommon={tCommon}
-      tStatus={tStatus}
     />
   )
 }
@@ -79,10 +85,9 @@ interface DispatchCardProps {
   onSaved: () => void
   t: (k: string) => string
   tCommon: (k: string) => string
-  tStatus: (k: string) => string
 }
 
-function DispatchCard({ config, onSaved, t, tCommon, tStatus }: DispatchCardProps) {
+function DispatchCard({ config, onSaved, t, tCommon }: DispatchCardProps) {
   const upstream = useUpstreamFingerprint(config)
   const [draft, setDraft] = useState(() => buildDraft(config))
   const [seenUpstream, setSeenUpstream] = useState(upstream)
@@ -92,7 +97,7 @@ function DispatchCard({ config, onSaved, t, tCommon, tStatus }: DispatchCardProp
   const [clearKeyOnSave, setClearKeyOnSave] = useState(false)
 
   // Resync only when the upstream config row changes — not on every
-  // local edit. Conflating the two reverts user input mid-edit.
+  // local edit.
   if (upstream !== seenUpstream) {
     setSeenUpstream(upstream)
     setDraft(buildDraft(config))
@@ -105,13 +110,23 @@ function DispatchCard({ config, onSaved, t, tCommon, tStatus }: DispatchCardProp
     onSuccess: onSaved,
   })
 
+  function setKind(kind: ExecutorKind) {
+    setDraft((d) => ({
+      ...d,
+      kind,
+      // BSGateway defaults to the SaaS endpoint when there's nothing
+      // entered yet. Don't clobber a URL the founder already typed.
+      baseUrl:
+        kind === 'bsgateway' && !d.baseUrl ? BSGATEWAY_DEFAULT_URL : d.baseUrl,
+    }))
+  }
+
   async function handleSave() {
     setSaving(true)
     setSaved(false)
     try {
       const body: ExecutorConfigUpdate = {
         kind: draft.kind,
-        enabled: draft.enabled,
         base_url: draft.baseUrl || null,
         model: draft.kind === 'llm_api' ? draft.model || null : null,
       }
@@ -130,23 +145,11 @@ function DispatchCard({ config, onSaved, t, tCommon, tStatus }: DispatchCardProp
     }
   }
 
-  async function handleToggleEnabled(next: boolean) {
-    setSaving(true)
-    setDraft((d) => ({ ...d, enabled: next }))
-    try {
-      await mutation.mutateAsync({ kind: draft.kind, enabled: next })
-      setSaved(true)
-      setTimeout(() => setSaved(false), 1800)
-    } catch {
-      setDraft((d) => ({ ...d, enabled: !next }))
-    } finally {
-      setSaving(false)
-    }
-  }
-
   const accent = accentHex.amber
   const hasApiKey = !!config?.has_api_key && !clearKeyOnSave
-  const enabled = draft.enabled
+  const apiKeyLabel =
+    draft.kind === 'bsgateway' ? t('field.registrationToken') : t('field.providerKey')
+  const apiKeyOptional = draft.kind === 'bsgateway'
 
   return (
     <div className="card" style={{ borderLeft: `3px solid ${accent}` }}>
@@ -175,12 +178,6 @@ function DispatchCard({ config, onSaved, t, tCommon, tStatus }: DispatchCardProp
             </div>
           </div>
         </div>
-        <Toggle
-          checked={enabled}
-          onChange={handleToggleEnabled}
-          disabled={saving}
-          label={enabled ? tStatus('enabled') : tStatus('disabled')}
-        />
       </div>
 
       <div
@@ -189,13 +186,11 @@ function DispatchCard({ config, onSaved, t, tCommon, tStatus }: DispatchCardProp
           display: 'flex',
           flexDirection: 'column',
           gap: 14,
-          opacity: enabled ? 1 : 0.6,
         }}
       >
         <KindPicker
           value={draft.kind}
-          onChange={(kind) => setDraft((d) => ({ ...d, kind }))}
-          disabled={!enabled}
+          onChange={setKind}
           t={t}
         />
 
@@ -208,10 +203,9 @@ function DispatchCard({ config, onSaved, t, tCommon, tStatus }: DispatchCardProp
             className="input"
             value={draft.baseUrl}
             onChange={(e) => setDraft((d) => ({ ...d, baseUrl: e.target.value }))}
-            disabled={!enabled}
             placeholder={
               draft.kind === 'bsgateway'
-                ? 'https://gateway.bsvibe.dev'
+                ? BSGATEWAY_DEFAULT_URL
                 : 'http://host.docker.internal:11434'
             }
           />
@@ -223,20 +217,20 @@ function DispatchCard({ config, onSaved, t, tCommon, tStatus }: DispatchCardProp
               className="input mono"
               value={draft.model}
               onChange={(e) => setDraft((d) => ({ ...d, model: e.target.value }))}
-              disabled={!enabled}
               placeholder="ollama_chat/qwen3-coder:30b"
             />
           </Field>
         )}
 
         <Field
-          label={
-            draft.kind === 'bsgateway'
-              ? `${t('field.registrationToken')} ${
-                  hasApiKey ? t('apiKeyStored') : ''
-                }`
-              : `${t('field.providerKey')} ${hasApiKey ? t('apiKeyStored') : ''}`
-          }
+          label={`${apiKeyLabel} ${
+            hasApiKey
+              ? t('apiKeyStored')
+              : apiKeyOptional
+              ? t('apiKeyOptional')
+              : ''
+          }`}
+          hint={apiKeyOptional && !hasApiKey ? t('field.bsgatewaySsoHint') : undefined}
         >
           <div style={{ display: 'flex', gap: 8 }}>
             <input
@@ -244,7 +238,6 @@ function DispatchCard({ config, onSaved, t, tCommon, tStatus }: DispatchCardProp
               type="password"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
-              disabled={!enabled}
               placeholder={
                 hasApiKey ? t('apiKeyPlaceholderStored') : t('apiKeyPlaceholderEmpty')
               }
@@ -254,7 +247,6 @@ function DispatchCard({ config, onSaved, t, tCommon, tStatus }: DispatchCardProp
               <button
                 type="button"
                 className="btn btn-secondary btn-sm"
-                disabled={!enabled}
                 onClick={() => setClearKeyOnSave(true)}
                 title={t('clearKeyTitle')}
               >
@@ -303,23 +295,22 @@ function DispatchCard({ config, onSaved, t, tCommon, tStatus }: DispatchCardProp
 
 interface Draft {
   kind: ExecutorKind
-  enabled: boolean
   baseUrl: string
   model: string
 }
 
 function buildDraft(config: ExecutorConfigResponse | null): Draft {
   return {
-    kind: config?.kind ?? 'llm_api',
-    enabled: config?.enabled ?? false,
-    baseUrl: config?.base_url ?? '',
+    kind: config?.kind ?? 'bsgateway',
+    baseUrl:
+      config?.base_url ?? (config ? '' : BSGATEWAY_DEFAULT_URL),
     model: config?.model ?? '',
   }
 }
 
 function useUpstreamFingerprint(config: ExecutorConfigResponse | null): string {
   if (!config) return 'null'
-  return `${config.kind}|${config.enabled}|${config.base_url ?? ''}|${
+  return `${config.kind}|${config.base_url ?? ''}|${
     config.model ?? ''
   }|${config.has_api_key}`
 }
@@ -327,15 +318,13 @@ function useUpstreamFingerprint(config: ExecutorConfigResponse | null): string {
 function KindPicker({
   value,
   onChange,
-  disabled,
   t,
 }: {
   value: ExecutorKind
   onChange: (k: ExecutorKind) => void
-  disabled?: boolean
   t: (k: string) => string
 }) {
-  const KINDS: ExecutorKind[] = ['llm_api', 'bsgateway']
+  const KINDS: ExecutorKind[] = ['bsgateway', 'llm_api']
   return (
     <div>
       <div
@@ -347,28 +336,16 @@ function KindPicker({
       >
         {t('kindLabel')}
       </div>
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: '1fr 1fr',
-          gap: 8,
-        }}
-      >
+      <div className="kind-picker">
         {KINDS.map((k) => {
           const active = value === k
           return (
             <button
               key={k}
               type="button"
-              className="btn btn-sm"
-              disabled={disabled}
+              className="btn btn-sm kind-picker__option"
               onClick={() => onChange(k)}
               style={{
-                flexDirection: 'column',
-                alignItems: 'flex-start',
-                padding: '10px 12px',
-                gap: 4,
-                minHeight: 56,
                 background: active ? 'var(--bg-hover)' : 'var(--bg-elevated)',
                 border: `1px solid ${
                   active ? accentHex.amber : 'var(--border-default)'
@@ -379,7 +356,15 @@ function KindPicker({
               <span style={{ fontWeight: 600, fontSize: 13 }}>
                 {t(`kind.${k}.label`)}
               </span>
-              <span className="faded" style={{ fontSize: 11 }}>
+              <span
+                className="faded"
+                style={{
+                  fontSize: 11,
+                  whiteSpace: 'normal',
+                  textAlign: 'left',
+                  lineHeight: 1.35,
+                }}
+              >
                 {t(`kind.${k}.blurb`)}
               </span>
             </button>
@@ -387,68 +372,6 @@ function KindPicker({
         })}
       </div>
     </div>
-  )
-}
-
-function Toggle({
-  checked,
-  onChange,
-  disabled,
-  label,
-}: {
-  checked: boolean
-  onChange: (v: boolean) => void
-  disabled?: boolean
-  label: string
-}) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={() => onChange(!checked)}
-      aria-pressed={checked}
-      style={{
-        minWidth: 44,
-        minHeight: 44,
-        padding: '0 10px',
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 8,
-        background: 'transparent',
-        border: 'none',
-        color: 'var(--text-secondary)',
-        fontSize: 12,
-        cursor: disabled ? 'wait' : 'pointer',
-        opacity: disabled ? 0.7 : 1,
-      }}
-    >
-      <span
-        aria-hidden="true"
-        style={{
-          width: 32,
-          height: 18,
-          borderRadius: 99,
-          background: checked ? 'var(--blue-500)' : 'var(--gray-700)',
-          position: 'relative',
-          display: 'inline-block',
-          transition: 'background var(--t-fast) var(--ease)',
-        }}
-      >
-        <span
-          style={{
-            position: 'absolute',
-            top: 2,
-            left: checked ? 16 : 2,
-            width: 14,
-            height: 14,
-            borderRadius: 99,
-            background: '#fff',
-            transition: 'left var(--t-fast) var(--ease)',
-          }}
-        />
-      </span>
-      {label}
-    </button>
   )
 }
 
@@ -469,10 +392,11 @@ function Field({
           alignItems: 'center',
           gap: 8,
           marginBottom: 4,
+          flexWrap: 'wrap',
         }}
       >
         <label
-          style={{ fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}
+          style={{ fontSize: 12, color: 'var(--text-secondary)' }}
         >
           {label}
         </label>

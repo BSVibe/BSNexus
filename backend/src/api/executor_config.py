@@ -72,8 +72,6 @@ async def upsert_executor_config(
     updates = payload.model_dump(exclude_unset=True)
 
     row.kind = payload.kind
-    if "enabled" in updates:
-        row.enabled = bool(updates["enabled"])
     if "base_url" in updates:
         row.base_url = updates["base_url"] or None
     if "model" in updates:
@@ -92,7 +90,6 @@ async def upsert_executor_config(
         "executor_config_upserted",
         tenant_id=str(tenant_id),
         kind=row.kind.value,
-        enabled=row.enabled,
     )
     result = redacted(row)
     assert result is not None

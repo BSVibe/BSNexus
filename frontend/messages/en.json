@@ -142,20 +142,15 @@
     },
     "project": {
       "tab": {
-        "direction": "Direction",
-        "summary": "Summary",
+        "home": "Home",
         "decisions": "Decisions",
-        "shipped": "Shipped",
-        "running": "Running",
-        "blocked": "Blocked",
+        "work": "Work",
         "files": "Files"
       },
-      "summary": {
+      "home": {
         "countsHeading": "At a glance",
-        "shippedLabel": "Shipped",
-        "runningLabel": "Running",
-        "blockedLabel": "Blocked",
-        "needsDecisionLabel": "Decisions",
+        "decisionsLabel": "Decisions",
+        "workLabel": "Work",
         "nextHeading": "What's next",
         "nextEmpty": "No queued work — finish or open a Direction to add the next thing."
       },
@@ -307,13 +302,13 @@
         "loadFailed": "Could not load executor config.",
         "kindLabel": "Path",
         "kind": {
-          "llm_api": {
-            "label": "LLM API (direct)",
-            "blurb": "litellm direct — provider URL + model + key. Works without BSGateway."
-          },
           "bsgateway": {
-            "label": "BSGateway pool",
-            "blurb": "Route runs through a BSGateway worker pool — gateway URL + registration token."
+            "label": "BSGateway",
+            "blurb": "Route runs through BSGateway. SaaS by default — SSO covers auth."
+          },
+          "llm_api": {
+            "label": "LLM API",
+            "blurb": "litellm direct — provider URL + model + key. Works without BSGateway."
           }
         },
         "field": {
@@ -322,9 +317,11 @@
           "model": "Model",
           "modelHint": "litellm model id",
           "gatewayUrl": "Gateway URL",
-          "registrationToken": "Registration token"
+          "registrationToken": "Registration token",
+          "bsgatewaySsoHint": "SSO covers auth on the SaaS path; leave blank unless self-hosting."
         },
         "apiKeyStored": "(stored)",
+        "apiKeyOptional": "(optional)",
         "apiKeyPlaceholderEmpty": "sk-…",
         "apiKeyPlaceholderStored": "••••••••",
         "clearKeyTitle": "Clear stored key on next save"

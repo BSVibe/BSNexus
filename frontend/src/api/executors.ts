@@ -4,7 +4,6 @@ export type ExecutorKind = 'bsgateway' | 'llm_api'
 
 export interface ExecutorConfigResponse {
   kind: ExecutorKind
-  enabled: boolean
   base_url: string | null
   model: string | null
   has_api_key: boolean
@@ -13,7 +12,6 @@ export interface ExecutorConfigResponse {
 
 export interface ExecutorConfigUpdate {
   kind: ExecutorKind
-  enabled?: boolean
   base_url?: string | null
   model?: string | null
   api_key?: string | null

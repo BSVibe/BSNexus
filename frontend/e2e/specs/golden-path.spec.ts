@@ -52,17 +52,17 @@ test.describe('Golden path — Direction → Brief deliverable', () => {
     )
 
     await installFounderMocks(page, state)
-    await page.goto(`/projects/${PROJECT_ID}?tab=shipped`)
+    await page.goto(`/projects/${PROJECT_ID}?tab=work`)
 
-    // Shipped tab renders the verified deliverable card.
+    // Work tab renders the verified deliverable card under the Shipped section.
     await expect(page.getByText('CONTRIBUTING.md')).toBeVisible({ timeout: 10_000 })
   })
 
-  test('DirectionInputCard on the Direction tab posts to /api/v1/directions', async ({
+  test('DirectionInputCard on the Home tab posts to /api/v1/directions', async ({
     page,
     viewport,
   }) => {
-    // The card lives in the Direction tab on every viewport. We
+    // The card lives at the top of the Home tab on every viewport. We
     // exercise the desktop chrome contract; mobile is covered separately
     // by mobile-founder-flow.spec.ts.
     test.skip(
@@ -80,7 +80,7 @@ test.describe('Golden path — Direction → Brief deliverable', () => {
 
     const state = makeFounderState(PROJECT_ID, 'Golden Path')
     await installFounderMocks(page, state)
-    await page.goto(`/projects/${PROJECT_ID}?tab=direction`)
+    await page.goto(`/projects/${PROJECT_ID}?tab=home`)
 
     const card = page.getByTestId('direction-input-card')
     await expect(card).toBeVisible({ timeout: 10_000 })
