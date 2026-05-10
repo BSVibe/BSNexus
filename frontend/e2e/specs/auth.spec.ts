@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { mockAllApis, injectAuth, blockSSORedirect } from '../helpers/mock-api'
+import { mockAllApis, blockSSORedirect } from '../helpers/mock-api'
 
 test.describe('Auth — Landing Page & Protected Routes', () => {
   test('landing page shows BSNexus branding and sign-in button', async ({ page }) => {
