@@ -266,10 +266,42 @@
     "settings": {
       "title": "설정",
       "sections": {
+        "llmDispatch": {
+          "label": "LLM 디스패치",
+          "summary": "런이 모델에 닿는 경로를 선택합니다. 경로 전환은 한 번의 저장이며, 테넌트당 설정은 하나뿐입니다."
+        },
         "integrations": {
           "label": "통합",
           "summary": "BSNexus를 형제 서비스에 연결합니다. 키는 테넌트 단위로 암호화 저장되며, 키 보유 여부만 응답으로 노출됩니다."
         }
+      },
+      "llmDispatch": {
+        "title": "실행기",
+        "subtitle": "런이 모델에 닿는 방법",
+        "loadFailed": "실행기 설정을 불러오지 못했습니다.",
+        "kindLabel": "경로",
+        "kind": {
+          "llm_api": {
+            "label": "LLM API (직접)",
+            "blurb": "litellm 직접 호출 — 프로바이더 URL + 모델 + 키. BSGateway 없이도 동작합니다."
+          },
+          "bsgateway": {
+            "label": "BSGateway 풀",
+            "blurb": "BSGateway 워커 풀 경유 — 게이트웨이 URL + 등록 토큰."
+          }
+        },
+        "field": {
+          "providerUrl": "프로바이더 URL",
+          "providerKey": "프로바이더 API 키",
+          "model": "모델",
+          "modelHint": "litellm 모델 ID",
+          "gatewayUrl": "게이트웨이 URL",
+          "registrationToken": "등록 토큰"
+        },
+        "apiKeyStored": "(저장됨)",
+        "apiKeyPlaceholderEmpty": "sk-…",
+        "apiKeyPlaceholderStored": "••••••••",
+        "clearKeyTitle": "저장된 키를 다음 저장 시 삭제"
       },
       "languageSwitcher": {
         "label": "인터페이스 언어",

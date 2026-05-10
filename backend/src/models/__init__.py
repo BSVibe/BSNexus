@@ -21,6 +21,7 @@ from backend.src.models.brief_snapshot import BriefSnapshot
 from backend.src.models.decision import Decision
 from backend.src.models.deliverable import Deliverable
 from backend.src.models.direction import Direction
+from backend.src.models.executor_config import ExecutorConfig, ExecutorKind
 from backend.src.models.project import Project, ProjectStatus, WorkspaceType
 from backend.src.models.proof import ProofAttempt, ProofPolicy
 from backend.src.models.request import Request
@@ -47,6 +48,8 @@ __all__ = [
     "DeliverableType",
     "Direction",
     "DirectionSource",
+    "ExecutorConfig",
+    "ExecutorKind",
     "ProofAttempt",
     "ProofAttemptStatus",
     "ProofPolicy",
