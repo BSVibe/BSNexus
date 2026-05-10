@@ -142,8 +142,21 @@
     },
     "project": {
       "tab": {
-        "brief": "브리핑",
-        "decisions": "의사결정"
+        "direction": "지시",
+        "summary": "요약",
+        "decisions": "의사결정",
+        "shipped": "납품",
+        "running": "진행",
+        "blocked": "막힘"
+      },
+      "summary": {
+        "countsHeading": "한눈에",
+        "shippedLabel": "납품",
+        "runningLabel": "진행",
+        "blockedLabel": "막힘",
+        "needsDecisionLabel": "결정",
+        "nextHeading": "다음",
+        "nextEmpty": "대기 중인 작업이 없습니다 — 마무리하거나 새 지시를 열어 다음을 추가하세요."
       },
       "deleteModal": {
         "title": "이 프로젝트를 삭제할까요?",

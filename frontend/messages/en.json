@@ -142,8 +142,21 @@
     },
     "project": {
       "tab": {
-        "brief": "Brief",
-        "decisions": "Decisions"
+        "direction": "Direction",
+        "summary": "Summary",
+        "decisions": "Decisions",
+        "shipped": "Shipped",
+        "running": "Running",
+        "blocked": "Blocked"
+      },
+      "summary": {
+        "countsHeading": "At a glance",
+        "shippedLabel": "Shipped",
+        "runningLabel": "Running",
+        "blockedLabel": "Blocked",
+        "needsDecisionLabel": "Decisions",
+        "nextHeading": "What's next",
+        "nextEmpty": "No queued work — finish or open a Direction to add the next thing."
       },
       "deleteModal": {
         "title": "Delete this project?",

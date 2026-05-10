@@ -7,25 +7,29 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { I } from '../../lib/icons'
 import { Modal } from '../common/Modal'
-import BriefView from '../brief/BriefView'
 import DecisionsView from '../decisions/DecisionsView'
 import { DirectionInputCard } from '../dashboard/DirectionInputCard'
+import SummaryView from '../brief/SummaryView'
+import { Section, DeliverableCard, RequestRow, BlockedRow } from '../brief/sections'
+import { briefApi } from '../../api/brief'
 import { projectsApi, type Project } from '../../api/projects'
-import { decisionsApi, deliverablesApi } from '../../api/founder'
+import { decisionsApi } from '../../api/founder'
+import type { BriefResponse } from '../../types/founder'
 
-type TabId = 'brief' | 'decisions'
+type TabId = 'direction' | 'summary' | 'decisions' | 'shipped' | 'running' | 'blocked'
+
+const TAB_IDS: TabId[] = ['direction', 'summary', 'decisions', 'shipped', 'running', 'blocked']
 
 function parseTab(raw: string | null): TabId {
-  if (raw === 'decisions') return raw
-  return 'brief'
+  if (raw && (TAB_IDS as readonly string[]).includes(raw)) return raw as TabId
+  return 'summary'
 }
 
 export default function ProjectPage() {
   const t = useTranslations('nexus.project')
+  const tBrief = useTranslations('nexus.brief')
   const tCommon = useTranslations('nexus.common')
   const params = useParams<{ projectId?: string | string[] }>()
-  // App Router catch-all yields an array; the dynamic segment yields a
-  // string. Normalise to string | undefined.
   const rawProjectId = params?.projectId
   const projectId = Array.isArray(rawProjectId) ? rawProjectId[0] : rawProjectId
   const search = useSearchParams()
@@ -56,9 +60,9 @@ export default function ProjectPage() {
     },
   })
 
-  const { data: deliverables = [] } = useQuery({
-    queryKey: ['deliverables', projectId],
-    queryFn: () => deliverablesApi.listForProject(projectId!),
+  const { data: brief } = useQuery<BriefResponse>({
+    queryKey: ['brief', projectId],
+    queryFn: () => briefApi.forProject(projectId!, { limit: 10 }),
     enabled: Boolean(projectId),
   })
 
@@ -73,9 +77,19 @@ export default function ProjectPage() {
     [decisions],
   )
 
+  const tabCounts = useMemo(() => {
+    if (!brief) return { shipped: null, running: null, blocked: null }
+    const { shipped, running, blocked } = brief.sections
+    return {
+      shipped: shipped.length || null,
+      running: running.length || null,
+      blocked: blocked.length || null,
+    }
+  }, [brief])
+
   function setTab(id: TabId) {
     const next = new URLSearchParams(search.toString())
-    if (id === 'brief') next.delete('tab')
+    if (id === 'summary') next.delete('tab')
     else next.set('tab', id)
     router.replace(buildProjectUrl(next))
   }
@@ -103,13 +117,27 @@ export default function ProjectPage() {
         minHeight: 0,
       }}
     >
-      <div className="tabs" style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+      <div
+        className="tabs"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 0,
+          overflowX: 'auto',
+          scrollbarWidth: 'none',
+        }}
+      >
         <TabButton
-          label={t('tab.brief')}
+          label={t('tab.direction')}
+          icon={<I.Chat size={14} />}
+          active={tab === 'direction'}
+          onClick={() => setTab('direction')}
+        />
+        <TabButton
+          label={t('tab.summary')}
           icon={<I.Timeline size={14} />}
-          active={tab === 'brief'}
-          onClick={() => setTab('brief')}
-          count={deliverables.length || null}
+          active={tab === 'summary'}
+          onClick={() => setTab('summary')}
         />
         <TabButton
           label={t('tab.decisions')}
@@ -119,10 +147,29 @@ export default function ProjectPage() {
           count={openDecisions || null}
           toneRose={openDecisions > 0}
         />
-        <span style={{ flex: 1 }} />
-        {/* G7.1 — destructive actions live in the header overflow menu,
-            not the tab strip. Tabs are view switches; delete is an
-            action on the project itself. */}
+        <TabButton
+          label={t('tab.shipped')}
+          icon={<I.Check size={14} />}
+          active={tab === 'shipped'}
+          onClick={() => setTab('shipped')}
+          count={tabCounts.shipped}
+        />
+        <TabButton
+          label={t('tab.running')}
+          icon={<I.Zap size={14} />}
+          active={tab === 'running'}
+          onClick={() => setTab('running')}
+          count={tabCounts.running}
+        />
+        <TabButton
+          label={t('tab.blocked')}
+          icon={<I.Alert size={14} />}
+          active={tab === 'blocked'}
+          onClick={() => setTab('blocked')}
+          count={tabCounts.blocked}
+          toneRose={(brief?.sections.blocked.length ?? 0) > 0}
+        />
+        <span style={{ flex: 1, minWidth: 12 }} />
         <div ref={overflowRef} style={{ position: 'relative', marginRight: 8 }}>
           <button
             type="button"
@@ -157,7 +204,7 @@ export default function ProjectPage() {
                 style={{
                   width: '100%',
                   justifyContent: 'flex-start',
-                  color: 'var(--color-rose)',
+                  color: 'var(--rose-500)',
                   minHeight: 44,
                 }}
                 onClick={() => {
@@ -190,7 +237,7 @@ export default function ProjectPage() {
             <button
               type="button"
               className="btn btn-primary"
-              style={{ background: 'var(--color-rose)', borderColor: 'var(--color-rose)' }}
+              style={{ background: 'var(--rose-500)', borderColor: 'var(--rose-500)' }}
               onClick={() => deleteMutation.mutate()}
               disabled={deleteMutation.isPending}
             >
@@ -205,20 +252,52 @@ export default function ProjectPage() {
           })}
         </p>
         {deleteMutation.isError && (
-          <p style={{ color: 'var(--color-rose)', marginTop: 12, fontSize: 13 }}>
+          <p style={{ color: 'var(--rose-500)', marginTop: 12, fontSize: 13 }}>
             {t('deleteModal.errorPrefix')} {(deleteMutation.error as Error)?.message}
           </p>
         )}
       </Modal>
 
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
-        {tab === 'brief' && (
+        {tab === 'direction' && (
           <div className="project-tab-pad">
             <DirectionInputCard boundProject={project ?? null} />
-            <BriefView projectId={projectId} />
           </div>
         )}
+        {tab === 'summary' && <SummaryView brief={brief} />}
         {tab === 'decisions' && <DecisionsView projectId={projectId} />}
+        {tab === 'shipped' && (
+          <div style={{ maxWidth: 900, margin: '0 auto', padding: 16 }}>
+            <Section
+              count={brief?.sections.shipped.length ?? 0}
+              emptyText={tBrief('section.shippedEmpty')}
+            >
+              {brief?.sections.shipped.map((d) => <DeliverableCard key={d.id} d={d} />)}
+            </Section>
+          </div>
+        )}
+        {tab === 'running' && (
+          <div style={{ maxWidth: 900, margin: '0 auto', padding: 16 }}>
+            <Section
+              count={brief?.sections.running.length ?? 0}
+              emptyText={tBrief('section.runningEmpty')}
+            >
+              {brief?.sections.running.map((r) => <RequestRow key={r.id} r={r} />)}
+            </Section>
+          </div>
+        )}
+        {tab === 'blocked' && (
+          <div style={{ maxWidth: 900, margin: '0 auto', padding: 16 }}>
+            <Section
+              count={brief?.sections.blocked.length ?? 0}
+              emptyText={tBrief('section.blockedEmpty')}
+            >
+              {brief?.sections.blocked.map((item) => (
+                <BlockedRow key={`${item.kind}-${item.id}`} item={item} />
+              ))}
+            </Section>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -244,6 +323,7 @@ function TabButton({
       type="button"
       className={`tab ${active ? 'active' : ''}`}
       onClick={onClick}
+      style={{ flex: '0 0 auto', whiteSpace: 'nowrap' }}
     >
       {icon}
       {label}
