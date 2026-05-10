@@ -320,13 +320,13 @@ test.describe('G7 mobile founder flow — Direct / Decide / Review', () => {
     expect(overflow).toBeLessThanOrEqual(2)
   })
 
-  test('Review — all 6 ProjectPage tabs are reachable on mobile without horizontal overflow', async ({ page }) => {
-    await page.goto(`/projects/${PROJECT_ID}?tab=summary`, { waitUntil: 'networkidle' })
+  test('Review — all 4 ProjectPage tabs are reachable on mobile without horizontal overflow', async ({ page }) => {
+    await page.goto(`/projects/${PROJECT_ID}?tab=home`, { waitUntil: 'networkidle' })
 
-    // G7.5d — Brief 5-section vertical scroll became 6 top-level tabs.
+    // G7.5e — Brief 5-section vertical scroll became 4 top-level tabs.
     // Each tab name comes from `nexus.project.tab.*`; we assert by
     // clicking the Korean labels (devcontainer default locale).
-    const tabs = ['지시', '요약', '의사결정', '납품', '진행', '막힘']
+    const tabs = ['홈', '결정', '작업', '파일']
     for (const label of tabs) {
       await page.getByRole('button', { name: label }).first().click()
       await page.waitForTimeout(50)
@@ -339,7 +339,7 @@ test.describe('G7 mobile founder flow — Direct / Decide / Review', () => {
   })
 
   test('Review — Re-verify button on the Deliverable card meets the 44px touch-target floor', async ({ page }) => {
-    await page.goto(`/projects/${PROJECT_ID}?tab=shipped`, { waitUntil: 'networkidle' })
+    await page.goto(`/projects/${PROJECT_ID}?tab=work`, { waitUntil: 'networkidle' })
 
     const verifyBtn = page.getByRole('button', { name: /re-run verification/i }).first()
     await expect(verifyBtn).toBeVisible({ timeout: 10_000 })

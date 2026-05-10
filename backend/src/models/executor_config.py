@@ -2,14 +2,15 @@
 
 CLAUDE.md MUST rule "two-path LLM dispatch":
 
-  - ``executor_type=bsgateway`` → BSGateway worker pool
-    (``base_url`` = gateway URL, ``api_key`` = registration token).
+  - ``executor_type=bsgateway`` → BSGateway (SaaS by default;
+    ``api_key`` optional because SSO covers auth).
   - ``executor_type=llm_api`` → litellm direct
     (``base_url`` = provider host, ``model`` = litellm model id, ``api_key`` = provider key).
 
 One config row per tenant — switching paths is a kind change, not a
-new row. ``api_key_encrypted`` is the only secret; the wire shape
-exposes ``has_api_key`` only.
+new row. The mere existence of the row means it's the active executor;
+there is no separate ``enabled`` toggle. ``api_key_encrypted`` is the
+only secret; the wire shape exposes ``has_api_key`` only.
 """
 
 from __future__ import annotations
@@ -19,7 +20,6 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
-    Boolean,
     DateTime,
     Enum,
     ForeignKey,
@@ -52,11 +52,11 @@ class ExecutorConfig(Base):
     tenant_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
     kind: Mapped[ExecutorKind] = mapped_column(Enum(ExecutorKind, name="executor_kind"), nullable=False)
 
-    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     base_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     # llm_api only — litellm model id, e.g. ``ollama_chat/qwen3-coder:30b``
     model: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    # bsgateway: registration token; llm_api: provider api key.
+    # bsgateway: optional registration token (SSO covers auth);
+    # llm_api: provider api key.
     api_key_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     extra_config: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict, server_default="{}")
