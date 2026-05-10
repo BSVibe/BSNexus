@@ -43,9 +43,7 @@ async def post_direction(
     request = RequestResponse.model_validate(result.request) if result.request is not None else None
 
     routing = None
-    acknowledgement = "Direction accepted. A request has been opened."
     if result.routing_required:
-        acknowledgement = "Direction saved. Choose a project before BSNexus opens a request."
         routing = DirectionRoutingPrompt(
             question="Which project should this direction apply to?",
             options=[
@@ -54,9 +52,6 @@ async def post_direction(
             ],
         )
 
-    return DirectionAckResponse(
-        direction=direction,
-        request=request,
-        routing=routing,
-        acknowledgement=acknowledgement,
-    )
+    # Wire shape carries state only (request != None vs routing != None);
+    # display copy is rendered by the client in the active locale.
+    return DirectionAckResponse(direction=direction, request=request, routing=routing)

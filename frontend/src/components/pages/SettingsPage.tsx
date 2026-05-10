@@ -3,7 +3,6 @@
 import { useTranslations } from 'next-intl'
 import { useRouter, useSearchParams } from 'next/navigation'
 
-import IntegrationsTab from '../settings/IntegrationsTab'
 import LanguageSwitcher from '../settings/LanguageSwitcher'
 import { I } from '../../lib/icons'
 
@@ -24,6 +23,15 @@ function parseSection(raw: string | null): SectionId {
   return 'integrations'
 }
 
+/**
+ * SettingsPage — G7.1 keeps two sections: Integrations and Language.
+ * The Integrations section currently renders a deferred-state
+ * placeholder; the prod-shape backend route + admin UI ship together
+ * during the BSage / BSGateway / BSupervisor integration cycle (per
+ * file-disposition.md REVIEW_LATER). Showing a quiet "redesign 예정"
+ * card is honest and fails predictably; the previous infinite spinner
+ * triggered by a 404 response was worse than no surface.
+ */
 export default function SettingsPage() {
   const t = useTranslations('nexus.settings')
   const search = useSearchParams()
@@ -62,10 +70,33 @@ export default function SettingsPage() {
             <h1 className="page-title">{t(`sections.${activeSection.id}.label`)}</h1>
             <div className="page-sub">{t(`sections.${activeSection.id}.summary`)}</div>
           </div>
-          {active === 'integrations' && <IntegrationsTab />}
+          {active === 'integrations' && <IntegrationsDeferredPlaceholder />}
           {active === 'language' && <LanguageSwitcher />}
         </div>
       </div>
+    </div>
+  )
+}
+
+function IntegrationsDeferredPlaceholder() {
+  const t = useTranslations('nexus.settings.integrationsPlaceholder')
+  return (
+    <div
+      role="status"
+      data-testid="integrations-deferred"
+      className="card"
+      style={{
+        padding: 24,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 8,
+        textAlign: 'left',
+      }}
+    >
+      <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--gray-50)' }}>{t('title')}</div>
+      <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: '20px', margin: 0 }}>
+        {t('body')}
+      </p>
     </div>
   )
 }

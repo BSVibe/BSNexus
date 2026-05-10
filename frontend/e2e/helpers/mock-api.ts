@@ -115,12 +115,14 @@ export async function injectAuth(page: Page) {
 const emptyBrief = (projectId: string | null) => ({
   scope: projectId ? 'project' : 'company',
   project_id: projectId,
+  sections: {
+    shipped: [],
+    needs_decision: [],
+    blocked: [],
+    running: [],
+    next: [],
+  },
   generated_at: new Date().toISOString(),
-  shipped: [],
-  needs_decision: [],
-  blocked: [],
-  running: [],
-  next: [],
 })
 
 /**

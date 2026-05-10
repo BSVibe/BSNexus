@@ -114,16 +114,16 @@ const SCENARIOS: Scenario[] = [
     projectId: 'proj-m0-error',
     tab: 'brief',
     setup: (s) => {
+      // Greenfield Brief surfaces blocked Requests directly. The legacy
+      // pattern of seeding a blocked ExecutionRun under an open Request
+      // was a Run-centric artifact; in greenfield the Request itself
+      // carries the status.
       s.requests.push(
-        makeRequest({ id: 'req-e', project_id: s.projectId, intent_summary: 'Tricky refactor' }),
-      )
-      s.runs.push(
-        makeRun({
-          id: 'run-e',
+        makeRequest({
+          id: 'req-e',
           project_id: s.projectId,
-          request_id: 'req-e',
+          intent_summary: 'Tricky refactor',
           status: 'blocked',
-          error_message: 'BSGateway HTTP error: rate-limit retries exhausted',
         }),
       )
     },

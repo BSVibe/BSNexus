@@ -351,7 +351,7 @@ kbd {
 }
 @media (max-width: 767px) {
   .project-tab-pad {
-    padding: 16px 12px;
+    padding: 16px;
   }
 }
 

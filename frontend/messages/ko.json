@@ -102,7 +102,7 @@
         "blockingDecisionsSub": "{open}개 열림",
         "activeRequests": "진행 중인 요청",
         "activeRequestsSub": "전체 {total}개",
-        "deliveredWindow": "납품 · 7일",
+        "deliveredWindow": "이번 주 납품",
         "deliveredWindowSub": "검토 대기"
       },
       "projectsHeading": "프로젝트",
@@ -136,13 +136,13 @@
         "hint": "mobile_web · greenfield direction",
         "submit": "지시하기",
         "submitting": "보내는 중…",
-        "error": "지시를 보내지 못했습니다. 다시 시도해 주세요."
+        "error": "지시를 보내지 못했습니다. 다시 시도해 주세요.",
+        "ackSuccess": "지시가 접수되었습니다. 요청이 열렸습니다."
       }
     },
     "project": {
       "tab": {
-        "brief": "Brief",
-        "files": "파일",
+        "brief": "브리핑",
         "decisions": "의사결정"
       },
       "deleteModal": {
@@ -153,7 +153,8 @@
         "errorPrefix": "삭제에 실패했습니다."
       },
       "noProjectSelected": "선택된 프로젝트가 없습니다.",
-      "fallbackTitle": "프로젝트"
+      "fallbackTitle": "프로젝트",
+      "headerOverflowAria": "프로젝트 동작"
     },
     "brief": {
       "timeline": "타임라인",
@@ -374,6 +375,10 @@
         },
         "tokenPlaceholderHint": "위에서 설치 토큰을 생성하세요 — 화면에 표시되는 동안 step 3 명령이 실제 값으로 자동 갱신됩니다.",
         "heartbeat": "하트비트 {when}"
+      },
+      "integrationsPlaceholder": {
+        "title": "통합 콘솔 — 재설계 예정",
+        "body": "BSage / BSGateway / BSupervisor 통합 설정은 새로운 관리자 화면과 함께 추후 마일스톤에서 제공됩니다."
       }
     },
     "landing": {

@@ -42,6 +42,12 @@ async def test_post_direction_with_project_creates_request(client, db_session, m
     assert body["request"]["intent"] == "Ship a proof-first dashboard"
     assert body["request"]["status"] == "open"
     assert body["routing"] is None
+    # G7.1 — backend no longer ships display strings on the wire. The
+    # frontend computes ack copy from the response state (request !=
+    # null vs routing != null) and renders via i18n. Surfacing the
+    # English ``acknowledgement`` field forced English-only ack on a
+    # Korean UI.
+    assert "acknowledgement" not in body
 
     direction = await db_session.get(Direction, uuid.UUID(body["direction"]["id"]))
     assert direction is not None
