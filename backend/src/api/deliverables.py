@@ -2,14 +2,16 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request as HttpRequest, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.core.auth import get_current_user
 from backend.src.core.deliverables import WorkOutputDraft, create_deliverable_from_work_output
+from backend.src.core.domain import DeliverableStatus, ProofAttemptStatus, ProofState
 from backend.src.core.tenant_context import get_tenant_id
 from backend.src.models import Deliverable, Project, ProofAttempt, Request, WorkStep
+from backend.src.queue.streams import RedisStreamManager
 from backend.src.schemas import DeliverableCreate, DeliverableResponse
 from backend.src.storage.database import get_db
 
@@ -109,6 +111,69 @@ async def list_deliverables(
     stmt = stmt.order_by(Deliverable.created_at.desc()).limit(limit)
     deliverables = list((await db.execute(stmt)).scalars())
     return [await _deliverable_response(db, deliverable) for deliverable in deliverables]
+
+
+@router.post("/{deliverable_id}/verify", response_model=DeliverableResponse)
+async def verify_deliverable(
+    deliverable_id: uuid.UUID,
+    request: HttpRequest,
+    _user=Depends(get_current_user),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Manually re-enqueue the Verifier Worker for this deliverable
+    (decision-locks **A1**).
+
+    Today this stamps ``proof_state=verifying`` and records a fresh
+    ProofAttempt(running) so the founder gets immediate feedback (the
+    DeliverableCard ``ProofBadge`` flips to verifying). The
+    deterministic worker that completes the attempt is wired during
+    the quality-engineering phase; until then the queue entry sits in
+    ``running`` for the worker to pick up.
+
+    Tenant-scoped: a deliverable that belongs to another tenant 404s
+    so verifier capacity can't be burned across tenant boundaries.
+    """
+    stmt = select(Deliverable).where(
+        Deliverable.id == deliverable_id,
+        Deliverable.tenant_id == tenant_id,
+    )
+    deliverable = (await db.execute(stmt)).scalar_one_or_none()
+    if deliverable is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Deliverable not found")
+
+    deliverable.proof_state = ProofState.verifying
+    deliverable.status = DeliverableStatus.verifying
+    attempt = ProofAttempt(
+        deliverable_id=deliverable.id,
+        # The matched policy's verifier_type overwrites this when the
+        # worker picks the attempt up; until then ``re_verify_pending``
+        # records the trigger provenance.
+        verifier_type="re_verify_pending",
+        inputs={"trigger": "manual_re_verify"},
+        status=ProofAttemptStatus.running,
+    )
+    db.add(attempt)
+    await db.commit()
+    await db.refresh(deliverable)
+    await db.refresh(attempt)
+
+    # G7.2 SSE wiring — fan the proof-state transition onto the project
+    # stream so other open BSNexus tabs flip the badge without a manual
+    # refresh. ``useProjectEvents.deliverable_proof`` invalidates
+    # ``['deliverables', projectId]`` and ``['brief', projectId]``.
+    stream_manager: RedisStreamManager = request.app.state.stream_manager
+    await stream_manager.publish_project_event(
+        str(deliverable.project_id),
+        "deliverable_proof",
+        {
+            "id": str(deliverable.id),
+            "project_id": str(deliverable.project_id),
+            "proof_state": deliverable.proof_state.value,
+            "attempt_id": str(attempt.id),
+        },
+    )
+    return await _deliverable_response(db, deliverable)
 
 
 async def _deliverable_response(db: AsyncSession, deliverable: Deliverable) -> dict:
