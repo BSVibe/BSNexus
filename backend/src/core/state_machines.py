@@ -63,5 +63,9 @@ def can_transition_request(current: RequestStatus, target: RequestStatus) -> boo
     return target in REQUEST_TRANSITIONS[current]
 
 
+def can_transition_work_step(current: WorkStepStatus, target: WorkStepStatus) -> bool:
+    return target in WORK_STEP_TRANSITIONS[current]
+
+
 def can_transition_proof(current: ProofState, target: ProofState) -> bool:
     return target in PROOF_TRANSITIONS[current]
