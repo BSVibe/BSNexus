@@ -266,10 +266,42 @@
     "settings": {
       "title": "Settings",
       "sections": {
+        "llmDispatch": {
+          "label": "LLM Dispatch",
+          "summary": "Choose how runs reach a model. Switching paths is one save — exactly one config per tenant."
+        },
         "integrations": {
           "label": "Integrations",
           "summary": "Connect BSNexus to sibling services. Keys are stored tenant-scoped and encrypted at rest; only whether a key is present is ever returned."
         }
+      },
+      "llmDispatch": {
+        "title": "Executor",
+        "subtitle": "How runs reach a model",
+        "loadFailed": "Could not load executor config.",
+        "kindLabel": "Path",
+        "kind": {
+          "llm_api": {
+            "label": "LLM API (direct)",
+            "blurb": "litellm direct — provider URL + model + key. Works without BSGateway."
+          },
+          "bsgateway": {
+            "label": "BSGateway pool",
+            "blurb": "Route runs through a BSGateway worker pool — gateway URL + registration token."
+          }
+        },
+        "field": {
+          "providerUrl": "Provider URL",
+          "providerKey": "Provider API key",
+          "model": "Model",
+          "modelHint": "litellm model id",
+          "gatewayUrl": "Gateway URL",
+          "registrationToken": "Registration token"
+        },
+        "apiKeyStored": "(stored)",
+        "apiKeyPlaceholderEmpty": "sk-…",
+        "apiKeyPlaceholderStored": "••••••••",
+        "clearKeyTitle": "Clear stored key on next save"
       },
       "languageSwitcher": {
         "label": "Interface language",
