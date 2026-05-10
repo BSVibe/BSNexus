@@ -1,24 +1,22 @@
 'use client'
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { I } from '../../lib/icons'
 import { Modal } from '../common/Modal'
-import FilesView from '../files/FilesView'
 import BriefView from '../brief/BriefView'
 import DecisionsView from '../decisions/DecisionsView'
 import { DirectionInputCard } from '../dashboard/DirectionInputCard'
 import { projectsApi, type Project } from '../../api/projects'
-import { workspaceFilesApi } from '../../api/workspaceFiles'
 import { decisionsApi, deliverablesApi } from '../../api/founder'
 
-type TabId = 'brief' | 'files' | 'decisions'
+type TabId = 'brief' | 'decisions'
 
 function parseTab(raw: string | null): TabId {
-  if (raw === 'files' || raw === 'decisions') return raw
+  if (raw === 'decisions') return raw
   return 'brief'
 }
 
@@ -33,8 +31,10 @@ export default function ProjectPage() {
   const search = useSearchParams()
   const tab = parseTab(search.get('tab'))
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [overflowOpen, setOverflowOpen] = useState(false)
   const router = useRouter()
   const queryClient = useQueryClient()
+  const overflowRef = useRef<HTMLDivElement | null>(null)
 
   const buildProjectUrl = useCallback((next: URLSearchParams): string => {
     const qs = next.toString()
@@ -60,24 +60,12 @@ export default function ProjectPage() {
     queryKey: ['deliverables', projectId],
     queryFn: () => deliverablesApi.listForProject(projectId!),
     enabled: Boolean(projectId),
-    // Live updates land via the SSE stream wired up in Layout; no
-    // polling needed. The query is invalidated on relevant events.
   })
 
   const { data: decisions = [] } = useQuery({
     queryKey: ['decisions', projectId],
     queryFn: () => decisionsApi.listForProject(projectId!),
     enabled: Boolean(projectId),
-    // Live updates land via the SSE stream wired up in Layout; no
-    // polling needed. The query is invalidated on relevant events.
-  })
-
-  const { data: files = [] } = useQuery({
-    queryKey: ['workspace-files', projectId],
-    queryFn: () => workspaceFilesApi.list(projectId!),
-    enabled: Boolean(projectId),
-    // Live updates land via the SSE stream wired up in Layout; no
-    // polling needed. The query is invalidated on relevant events.
   })
 
   const openDecisions = useMemo(
@@ -124,13 +112,6 @@ export default function ProjectPage() {
           count={deliverables.length || null}
         />
         <TabButton
-          label={t('tab.files')}
-          icon={<I.Doc size={14} />}
-          active={tab === 'files'}
-          onClick={() => setTab('files')}
-          count={files.length || null}
-        />
-        <TabButton
           label={t('tab.decisions')}
           icon={<I.Inbox size={14} />}
           active={tab === 'decisions'}
@@ -139,15 +120,57 @@ export default function ProjectPage() {
           toneRose={openDecisions > 0}
         />
         <span style={{ flex: 1 }} />
-        <button
-          type="button"
-          className="btn btn-icon"
-          title={tCommon('delete')}
-          style={{ color: 'var(--color-rose)', marginRight: 8 }}
-          onClick={() => setConfirmDelete(true)}
-        >
-          <I.Trash size={14} />
-        </button>
+        {/* G7.1 — destructive actions live in the header overflow menu,
+            not the tab strip. Tabs are view switches; delete is an
+            action on the project itself. */}
+        <div ref={overflowRef} style={{ position: 'relative', marginRight: 8 }}>
+          <button
+            type="button"
+            className="btn btn-icon"
+            title={t('headerOverflowAria')}
+            aria-label={t('headerOverflowAria')}
+            aria-haspopup="menu"
+            aria-expanded={overflowOpen}
+            onClick={() => setOverflowOpen((open) => !open)}
+          >
+            <I.Ellipsis size={14} />
+          </button>
+          {overflowOpen && (
+            <div
+              role="menu"
+              className="card"
+              style={{
+                position: 'absolute',
+                top: 'calc(100% + 4px)',
+                right: 0,
+                minWidth: 200,
+                padding: 6,
+                zIndex: 30,
+                boxShadow: 'var(--sh-md)',
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                type="button"
+                role="menuitem"
+                className="btn btn-ghost"
+                style={{
+                  width: '100%',
+                  justifyContent: 'flex-start',
+                  color: 'var(--color-rose)',
+                  minHeight: 44,
+                }}
+                onClick={() => {
+                  setOverflowOpen(false)
+                  setConfirmDelete(true)
+                }}
+              >
+                <I.Trash size={14} />
+                <span style={{ marginLeft: 6 }}>{t('deleteModal.submit')}</span>
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       <Modal
@@ -194,9 +217,6 @@ export default function ProjectPage() {
             <DirectionInputCard boundProject={project ?? null} />
             <BriefView projectId={projectId} />
           </div>
-        )}
-        {tab === 'files' && (
-          <FilesView projectId={projectId} projectName={project?.name ?? t('fallbackTitle')} />
         )}
         {tab === 'decisions' && <DecisionsView projectId={projectId} />}
       </div>

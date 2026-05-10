@@ -102,8 +102,8 @@
         "blockingDecisionsSub": "{open} open",
         "activeRequests": "Active requests",
         "activeRequestsSub": "{total} total",
-        "deliveredWindow": "Delivered · 7d",
-        "deliveredWindowSub": "ready to review"
+        "deliveredWindow": "Shipped this week",
+        "deliveredWindowSub": "awaiting review"
       },
       "projectsHeading": "Projects",
       "filter": {
@@ -136,13 +136,13 @@
         "hint": "mobile_web · greenfield direction",
         "submit": "Direct",
         "submitting": "Sending…",
-        "error": "Could not send direction. Try again."
+        "error": "Could not send direction. Try again.",
+        "ackSuccess": "Direction accepted. A request has been opened."
       }
     },
     "project": {
       "tab": {
         "brief": "Brief",
-        "files": "Files",
         "decisions": "Decisions"
       },
       "deleteModal": {
@@ -153,7 +153,8 @@
         "errorPrefix": "Failed to delete."
       },
       "noProjectSelected": "No project selected.",
-      "fallbackTitle": "Project"
+      "fallbackTitle": "Project",
+      "headerOverflowAria": "Project actions"
     },
     "brief": {
       "timeline": "Timeline",
@@ -374,6 +375,10 @@
         },
         "tokenPlaceholderHint": "Generate an install token above — the command in step 3 auto-updates with the real value while it's on screen.",
         "heartbeat": "heartbeat {when}"
+      },
+      "integrationsPlaceholder": {
+        "title": "Integrations console — coming soon",
+        "body": "BSage / BSGateway / BSupervisor integration controls land together with the redesigned admin surface in a future milestone."
       }
     },
     "landing": {

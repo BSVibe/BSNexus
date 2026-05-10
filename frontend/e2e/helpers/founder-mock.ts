@@ -402,27 +402,35 @@ export async function installFounderMocks(page: Page, state: FounderMockState): 
   })
 
   // Brief — flat: GET /api/v1/brief?project_id=…
+  // G7.1 wire shape: ``{scope, project_id, sections, generated_at}``.
+  // Sections are typed per-card; ``blocked`` is a discriminated union.
   await page.route(/\/api\/v1\/brief(\?|$)/, (route: Route) => {
     const q = parseQuery(route.request().url())
     const scopeProjectId = q.projectId ?? null
     const inScope = <T extends { project_id: string }>(rows: T[]): T[] =>
       scopeProjectId ? rows.filter((r) => r.project_id === scopeProjectId) : rows
-    // Backend BriefRun joins ``request.intent_summary`` onto each run as
-    // ``request_intent`` so the Brief surfaces the founder-readable text
-    // (BriefView ``RunRow`` falls back to ``truncId(r.id)`` when missing).
-    const briefRun = (r: MockExecutionRun) => {
-      const req = state.requests.find((x) => x.id === r.request_id)
-      return {
-        id: r.id,
-        request_id: r.request_id,
-        request_intent: req?.intent_summary ?? null,
-        status: r.status,
-        started_at: r.started_at,
-        created_at: r.created_at,
-        error_message: r.error_message,
-      }
-    }
-    const briefDecision = (d: MockDecision) => ({
+
+    const deliverableCard = (d: MockDeliverable) => ({
+      id: d.id,
+      project_id: d.project_id,
+      request_id: d.request_id,
+      title: d.title,
+      type: d.type,
+      proof_state: d.proof_state,
+      proof_summary: d.proof_summary,
+      verifier_type: d.verifier_type,
+      verified_at: d.verified_at,
+      created_at: d.created_at,
+    })
+    const requestCard = (r: MockRequest) => ({
+      id: r.id,
+      project_id: r.project_id,
+      intent: r.intent_summary,
+      status: r.status,
+      created_at: r.created_at,
+      updated_at: r.updated_at,
+    })
+    const decisionCard = (d: MockDecision) => ({
       id: d.id,
       project_id: d.project_id,
       question: d.question,
@@ -430,24 +438,39 @@ export async function installFounderMocks(page: Page, state: FounderMockState): 
       created_at: d.created_at,
     })
 
+    const blocked: Array<Record<string, unknown>> = []
+    for (const r of inScope(state.requests).filter((r) => r.status === 'blocked')) {
+      blocked.push({ ...requestCard(r), kind: 'request' })
+    }
+    for (const d of inScope(state.deliverables).filter(
+      (d) =>
+        d.proof_state === 'verification_failed' ||
+        d.proof_state === 'verification_missing' ||
+        d.proof_state === 'human_review_required',
+    )) {
+      blocked.push({ ...deliverableCard(d), kind: 'deliverable' })
+    }
+
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
         scope: scopeProjectId ? 'project' : 'company',
         project_id: scopeProjectId,
+        sections: {
+          shipped: inScope(state.deliverables)
+            .filter((d) => d.proof_state === 'verified' && d.status === 'delivered')
+            .map(deliverableCard),
+          needs_decision: inScope(state.decisions)
+            .filter((d) => d.blocking && !d.resolved_at)
+            .map(decisionCard),
+          blocked,
+          running: inScope(state.requests)
+            .filter((r) => r.status === 'running')
+            .map(requestCard),
+          next: [],
+        },
         generated_at: now(),
-        shipped: inScope(state.deliverables).filter((d) => d.status === 'delivered'),
-        needs_decision: inScope(state.decisions)
-          .filter((d) => d.blocking && !d.resolved_at)
-          .map(briefDecision),
-        blocked: inScope(state.runs)
-          .filter((r) => r.status === 'blocked')
-          .map(briefRun),
-        running: inScope(state.runs)
-          .filter((r) => r.status === 'running')
-          .map(briefRun),
-        next: [],
       }),
     })
   })

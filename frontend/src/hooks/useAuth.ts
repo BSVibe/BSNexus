@@ -233,7 +233,16 @@ export function useAuth({
         let activeTenantId: string = tenantId
         // Skip the prod tenants probe in demo mode — auth.bsvibe.dev
         // does not allow the demo origin and the call CORS-fails.
-        if (!isDemoSession && !isDemoMode()) {
+        // G7.1 — also skip on localhost dev origins. The probe was the
+        // only thing fetching auth.bsvibe.dev cross-origin in dev, and
+        // the dev origin is not in the auth server's allow-list, so it
+        // CORS-failed every page mount. The JWT payload already carries
+        // ``tenant_id``; the probe only gathered the optional tenants
+        // list (multi-workspace switcher) which is unused in dev.
+        const isLocalhostOrigin =
+          typeof window !== 'undefined' &&
+          /^https?:\/\/(localhost|127\.0\.0\.1)(:|$)/.test(window.location.origin)
+        if (!isDemoSession && !isDemoMode() && !isLocalhostOrigin) {
           try {
             const res = await fetch(`${AUTH_URL}/api/session`, {
               credentials: 'include',

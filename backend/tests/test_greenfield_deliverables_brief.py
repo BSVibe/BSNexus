@@ -206,21 +206,63 @@ async def test_brief_aggregates_mobile_friendly_sections_and_never_ships_missing
     assert brief["project_id"] == str(project.id)
     assert set(brief["sections"]) == {"shipped", "needs_decision", "blocked", "running", "next"}
 
-    shipped_ids = {card["id"] for card in brief["sections"]["shipped"]}
+    # G7.1 — typed BriefDeliverableCard for shipped (no ``kind``/``label`` on
+    # the homogeneous list, frontend renders these as DeliverableCard).
+    shipped = brief["sections"]["shipped"]
+    shipped_ids = {card["id"] for card in shipped}
     assert str(verified.id) in shipped_ids
     assert str(missing_proof.id) not in shipped_ids
-    assert brief["sections"]["shipped"][0]["proof_state"] == "verified"
-    assert brief["sections"]["shipped"][0]["label"] == "shipped"
+    [shipped_card] = shipped
+    assert shipped_card["proof_state"] == "verified"
+    assert shipped_card["title"] == verified.title
+    assert shipped_card["type"] == "code"
+    assert "kind" not in shipped_card
+    assert "label" not in shipped_card
+    assert "request_id" in shipped_card
+    assert "proof_summary" in shipped_card
+    assert "verifier_type" in shipped_card
+    assert "verified_at" in shipped_card
+    assert "created_at" in shipped_card
 
+    # G7.1 — blocked is a Pydantic discriminated union: blocked Requests
+    # (kind=request) live alongside deliverables whose proof failed/missing
+    # (kind=deliverable). Both surface to the founder; static type
+    # narrowing happens on the frontend via the ``kind`` discriminator.
     blocked_cards = brief["sections"]["blocked"]
-    assert any(card["kind"] == "request" and card["id"] == str(blocked_request.id) for card in blocked_cards)
-    assert any(
-        card["kind"] == "deliverable"
-        and card["id"] == str(missing_proof.id)
-        and card["proof_state"] == "verification_missing"
-        and card["label"] == "blocked"
-        for card in blocked_cards
+    blocked_request_card = next(
+        card for card in blocked_cards if card["kind"] == "request" and card["id"] == str(blocked_request.id)
     )
-    assert brief["sections"]["needs_decision"][0]["id"] == str(decision.id)
-    assert brief["sections"]["running"][0]["id"] == str(running_request.id)
-    assert brief["sections"]["next"][0]["id"] == str(next_request.id)
+    assert blocked_request_card["intent"] == "Blocked request"
+    assert blocked_request_card["status"] == "blocked"
+    assert "title" not in blocked_request_card  # renamed to ``intent`` for greenfield Request
+
+    blocked_deliverable_card = next(
+        card for card in blocked_cards if card["kind"] == "deliverable" and card["id"] == str(missing_proof.id)
+    )
+    assert blocked_deliverable_card["proof_state"] == "verification_missing"
+    assert blocked_deliverable_card["title"] == missing_proof.title
+    assert "label" not in blocked_deliverable_card  # ``label`` collapsed into ``kind`` discriminator
+
+    # G7.1 — typed BriefDecisionCard for needs_decision; uses ``question``
+    # (matches backend Decision.question column) not the legacy ``title``.
+    [decision_card] = brief["sections"]["needs_decision"]
+    assert decision_card["id"] == str(decision.id)
+    assert decision_card["question"] == "Ship with current test evidence?"
+    assert decision_card["blocking"] is True
+    assert "title" not in decision_card
+
+    # G7.1 — running is BriefRequestCard (Request rows directly, not Run).
+    [running_card] = brief["sections"]["running"]
+    assert running_card["id"] == str(running_request.id)
+    assert running_card["intent"] == "Running request"
+    assert running_card["status"] == "running"
+    assert "kind" not in running_card  # homogeneous list
+
+    # G7.1 — ``next`` is reserved for AI-recommended directions
+    # (BriefNextHint shape: summary + request_id). We do not have an
+    # AI-recommendation source yet, so the section is empty. The
+    # legacy "stuff open requests into next" behavior was a hack.
+    assert brief["sections"]["next"] == []
+    # ``next_request`` exists but should NOT be in next; it's reachable
+    # via /api/v1/requests?status=open.
+    assert next_request is not None

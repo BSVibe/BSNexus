@@ -181,7 +181,7 @@ async function installFlatFounderMocks(page: Page, captured: CapturedPost[]): Pr
     })
   })
 
-  // GET /api/v1/brief — 5-section payload.
+  // GET /api/v1/brief — typed 5-section payload (G7.1 wire shape).
   await page.route(/\/api\/v1\/brief(\?|$)/, (route: Route) => {
     return route.fulfill({
       status: 200,
@@ -189,12 +189,14 @@ async function installFlatFounderMocks(page: Page, captured: CapturedPost[]): Pr
       body: JSON.stringify({
         scope: 'project',
         project_id: PROJECT_ID,
+        sections: {
+          shipped: [deliverable],
+          needs_decision: [decision],
+          blocked: [],
+          running: [],
+          next: [{ summary: 'Add /readyz endpoint after the smoke run.', request_id: null }],
+        },
         generated_at: new Date().toISOString(),
-        shipped: [deliverable],
-        needs_decision: [decision],
-        blocked: [],
-        running: [],
-        next: [{ summary: 'Add /readyz endpoint after the smoke run.' }],
       }),
     })
   })

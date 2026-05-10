@@ -2,7 +2,13 @@
 // no transform layer to drift. Keep fields in sync with
 // backend/src/schemas/{project,conversation,integration,founder}.py.
 
-export type RequestStatus = 'open' | 'running' | 'completed' | 'abandoned'
+export type RequestStatus =
+  | 'open'
+  | 'running'
+  | 'blocked'
+  | 'review_ready'
+  | 'shipped'
+  | 'abandoned'
 
 export interface Request {
   id: string
@@ -186,11 +192,17 @@ export interface CompositionSnapshot {
 export type IntegrationProvider = 'bsage' | 'bsupervisor'
 export type AuditFailMode = 'open' | 'closed'
 
-// ── Brief (decision-locks A2) ─────────────────────────────────────
+// ── Brief (decision-locks A2, G7.1 strong-typed) ──────────────────
+// Mirrors ``backend/src/schemas/greenfield.py`` — every section has a
+// dedicated typed card. Blocked is a Pydantic discriminated union;
+// frontend narrows on ``kind``.
+
+export type BriefScope = 'project' | 'company'
 
 export interface BriefDeliverable {
   id: string
   project_id: string
+  request_id: string | null
   title: string
   type: DeliverableType
   proof_state: ProofState
@@ -208,30 +220,37 @@ export interface BriefDecision {
   created_at: string
 }
 
-export interface BriefRun {
+export interface BriefRequest {
   id: string
   project_id: string
-  request_id: string | null
-  request_intent: string | null
-  status: RunStatus
-  started_at: string | null
+  intent: string
+  status: RequestStatus
   created_at: string
-  error_message: string | null
+  updated_at: string
 }
+
+export type BriefBlockedItem =
+  | (BriefRequest & { kind: 'request' })
+  | (BriefDeliverable & { kind: 'deliverable' })
 
 export interface BriefNextHint {
   summary: string
   request_id: string | null
 }
 
-export interface BriefResponse {
-  project_id: string | null
-  generated_at: string
+export interface BriefSections {
   shipped: BriefDeliverable[]
   needs_decision: BriefDecision[]
-  blocked: BriefRun[]
-  running: BriefRun[]
+  blocked: BriefBlockedItem[]
+  running: BriefRequest[]
   next: BriefNextHint[]
+}
+
+export interface BriefResponse {
+  scope: BriefScope
+  project_id: string | null
+  sections: BriefSections
+  generated_at: string
 }
 
 export type DirectionSource = 'web' | 'mobile_web' | 'slack' | 'email' | 'cli' | 'voice'
@@ -258,9 +277,11 @@ export interface DirectionRoutingPrompt {
   options: DirectionRoutingOption[]
 }
 
+// G7.1 — backend no longer sends ``acknowledgement``. The client
+// computes ack copy from ``request != null`` vs ``routing != null``
+// and renders via i18n; the wire shape stays state-only.
 export interface DirectionAckResponse {
   direction: DirectionResponse
   request: Request | null
   routing: DirectionRoutingPrompt | null
-  acknowledgement: string
 }

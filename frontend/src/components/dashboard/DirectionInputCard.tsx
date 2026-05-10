@@ -61,13 +61,15 @@ export function DirectionInputCard({ boundProject = null }: DirectionInputCardPr
         setRouting(resp.routing)
         return
       }
-      // Direction routed to a request — clear the input + show ack.
+      // Direction routed to a request — clear the input + show ack
+      // copy in the active locale. Backend no longer sends ack strings
+      // (G7.1); the wire shape is state-only.
       queryClient.invalidateQueries({ queryKey: ['requests'] })
       queryClient.invalidateQueries({ queryKey: ['brief'] })
       setBody('')
       setRouting(null)
       setPendingBody(null)
-      setAck(resp.acknowledgement)
+      setAck(t('ackSuccess'))
       const projectId = resp.request?.project_id ?? resp.direction.project_id
       if (projectId) {
         router.prefetch(`/projects/${projectId}`)
