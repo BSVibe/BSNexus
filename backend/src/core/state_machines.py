@@ -67,5 +67,11 @@ def can_transition_work_step(current: WorkStepStatus, target: WorkStepStatus) ->
     return target in WORK_STEP_TRANSITIONS[current]
 
 
+def can_advance_run_attempt_phase(current: RunAttemptPhase, target: RunAttemptPhase) -> bool:
+    current_index = RUN_ATTEMPT_PHASE_ORDER.index(current)
+    next_index = current_index + 1
+    return next_index < len(RUN_ATTEMPT_PHASE_ORDER) and RUN_ATTEMPT_PHASE_ORDER[next_index] == target
+
+
 def can_transition_proof(current: ProofState, target: ProofState) -> bool:
     return target in PROOF_TRANSITIONS[current]
