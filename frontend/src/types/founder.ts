@@ -233,3 +233,34 @@ export interface BriefResponse {
   running: BriefRun[]
   next: BriefNextHint[]
 }
+
+export type DirectionSource = 'web' | 'mobile_web' | 'slack' | 'email' | 'cli' | 'voice'
+
+export interface DirectionResponse {
+  id: string
+  tenant_id: string
+  project_id: string | null
+  source: DirectionSource
+  actor_id: string
+  body: string
+  target_hint: string | null
+  created_at: string
+}
+
+export interface DirectionRoutingOption {
+  project_id: string
+  name: string
+}
+
+export interface DirectionRoutingPrompt {
+  required: boolean
+  question: string
+  options: DirectionRoutingOption[]
+}
+
+export interface DirectionAckResponse {
+  direction: DirectionResponse
+  request: Request | null
+  routing: DirectionRoutingPrompt | null
+  acknowledgement: string
+}

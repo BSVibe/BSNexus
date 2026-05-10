@@ -587,17 +587,36 @@ kbd {
 }
 
 /* ======================================================================
- * PR5 — Mobile / PWA polish (decision-locks O2, 2026-05-08).
+ * Mobile / PWA polish — PR #71 (decision-locks O2, 2026-05-08) baseline,
+ * extended for greenfield G7 (2026-05-10).
  *
- * Tightens the four founder-facing surfaces on mobile-web/PWA viewports
+ * Tightens the founder-facing surfaces on mobile-web/PWA viewports
  * (≤767px) so the locked first computer-independent interface — Direct,
  * Decide, Review, Inspect — is usable from a phone without zooming or
  * fighting safe-area insets.
  *
- * Touch-target floor is 44px (Apple HIG / WCAG 2.5.5 AAA). All net-new
- * tappable elements get ``min-height: 44px`` and reasonable hit padding.
+ * Touch-target floor is 44px (Apple HIG / WCAG 2.5.5 AAA). All
+ * tappable elements (including .btn-sm) honour the floor on mobile.
  * ====================================================================== */
+
+/* Surface padding: reduced from 24/32 to 16/16 on mobile so the founder
+   cards reach edge-to-edge on a 390px viewport without sacrificing
+   readability. Desktop keeps the original generous padding. */
+.brief-view,
+.decisions-view {
+  padding: 24px 32px;
+}
+
 @media (max-width: 767px) {
+  .brief-view,
+  .decisions-view {
+    padding: 16px 12px;
+  }
+
+  .brief-view {
+    padding-bottom: max(20px, env(safe-area-inset-bottom));
+  }
+
   /* Brief — section gap is tighter on a phone, but card chrome stays
      readable. The section header + count badge stack horizontally. */
   .brief-section + .brief-section {
@@ -611,21 +630,18 @@ kbd {
     row-gap: 6px;
   }
 
-  /* Decision Inbox strip on Home — tap targets at the WCAG floor. */
-  [data-decision-inbox-strip] button {
+  /* All buttons (incl. .btn-sm) honour the 44px touch floor on mobile.
+     The base .btn rule is 40px; G7 raises the floor to satisfy WCAG
+     2.5.5 AAA across every founder surface. */
+  .btn,
+  .btn-sm,
+  .btn-icon {
     min-height: 44px;
   }
 
-  /* Re-verify / copy buttons inside DeliverableCard — same. */
-  .deliverable-card .btn-sm {
-    min-height: 36px;
-    padding-inline: 10px;
-  }
-
-  /* Decision inbox card and Brief section cards: respect safe-area
-     bottom inset on the last item so iOS home-pill doesn't clip. */
-  .brief-view {
-    padding-bottom: max(24px, env(safe-area-inset-bottom));
+  /* Decision Inbox strip on Home — explicit, in case rule order changes. */
+  [data-decision-inbox-strip] button {
+    min-height: 44px;
   }
 }
 

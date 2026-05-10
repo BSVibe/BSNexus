@@ -135,6 +135,15 @@
         "descriptionPlaceholder": "What direction should the company take next?",
         "hint": "Once created, you'll land in the project. Talk to the company and mention {mentionToken} to direct it.",
         "submit": "Create & open"
+      },
+      "direction": {
+        "heading": "Give a direction",
+        "placeholder": "Tell BSNexus what to do next. Short and clear works best.",
+        "textareaLabel": "Direction body",
+        "hint": "mobile_web · greenfield direction",
+        "submit": "Direct",
+        "submitting": "Sending…",
+        "error": "Could not send direction. Try again."
       }
     },
     "project": {
