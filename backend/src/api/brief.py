@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.core.auth import get_current_user
-from backend.src.core.brief import empty_brief_snapshot
+from backend.src.core.brief import build_brief_snapshot
 from backend.src.core.tenant_context import get_tenant_id
 from backend.src.models import Project
 from backend.src.schemas import BriefSnapshotResponse
@@ -31,4 +31,4 @@ async def get_brief(
 ) -> dict:
     if project_id is not None:
         await _assert_project_belongs(db, project_id, tenant_id)
-    return empty_brief_snapshot(project_id)
+    return await build_brief_snapshot(session=db, tenant_id=tenant_id, project_id=project_id)

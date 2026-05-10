@@ -7,9 +7,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.core.auth import get_current_user
+from backend.src.core.deliverables import WorkOutputDraft, create_deliverable_from_work_output
 from backend.src.core.tenant_context import get_tenant_id
-from backend.src.models import Deliverable, Project
-from backend.src.schemas import DeliverableResponse
+from backend.src.models import Deliverable, Project, ProofAttempt, Request, WorkStep
+from backend.src.schemas import DeliverableCreate, DeliverableResponse
 from backend.src.storage.database import get_db
 
 router = APIRouter(prefix="/api/v1/deliverables", tags=["deliverables"])
@@ -22,6 +23,73 @@ async def _assert_project_belongs(db: AsyncSession, project_id: uuid.UUID, tenan
     stmt = select(Project.id).where(Project.id == project_id, Project.tenant_id == tenant_id)
     if (await db.execute(stmt)).scalar_one_or_none() is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
+
+
+async def _assert_request_belongs(
+    db: AsyncSession,
+    request_id: uuid.UUID,
+    project_id: uuid.UUID,
+    tenant_id: uuid.UUID,
+) -> None:
+    stmt = select(Request.id).where(
+        Request.id == request_id,
+        Request.project_id == project_id,
+        Request.tenant_id == tenant_id,
+    )
+    if (await db.execute(stmt)).scalar_one_or_none() is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Request not found")
+
+
+async def _assert_work_step_belongs(
+    db: AsyncSession,
+    work_step_id: uuid.UUID,
+    project_id: uuid.UUID,
+    request_id: uuid.UUID | None,
+    tenant_id: uuid.UUID,
+) -> None:
+    stmt = (
+        select(WorkStep.id)
+        .join(Request, Request.id == WorkStep.request_id)
+        .where(
+            WorkStep.id == work_step_id,
+            Request.tenant_id == tenant_id,
+            Request.project_id == project_id,
+        )
+    )
+    if request_id is not None:
+        stmt = stmt.where(WorkStep.request_id == request_id)
+    if (await db.execute(stmt)).scalar_one_or_none() is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "WorkStep not found")
+
+
+@router.post("", response_model=DeliverableResponse, status_code=status.HTTP_201_CREATED)
+async def create_deliverable(
+    payload: DeliverableCreate,
+    _user=Depends(get_current_user),
+    tenant_id: uuid.UUID = Depends(get_tenant_id),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    await _assert_project_belongs(db, payload.project_id, tenant_id)
+    if payload.request_id is not None:
+        await _assert_request_belongs(db, payload.request_id, payload.project_id, tenant_id)
+    if payload.work_step_id is not None:
+        await _assert_work_step_belongs(db, payload.work_step_id, payload.project_id, payload.request_id, tenant_id)
+
+    deliverable = await create_deliverable_from_work_output(
+        tenant_id=tenant_id,
+        draft=WorkOutputDraft(
+            project_id=payload.project_id,
+            request_id=payload.request_id,
+            work_step_id=payload.work_step_id,
+            type=payload.type,
+            title=payload.title,
+            summary=payload.summary,
+            artifact_refs=payload.artifact_refs,
+            risk_summary=payload.risk_summary,
+        ),
+        session=db,
+    )
+    return await _deliverable_response(db, deliverable)
 
 
 @router.get("", response_model=list[DeliverableResponse])
@@ -39,4 +107,41 @@ async def list_deliverables(
     if project_id is not None:
         stmt = stmt.where(Deliverable.project_id == project_id)
     stmt = stmt.order_by(Deliverable.created_at.desc()).limit(limit)
-    return list((await db.execute(stmt)).scalars())
+    deliverables = list((await db.execute(stmt)).scalars())
+    return [await _deliverable_response(db, deliverable) for deliverable in deliverables]
+
+
+async def _deliverable_response(db: AsyncSession, deliverable: Deliverable) -> dict:
+    latest_attempt = (
+        await db.execute(
+            select(ProofAttempt)
+            .where(ProofAttempt.deliverable_id == deliverable.id)
+            .order_by(ProofAttempt.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    return {
+        "id": deliverable.id,
+        "tenant_id": deliverable.tenant_id,
+        "project_id": deliverable.project_id,
+        "request_id": deliverable.request_id,
+        "work_step_id": deliverable.work_step_id,
+        "type": deliverable.type,
+        "title": deliverable.title,
+        "summary": deliverable.summary,
+        "artifact_refs": deliverable.artifact_refs,
+        "proof_state": deliverable.proof_state,
+        "proof_policy_id": deliverable.proof_policy_id,
+        "proof_status": {
+            "state": deliverable.proof_state,
+            "policy_id": deliverable.proof_policy_id,
+            "latest_attempt_id": latest_attempt.id if latest_attempt is not None else None,
+            "latest_attempt_status": latest_attempt.status if latest_attempt is not None else None,
+            "latest_attempt_summary": latest_attempt.proof_summary if latest_attempt is not None else None,
+            "latest_attempt_completed_at": latest_attempt.completed_at if latest_attempt is not None else None,
+        },
+        "status": deliverable.status,
+        "risk_summary": deliverable.risk_summary,
+        "created_at": deliverable.created_at,
+        "updated_at": deliverable.updated_at,
+    }
