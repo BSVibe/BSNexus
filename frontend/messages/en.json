@@ -56,13 +56,6 @@
       "inUse": "in use",
       "idle": "idle"
     },
-    "errors": {
-      "loadFailed": "Failed to load data.",
-      "loadIntegrationsFailed": "Failed to load integration configs.",
-      "deleteFailed": "Failed to delete.",
-      "sendFailed": "Send failed: {message}. The message is back in the box — try again.",
-      "genericTryAgain": "Something went wrong. Try again."
-    },
     "auth": {
       "signInWithBsvibe": "Sign in with BSVibe",
       "signUp": "Sign up",
@@ -150,8 +143,7 @@
       "tab": {
         "brief": "Brief",
         "files": "Files",
-        "decisions": "Decisions",
-        "inside": "Inside"
+        "decisions": "Decisions"
       },
       "deleteModal": {
         "title": "Delete this project?",
@@ -270,39 +262,12 @@
         "totalSuffix": "runs"
       }
     },
-    "chat": {
-      "header": "Talk to the company",
-      "expand": "Expand chat (⌘/)",
-      "collapse": "Collapse (⌘/)",
-      "openShort": "Chat",
-      "scope": "Scope",
-      "scopeAll": "All projects",
-      "emptyScope": "Nothing here in this scope yet.",
-      "routingComposing": "routing · composing…",
-      "placeholderDefault": "Say something. @mention a project or just talk.",
-      "placeholderWithMention": "Add direction…",
-      "mentionProject": "Mention a project",
-      "hintAt": "hint:",
-      "hintTarget": "to target a project",
-      "send": "send",
-      "newline": "newline",
-      "openProjectTitle": "Open {name}",
-      "inspectRequest": "Inspect this request",
-      "noProjectMatched": "No project matched — pick one to route:",
-      "workspaceNoProject": "workspace · no project",
-      "decisionFooter": "Resolve in the Decisions tab.",
-      "phaseChipFallback": "(unnamed phase)"
-    },
     "settings": {
       "title": "Settings",
       "sections": {
         "integrations": {
           "label": "Integrations",
           "summary": "Connect BSNexus to sibling services. Keys are stored tenant-scoped and encrypted at rest; only whether a key is present is ever returned."
-        },
-        "executors": {
-          "label": "Executors",
-          "summary": "Register LLM backends and remote workers. LLM executors (LiteLLM / BSGateway / claude-code / codex) handle composition runs; remote workers register with an install token and execute coding runs with their local CLI."
         },
         "language": {
           "label": "Language",

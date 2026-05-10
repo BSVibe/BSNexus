@@ -6,7 +6,7 @@ test.describe('Auth — Landing Page & Protected Routes', () => {
     await blockSSORedirect(page)
     await page.goto('/')
     await expect(page.getByRole('heading', { name: 'BSNexus' })).toBeVisible()
-    await expect(page.getByText(/Orchestrate AI agents|AI 에이전트/)).toBeVisible()
+    await expect(page.getByText(/AI handles the work|AI가 일하고/)).toBeVisible()
     await expect(page.getByRole('button', { name: /Sign in with BSVibe|BSVibe로 로그인/ })).toBeVisible()
   })
 
@@ -49,19 +49,14 @@ test.describe('Auth — Landing Page & Protected Routes', () => {
   test('landing page displays three feature cards with Material Symbols', async ({ page }) => {
     await blockSSORedirect(page)
     await page.goto('/')
-    await expect(page.getByText(/Conversational Planning|대화형 플래닝/)).toBeVisible()
-    await expect(page.getByText(/Live Plan View|실시간 진행/)).toBeVisible()
-    await expect(page.getByText(/Distributed Workers|분산 워커/)).toBeVisible()
-    // Material Symbols icons are present
+    // Greenfield feature copy — Direction / Decisions & Brief / Verified Deliverables.
+    await expect(page.getByText('Direction').first()).toBeVisible()
+    await expect(page.getByText(/Decisions & Brief|Decisions/)).toBeVisible()
+    await expect(page.getByText(/Verified Deliverables|검증된 Deliverable/)).toBeVisible()
+    // Material Symbols icons are present.
     await expect(page.locator('span.material-symbols-outlined:has-text("psychology")')).toBeVisible()
     await expect(page.locator('span.material-symbols-outlined:has-text("account_tree")')).toBeVisible()
     await expect(page.locator('span.material-symbols-outlined:has-text("hub")')).toBeVisible()
-  })
-
-  test('landing page shows "Go to Dashboard" when authenticated', async ({ page }) => {
-    await injectAuth(page)
-    await page.goto('/')
-    await expect(page.getByRole('button', { name: /Go to Dashboard|대시보드/ })).toBeVisible()
   })
 
   test('unauthenticated user is redirected to landing from /dashboard', async ({ page }) => {

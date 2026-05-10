@@ -1,24 +1,34 @@
 /**
- * Mock helper for the founder-metaphor surface (post Direction reset
- * 2026-05-03): conversation messages, decisions, deliverables, requests,
- * runs, and the per-project SSE event stream.
+ * Founder-surface mock helper (greenfield, flat A3 routes).
  *
- * The SSE stream is stubbed by emitting all events as one body. The
- * browser's EventSource dispatches them sequentially as it parses, so
- * tests can verify the final UI state after the events land.
+ * Tests build up a small state object describing what the tenant looks
+ * like on the wire — projects, requests, decisions, deliverables, runs,
+ * SSE events — then install Playwright route handlers that serve that
+ * state. Route shapes match the flat /api/v1/<resource>?project_id=
+ * endpoints in CLAUDE.md (decision-locks A3, 2026-05-08).
+ *
+ * The legacy nested /api/v1/projects/{id}/<sub> routes and the agent /
+ * task / executor / worker / Inside-panel surfaces retired with the
+ * file-disposition.md greenfield purge.
+ *
+ * SSE: the per-project event stream is stubbed by emitting every entry
+ * in ``state.sseEvents`` as a single response body. The browser's
+ * EventSource parses each ``event:``+``data:`` block in order.
  */
-
 import type { Page, Route } from '@playwright/test'
 
-export interface MockMessage {
-  id: string
-  project_id: string
-  role: 'user' | 'assistant'
-  content: string
-  request_id: string | null
-  actions?: Array<Record<string, unknown>>
-  created_at: string
-}
+const TENANT = 'tenant-001'
+const ACTOR_ID = 'user-001'
+
+// ─── Domain shapes ───────────────────────────────────────────────────
+
+export type MockRequestStatus =
+  | 'open'
+  | 'running'
+  | 'blocked'
+  | 'review_ready'
+  | 'shipped'
+  | 'abandoned'
 
 export interface MockRequest {
   id: string
@@ -26,62 +36,25 @@ export interface MockRequest {
   project_id: string
   origin_message_id: string | null
   intent_summary: string
-  status: 'open' | 'completed' | 'cancelled'
-  originator_auth?: string | null
+  status: MockRequestStatus
+  user_confirmed: boolean
+  superseded_by_id: string | null
+  composition_root_id: string | null
   created_at: string
   updated_at: string
 }
 
-export type MockReplyQualityKind =
-  | 'real_tool_calls'
-  | 'pseudocode_in_chat'
-  | 'fenced_block_only'
-  | 'empty'
-  | 'mixed'
-
-export interface MockRunSummary {
-  total_rounds: number
-  total_tool_calls: number
-  per_round: Array<{
-    round_idx: number
-    content_chars: number
-    tool_call_count: number
-    reply_quality: MockReplyQualityKind
-    finish_reason: string | null
-  }>
-  dominant_reply_quality: MockReplyQualityKind
-  did_emit_fenced_block: boolean
-  files_actually_written: string[]
-  failure_signals: string[]
-}
-
-export interface MockRunActivity {
-  id: string
-  run_id: string
-  project_id: string
-  level: 'milestone' | 'tool'
-  event_type: string
-  summary: string
-  detail: Record<string, unknown> | null
-  created_at: string
-}
+export type MockRunStatus = 'pending' | 'running' | 'blocked' | 'done'
 
 export interface MockExecutionRun {
   id: string
   tenant_id: string
   project_id: string
   request_id: string | null
-  parent_run_id: string | null
-  status: 'pending' | 'running' | 'blocked' | 'done'
+  status: MockRunStatus
   priority: 'low' | 'medium' | 'high'
-  composition_snapshot_id: string | null
-  output_type: string | null
-  output_ref: Record<string, unknown> | null
   estimated_cost_cents: number
   actual_cost_cents: number
-  branch_name: string | null
-  commit_hash: string | null
-  // worker_id retired with the workers table; field absent.
   error_message: string | null
   retry_count: number
   max_retries: number
@@ -89,7 +62,6 @@ export interface MockExecutionRun {
   updated_at: string
   started_at: string | null
   completed_at: string | null
-  run_summary: MockRunSummary | null
 }
 
 export interface MockDecision {
@@ -107,6 +79,14 @@ export interface MockDecision {
   created_at: string
 }
 
+export type MockProofState =
+  | 'verification_missing'
+  | 'verifying'
+  | 'verified'
+  | 'verification_failed'
+  | 'human_review_required'
+  | 'not_applicable'
+
 export interface MockDeliverable {
   id: string
   tenant_id: string
@@ -118,21 +98,35 @@ export interface MockDeliverable {
   current_version_id: string | null
   created_at: string
   updated_at: string
+  proof_state: MockProofState
+  verifier_type: string | null
+  verifier_inputs: Record<string, unknown> | null
+  verification_exit_code: number | null
+  proof_summary: string | null
+  proof_refs: Array<{ label: string; type: string; href: string }> | null
+  risk_summary: string | null
+  verified_at: string | null
 }
 
-const TENANT = 'tenant-001'
-
-export function makeMessage(p: Partial<MockMessage> & { id: string; project_id: string }): MockMessage {
-  return {
-    id: p.id,
-    project_id: p.project_id,
-    role: p.role ?? 'user',
-    content: p.content ?? '',
-    request_id: p.request_id ?? null,
-    actions: p.actions ?? [],
-    created_at: p.created_at ?? new Date().toISOString(),
-  }
+export interface FounderMockState {
+  projectId: string
+  projectName: string
+  requests: MockRequest[]
+  runs: MockExecutionRun[]
+  decisions: MockDecision[]
+  deliverables: MockDeliverable[]
+  /** Pre-recorded SSE blocks delivered when the client opens
+   *  ``/api/v1/events?project_id=…``. Each entry is one
+   *  ``event:``+``data:`` pair. */
+  sseEvents: string[]
+  /** Captured: appended to whenever a mutating handler fires
+   *  (decisions/resolve, deliverables/verify, directions). */
+  posts: Array<{ url: string; body: unknown }>
 }
+
+// ─── Builders ────────────────────────────────────────────────────────
+
+const now = () => new Date().toISOString()
 
 export function makeRequest(p: Partial<MockRequest> & { id: string; project_id: string }): MockRequest {
   return {
@@ -140,11 +134,13 @@ export function makeRequest(p: Partial<MockRequest> & { id: string; project_id: 
     tenant_id: p.tenant_id ?? TENANT,
     project_id: p.project_id,
     origin_message_id: p.origin_message_id ?? null,
-    intent_summary: p.intent_summary ?? 'do something',
+    intent_summary: p.intent_summary ?? 'Mock request',
     status: p.status ?? 'open',
-    originator_auth: p.originator_auth ?? null,
-    created_at: p.created_at ?? new Date().toISOString(),
-    updated_at: p.updated_at ?? new Date().toISOString(),
+    user_confirmed: p.user_confirmed ?? false,
+    superseded_by_id: p.superseded_by_id ?? null,
+    composition_root_id: p.composition_root_id ?? null,
+    created_at: p.created_at ?? now(),
+    updated_at: p.updated_at ?? now(),
   }
 }
 
@@ -154,28 +150,23 @@ export function makeRun(p: Partial<MockExecutionRun> & { id: string; project_id:
     tenant_id: p.tenant_id ?? TENANT,
     project_id: p.project_id,
     request_id: p.request_id ?? null,
-    parent_run_id: p.parent_run_id ?? null,
-    status: p.status ?? 'pending',
+    status: p.status ?? 'running',
     priority: p.priority ?? 'medium',
-    composition_snapshot_id: p.composition_snapshot_id ?? null,
-    output_type: p.output_type ?? null,
-    output_ref: p.output_ref ?? null,
     estimated_cost_cents: p.estimated_cost_cents ?? 0,
     actual_cost_cents: p.actual_cost_cents ?? 0,
-    branch_name: p.branch_name ?? null,
-    commit_hash: p.commit_hash ?? null,
     error_message: p.error_message ?? null,
     retry_count: p.retry_count ?? 0,
     max_retries: p.max_retries ?? 3,
-    created_at: p.created_at ?? new Date().toISOString(),
-    updated_at: p.updated_at ?? new Date().toISOString(),
+    created_at: p.created_at ?? now(),
+    updated_at: p.updated_at ?? now(),
     started_at: p.started_at ?? null,
     completed_at: p.completed_at ?? null,
-    run_summary: p.run_summary ?? null,
   }
 }
 
-export function makeDecision(p: Partial<MockDecision> & { id: string; project_id: string; question: string }): MockDecision {
+export function makeDecision(
+  p: Partial<MockDecision> & { id: string; project_id: string; question: string },
+): MockDecision {
   return {
     id: p.id,
     tenant_id: p.tenant_id ?? TENANT,
@@ -184,11 +175,11 @@ export function makeDecision(p: Partial<MockDecision> & { id: string; project_id
     origin_run_id: p.origin_run_id ?? null,
     question: p.question,
     options: p.options ?? [],
-    blocking: p.blocking ?? true,
+    blocking: p.blocking ?? false,
     resolution: p.resolution ?? null,
     resolved_by: p.resolved_by ?? null,
     resolved_at: p.resolved_at ?? null,
-    created_at: p.created_at ?? new Date().toISOString(),
+    created_at: p.created_at ?? now(),
   }
 }
 
@@ -200,63 +191,64 @@ export function makeDeliverable(
     tenant_id: p.tenant_id ?? TENANT,
     project_id: p.project_id,
     request_id: p.request_id ?? null,
-    type: p.type ?? 'doc',
+    type: p.type ?? 'code',
     title: p.title,
-    status: p.status ?? 'ready',
+    status: p.status ?? 'delivered',
     current_version_id: p.current_version_id ?? null,
-    created_at: p.created_at ?? new Date().toISOString(),
-    updated_at: p.updated_at ?? new Date().toISOString(),
+    created_at: p.created_at ?? now(),
+    updated_at: p.updated_at ?? now(),
+    proof_state: p.proof_state ?? 'verified',
+    verifier_type: p.verifier_type ?? 'python_test',
+    verifier_inputs: p.verifier_inputs ?? null,
+    verification_exit_code: p.verification_exit_code ?? 0,
+    proof_summary: p.proof_summary ?? null,
+    proof_refs: p.proof_refs ?? null,
+    risk_summary: p.risk_summary ?? null,
+    verified_at: p.verified_at ?? null,
   }
-}
-
-// ─── State container ─────────────────────────────────────────────────
-
-/**
- * Per-test state: mutated by the route handlers below. Tests construct
- * one of these, configure it, then call ``installFounderMocks(page, state)``
- * to attach the route handlers. State mutations between requests show
- * up because Playwright re-invokes the handler on every route.
- */
-export interface FounderMockState {
-  projectId: string
-  projectName?: string
-  messages: MockMessage[]
-  requests: MockRequest[]
-  runs: MockExecutionRun[]
-  decisions: MockDecision[]
-  deliverables: MockDeliverable[]
-  /** Per-run activity rows, keyed by run_id (PR7 — Inside-panel
-   * RunActivityTimeline reads ``/api/v1/runs/{id}/activities``). */
-  activities: MockRunActivity[]
-  /** Pre-recorded SSE event blocks delivered when the client opens
-   * ``/api/v1/projects/{id}/events``. Each entry is one ``event:``+``data:``
-   * pair, joined with the SSE separator. */
-  sseEvents: string[]
-  /** Captured: appended to whenever resolve or send POST handlers fire. */
-  posts: { url: string; body: unknown }[]
 }
 
 export function makeFounderState(projectId: string, projectName = 'Test Project'): FounderMockState {
   return {
     projectId,
     projectName,
-    messages: [],
     requests: [],
     runs: [],
     decisions: [],
     deliverables: [],
-    activities: [],
     sseEvents: [],
     posts: [],
   }
 }
 
-/** Build a single SSE event block (`event:`/`data:` pair). */
+/** Build a single SSE block (`event:` + `data:` pair). */
 export function sseEvent(eventType: string, payload: Record<string, unknown>): string {
   return `event: ${eventType}\ndata: ${JSON.stringify(payload)}\n\n`
 }
 
 // ─── Route installer ─────────────────────────────────────────────────
+
+interface ListQuery {
+  projectId?: string
+  requestId?: string
+  blockingOnly?: boolean
+  resolved?: boolean
+}
+
+function parseQuery(url: string): ListQuery {
+  const u = new URL(url, 'http://localhost')
+  const out: ListQuery = {}
+  const projectId = u.searchParams.get('project_id')
+  if (projectId) out.projectId = projectId
+  const requestId = u.searchParams.get('request_id')
+  if (requestId) out.requestId = requestId
+  const blockingOnly = u.searchParams.get('blocking_only')
+  if (blockingOnly === 'true') out.blockingOnly = true
+  const resolved = u.searchParams.get('resolved')
+  if (resolved === 'true') out.resolved = true
+  if (resolved === 'false') out.resolved = false
+  return out
+}
 
 export async function installFounderMocks(page: Page, state: FounderMockState): Promise<void> {
   const pid = state.projectId
@@ -264,21 +256,17 @@ export async function installFounderMocks(page: Page, state: FounderMockState): 
   const projectShape = () => ({
     id: pid,
     tenant_id: TENANT,
-    name: state.projectName ?? 'Test Project',
+    name: state.projectName,
     description: null,
     status: 'active',
     workspace_type: 'local_managed',
     github_repo_url: null,
     github_branch: null,
     repo_path: null,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
+    created_at: now(),
+    updated_at: now(),
   })
 
-  // List projects — must include this state's project so GlobalChat's
-  // `useQuery(['projects'])` finds the current project. Without this,
-  // ``currentProject`` resolves to null and the chat textarea silently
-  // does nothing on Enter (mutation never fires).
   await page.route('**/api/v1/projects', (route: Route) => {
     if (route.request().method() === 'POST') {
       return route.fulfill({
@@ -294,256 +282,48 @@ export async function installFounderMocks(page: Page, state: FounderMockState): 
     })
   })
 
-  // Single project metadata
-  await page.route(`**/api/v1/projects/${pid}`, (route: Route) => {
-    if (route.request().method() === 'DELETE') {
-      return route.fulfill({ status: 204, body: '' })
-    }
+  await page.route(`**/api/v1/projects/${pid}*`, (route: Route) => {
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
-        id: pid,
-        tenant_id: TENANT,
-        name: state.projectName ?? 'Test Project',
-        description: null,
-        status: 'active',
-        workspace_type: 'local_managed',
-        github_repo_url: null,
-        github_branch: null,
-        repo_path: null,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }),
+      body: JSON.stringify(projectShape()),
     })
   })
 
-  // Conversation messages — list + send
-  await page.route(`**/api/v1/projects/${pid}/messages`, async (route: Route) => {
-    const method = route.request().method()
-    if (method === 'GET') {
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(state.messages),
-      })
-    }
-    if (method === 'POST') {
-      const body = JSON.parse(route.request().postData() ?? '{}') as { content: string }
-      state.posts.push({ url: route.request().url(), body })
-
-      const messageId = `msg-${state.messages.length + 1}`
-      const userMsg = makeMessage({
-        id: messageId,
-        project_id: pid,
-        role: 'user',
-        content: body.content,
-      })
-
-      const stripped = (body.content ?? '').trim()
-      let requestObj: MockRequest | null = null
-      let createdNew = false
-      if (stripped) {
-        const reqId = `req-${state.requests.length + 1}`
-        requestObj = makeRequest({
-          id: reqId,
-          project_id: pid,
-          origin_message_id: messageId,
-          intent_summary: stripped.slice(0, 240),
-        })
-        state.requests.push(requestObj)
-        userMsg.request_id = reqId
-        createdNew = true
-
-        const ackMsg = makeMessage({
-          id: `${messageId}-ack`,
-          project_id: pid,
-          role: 'assistant',
-          content: `⚡ Starting work on: **${stripped}**`,
-          request_id: reqId,
-          actions: [{ kind: 'ack', run_id: `run-${state.runs.length + 1}` }],
-        })
-        state.messages.push(userMsg, ackMsg)
-
-        // Seed a pending run.
-        state.runs.push(
-          makeRun({
-            id: `run-${state.runs.length + 1}`,
-            project_id: pid,
-            request_id: reqId,
-            status: 'pending',
-          }),
-        )
-      } else {
-        state.messages.push(userMsg)
-      }
-
+  // Direction primitive (G1).
+  await page.route(/\/api\/v1\/directions(\?|$)/, async (route: Route) => {
+    const req = route.request()
+    if (req.method() === 'POST') {
+      const body = (req.postDataJSON?.() ?? {}) as Record<string, unknown>
+      state.posts.push({ url: req.url(), body })
       return route.fulfill({
         status: 201,
         contentType: 'application/json',
         body: JSON.stringify({
-          message: userMsg,
-          intent: createdNew ? 'request' : 'chit_chat',
-          request_id: requestObj?.id ?? null,
-          request_created: createdNew,
-          intent_summary: requestObj?.intent_summary ?? null,
+          direction: {
+            id: `dir-${state.posts.length}`,
+            tenant_id: TENANT,
+            project_id: (body.project_id as string | null) ?? pid,
+            source: (body.source as string) ?? 'web',
+            actor_id: ACTOR_ID,
+            body: (body.body as string) ?? '',
+            target_hint: (body.target_hint as string | null) ?? null,
+            created_at: now(),
+          },
+          request: null,
+          routing: null,
+          acknowledgement: 'Direction accepted.',
         }),
       })
     }
-    return route.continue()
+    return route.fulfill({ status: 405, body: '' })
   })
 
-  // Requests for a project
-  await page.route(`**/api/v1/projects/${pid}/requests`, (route: Route) => {
-    return route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(state.requests),
-    })
-  })
-
-  // Runs for a request — match any request id
-  await page.route(`**/api/v1/requests/*/runs`, (route: Route) => {
-    const url = route.request().url()
-    const m = /\/requests\/([^/]+)\/runs/.exec(url)
-    const reqId = m?.[1] ?? null
-    const runs = reqId === null ? state.runs : state.runs.filter((r) => r.request_id === reqId)
-    return route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(runs),
-    })
-  })
-
-  // Composition snapshots — minimal stub
-  await page.route(`**/api/v1/composition-snapshots/*`, (route: Route) => {
-    return route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        id: 'snap-001',
-        run_id: null,
-        request_id: null,
-        source: 'local',
-        persona_label: 'Generalist',
-        fit_score: 0.5,
-        system_prompt_ref: { inline: 'You are a careful engineer.' },
-        tools_allowed: ['file_read', 'file_write'],
-        context_doc_refs: [],
-        created_at: new Date().toISOString(),
-      }),
-    })
-  })
-
-  // Deliverables
-  await page.route(`**/api/v1/projects/${pid}/deliverables`, (route: Route) => {
-    return route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(state.deliverables),
-    })
-  })
-
-  // Decisions
-  await page.route(`**/api/v1/projects/${pid}/decisions`, (route: Route) => {
-    return route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(state.decisions),
-    })
-  })
-
-  // Decision resolve
-  await page.route(`**/api/v1/decisions/*/resolve`, async (route: Route) => {
-    const url = route.request().url()
-    const m = /\/decisions\/([^/]+)\/resolve/.exec(url)
-    const decId = m?.[1] ?? ''
-    const body = JSON.parse(route.request().postData() ?? '{}') as {
-      resolution: string
-      resolved_by?: string | null
-    }
-    state.posts.push({ url, body })
-    const decision = state.decisions.find((d) => d.id === decId)
-    if (!decision) {
-      return route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ detail: 'not found' }) })
-    }
-    decision.resolution = body.resolution
-    decision.resolved_by = body.resolved_by ?? 'founder@test'
-    decision.resolved_at = new Date().toISOString()
-    return route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(decision),
-    })
-  })
-
-  // SSE events — emit the pre-recorded sequence as one body.
-  await page.route(`**/api/v1/projects/${pid}/events*`, (route: Route) => {
-    const head = `retry: 3000\n\nevent: ready\ndata: ${JSON.stringify({ project_id: pid })}\n\n`
-    const body = head + state.sseEvents.join('')
-    return route.fulfill({
-      status: 200,
-      contentType: 'text/event-stream',
-      headers: {
-        'Cache-Control': 'no-cache',
-      },
-      body,
-    })
-  })
-
-  // Workspace files (used by FilesView, may be invoked when the page mounts)
-  await page.route(`**/api/v1/projects/${pid}/workspace-files**`, (route: Route) => {
-    return route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify([]),
-    })
-  })
-
-  // Integrations (used by ProgressView trust cards)
-  await page.route(`**/api/v1/integrations`, (route: Route) => {
-    return route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        bsage: { provider: 'bsage', enabled: false, has_api_key: false, base_url: null, extra_config: {} },
-        bsupervisor: { provider: 'bsupervisor', enabled: false, has_api_key: false, base_url: null, extra_config: {} },
-      }),
-    })
-  })
-
-  // ─── A3 flat-REST routes (PR2 / 2026-05-08) ─────────────────────────
-  // ``requestsApi.listForProject(pid)`` hits ``/api/v1/requests?project_id=pid``.
+  // Requests — flat: GET /api/v1/requests?project_id=… or ?request_id=…
   await page.route(/\/api\/v1\/requests(\?|$)/, (route: Route) => {
-    const url = new URL(route.request().url())
-    const pidParam = url.searchParams.get('project_id')
-    const filtered = pidParam ? state.requests.filter((r) => r.project_id === pidParam) : state.requests
-    return route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(filtered),
-    })
-  })
-
-  // ``requestsApi.listRuns(reqId)`` hits ``/api/v1/runs?request_id=reqId``.
-  // ``listActivities(runId)`` hits ``/api/v1/runs/{id}/activities``.
-  await page.route(/\/api\/v1\/runs(\?|$)/, (route: Route) => {
-    const url = new URL(route.request().url())
-    const reqId = url.searchParams.get('request_id')
-    const runs = reqId ? state.runs.filter((r) => r.request_id === reqId) : state.runs
-    return route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(runs),
-    })
-  })
-  await page.route(/\/api\/v1\/runs\/[^/]+\/activities/, (route: Route) => {
-    const url = new URL(route.request().url())
-    const m = /\/runs\/([^/]+)\/activities/.exec(url.pathname)
-    const runId = m?.[1] ?? ''
-    const level = url.searchParams.get('level')
-    let rows = state.activities.filter((a) => a.run_id === runId)
-    if (level) rows = rows.filter((a) => a.level === level)
+    const q = parseQuery(route.request().url())
+    let rows = state.requests
+    if (q.projectId) rows = rows.filter((r) => r.project_id === q.projectId)
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -551,42 +331,167 @@ export async function installFounderMocks(page: Page, state: FounderMockState): 
     })
   })
 
-  // PR7 — run-summaries surface (failure-mode dashboard backend).
-  await page.route(/\/api\/v1\/run-summaries(\?|$)/, (route: Route) => {
-    const url = new URL(route.request().url())
-    const isAggregate = url.searchParams.get('aggregate') === 'true'
-    const pidParam = url.searchParams.get('project_id')
-    const runs = pidParam ? state.runs.filter((r) => r.project_id === pidParam) : state.runs
-    if (isAggregate) {
-      const counts: Record<string, number> = {}
-      for (const r of runs) {
-        const kind = r.run_summary?.dominant_reply_quality
-        if (kind) counts[kind] = (counts[kind] ?? 0) + 1
-      }
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          window_days: Number(url.searchParams.get('days') ?? 7),
-          total_runs: runs.length,
-          counts,
-          project_id: pidParam,
-        }),
-      })
+  // Runs — flat: GET /api/v1/runs?request_id=…
+  await page.route(/\/api\/v1\/runs(\?|$)/, (route: Route) => {
+    const q = parseQuery(route.request().url())
+    let rows = state.runs
+    if (q.requestId) rows = rows.filter((r) => r.request_id === q.requestId)
+    if (q.projectId) rows = rows.filter((r) => r.project_id === q.projectId)
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(rows),
+    })
+  })
+
+  // Decisions — flat: GET /api/v1/decisions?project_id=…&blocking_only=…
+  await page.route(/\/api\/v1\/decisions(\?|$)/, (route: Route) => {
+    const q = parseQuery(route.request().url())
+    let rows = state.decisions
+    if (q.projectId) rows = rows.filter((d) => d.project_id === q.projectId)
+    if (q.blockingOnly) rows = rows.filter((d) => d.blocking && !d.resolved_at)
+    if (q.resolved === true) rows = rows.filter((d) => d.resolved_at !== null)
+    if (q.resolved === false) rows = rows.filter((d) => d.resolved_at === null)
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(rows),
+    })
+  })
+
+  await page.route(/\/api\/v1\/decisions\/[^/]+\/resolve(\?|$)/, async (route: Route) => {
+    const req = route.request()
+    const body = (req.postDataJSON?.() ?? {}) as { resolution?: string; resolved_by?: string }
+    state.posts.push({ url: req.url(), body })
+    const decisionId = req.url().match(/decisions\/([^/]+)\/resolve/)?.[1]
+    const target = state.decisions.find((d) => d.id === decisionId)
+    if (target) {
+      target.resolution = body.resolution ?? ''
+      target.resolved_by = body.resolved_by ?? ACTOR_ID
+      target.resolved_at = now()
     }
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify(
-        runs.map((r) => ({
-          run_id: r.id,
-          project_id: r.project_id,
-          status: r.status,
-          created_at: r.created_at,
-          completed_at: r.completed_at,
-          summary: r.run_summary,
-        })),
-      ),
+      body: JSON.stringify(target ?? { detail: 'not found' }),
+    })
+  })
+
+  // Deliverables — flat: GET /api/v1/deliverables?project_id=…
+  await page.route(/\/api\/v1\/deliverables(\?|$)/, (route: Route) => {
+    const q = parseQuery(route.request().url())
+    let rows = state.deliverables
+    if (q.projectId) rows = rows.filter((d) => d.project_id === q.projectId)
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(rows),
+    })
+  })
+
+  await page.route(/\/api\/v1\/deliverables\/[^/]+\/verify(\?|$)/, async (route: Route) => {
+    const req = route.request()
+    state.posts.push({ url: req.url(), body: {} })
+    const id = req.url().match(/deliverables\/([^/]+)\/verify/)?.[1]
+    const target = state.deliverables.find((d) => d.id === id)
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(target ?? { detail: 'not found' }),
+    })
+  })
+
+  // Brief — flat: GET /api/v1/brief?project_id=…
+  await page.route(/\/api\/v1\/brief(\?|$)/, (route: Route) => {
+    const q = parseQuery(route.request().url())
+    const scopeProjectId = q.projectId ?? null
+    const inScope = <T extends { project_id: string }>(rows: T[]): T[] =>
+      scopeProjectId ? rows.filter((r) => r.project_id === scopeProjectId) : rows
+    // Backend BriefRun joins ``request.intent_summary`` onto each run as
+    // ``request_intent`` so the Brief surfaces the founder-readable text
+    // (BriefView ``RunRow`` falls back to ``truncId(r.id)`` when missing).
+    const briefRun = (r: MockExecutionRun) => {
+      const req = state.requests.find((x) => x.id === r.request_id)
+      return {
+        id: r.id,
+        request_id: r.request_id,
+        request_intent: req?.intent_summary ?? null,
+        status: r.status,
+        started_at: r.started_at,
+        created_at: r.created_at,
+        error_message: r.error_message,
+      }
+    }
+    const briefDecision = (d: MockDecision) => ({
+      id: d.id,
+      project_id: d.project_id,
+      question: d.question,
+      blocking: d.blocking,
+      created_at: d.created_at,
+    })
+
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        scope: scopeProjectId ? 'project' : 'company',
+        project_id: scopeProjectId,
+        generated_at: now(),
+        shipped: inScope(state.deliverables).filter((d) => d.status === 'delivered'),
+        needs_decision: inScope(state.decisions)
+          .filter((d) => d.blocking && !d.resolved_at)
+          .map(briefDecision),
+        blocked: inScope(state.runs)
+          .filter((r) => r.status === 'blocked')
+          .map(briefRun),
+        running: inScope(state.runs)
+          .filter((r) => r.status === 'running')
+          .map(briefRun),
+        next: [],
+      }),
+    })
+  })
+
+  // SSE event stream — flat: GET /api/v1/events?project_id=…
+  await page.route(/\/api\/v1\/events(\?|$)/, (route: Route) => {
+    const head = 'event: ready\ndata: {}\n\n'
+    return route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      body: head + state.sseEvents.join(''),
+    })
+  })
+
+  // Conversation messages list — empty default (greenfield surfaces don't
+  // render the chat-rail any more, but the legacy /api/v1/messages endpoint
+  // still exists. Returning [] keeps the catch-all from leaking 200/{}.).
+  await page.route(/\/api\/v1\/messages(\?|$)/, (route: Route) => {
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([]),
+    })
+  })
+
+  // Workspace files — empty tree default.
+  await page.route(/\/api\/v1\/workspace-files\b.*/, (route: Route) => {
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([]),
+    })
+  })
+
+  // Integrations admin — redacted defaults.
+  await page.route('**/api/v1/integrations', (route: Route) => {
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        bsage: { enabled: false, has_api_key: false, base_url: null },
+        bsgateway: { enabled: false, has_api_key: false, base_url: null },
+        bsupervisor: { enabled: false, has_api_key: false, base_url: null },
+      }),
     })
   })
 }

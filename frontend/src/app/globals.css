@@ -155,20 +155,14 @@ kbd {
 /* ────────── App grid ────────── */
 .app {
   display: grid;
-  grid-template-columns: 232px 1fr var(--chat-w, 380px);
+  grid-template-columns: 232px 1fr;
   grid-template-rows: 1fr;
-  grid-template-areas: "sidebar main chat";
+  grid-template-areas: "sidebar main";
   height: 100vh;
   width: 100vw;
 }
-.app.chat-collapsed { --chat-w: 48px; }
-
-/* Mobile chat FAB hidden by default; the @media (max-width: 767px)
-   block below promotes it to a floating action button. */
-.app--mobile-chat-fab { display: none; }
 
 .mn { grid-area: main; overflow: auto; position: relative; background: var(--bg-base); }
-.cr { grid-area: chat; border-left: 1px solid var(--border-subtle); background: var(--bg-base); display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 
 /* ────────── Generic list-item style ──────────
    `.sb-item` is now a generic compact list-button utility used by the
@@ -349,89 +343,17 @@ kbd {
 .cmd-kind  { font-family: var(--font-mono); font-size: 10px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.08em; }
 .cmd-hint  { padding: 8px 12px; border-top: 1px solid var(--border-subtle); font-size: 11px; color: var(--text-tertiary); display: flex; gap: 12px; align-items: center; }
 
-/* ────────── Global chat rail ────────── */
-.chat-hd { display: flex; align-items: center; gap: 8px; padding: 12px; border-bottom: 1px solid var(--border-subtle); min-height: 48px; }
-.chat-title { font-size: 13px; font-weight: 600; color: var(--gray-100); flex: 1; }
-.chat-scroll { flex: 1; overflow: auto; padding: 16px 12px; display: flex; flex-direction: column; gap: 12px; min-height: 0; }
-.chat-composer { border-top: 1px solid var(--border-subtle); padding: 12px; background: var(--bg-base); }
-.chat-box {
-  border: 1px solid var(--border-default);
-  border-radius: var(--r-md);
-  background: var(--bg-surface);
-  padding: 8px 10px;
-  transition: border var(--t-fast) var(--ease);
-  position: relative;
+/* Per-tab inner padding for ProjectPage Brief — wraps the
+   DirectionInputCard + BriefView so the founder card reaches the
+   container edge on mobile but breathes on desktop. */
+.project-tab-pad {
+  padding: 24px 32px;
 }
-.chat-box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
-
-.chat-ctx-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
-.mention-chip {
-  display: inline-flex; align-items: center; gap: 4px;
-  padding: 1px 6px; font-size: 11px; border-radius: var(--r-sm);
-  background: rgba(59,130,246,0.12); color: #93c5fd;
-  border: 1px solid rgba(59,130,246,0.3);
+@media (max-width: 767px) {
+  .project-tab-pad {
+    padding: 16px 12px;
+  }
 }
-.mention-chip .x { cursor: pointer; opacity: 0.6; margin-left: 2px; }
-.mention-chip .x:hover { opacity: 1; }
-
-.chat-bubble-ai { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--r-lg); padding: 10px 12px; font-size: 13px; line-height: 20px; color: var(--gray-100); }
-.chat-bubble-u  { background: rgba(59,130,246,0.08); border: 1px solid rgba(59,130,246,0.3); border-radius: var(--r-lg); padding: 10px 12px; font-size: 13px; line-height: 20px; color: var(--gray-100); }
-
-/* Markdown rendering inside assistant chat bubbles */
-.md { font-size: 13px; line-height: 20px; color: var(--gray-100); }
-.md > :first-child { margin-top: 0; }
-.md > :last-child  { margin-bottom: 0; }
-.md p { margin: 8px 0; }
-.md h1, .md h2, .md h3, .md h4 { margin: 14px 0 6px; font-weight: 600; color: var(--gray-50); line-height: 1.3; }
-.md h1 { font-size: 16px; }
-.md h2 { font-size: 15px; }
-.md h3 { font-size: 14px; }
-.md h4 { font-size: 13px; color: var(--gray-200); }
-.md ul, .md ol { margin: 6px 0 10px; padding-left: 20px; }
-.md li { margin: 3px 0; }
-.md li::marker { color: var(--text-tertiary); }
-.md a { color: var(--blue-500); text-decoration: underline; text-underline-offset: 2px; }
-.md strong { font-weight: 600; color: var(--gray-50); }
-.md em { font-style: italic; color: var(--gray-200); }
-.md hr { margin: 12px 0; border: 0; border-top: 1px solid var(--border-subtle); }
-.md blockquote { margin: 8px 0; padding-left: 10px; border-left: 2px solid var(--border-default); color: var(--text-secondary); }
-.md code { font-family: var(--font-mono); font-size: 12px; padding: 1px 5px; border-radius: 4px; background: var(--bg-base); border: 1px solid var(--border-subtle); color: var(--gray-100); }
-.md pre { margin: 8px 0; padding: 10px 12px; background: var(--bg-base); border: 1px solid var(--border-subtle); border-radius: var(--r-sm); overflow: auto; max-height: 360px; }
-.md pre code { padding: 0; background: transparent; border: 0; font-size: 12px; line-height: 18px; white-space: pre; }
-.md table { border-collapse: collapse; margin: 8px 0; font-size: 12px; }
-.md th, .md td { border: 1px solid var(--border-subtle); padding: 4px 8px; text-align: left; }
-.md th { background: var(--bg-elevated); font-weight: 600; }
-
-.route-chip {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 3px 8px; font-size: 11px; border-radius: var(--r-full);
-  background: var(--bg-elevated); border: 1px solid var(--border-subtle);
-  color: var(--text-secondary);
-  border-top: none; border-left: none; border-right: none;
-}
-
-.chat-collapsed-rail { width: 48px; display: flex; flex-direction: column; align-items: center; padding: 12px 0; gap: 12px; }
-
-.mention-menu {
-  position: absolute; bottom: calc(100% + 4px); left: 0; right: 0;
-  background: var(--bg-surface); border: 1px solid var(--border-default);
-  border-radius: var(--r-md); box-shadow: var(--sh-md);
-  max-height: 220px; overflow: auto; z-index: 10;
-}
-.mention-menu-item { display: flex; align-items: center; gap: 8px; padding: 6px 10px; font-size: 12px; color: var(--gray-200); cursor: pointer; }
-.mention-menu-item.active, .mention-menu-item:hover { background: var(--bg-elevated); }
-
-.chat-route-pick {
-  display: flex; gap: 4px; flex-wrap: wrap;
-  padding: 8px 12px; border-top: 1px dashed var(--border-subtle);
-  font-size: 11px; color: var(--text-tertiary); align-items: center;
-}
-.chat-route-pick .seg {
-  padding: 3px 8px; border-radius: var(--r-sm);
-  border: 1px solid var(--border-subtle); background: var(--bg-elevated);
-  cursor: pointer; color: var(--gray-300); font-size: 11px;
-}
-.chat-route-pick .seg.on { border-color: var(--accent); color: #93c5fd; background: rgba(59,130,246,0.08); }
 
 /* ────────── Focus / animation ────────── */
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-sm); }
@@ -450,41 +372,26 @@ kbd {
 }
 
 /* ======================================================================
- * Phase B Batch 2 — mobile viewport adaptation.
+ * Mobile viewport adaptation (≤767px).
  *
- * BSNexus is normally a 3-column app grid (sidebar | main | chat-rail).
- * Below 768px we collapse to a single-column layout where:
- *   - Sidebar slides off-canvas to the LEFT (managed by `@bsvibe/layout`'s
- *     ResponsiveSidebar — drawer + hamburger + backdrop ship in the package)
- *   - Chat rail slides off-canvas to the RIGHT (chat icon toggles `.app--mobile-chat-open`)
- *   - Main column always fills the viewport
- *
- * The state classes are added to `.app` by Layout.tsx; the CSS owns the
- * actual translation. This preserves the design-tokens.ts SoT (no token
- * changes) and keeps @tanstack/react-query usage unchanged.
- *
- * The four founder-metaphor surfaces (Direction / Progress / Decisions /
- * Inside) all live inside `.mn` — they get the same mobile main column
- * automatically. Specific tweaks (chat-bubble width, decision card stack,
- * inside-tree scroll) are handled below.
+ * The app collapses to a single-column layout. The sidebar drawer is
+ * owned by ``@bsvibe/layout``'s ResponsiveSidebar (drawer + hamburger
+ * + backdrop ship in the package). The legacy chat rail / FAB retired
+ * with the conversation-first GlobalChat surface; Direction input now
+ * lives inline on the Brief tab (DirectionInputCard).
  * ====================================================================== */
 @media (max-width: 767px) {
   .app {
     grid-template-columns: 1fr;
     grid-template-areas: "main";
   }
-  /* Mobile top padding (3.5rem) makes room for the floating hamburger
-     shipped by @bsvibe/layout v0.5.0 (`fixed top-3 left-3 z-50`).
-     Without this, page content like the Project Inspector title sits
-     directly under the trigger and the two visually overlap. */
+  /* Top padding makes room for the fixed hamburger shipped by
+     ``@bsvibe/layout`` (`fixed top-3 left-3 z-50`). */
   .mn {
     padding-top: 3.5rem;
   }
   /* SettingsPage: collapse the 220px sidebar + main grid into a single
-     column. Nav becomes a horizontal scroll strip above the content so
-     all three sections (통합/실행기/언어) stay reachable without eating
-     ~half the viewport width. Without this the right pane drops to
-     ~150px on a 390px viewport and IntegrationCard content overflows. */
+     column. Nav becomes a horizontal scroll strip above the content. */
   .settings-grid {
     grid-template-columns: 1fr !important;
     grid-template-rows: auto 1fr;
@@ -499,7 +406,7 @@ kbd {
     -webkit-overflow-scrolling: touch;
   }
   .settings-nav__title {
-    display: none; /* Section header label takes its place at the top of main. */
+    display: none;
   }
   .settings-nav .sb-item {
     flex-shrink: 0;
@@ -508,52 +415,6 @@ kbd {
   .settings-main {
     padding: 16px !important;
   }
-  /* The primary nav drawer is owned by `@bsvibe/layout`'s
-     ResponsiveSidebar — it ships its own fixed-position drawer + backdrop
-     + hamburger. Only the chat rail still uses the .app--mobile-chat-open
-     local state below. */
-  .cr {
-    position: fixed;
-    inset: 0 0 0 auto;
-    width: min(380px, 92vw);
-    z-index: 50;
-    transform: translateX(100%);
-    transition: transform 200ms var(--ease);
-  }
-  .app--mobile-chat-open .cr {
-    transform: translateX(0);
-  }
-  /* Backdrop sits behind the active chat-rail panel. */
-  .app--mobile-backdrop {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.5);
-    z-index: 40;
-  }
-  /* Mobile-only chat-drawer open trigger. Floating action button at
-     the bottom-right; tapping flips ``mobileChatOpen`` to true which
-     slides the chat rail in from the right (above). The FAB itself
-     unmounts while the drawer is open so it doesn't overlap the
-     chat content. */
-  .app--mobile-chat-fab {
-    position: fixed;
-    right: max(16px, env(safe-area-inset-right));
-    bottom: max(16px, env(safe-area-inset-bottom));
-    width: 48px;
-    height: 48px;
-    border-radius: 24px;
-    border: 1px solid var(--border-subtle);
-    background: var(--bsnexus);
-    color: white;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    z-index: 45;
-    cursor: pointer;
-  }
-  /* Tighter list-item style for inspector / files / settings tab lists
-     when the viewport collapses to a single column. */
   .sb-item {
     min-height: 44px;
     padding: 8px 12px;
@@ -571,18 +432,6 @@ kbd {
     min-height: 44px;
     padding: 10px 9px;
     white-space: nowrap;
-  }
-  .project-inspector {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(96px, auto) minmax(0, 1fr);
-  }
-  .project-inspector__requests {
-    border-right: 0 !important;
-    border-bottom: 1px solid var(--border-subtle);
-    max-height: 164px;
-  }
-  .project-inspector__detail {
-    min-width: 0;
   }
 }
 

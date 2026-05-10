@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -10,15 +10,15 @@ import { Modal } from '../common/Modal'
 import FilesView from '../files/FilesView'
 import BriefView from '../brief/BriefView'
 import DecisionsView from '../decisions/DecisionsView'
-import Inspector from '../inside/Inspector'
+import { DirectionInputCard } from '../dashboard/DirectionInputCard'
 import { projectsApi, type Project } from '../../api/projects'
 import { workspaceFilesApi } from '../../api/workspaceFiles'
 import { decisionsApi, deliverablesApi } from '../../api/founder'
 
-type TabId = 'brief' | 'files' | 'decisions' | 'inside'
+type TabId = 'brief' | 'files' | 'decisions'
 
 function parseTab(raw: string | null): TabId {
-  if (raw === 'files' || raw === 'decisions' || raw === 'inside') return raw
+  if (raw === 'files' || raw === 'decisions') return raw
   return 'brief'
 }
 
@@ -32,14 +32,10 @@ export default function ProjectPage() {
   const projectId = Array.isArray(rawProjectId) ? rawProjectId[0] : rawProjectId
   const search = useSearchParams()
   const tab = parseTab(search.get('tab'))
-  const focusRequestId = search.get('focusRequest')
   const [confirmDelete, setConfirmDelete] = useState(false)
   const router = useRouter()
   const queryClient = useQueryClient()
 
-  // Build a /projects/:id?tab=…&focusRequest=… URL given a partial
-  // override. Centralised so the inline next/navigation calls below
-  // don't duplicate the assembly.
   const buildProjectUrl = useCallback((next: URLSearchParams): string => {
     const qs = next.toString()
     return qs ? `/projects/${projectId}?${qs}` : `/projects/${projectId}`
@@ -93,27 +89,8 @@ export default function ProjectPage() {
     const next = new URLSearchParams(search.toString())
     if (id === 'brief') next.delete('tab')
     else next.set('tab', id)
-    if (id !== 'inside') next.delete('focusRequest')
     router.replace(buildProjectUrl(next))
   }
-
-  useEffect(() => {
-    function onOpenInside(e: Event) {
-      const ce = e as CustomEvent<{ requestId?: string }>
-      const rid = ce.detail?.requestId
-      const next = new URLSearchParams(search.toString())
-      next.set('tab', 'inside')
-      if (rid) next.set('focusRequest', rid)
-      else next.delete('focusRequest')
-      router.replace(buildProjectUrl(next))
-    }
-    document.addEventListener('bsn:open-inside', onOpenInside as EventListener)
-    return () =>
-      document.removeEventListener(
-        'bsn:open-inside',
-        onOpenInside as EventListener,
-      )
-  }, [search, router, buildProjectUrl])
 
   if (!projectId) {
     return (
@@ -160,12 +137,6 @@ export default function ProjectPage() {
           onClick={() => setTab('decisions')}
           count={openDecisions || null}
           toneRose={openDecisions > 0}
-        />
-        <TabButton
-          label={t('tab.inside')}
-          icon={<I.Eye size={14} />}
-          active={tab === 'inside'}
-          onClick={() => setTab('inside')}
         />
         <span style={{ flex: 1 }} />
         <button
@@ -217,15 +188,17 @@ export default function ProjectPage() {
         )}
       </Modal>
 
-      <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
-        {tab === 'brief' && <BriefView projectId={projectId} />}
+      <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+        {tab === 'brief' && (
+          <div className="project-tab-pad">
+            <DirectionInputCard boundProject={project ?? null} />
+            <BriefView projectId={projectId} />
+          </div>
+        )}
         {tab === 'files' && (
           <FilesView projectId={projectId} projectName={project?.name ?? t('fallbackTitle')} />
         )}
         {tab === 'decisions' && <DecisionsView projectId={projectId} />}
-        {tab === 'inside' && (
-          <Inspector projectId={projectId} focusRequestId={focusRequestId} />
-        )}
       </div>
     </div>
   )

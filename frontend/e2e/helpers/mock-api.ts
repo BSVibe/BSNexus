@@ -1,93 +1,101 @@
 /**
- * API route mocking helpers using page.route().
- * Intercepts all /api/v1/* calls so tests never hit a real backend.
+ * API route mocking helpers for greenfield surfaces.
  *
- * Playwright route priority: last registered wins when multiple patterns match.
- * Register catch-all FIRST, specific routes LAST.
+ * Greenfield rebuild (decision-locks A3, 2026-05-08) collapsed nested
+ * /projects/{id}/<sub> routes into flat /api/v1/<resource>?project_id=
+ * shapes. The legacy mock pre-2026-05-09 also seeded agent / task /
+ * worker / executor-config endpoints — those product surfaces retired
+ * in the founder-metaphor migration and are not part of the greenfield
+ * UX. This helper only mocks routes the current frontend actually
+ * calls.
+ *
+ * Playwright route priority: last registered wins when multiple
+ * patterns match. Register catch-all FIRST, specific routes LAST.
  */
 import type { Page } from '@playwright/test'
-import {
-  mockAgentStatusCards,
-  mockAgents,
-  mockBudgetOverview,
-  mockCostRecords,
-  mockDesignScreens,
-  mockDesignSystem,
-  mockExecutorConfigs,
-  mockGlobalSettings,
-  mockGoals,
-  mockInstallToken,
-  mockMemories,
-  mockOrgChart,
-  mockPlanTreeResponse,
-  mockProjectChannels,
-  mockProjects,
-  mockProjectsSummary,
-  mockTaskActivity,
-  mockUser,
-  mockWorkers,
-} from './fixtures'
+
+const TENANT = 'tenant-001'
+const USER_ID = 'user-001'
+
+export const mockUser = {
+  id: USER_ID,
+  email: 'dev@bsvibe.dev',
+  name: 'Test User',
+  tenant_id: TENANT,
+}
+
+export const mockProject = {
+  id: 'proj-001',
+  tenant_id: TENANT,
+  name: 'Test Project',
+  description: null,
+  status: 'active' as const,
+  workspace_type: 'local_managed',
+  github_repo_url: null,
+  github_branch: null,
+  repo_path: null,
+  created_at: new Date().toISOString(),
+  updated_at: new Date().toISOString(),
+}
+
+export const mockProjects = [mockProject]
 
 /**
- * Block auth session check so unauthenticated pages stay on the landing page.
- * The useAuth hook calls auth.bsvibe.dev/api/session to check for an existing
- * session cookie. We return 401 so getAccessToken() returns null.
+ * Block auth session check so unauthenticated pages stay on the
+ * landing page. The useAuth hook calls auth.bsvibe.dev/api/session;
+ * returning 401 keeps getAccessToken() resolving to null.
  */
 export async function blockSSORedirect(page: Page) {
   await page.route('**/auth.bsvibe.dev/api/session', (route) => {
-    return route.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ error: 'no session' }) })
+    return route.fulfill({
+      status: 401,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: 'no session' }),
+    })
   })
 }
 
-/**
- * Build a fake JWT with the given payload (header.payload.signature).
- * Only the payload section is read by decodeJwt(); header and signature are stubs.
- */
 function buildMockJwt(payload: Record<string, unknown>): string {
   const header = btoa(JSON.stringify({ alg: 'ES256', typ: 'JWT' }))
-  const body = btoa(JSON.stringify(payload)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+  const body = btoa(JSON.stringify(payload))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '')
   return `${header}.${body}.mock-signature`
 }
 
 const MOCK_JWT_PAYLOAD = {
-  sub: 'user-001',
+  sub: USER_ID,
   email: 'dev@bsvibe.dev',
-  app_metadata: { tenant_id: 'tenant-001', role: 'authenticated' },
+  app_metadata: { tenant_id: TENANT, role: 'authenticated' },
   exp: Math.floor(Date.now() / 1000) + 3600,
 }
 
 /**
- * Mock the auth.bsvibe.dev/api/session endpoint AND pre-populate localStorage
- * with a mock JWT BEFORE page navigation. useAuth()'s getAccessToken() checks
- * localStorage before attempting the cross-origin session fetch, so injecting
- * here avoids the fetch entirely (which Playwright's route mock cannot always
- * intercept reliably for cross-origin credentials: 'include' requests).
+ * Inject a mock access token into localStorage + mock the SSO session
+ * endpoint, before the page navigates. ``useAuth.getAccessToken()``
+ * checks localStorage first, so this avoids the cross-origin session
+ * fetch race entirely.
  */
 export async function injectAuth(page: Page) {
-  const mockAccessToken = buildMockJwt(MOCK_JWT_PAYLOAD)
+  const accessToken = buildMockJwt(MOCK_JWT_PAYLOAD)
   await page.addInitScript(
     ({ token }) => {
       localStorage.setItem('bsnexus_access_token', token)
-      localStorage.setItem('bsnexus_refresh_token', 'mock-refresh-token-def456')
+      localStorage.setItem('bsnexus_refresh_token', 'mock-refresh-token')
       localStorage.setItem('bsnexus_expires_at', String(Date.now() + 3600 * 1000))
     },
-    { token: mockAccessToken },
+    { token: accessToken },
   )
   await page.route('**/auth.bsvibe.dev/api/session', (route) => {
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        // Phase B: full SessionEnvelope shape — `@bsvibe/auth`'s useAuth
-        // requires `user`. Without it ProtectedRoute redirects to /login.
-        user: {
-          id: 'user-001',
-          email: 'dev@bsvibe.dev',
-          name: 'Test User',
-        },
+        user: mockUser,
         tenants: [
           {
-            id: 'tenant-001',
+            id: TENANT,
             name: 'Test Tenant',
             slug: 'test',
             plan: 'team',
@@ -95,147 +103,158 @@ export async function injectAuth(page: Page) {
             role: 'admin',
           },
         ],
-        active_tenant_id: 'tenant-001',
-        access_token: mockAccessToken,
-        refresh_token: 'mock-refresh-token-def456',
+        active_tenant_id: TENANT,
+        access_token: accessToken,
+        refresh_token: 'mock-refresh-token',
         expires_in: 3600,
       }),
     })
   })
 }
 
-/** Mock all standard API routes used across the app. */
+const emptyBrief = (projectId: string | null) => ({
+  scope: projectId ? 'project' : 'company',
+  project_id: projectId,
+  generated_at: new Date().toISOString(),
+  shipped: [],
+  needs_decision: [],
+  blocked: [],
+  running: [],
+  next: [],
+})
+
+/**
+ * Mock greenfield surface routes. Returns empty payloads for the
+ * resources the current UI calls on a clean tenant — projects,
+ * directions, requests, decisions, deliverables, brief, runs, events,
+ * workspace files, integrations. Tests that need richer state should
+ * layer ``installFounderMocks`` on top.
+ */
 export async function mockAllApis(page: Page) {
-  // --- Catch-all first (lowest priority) ---
+  // Catch-all first so specific routes take priority.
   await page.route('**/api/v1/**', (route) => {
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({}) })
-  })
-
-  // --- Specific routes (higher priority, registered after catch-all) ---
-
-  // Auth user info
-  await page.route('**/api/v1/auth/me', (route) => {
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockUser) })
-  })
-
-  // Projects list
-  await page.route('**/api/v1/projects', (route) => {
-    if (route.request().method() === 'GET') {
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockProjects) })
-    }
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({}) })
-  })
-
-  // Projects summary (dashboard)
-  await page.route('**/api/v1/dashboard/projects-summary', (route) => {
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockProjectsSummary) })
-  })
-
-  // Single project
-  await page.route('**/api/v1/projects/proj-*', (route) => {
-    const url = route.request().url()
-    const id = url.split('/').pop()
-    const project = mockProjects.find((p) => p.id === id)
-    if (project) {
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(project) })
-    }
-    return route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ detail: 'Not found' }) })
-  })
-
-  // Plan view: tree, agent status, SSE events
-  await page.route('**/api/v1/projects/proj-*/plan-tree/events', (route) => {
-    return route.fulfill({
-      status: 200,
-      contentType: 'text/event-stream',
-      body: 'event: connected\ndata: {}\n\n',
-    })
-  })
-  await page.route('**/api/v1/projects/proj-*/plan-tree', (route) => {
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockPlanTreeResponse) })
-  })
-  await page.route('**/api/v1/projects/proj-*/agent-status', (route) => {
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockAgentStatusCards) })
-  })
-
-  // Task activity feed
-  await page.route('**/api/v1/tasks/*/activity*', (route) => {
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockTaskActivity) })
-  })
-
-  // Design tool (.bsd workspace files)
-  await page.route('**/api/v1/projects/proj-*/design/system', (route) => {
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockDesignSystem) })
-  })
-  await page.route('**/api/v1/projects/proj-*/design/screens/*', (route) => {
-    if (route.request().method() === 'DELETE') {
-      return route.fulfill({ status: 204, body: '' })
-    }
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
-        ...mockDesignScreens[0],
-        intent: null,
-        spec: { root: { type: 'Form' } },
-        generated_code: null,
-      }),
+      body: JSON.stringify({}),
     })
   })
-  await page.route('**/api/v1/projects/proj-*/design/screens', (route) => {
+
+  await page.route('**/api/v1/auth/me', (route) => {
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(mockUser),
+    })
+  })
+
+  await page.route('**/api/v1/projects', (route) => {
+    if (route.request().method() === 'GET') {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(mockProjects),
+      })
+    }
+    if (route.request().method() === 'POST') {
+      return route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify(mockProject),
+      })
+    }
+    return route.fulfill({ status: 405, body: '' })
+  })
+
+  await page.route('**/api/v1/projects/proj-*', (route) => {
+    const url = route.request().url()
+    const id = url.split('/').pop()?.split('?')[0]
+    const project = mockProjects.find((p) => p.id === id)
+    if (project) {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(project),
+      })
+    }
+    return route.fulfill({
+      status: 404,
+      contentType: 'application/json',
+      body: JSON.stringify({ detail: 'Not found' }),
+    })
+  })
+
+  // Greenfield Direction primitive (G1, flat A3).
+  await page.route(/\/api\/v1\/directions(\?|$)/, (route) => {
     if (route.request().method() === 'POST') {
       return route.fulfill({
         status: 201,
         contentType: 'application/json',
         body: JSON.stringify({
-          ...mockDesignScreens[0],
-          intent: null,
-          spec: {},
-          generated_code: null,
+          direction: {
+            id: 'dir-mock',
+            tenant_id: TENANT,
+            project_id: mockProject.id,
+            source: 'mobile_web',
+            actor_id: USER_ID,
+            body: '',
+            target_hint: null,
+            created_at: new Date().toISOString(),
+          },
+          request: null,
+          routing: null,
+          acknowledgement: 'Direction accepted.',
         }),
       })
     }
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockDesignScreens) })
+    return route.fulfill({ status: 405, body: '' })
   })
 
-  // Long-term memory
-  await page.route('**/api/v1/projects/proj-*/memories/*', (route) => {
-    if (route.request().method() === 'DELETE') {
-      return route.fulfill({ status: 204, body: '' })
-    }
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockMemories[0]) })
-  })
-  await page.route('**/api/v1/projects/proj-*/memories*', (route) => {
-    if (route.request().method() === 'POST') {
-      return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(mockMemories[0]) })
-    }
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockMemories) })
+  // Brief, Decisions, Deliverables, Requests, Runs — flat empty defaults.
+  await page.route(/\/api\/v1\/brief(\?|$)/, (route) => {
+    const url = route.request().url()
+    const m = url.match(/[?&]project_id=([^&]+)/)
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(emptyBrief(m ? decodeURIComponent(m[1]) : null)),
+    })
   })
 
-  // Project channels
-  await page.route('**/api/v1/projects/proj-*/channels/*', (route) => {
-    if (route.request().method() === 'DELETE') {
-      return route.fulfill({ status: 204, body: '' })
-    }
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockProjectChannels[0]) })
-  })
-  await page.route('**/api/v1/projects/proj-*/channels', (route) => {
-    if (route.request().method() === 'POST') {
-      return route.fulfill({
-        status: 201,
-        contentType: 'application/json',
-        body: JSON.stringify(mockProjectChannels[0]),
-      })
-    }
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockProjectChannels) })
+  await page.route(/\/api\/v1\/decisions(\?|$)/, (route) => {
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([]),
+    })
   })
 
-  // Plan proposals (empty by default)
-  await page.route('**/api/v1/projects/proj-*/proposals*', (route) => {
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) })
+  await page.route(/\/api\/v1\/deliverables(\?|$)/, (route) => {
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([]),
+    })
   })
 
-  // Project chat SSE events endpoint
-  await page.route('**/api/v1/projects/proj-*/chat/events', (route) => {
+  await page.route(/\/api\/v1\/requests(\?|$)/, (route) => {
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([]),
+    })
+  })
+
+  await page.route(/\/api\/v1\/runs(\?|$)/, (route) => {
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([]),
+    })
+  })
+
+  // Per-project SSE event stream — empty connected.
+  await page.route(/\/api\/v1\/events(\?|$)/, (route) => {
     return route.fulfill({
       status: 200,
       contentType: 'text/event-stream',
@@ -243,145 +262,30 @@ export async function mockAllApis(page: Page) {
     })
   })
 
-  // Project chat history / send / clear
-  await page.route('**/api/v1/projects/proj-*/chat', (route) => {
-    const method = route.request().method()
-    if (method === 'GET') {
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ messages: [] }) })
-    }
-    if (method === 'DELETE') {
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ detail: 'cleared' }) })
-    }
-    // POST — fire-and-forget, returns dispatched agent names
+  // Workspace files — empty tree default.
+  await page.route(/\/api\/v1\/workspace-files\b.*/, (route) => {
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ dispatched_agents: ['CEO'] }),
+      body: JSON.stringify([]),
     })
   })
 
-  // Agents org chart
-  await page.route('**/api/v1/agents/org-chart', (route) => {
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockOrgChart) })
-  })
-
-  // Agents list (glob must match query params like ?active_only=true)
-  await page.route('**/api/v1/agents?*', (route) => {
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockAgents) })
-  })
-  await page.route('**/api/v1/agents', (route) => {
-    if (route.request().method() === 'GET') {
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockAgents) })
-    }
-    // POST — create agent
-    return route.fulfill({
-      status: 201,
-      contentType: 'application/json',
-      body: JSON.stringify({ ...mockAgents[0], id: 'agent-new', name: 'New Agent' }),
-    })
-  })
-
-  // Single agent
-  await page.route('**/api/v1/agents/agent-*', (route) => {
-    const url = route.request().url()
-    const id = url.split('/').pop()
-    const agent = mockAgents.find((a) => a.id === id)
-    if (agent) {
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(agent) })
-    }
-    return route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ detail: 'Not found' }) })
-  })
-
-  // Agent templates
-  await page.route('**/api/v1/agent-templates/*/apply', (route) => {
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockAgents) })
-  })
-  await page.route('**/api/v1/agent-templates/*', (route) => {
+  // Integrations admin (REVIEW_LATER per disposition; redacted defaults).
+  await page.route('**/api/v1/integrations', (route) => {
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        id: 'specialists',
-        name: 'BSNexus Specialists',
-        description: 'Designer / Analyzer / Planner / Memory Keeper',
-        agent_count: 4,
-        agents: [],
+        bsage: { enabled: false, has_api_key: false, base_url: null },
+        bsgateway: { enabled: false, has_api_key: false, base_url: null },
+        bsupervisor: { enabled: false, has_api_key: false, base_url: null },
       }),
     })
   })
-  await page.route('**/api/v1/agent-templates', (route) => {
-    return route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify([
-        { id: 'specialists', name: 'BSNexus Specialists', description: '4 specialist agents', agent_count: 4, agents: [] },
-      ]),
-    })
-  })
-
-  // Workers
-  await page.route('**/api/v1/workers', (route) => {
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockWorkers) })
-  })
-
-  // Goals
-  await page.route('**/api/v1/goals?*', (route) => {
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockGoals) })
-  })
-  await page.route('**/api/v1/goals', (route) => {
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockGoals) })
-  })
-
-  // Budget summary
-  await page.route('**/api/v1/budget/summary', (route) => {
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockBudgetOverview) })
-  })
-
-  // Budget records
-  await page.route('**/api/v1/budget/records*', (route) => {
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockCostRecords) })
-  })
-
-  // Budget reset
-  await page.route('**/api/v1/budget/reset', (route) => {
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ reset_count: 3 }) })
-  })
-
-  // Executor configs (CRUD)
-  await page.route('**/api/v1/executor-configs', (route) => {
-    if (route.request().method() === 'GET') {
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockExecutorConfigs) })
-    }
-    return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(mockExecutorConfigs[0]) })
-  })
-  await page.route('**/api/v1/executor-configs/*', (route) => {
-    const url = route.request().url()
-    const id = url.split('/').pop()
-    const config = mockExecutorConfigs.find((c) => c.id === id)
-    if (route.request().method() === 'DELETE') {
-      return route.fulfill({ status: 204, body: '' })
-    }
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(config || mockExecutorConfigs[0]) })
-  })
-
-  // Install token — actual endpoint is ``/api/v1/workers/install-token``
-  // (the RemoteWorkersSection card mounts ``workersApi.getInstallTokenStatus``
-  // which hits ``src/api/workers.ts``). The legacy ``/settings/install-token``
-  // path was a mock-only artifact.
-  await page.route('**/api/v1/workers/install-token', (route) => {
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockInstallToken) })
-  })
-
-  // Settings
-  await page.route('**/api/v1/settings', (route) => {
-    if (route.request().method() === 'GET') {
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockGlobalSettings) })
-    }
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockGlobalSettings) })
-  })
 }
 
-/** Setup page with auth + API mocks, then navigate. */
+/** Setup page with auth + greenfield API mocks, then navigate. */
 export async function setupPage(page: Page, path: string) {
   await injectAuth(page)
   await mockAllApis(page)
