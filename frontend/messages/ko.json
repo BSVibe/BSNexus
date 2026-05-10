@@ -147,7 +147,8 @@
         "decisions": "의사결정",
         "shipped": "납품",
         "running": "진행",
-        "blocked": "막힘"
+        "blocked": "막힘",
+        "files": "파일"
       },
       "summary": {
         "countsHeading": "한눈에",
@@ -168,6 +169,16 @@
       "noProjectSelected": "선택된 프로젝트가 없습니다.",
       "fallbackTitle": "프로젝트",
       "headerOverflowAria": "프로젝트 동작"
+    },
+    "workspace": {
+      "loading": "불러오는 중…",
+      "emptyDir": "빈 디렉토리입니다.",
+      "treeError": "워크스페이스 트리를 불러오지 못했습니다.",
+      "contentError": "파일 내용을 불러오지 못했습니다.",
+      "binaryNotSupported": "바이너리 파일 — 에디터에서 열어주세요.",
+      "fileTooLarge": "파일이 너무 커서 미리보기 할 수 없습니다.",
+      "selectFileHint": "트리에서 파일을 선택하면 내용을 미리볼 수 있습니다.",
+      "upDirectory": "위로"
     },
     "brief": {
       "timeline": "타임라인",
@@ -204,7 +215,9 @@
       },
       "deliverable": {
         "verifyButton": "재검증",
-        "verifyAria": "이 deliverable 의 검증을 다시 실행"
+        "verifyAria": "이 deliverable 의 검증을 다시 실행",
+        "openInFiles": "파일에서 열기",
+        "openInFilesAria": "이 artifact 를 프로젝트 파일 탭에서 열기"
       }
     },
     "decisionInbox": {

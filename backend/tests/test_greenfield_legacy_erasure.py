@@ -39,7 +39,6 @@ LEGACY_ROUTE_NAMES = {
     "/api/v1/executor-configs",
     "/api/v1/inside/runs",
     "/api/v1/run-summaries",
-    "/api/v1/workspace-files",
     "/mcp/http",
 }
 

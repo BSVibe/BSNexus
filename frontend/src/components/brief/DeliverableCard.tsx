@@ -3,6 +3,8 @@
 import { useTranslations } from 'next-intl'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 
+import { useRouter } from 'next/navigation'
+
 import { Badge } from '../common/Badge'
 import { ProofBadge } from '../common/ProofBadge'
 import { I } from '../../lib/icons'
@@ -43,6 +45,7 @@ function DeliverableTypeIcon({ t }: { t: DeliverableType }) {
  */
 export function DeliverableCard({ d }: { d: BriefDeliverable }) {
   const t = useTranslations('nexus.brief')
+  const router = useRouter()
   const queryClient = useQueryClient()
   const verifyMutation = useMutation({
     mutationFn: () => deliverablesApi.verify(d.id),
@@ -56,6 +59,13 @@ export function DeliverableCard({ d }: { d: BriefDeliverable }) {
   })
 
   const canVerify = Boolean(d.verifier_type)
+  const firstArtifact = d.artifact_refs?.find((a) => a.path)?.path ?? null
+
+  function openInFiles() {
+    if (!firstArtifact) return
+    const params = new URLSearchParams({ tab: 'files', path: firstArtifact })
+    router.push(`/projects/${d.project_id}?${params.toString()}`)
+  }
 
   return (
     <div className="card" style={{ padding: 14 }}>
@@ -112,6 +122,18 @@ export function DeliverableCard({ d }: { d: BriefDeliverable }) {
           </>
         )}
         <span style={{ flex: 1 }} />
+        {firstArtifact && (
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={openInFiles}
+            aria-label={t('deliverable.openInFilesAria')}
+            title={firstArtifact}
+          >
+            <I.Doc size={12} />
+            <span style={{ marginLeft: 4 }}>{t('deliverable.openInFiles')}</span>
+          </button>
+        )}
         {canVerify && (
           <button
             type="button"

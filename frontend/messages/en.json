@@ -147,7 +147,8 @@
         "decisions": "Decisions",
         "shipped": "Shipped",
         "running": "Running",
-        "blocked": "Blocked"
+        "blocked": "Blocked",
+        "files": "Files"
       },
       "summary": {
         "countsHeading": "At a glance",
@@ -168,6 +169,16 @@
       "noProjectSelected": "No project selected.",
       "fallbackTitle": "Project",
       "headerOverflowAria": "Project actions"
+    },
+    "workspace": {
+      "loading": "Loading…",
+      "emptyDir": "Empty directory.",
+      "treeError": "Could not load the workspace tree.",
+      "contentError": "Could not load file content.",
+      "binaryNotSupported": "Binary file — open in your editor.",
+      "fileTooLarge": "File too large to preview here.",
+      "selectFileHint": "Select a file from the tree to preview its contents.",
+      "upDirectory": "Up"
     },
     "brief": {
       "timeline": "Timeline",
@@ -204,7 +215,9 @@
       },
       "deliverable": {
         "verifyButton": "Re-verify",
-        "verifyAria": "Re-run verification for this deliverable"
+        "verifyAria": "Re-run verification for this deliverable",
+        "openInFiles": "Open in Files",
+        "openInFilesAria": "Open this artifact in the project Files tab"
       }
     },
     "decisionInbox": {

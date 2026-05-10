@@ -462,6 +462,15 @@ kbd {
     padding: 16px 12px;
   }
 
+  /* WorkspaceIndex — tree+content side-by-side gets cramped under
+     ~600px. Stack vertically: tree on top (auto-height), content below
+     (flex 1, scrollable). Founder still reaches both panes without a
+     mode toggle. */
+  .workspace-index {
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-rows: auto 1fr !important;
+  }
+
   .brief-view {
     padding-bottom: max(20px, env(safe-area-inset-bottom));
   }
