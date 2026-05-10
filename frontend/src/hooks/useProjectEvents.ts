@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 
 import { API_BASE_URL } from '../api/client'
-import type { Message } from '../api/conversation'
 import { getAccessToken } from './useAuth'
 
 export type ConnectionStatus = 'idle' | 'connecting' | 'open' | 'reconnecting'
@@ -50,47 +49,11 @@ export function useProjectEvents(projectId: string | null): ConnectionStatus {
         // no-op; presence of the event keeps the connection alive
       })
 
-      es.addEventListener('message', (e: MessageEvent) => {
-        try {
-          const data: Message & { type?: string } = JSON.parse(e.data)
-          queryClient.setQueryData<Message[]>(['messages', projectId], (old) => {
-            const list = old ?? []
-            if (list.find((m) => m.id === data.id)) return list
-            return [...list, data].sort(
-              (a, b) =>
-                new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
-            )
-          })
-        } catch {
-          /* ignore parse errors */
-        }
-      })
-
-      es.addEventListener('run_transition', (e: MessageEvent) => {
-        // ExecutionRun status / Inspector view care about these.
+      es.addEventListener('run_transition', () => {
+        // Brief surfaces ``running``/``blocked`` runs via /api/v1/runs;
+        // refetch on every transition.
         queryClient.invalidateQueries({ queryKey: ['runs', projectId] })
-
-        // Prune the run-output live cache once the run reaches a
-        // terminal state — the persisted ``run.output_ref`` takes over
-        // rendering and the streamed text is no longer needed. Without
-        // this, every completed run leaks its full streamed text into
-        // the react-query cache forever (Inside-session LRU only).
-        try {
-          const data: { run_id?: string; to?: string } = JSON.parse(e.data ?? '{}')
-          if (data.run_id && (data.to === 'done' || data.to === 'blocked')) {
-            queryClient.setQueryData<Record<string, string>>(
-              ['run-output', projectId],
-              (old) => {
-                if (!old || !data.run_id || !(data.run_id in old)) return old
-                const next = { ...old }
-                delete next[data.run_id]
-                return next
-              },
-            )
-          }
-        } catch {
-          /* ignore parse errors */
-        }
+        queryClient.invalidateQueries({ queryKey: ['brief', projectId] })
       })
 
       es.addEventListener('deliverable', () => {
@@ -117,26 +80,6 @@ export function useProjectEvents(projectId: string | null): ConnectionStatus {
         // Inside panel flips its blocked banner.
         queryClient.invalidateQueries({ queryKey: ['decisions', projectId] })
         queryClient.invalidateQueries({ queryKey: ['runs', projectId] })
-      })
-
-      es.addEventListener('run_output', (e: MessageEvent) => {
-        // Direction reset 2026-05-03 — Inside panel live streaming.
-        // BSGatewayAdapter pushes each delta.content chunk as a
-        // run_output event. Append onto the per-run output cache.
-        try {
-          const data: { run_id: string; content: string; finish_reason: string | null } =
-            JSON.parse(e.data)
-          queryClient.setQueryData<Record<string, string>>(
-            ['run-output', projectId],
-            (old) => {
-              const next = { ...(old ?? {}) }
-              next[data.run_id] = (next[data.run_id] ?? '') + data.content
-              return next
-            },
-          )
-        } catch {
-          /* ignore parse errors */
-        }
       })
 
       es.onerror = () => {

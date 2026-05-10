@@ -11,7 +11,7 @@ import { projectsApi, type Project } from '../../api/projects'
 import type { DirectionAckResponse, DirectionRoutingPrompt } from '../../types/founder'
 
 /**
- * DirectionInputCard — greenfield G7 mobile-first founder primitive.
+ * DirectionInputCard — greenfield Direction primitive (G7 #92).
  *
  * Founder types a short directive ("Add a /healthz endpoint") and the
  * server (POST /api/v1/directions, G1 from PR #86) opens a Request when
@@ -19,13 +19,21 @@ import type { DirectionAckResponse, DirectionRoutingPrompt } from '../../types/f
  * server returns a routing prompt; the card switches to a project
  * picker so the founder can disambiguate without leaving the surface.
  *
+ * Two surfaces use this card:
+ * - Dashboard — no ``boundProject``; the server picks among all
+ *   tenant projects, optionally returning a routing prompt.
+ * - ProjectPage Brief tab — passes ``boundProject``; the directive
+ *   is implicitly scoped to that project, replacing the legacy
+ *   chat-rail ``GlobalChat`` surface that retired with conversation.ts.
+ *
  * Touch-target floor: submit button + routing option buttons keep the
  * 44 × 44 CSS pixel WCAG 2.5.5 AAA / Apple HIG minimum on mobile.
- *
- * Flat A3 endpoint shape — this card does not call the legacy
- * /api/v1/messages chat pipeline.
  */
-export function DirectionInputCard() {
+export interface DirectionInputCardProps {
+  boundProject?: Project | null
+}
+
+export function DirectionInputCard({ boundProject = null }: DirectionInputCardProps = {}) {
   const t = useTranslations('nexus.dashboard.direction')
   const router = useRouter()
   const queryClient = useQueryClient()
@@ -38,6 +46,7 @@ export function DirectionInputCard() {
   const { data: projects = [] } = useQuery<Project[]>({
     queryKey: ['projects'],
     queryFn: projectsApi.list,
+    enabled: boundProject == null,
   })
 
   const mutation = useMutation({
@@ -74,9 +83,12 @@ export function DirectionInputCard() {
     if (!trimmed) return
     setAck(null)
     setPendingBody(trimmed)
-    // When exactly one project exists we can pre-bind it; otherwise let
+    // Bound surface (ProjectPage) — pre-bind the active project so the
+    // server skips the routing prompt. Free surface (Dashboard) — only
+    // pre-bind when the founder has exactly one project, otherwise let
     // the server decide between routing prompt and implicit selection.
-    const projectId = projectsAvailable === 1 ? projects[0].id : null
+    const projectId = boundProject?.id
+      ?? (projectsAvailable === 1 ? projects[0].id : null)
     mutation.mutate({ body: trimmed, project_id: projectId })
   }
 

@@ -3,12 +3,11 @@
 import { useTranslations } from 'next-intl'
 import { useRouter, useSearchParams } from 'next/navigation'
 
-import ExecutorsSection from '../settings/ExecutorsSection'
 import IntegrationsTab from '../settings/IntegrationsTab'
 import LanguageSwitcher from '../settings/LanguageSwitcher'
 import { I } from '../../lib/icons'
 
-type SectionId = 'integrations' | 'executors' | 'language'
+type SectionId = 'integrations' | 'language'
 
 interface Section {
   id: SectionId
@@ -17,12 +16,11 @@ interface Section {
 
 const SECTIONS: Section[] = [
   { id: 'integrations', icon: I.Zap },
-  { id: 'executors', icon: I.Brain },
   { id: 'language', icon: I.Settings },
 ]
 
 function parseSection(raw: string | null): SectionId {
-  if (raw === 'executors' || raw === 'language') return raw
+  if (raw === 'language') return raw
   return 'integrations'
 }
 
@@ -65,7 +63,6 @@ export default function SettingsPage() {
             <div className="page-sub">{t(`sections.${activeSection.id}.summary`)}</div>
           </div>
           {active === 'integrations' && <IntegrationsTab />}
-          {active === 'executors' && <ExecutorsSection />}
           {active === 'language' && <LanguageSwitcher />}
         </div>
       </div>

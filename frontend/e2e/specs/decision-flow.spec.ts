@@ -11,16 +11,14 @@ import {
 } from '../helpers/founder-mock'
 
 /**
- * Decision flow — the BSGateway worker's claude CLI calls back into
- * BSNexus via MCP ``decision.create`` to surface a fork to the
- * founder, then ``decision.wait`` blocks until the founder resolves
- * via the Decisions tab. This e2e validates the founder side: a
- * Decision row appears, the ``Resolve`` button posts to
- * ``/api/v1/decisions/{id}/resolve``, and the row flips to resolved.
+ * Decision flow — when a run blocks on a fork, BSNexus surfaces the
+ * decision in the founder Decisions tab. This e2e validates the
+ * founder-side UI against the flat A3 endpoints:
+ *   - A blocking decision row appears
+ *   - Tapping an option posts to ``/api/v1/decisions/{id}/resolve``
+ *   - Resolution flips the row to the resolved state
  *
- * The MCP / queue / unblock part is covered by backend
- * ``test_mcp_decision_queue`` + ``test_mcp_tools``; this test only
- * exercises the UI surface end-to-end.
+ * The MCP / queue / unblock side is covered by backend tests.
  */
 
 const PROJECT_ID = 'proj-decision-flow'
@@ -61,58 +59,51 @@ test.describe('Decision flow — founder resolves a blocking decision', () => {
     )
 
     await installFounderMocks(page, state)
-
     await page.goto(`/projects/${PROJECT_ID}?tab=decisions`)
 
-    // Decision card with the question text appears.
-    await expect(page.getByText('Magic links or password+2FA?')).toBeVisible()
-    // Both options render as resolve buttons.
+    await expect(page.getByText('Magic links or password+2FA?')).toBeVisible({ timeout: 10_000 })
     const magicBtn = page.getByRole('button', { name: 'Magic links' })
     const passwordBtn = page.getByRole('button', { name: 'Password + 2FA' })
     await expect(magicBtn).toBeVisible()
     await expect(passwordBtn).toBeVisible()
 
-    // Click the founder's pick.
     await magicBtn.click()
 
-    // Backend mock recorded a POST to /resolve with the chosen option.
-    await expect.poll(() => state.posts.length).toBeGreaterThan(0)
+    await expect.poll(() => state.posts.length, { timeout: 5000 }).toBeGreaterThan(0)
     const resolvePost = state.posts.find((p) => p.url.includes('/decisions/dec-1/resolve'))
     expect(resolvePost).toBeDefined()
     expect((resolvePost!.body as { resolution: string }).resolution).toBe('Magic links')
 
-    // After invalidation, the decision row flips to the "resolved" badge
-    // (the mock mutated state.decisions[0].resolution + resolved_at).
+    // The card flips to resolved — option buttons disappear.
     await expect(page.getByRole('button', { name: 'Magic links' })).toHaveCount(0)
   })
 
-  test('SSE decision_resolved event dismisses the row without a manual click', async ({ page }) => {
+  test('SSE decision_resolved event renders the row in resolved state', async ({ page }) => {
     /**
      * The resolve API broadcasts ``decision_resolved`` on the project
-     * SSE bus. A second BSNexus tab (or another founder) should see
-     * the row dismiss without needing the local mutation to fire.
-     *
-     * We simulate this by pre-loading the decision as resolved in the
-     * SSE feed and asserting the UI doesn't render the action buttons.
+     * SSE bus. A second BSNexus tab should see the row in the resolved
+     * section without needing a manual click — pre-loading the
+     * decision as resolved in the SSE feed mirrors that.
      */
     await blockSSORedirect(page)
     await injectAuth(page)
 
     const state = makeFounderState(PROJECT_ID, 'Decision Flow')
-    const dec = makeDecision({
-      id: 'dec-2',
-      project_id: PROJECT_ID,
-      question: 'Postgres or SQLite?',
-      options: ['Postgres', 'SQLite'],
-      resolution: 'Postgres',
-      resolved_by: 'founder@test',
-      resolved_at: new Date().toISOString(),
-    })
-    state.decisions.push(dec)
+    state.decisions.push(
+      makeDecision({
+        id: 'dec-2',
+        project_id: PROJECT_ID,
+        question: 'Postgres or SQLite?',
+        options: ['Postgres', 'SQLite'],
+        resolution: 'Postgres',
+        resolved_by: 'founder@test',
+        resolved_at: new Date().toISOString(),
+      }),
+    )
     state.sseEvents.push(
       sseEvent('decision_resolved', {
         type: 'decision_resolved',
-        id: dec.id,
+        id: 'dec-2',
         resolution: 'Postgres',
         resolved_by: 'founder@test',
       }),
@@ -121,9 +112,8 @@ test.describe('Decision flow — founder resolves a blocking decision', () => {
     await installFounderMocks(page, state)
     await page.goto(`/projects/${PROJECT_ID}?tab=decisions`)
 
-    // The question still surfaces (in the resolved section), but no
-    // resolve buttons exist because resolved_at is set.
-    await expect(page.getByText('Postgres or SQLite?')).toBeVisible()
+    await expect(page.getByText('Postgres or SQLite?')).toBeVisible({ timeout: 10_000 })
+    // No resolve buttons because resolved_at is set.
     await expect(page.getByRole('button', { name: 'Postgres' })).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'SQLite' })).toHaveCount(0)
   })

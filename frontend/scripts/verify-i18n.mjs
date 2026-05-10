@@ -41,6 +41,9 @@ const MIN_KEY_COUNT = 179
 // Plus auth, common, layout, settings, dashboard, project, landing,
 // help, decisionInbox (Home strip).
 const REQUIRED_TOP_NAMESPACES = ['nexus']
+// Greenfield surfaces only. ``chat`` (GlobalChat surface) and
+// ``inside`` (Inspector + run quality / activity / failure-mode) were
+// retired with the legacy purge per file-disposition.md §Frontend.
 const REQUIRED_NEXUS_SUBSECTIONS = [
   'common',
   'auth',
@@ -50,8 +53,6 @@ const REQUIRED_NEXUS_SUBSECTIONS = [
   'project',
   'brief',
   'decisions',
-  'inside',
-  'chat',
   'settings',
   'landing',
 ]

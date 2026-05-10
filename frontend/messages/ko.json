@@ -56,13 +56,6 @@
       "inUse": "사용 중",
       "idle": "대기"
     },
-    "errors": {
-      "loadFailed": "데이터를 불러오지 못했습니다.",
-      "loadIntegrationsFailed": "통합 설정을 불러오지 못했습니다.",
-      "deleteFailed": "삭제에 실패했습니다.",
-      "sendFailed": "전송 실패: {message}. 메시지가 입력창으로 복원되었습니다 — 다시 시도하세요.",
-      "genericTryAgain": "문제가 발생했습니다. 다시 시도하세요."
-    },
     "auth": {
       "signInWithBsvibe": "BSVibe로 로그인",
       "signUp": "가입하기",
@@ -150,8 +143,7 @@
       "tab": {
         "brief": "Brief",
         "files": "파일",
-        "decisions": "의사결정",
-        "inside": "Inside"
+        "decisions": "의사결정"
       },
       "deleteModal": {
         "title": "이 프로젝트를 삭제할까요?",
@@ -270,39 +262,12 @@
         "totalSuffix": "건"
       }
     },
-    "chat": {
-      "header": "회사와 대화",
-      "expand": "채팅 펼치기 (⌘/)",
-      "collapse": "접기 (⌘/)",
-      "openShort": "채팅",
-      "scope": "범위",
-      "scopeAll": "모든 프로젝트",
-      "emptyScope": "이 범위에 아직 대화가 없습니다.",
-      "routingComposing": "라우팅 · 작성 중…",
-      "placeholderDefault": "말을 걸어보세요. 프로젝트를 @멘션하거나 그냥 대화하세요.",
-      "placeholderWithMention": "방향을 더 입력하세요…",
-      "mentionProject": "프로젝트 멘션",
-      "hintAt": "힌트:",
-      "hintTarget": "프로젝트 지정",
-      "send": "전송",
-      "newline": "줄바꿈",
-      "openProjectTitle": "{name} 열기",
-      "inspectRequest": "이 요청 검사",
-      "noProjectMatched": "일치하는 프로젝트가 없습니다 — 라우팅할 프로젝트를 선택하세요:",
-      "workspaceNoProject": "워크스페이스 · 프로젝트 없음",
-      "decisionFooter": "의사결정 탭에서 해결하세요.",
-      "phaseChipFallback": "(이름 없음)"
-    },
     "settings": {
       "title": "설정",
       "sections": {
         "integrations": {
           "label": "통합",
           "summary": "BSNexus를 형제 서비스에 연결합니다. 키는 테넌트 단위로 암호화 저장되며, 키 보유 여부만 응답으로 노출됩니다."
-        },
-        "executors": {
-          "label": "실행기",
-          "summary": "LLM 백엔드와 원격 워커를 등록합니다. LLM 실행기(LiteLLM / BSGateway / claude-code / codex)가 컴포지션 실행을 처리하고, 원격 워커는 설치 토큰으로 등록 후 로컬 CLI로 코딩 실행을 수행합니다."
         },
         "language": {
           "label": "언어",

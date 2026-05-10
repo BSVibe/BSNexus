@@ -8,31 +8,37 @@ import {
   makeFounderState,
   makeRequest,
   makeRun,
-  sseEvent,
   type FounderMockState,
 } from '../helpers/founder-mock'
 
 /**
- * M0 quality suite — five scenarios that each exercise a distinct
- * state-machine path the founder might encounter in the first six
- * weeks of dogfooding. Coverage:
+ * M0 quality suite — BENCHMARK_SPEC per file-disposition.md.
  *
- * 1. happy_path — request → running → done with deliverable
- * 2. blocked_decision — request → blocked-by-decision → resolved → done
- * 3. blocked_error — request → blocked-by-error (e.g. claude failed)
- * 4. empty_content — whitespace-only message: no Request, no Run
- * 5. multiple_requests — two messages in a row → two independent Requests
+ * Locks the UI surface across distinct state-machine paths the founder
+ * might encounter in the first weeks of dogfooding. Real LLM quality
+ * (10/10 product-ready, etc.) is the live M0 harness in
+ * ``backend/src/quality/m0.py``; these specs lock the founder-side UI
+ * so prompt iteration doesn't regress the surface.
  *
- * Real LLM quality (Direction §6 DoD: "10건 중 7건 product-ready") is
- * a manual deploy-time check — these specs lock the UI/state-machine
- * surface so we don't regress it while iterating on prompts.
+ * Greenfield rewrite (file-disposition.md §Frontend E2E Tests
+ * "BENCHMARK_SPEC: keep scenario intent, rewrite runner/assertions"):
+ *
+ *   - All routes go through the flat A3 helper
+ *     (``installFounderMocks``).
+ *   - Inside-panel-only scenarios retired with the Inspector surface;
+ *     ``blocked_error`` now asserts via the Brief ``blocked`` section
+ *     (``BriefView`` reads ``running``/``blocked`` runs from
+ *     ``GET /api/v1/runs``).
+ *   - ``empty_content`` tightens to the ProjectPage empty state — the
+ *     legacy chat-rail FAB / send path retired with GlobalChat.
  */
 
 interface Scenario {
   name: string
   projectId: string
   setup: (state: FounderMockState) => void
-  /** Tab the goto URL targets and the assertion to run after navigate. */
+  /** ProjectPage tab (``brief`` | ``decisions``). */
+  tab: 'brief' | 'decisions'
   verify: (helpers: {
     expectVisible: (text: RegExp | string) => Promise<void>
     expectHidden: (text: RegExp | string) => Promise<void>
@@ -44,9 +50,10 @@ const SCENARIOS: Scenario[] = [
   {
     name: 'happy_path',
     projectId: 'proj-m0-happy',
+    tab: 'brief',
     setup: (s) => {
       s.requests.push(
-        makeRequest({ id: 'req-h', project_id: s.projectId, intent_summary: 'Polish the landing copy' }),
+        makeRequest({ id: 'req-h', project_id: s.projectId, intent_summary: 'Polish landing copy' }),
       )
       s.runs.push(
         makeRun({ id: 'run-h', project_id: s.projectId, request_id: 'req-h', status: 'done' }),
@@ -58,7 +65,10 @@ const SCENARIOS: Scenario[] = [
           request_id: 'req-h',
           title: 'landing-copy.md',
           type: 'doc',
-          status: 'ready',
+          status: 'delivered',
+          proof_state: 'verified',
+          verifier_type: 'doc_lint',
+          verification_exit_code: 0,
         }),
       )
     },
@@ -69,6 +79,7 @@ const SCENARIOS: Scenario[] = [
   {
     name: 'blocked_decision',
     projectId: 'proj-m0-decision',
+    tab: 'decisions',
     setup: (s) => {
       s.requests.push(
         makeRequest({ id: 'req-d', project_id: s.projectId, intent_summary: 'Add auth' }),
@@ -101,6 +112,7 @@ const SCENARIOS: Scenario[] = [
   {
     name: 'blocked_error',
     projectId: 'proj-m0-error',
+    tab: 'brief',
     setup: (s) => {
       s.requests.push(
         makeRequest({ id: 'req-e', project_id: s.projectId, intent_summary: 'Tricky refactor' }),
@@ -111,26 +123,25 @@ const SCENARIOS: Scenario[] = [
           project_id: s.projectId,
           request_id: 'req-e',
           status: 'blocked',
-          error_message: 'BSGateway HTTP error: claude rate-limit retries exhausted',
+          error_message: 'BSGateway HTTP error: rate-limit retries exhausted',
         }),
       )
     },
     verify: async ({ expectVisible }) => {
-      // No deliverable for blocked runs — verify via the Inspector tab,
-      // which lists requests in its sidebar with intent_summary as the
-      // label. This branch sets ``tab=inspector`` in the test harness.
+      // Brief blocked section surfaces the request_intent of every
+      // blocked run (BriefView ``RunRow`` renders ``r.request_intent``).
       await expectVisible(/Tricky refactor/)
     },
   },
   {
-    name: 'empty_content',
+    name: 'empty_state',
     projectId: 'proj-m0-empty',
+    tab: 'brief',
     setup: (_s) => {
-      // No requests / runs / deliverables — empty inbox state.
+      // No state seeded — Brief renders all five sections empty.
     },
     verify: async ({ state }) => {
-      // No POST has been recorded since the page only mounts (test below
-      // sends nothing). Just sanity that the state is in fact empty.
+      // No mutating call has been issued — sanity-check.
       expect(state.posts).toHaveLength(0)
       expect(state.requests).toHaveLength(0)
     },
@@ -138,6 +149,7 @@ const SCENARIOS: Scenario[] = [
   {
     name: 'multiple_requests',
     projectId: 'proj-m0-multi',
+    tab: 'brief',
     setup: (s) => {
       s.requests.push(
         makeRequest({ id: 'req-1', project_id: s.projectId, intent_summary: 'First task' }),
@@ -154,16 +166,8 @@ const SCENARIOS: Scenario[] = [
           request_id: 'req-1',
           title: 'first-output.md',
           type: 'doc',
-          status: 'ready',
-        }),
-      )
-      // Live streaming for the second run.
-      s.sseEvents.push(
-        sseEvent('run_output', {
-          type: 'run_output',
-          run_id: 'r-2',
-          content: 'streaming…',
-          finish_reason: null,
+          status: 'delivered',
+          proof_state: 'verified',
         }),
       )
     },
@@ -183,21 +187,13 @@ test.describe('M0 quality suite — UI surface across state-machine paths', () =
       sc.setup(state)
       await installFounderMocks(page, state)
 
-      // Pick the tab that exercises the assertion path.
-      // - blocked_decision: founder approves on Decisions tab.
-      // - blocked_error / multiple_requests: Inspector lists requests by
-      //   intent_summary in its sidebar — best surface for runs whose
-      //   output never lands as a deliverable.
-      // - happy_path: deliverable appears in Progress timeline.
-      // - empty_content: any tab works; just sanity-checks empty state.
-      let tab: string
-      if (sc.name === 'blocked_decision') tab = 'decisions'
-      else if (sc.name === 'blocked_error') tab = 'inspector'
-      else tab = 'progress'
-      await page.goto(`/projects/${sc.projectId}?tab=${tab}`)
+      const url = sc.tab === 'brief'
+        ? `/projects/${sc.projectId}`
+        : `/projects/${sc.projectId}?tab=${sc.tab}`
+      await page.goto(url)
 
       const expectVisible = async (text: RegExp | string) => {
-        await expect(page.getByText(text).first()).toBeVisible({ timeout: 5000 })
+        await expect(page.getByText(text).first()).toBeVisible({ timeout: 10_000 })
       }
       const expectHidden = async (text: RegExp | string) => {
         await expect(page.getByText(text)).toHaveCount(0)
