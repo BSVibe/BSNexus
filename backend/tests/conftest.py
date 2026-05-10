@@ -85,6 +85,11 @@ async def mock_stream_manager():
     manager.publish = AsyncMock(return_value="mock-message-id")
     manager.publish_project_event = AsyncMock()
     manager.consume = AsyncMock(return_value=[])
+    # SSE fan-out reads via ``tail`` (XREAD without consumer group). The
+    # production primitive returns an empty list on block timeout; tests
+    # mirror that so a busy-loop AsyncMock can't return Mock objects and
+    # poison the generator.
+    manager.tail = AsyncMock(return_value=[])
     manager.acknowledge = AsyncMock()
     manager.initialize_streams = AsyncMock()
     manager.redis = AsyncMock()

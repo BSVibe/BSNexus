@@ -3,13 +3,14 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.core.auth import get_current_user
 from backend.src.core.tenant_context import get_tenant_id
 from backend.src.models import Decision, Project
+from backend.src.queue.streams import RedisStreamManager
 from backend.src.schemas import DecisionResolve, DecisionResponse
 from backend.src.storage.database import get_db
 
@@ -60,6 +61,7 @@ async def list_decisions(
 async def resolve_decision(
     decision_id: uuid.UUID,
     payload: DecisionResolve,
+    request: Request,
     _user=Depends(get_current_user),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),
@@ -74,4 +76,22 @@ async def resolve_decision(
     decision.resolved_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(decision)
+
+    # G7.2 — fan the resolution onto the project's SSE stream so any
+    # other open BSNexus tab dismisses the row without a manual click.
+    # Frontend ``useProjectEvents`` handler invalidates the
+    # ``['decisions', projectId]`` and ``['runs', projectId]`` queries
+    # on this event.
+    stream_manager: RedisStreamManager = request.app.state.stream_manager
+    await stream_manager.publish_project_event(
+        str(decision.project_id),
+        "decision_resolved",
+        {
+            "id": str(decision.id),
+            "project_id": str(decision.project_id),
+            "resolution": decision.resolution,
+            "resolved_by": decision.resolved_by,
+            "resolved_at": decision.resolved_at.isoformat() if decision.resolved_at else None,
+        },
+    )
     return decision
