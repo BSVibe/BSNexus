@@ -150,6 +150,10 @@ def _authz_settings() -> AuthzSettings:
         user_jwt_algorithm=user_jwt_algorithm,
         user_jwt_audience=os.getenv("USER_JWT_AUDIENCE", "authenticated"),
         user_jwt_issuer=os.getenv("USER_JWT_ISSUER"),
+        # Phase 8 §사전 발견 #6 — adopt JWKS URL so verify_user_jwt picks
+        # up Supabase ES256 key rotation without a redeploy. Empty
+        # default leaves the legacy secret/public-key paths intact.
+        user_jwt_jwks_url=settings.user_jwt_jwks_url or None,
         bootstrap_token_hash=settings.bootstrap_token_hash,
         introspection_url=settings.introspection_url,
         introspection_client_id=settings.introspection_client_id,

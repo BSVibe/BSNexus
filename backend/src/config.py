@@ -1,4 +1,5 @@
 from bsvibe_core import BsvibeSettings
+from pydantic import AliasChoices, Field
 from pydantic_settings import SettingsConfigDict
 
 
@@ -124,13 +125,39 @@ class Settings(BsvibeSettings):
     #         bsv_admin_xxx
     #
     # Empty default → bootstrap path is disabled.
-    bootstrap_token_hash: str = ""
+    #
+    # ``BSV_*``-prefixed aliases let prod operators use one consistent
+    # naming scheme across every product Settings class — matches the
+    # alias set on :class:`bsvibe_authz.Settings` (bsvibe-python PR #21)
+    # so a single ``.env`` configures the lib + product layers.
+    bootstrap_token_hash: str = Field(
+        default="",
+        validation_alias=AliasChoices("bootstrap_token_hash", "bsv_bootstrap_token_hash"),
+    )
 
     # RFC 7662 introspection endpoint for opaque ``bsv_sk_*`` tokens.
     # Empty default → opaque path falls through to the JWT verifier.
-    introspection_url: str = ""
-    introspection_client_id: str = ""
-    introspection_client_secret: str = ""
+    introspection_url: str = Field(
+        default="",
+        validation_alias=AliasChoices("introspection_url", "bsv_introspection_url"),
+    )
+    introspection_client_id: str = Field(
+        default="",
+        validation_alias=AliasChoices("introspection_client_id", "bsv_introspection_client_id"),
+    )
+    introspection_client_secret: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "introspection_client_secret", "bsv_introspection_client_secret"
+        ),
+    )
+
+    # User-JWT verification — mirrors bsvibe_authz.Settings. Set to a
+    # JWKS URL (preferred for prod, ES256/RS256 with key rotation) so
+    # ``bsvibe_authz.verify_user_jwt`` picks up the rotated key
+    # automatically. Empty default disables JWKS verification and
+    # falls back to ``user_jwt_secret`` / ``user_jwt_public_key``.
+    user_jwt_jwks_url: str = ""
 
 
 settings = Settings()
