@@ -14,7 +14,7 @@ import {
  * The founder posts a directive via the Direction primitive
  * (``POST /api/v1/directions``); the server opens a Request; the
  * verifier worker stamps a proof state on the resulting Deliverable;
- * the Brief tab surfaces the verified output in the Shipped section.
+ * the Shipped tab on the project page surfaces the verified output.
  *
  * The legacy chat-rail / Inside-panel run-output streaming surface
  * retired with the file-disposition.md greenfield purge — the new
@@ -24,7 +24,7 @@ import {
 const PROJECT_ID = 'proj-golden'
 
 test.describe('Golden path — Direction → Brief deliverable', () => {
-  test('Brief tab shows the verified deliverable', async ({ page }) => {
+  test('Shipped tab shows the verified deliverable', async ({ page }) => {
     await blockSSORedirect(page)
     await injectAuth(page)
 
@@ -52,17 +52,17 @@ test.describe('Golden path — Direction → Brief deliverable', () => {
     )
 
     await installFounderMocks(page, state)
-    await page.goto(`/projects/${PROJECT_ID}`)
+    await page.goto(`/projects/${PROJECT_ID}?tab=shipped`)
 
-    // Default Brief tab renders the deliverable in the shipped section.
+    // Shipped tab renders the verified deliverable card.
     await expect(page.getByText('CONTRIBUTING.md')).toBeVisible({ timeout: 10_000 })
   })
 
-  test('DirectionInputCard on the project Brief tab posts to /api/v1/directions', async ({
+  test('DirectionInputCard on the Direction tab posts to /api/v1/directions', async ({
     page,
     viewport,
   }) => {
-    // The card lives at the top of the Brief tab on every viewport. We
+    // The card lives in the Direction tab on every viewport. We
     // exercise the desktop chrome contract; mobile is covered separately
     // by mobile-founder-flow.spec.ts.
     test.skip(
@@ -80,7 +80,7 @@ test.describe('Golden path — Direction → Brief deliverable', () => {
 
     const state = makeFounderState(PROJECT_ID, 'Golden Path')
     await installFounderMocks(page, state)
-    await page.goto(`/projects/${PROJECT_ID}`)
+    await page.goto(`/projects/${PROJECT_ID}?tab=direction`)
 
     const card = page.getByTestId('direction-input-card')
     await expect(card).toBeVisible({ timeout: 10_000 })
