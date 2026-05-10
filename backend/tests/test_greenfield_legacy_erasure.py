@@ -21,6 +21,7 @@ GREENFIELD_FILES = (
     Path("src/core/domain.py"),
     Path("src/core/state_machines.py"),
     Path("src/core/brief.py"),
+    Path("src/core/deliverables.py"),
     Path("src/core/directions.py"),
     Path("src/core/proof.py"),
     Path("src/core/run_attempts.py"),

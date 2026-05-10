@@ -10,6 +10,7 @@ from backend.src.core.domain import (
     DeliverableStatus,
     DeliverableType,
     DirectionSource,
+    ProofAttemptStatus,
     ProofState,
     RequestStatus,
 )
@@ -94,6 +95,28 @@ class DecisionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class DeliverableCreate(BaseModel):
+    project_id: uuid.UUID
+    request_id: uuid.UUID | None = None
+    work_step_id: uuid.UUID | None = None
+    type: DeliverableType = DeliverableType.code
+    title: str = Field(..., min_length=1)
+    summary: str | None = None
+    artifact_refs: list = Field(default_factory=list)
+    risk_summary: str | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ProofStatusResponse(BaseModel):
+    state: ProofState
+    policy_id: uuid.UUID | None
+    latest_attempt_id: uuid.UUID | None = None
+    latest_attempt_status: ProofAttemptStatus | None = None
+    latest_attempt_summary: str | None = None
+    latest_attempt_completed_at: datetime | None = None
+
+
 class DeliverableResponse(BaseModel):
     id: uuid.UUID
     tenant_id: uuid.UUID
@@ -106,6 +129,7 @@ class DeliverableResponse(BaseModel):
     artifact_refs: list
     proof_state: ProofState
     proof_policy_id: uuid.UUID | None
+    proof_status: ProofStatusResponse | None = None
     status: DeliverableStatus
     risk_summary: str | None
     created_at: datetime
