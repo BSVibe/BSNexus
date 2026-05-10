@@ -52,8 +52,10 @@ test.describe('Production smoke — auth gate', () => {
     expect(resp.status()).toBe(401)
   })
 
-  test('API /api/v1/executor-configs rejects unauth with 401', async ({ request }) => {
-    const resp = await request.get(`${API}/api/v1/executor-configs`)
+  test('API /api/v1/executor-config rejects unauth with 401', async ({ request }) => {
+    // G7.5b/e: route renamed `executor-configs` → `executor-config`
+    // (singular, one config per tenant).
+    const resp = await request.get(`${API}/api/v1/executor-config`)
     expect(resp.status()).toBe(401)
   })
 

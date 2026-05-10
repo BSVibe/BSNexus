@@ -62,10 +62,20 @@ export default defineConfig({
     },
   ],
 
-  webServer: {
-    command: 'pnpm dev',
-    url: 'http://localhost:3000',
-    reuseExistingServer: !process.env.CI,
-    timeout: 120000,
-  },
+  // ``webServer`` only auto-spawns ``pnpm dev`` on :3000 when the
+  // caller has NOT pointed Playwright at an external server via
+  // ``FRONTEND_BASE_URL``. When the env var is set (the standard
+  // local + CI pattern — see ``test:e2e:isolated`` and the demo /
+  // prod build flows in ``Docs/BSNexus/qa/e2e-2026-05-11/findings.md``),
+  // any auto-spawned dev process would write to ``.next/`` and
+  // clobber a parallel ``next start`` build serving on a different
+  // port. Skip it.
+  webServer: process.env.FRONTEND_BASE_URL
+    ? undefined
+    : {
+        command: 'pnpm dev',
+        url: 'http://localhost:3000',
+        reuseExistingServer: !process.env.CI,
+        timeout: 120000,
+      },
 })
