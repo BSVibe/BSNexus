@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from sqlalchemy import select
 
 from backend.src.core.domain import RequestStatus
 from backend.src.models import Direction, Project, Request
@@ -17,7 +18,7 @@ async def _make_project(db_session, tenant_id: uuid.UUID, name: str = "Greenfiel
 
 
 @pytest.mark.asyncio
-async def test_post_direction_persists_without_dispatch(client, db_session, mock_tenant_id):
+async def test_post_direction_with_project_creates_request(client, db_session, mock_tenant_id):
     project = await _make_project(db_session, mock_tenant_id)
 
     resp = await client.post(
@@ -33,13 +34,89 @@ async def test_post_direction_persists_without_dispatch(client, db_session, mock
 
     assert resp.status_code == 201, resp.text
     body = resp.json()
-    assert body["project_id"] == str(project.id)
-    assert body["source"] == "web"
-    assert body["body"] == "Ship a proof-first dashboard"
+    assert body["direction"]["project_id"] == str(project.id)
+    assert body["direction"]["source"] == "web"
+    assert body["direction"]["body"] == "Ship a proof-first dashboard"
+    assert body["request"]["project_id"] == str(project.id)
+    assert body["request"]["origin_direction_id"] == body["direction"]["id"]
+    assert body["request"]["intent"] == "Ship a proof-first dashboard"
+    assert body["request"]["status"] == "open"
+    assert body["routing"] is None
 
-    direction = await db_session.get(Direction, uuid.UUID(body["id"]))
+    direction = await db_session.get(Direction, uuid.UUID(body["direction"]["id"]))
     assert direction is not None
     assert direction.body == "Ship a proof-first dashboard"
+
+    request = await db_session.get(Request, uuid.UUID(body["request"]["id"]))
+    assert request is not None
+    assert request.origin_direction_id == direction.id
+
+
+@pytest.mark.asyncio
+async def test_post_direction_auto_routes_when_single_project(client, db_session, mock_tenant_id):
+    project = await _make_project(db_session, mock_tenant_id)
+
+    resp = await client.post(
+        "/api/v1/directions",
+        json={"source": "mobile_web", "body": "Make the onboarding brief tighter"},
+        headers={"Authorization": "Bearer fake"},
+    )
+
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["direction"]["project_id"] == str(project.id)
+    assert body["request"]["project_id"] == str(project.id)
+    assert body["routing"] is None
+
+
+@pytest.mark.asyncio
+async def test_post_direction_asks_routing_question_when_project_is_ambiguous(
+    client, db_session, mock_tenant_id
+):
+    alpha = await _make_project(db_session, mock_tenant_id, "Alpha")
+    beta = await _make_project(db_session, mock_tenant_id, "Beta")
+
+    resp = await client.post(
+        "/api/v1/directions",
+        json={"source": "web", "body": "Ship the mobile review flow"},
+        headers={"Authorization": "Bearer fake"},
+    )
+
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["direction"]["project_id"] is None
+    assert body["request"] is None
+    assert body["routing"]["required"] is True
+    assert body["routing"]["question"] == "Which project should this direction apply to?"
+    assert {option["project_id"] for option in body["routing"]["options"]} == {
+        str(alpha.id),
+        str(beta.id),
+    }
+
+    stored_requests = (await db_session.execute(select(Request))).scalars().all()
+    assert stored_requests == []
+
+
+@pytest.mark.asyncio
+async def test_post_direction_uses_unique_target_hint(client, db_session, mock_tenant_id):
+    await _make_project(db_session, mock_tenant_id, "Marketing Site")
+    app_project = await _make_project(db_session, mock_tenant_id, "Mobile App")
+
+    resp = await client.post(
+        "/api/v1/directions",
+        json={
+            "source": "web",
+            "body": "Tighten the daily brief card",
+            "target_hint": "mobile",
+        },
+        headers={"Authorization": "Bearer fake"},
+    )
+
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["direction"]["project_id"] == str(app_project.id)
+    assert body["request"]["project_id"] == str(app_project.id)
+    assert body["routing"] is None
 
 
 @pytest.mark.asyncio
