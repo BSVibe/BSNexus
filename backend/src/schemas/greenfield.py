@@ -153,6 +153,7 @@ class BriefDeliverableCard(BaseModel):
     verifier_type: str | None = None
     verified_at: datetime | None = None
     created_at: datetime
+    artifact_refs: list = Field(default_factory=list)
 
 
 class BriefDecisionCard(BaseModel):

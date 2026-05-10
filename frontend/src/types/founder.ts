@@ -199,6 +199,11 @@ export type AuditFailMode = 'open' | 'closed'
 
 export type BriefScope = 'project' | 'company'
 
+export interface ArtifactRef {
+  path: string
+  kind?: string
+}
+
 export interface BriefDeliverable {
   id: string
   project_id: string
@@ -210,6 +215,7 @@ export interface BriefDeliverable {
   verifier_type: string | null
   verified_at: string | null
   created_at: string
+  artifact_refs: ArtifactRef[]
 }
 
 export interface BriefDecision {

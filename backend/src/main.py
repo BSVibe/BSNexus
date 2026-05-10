@@ -22,6 +22,7 @@ from backend.src.api import (
     integrations as integrations_api,
     projects,
     requests_api,
+    workspace_files as workspace_files_api,
 )
 from backend.src.config import settings as app_settings
 from backend.src.core.rate_limiter import RateLimitMiddleware
@@ -183,6 +184,7 @@ _ROUTERS = [
     events_api.router,
     integrations_api.router,
     executor_config_api.router,
+    workspace_files_api.router,
 ]
 
 

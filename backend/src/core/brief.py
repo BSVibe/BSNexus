@@ -214,4 +214,5 @@ async def _deliverable_card(session: AsyncSession, deliverable: Deliverable) -> 
         "verifier_type": attempt.verifier_type if attempt is not None else None,
         "verified_at": verified_at,
         "created_at": deliverable.created_at,
+        "artifact_refs": list(deliverable.artifact_refs or []),
     }

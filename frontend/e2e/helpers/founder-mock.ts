@@ -106,6 +106,7 @@ export interface MockDeliverable {
   proof_refs: Array<{ label: string; type: string; href: string }> | null
   risk_summary: string | null
   verified_at: string | null
+  artifact_refs: Array<{ path: string; kind?: string }>
 }
 
 export interface FounderMockState {
@@ -205,6 +206,7 @@ export function makeDeliverable(
     proof_refs: p.proof_refs ?? null,
     risk_summary: p.risk_summary ?? null,
     verified_at: p.verified_at ?? null,
+    artifact_refs: p.artifact_refs ?? [],
   }
 }
 
@@ -421,6 +423,7 @@ export async function installFounderMocks(page: Page, state: FounderMockState): 
       verifier_type: d.verifier_type,
       verified_at: d.verified_at,
       created_at: d.created_at,
+      artifact_refs: d.artifact_refs ?? [],
     })
     const requestCard = (r: MockRequest) => ({
       id: r.id,
@@ -496,12 +499,16 @@ export async function installFounderMocks(page: Page, state: FounderMockState): 
     })
   })
 
-  // Workspace files — empty tree default.
+  // Workspace files — empty tree default (G7.5c shape).
   await page.route(/\/api\/v1\/workspace-files\b.*/, (route: Route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname.endsWith('/content')) {
+      return route.fulfill({ status: 404, contentType: 'application/json', body: '{}' })
+    }
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify([]),
+      body: JSON.stringify({ path: '', entries: [] }),
     })
   })
 

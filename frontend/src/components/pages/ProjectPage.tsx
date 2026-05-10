@@ -10,15 +10,16 @@ import { Modal } from '../common/Modal'
 import DecisionsView from '../decisions/DecisionsView'
 import { DirectionInputCard } from '../dashboard/DirectionInputCard'
 import SummaryView from '../brief/SummaryView'
+import WorkspaceIndex from '../workspace/WorkspaceIndex'
 import { Section, DeliverableCard, RequestRow, BlockedRow } from '../brief/sections'
 import { briefApi } from '../../api/brief'
 import { projectsApi, type Project } from '../../api/projects'
 import { decisionsApi } from '../../api/founder'
 import type { BriefResponse } from '../../types/founder'
 
-type TabId = 'direction' | 'summary' | 'decisions' | 'shipped' | 'running' | 'blocked'
+type TabId = 'direction' | 'summary' | 'decisions' | 'shipped' | 'running' | 'blocked' | 'files'
 
-const TAB_IDS: TabId[] = ['direction', 'summary', 'decisions', 'shipped', 'running', 'blocked']
+const TAB_IDS: TabId[] = ['direction', 'summary', 'decisions', 'shipped', 'running', 'blocked', 'files']
 
 function parseTab(raw: string | null): TabId {
   if (raw && (TAB_IDS as readonly string[]).includes(raw)) return raw as TabId
@@ -169,6 +170,12 @@ export default function ProjectPage() {
           count={tabCounts.blocked}
           toneRose={(brief?.sections.blocked.length ?? 0) > 0}
         />
+        <TabButton
+          label={t('tab.files')}
+          icon={<I.Doc size={14} />}
+          active={tab === 'files'}
+          onClick={() => setTab('files')}
+        />
         <span style={{ flex: 1, minWidth: 12 }} />
         <div ref={overflowRef} style={{ position: 'relative', marginRight: 8 }}>
           <button
@@ -297,6 +304,12 @@ export default function ProjectPage() {
               ))}
             </Section>
           </div>
+        )}
+        {tab === 'files' && (
+          <WorkspaceIndex
+            projectId={projectId}
+            initialPath={search.get('path')}
+          />
         )}
       </div>
     </div>

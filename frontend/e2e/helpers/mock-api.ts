@@ -264,12 +264,16 @@ export async function mockAllApis(page: Page) {
     })
   })
 
-  // Workspace files — empty tree default.
+  // Workspace files — empty tree default (G7.5c shape).
   await page.route(/\/api\/v1\/workspace-files\b.*/, (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname.endsWith('/content')) {
+      return route.fulfill({ status: 404, contentType: 'application/json', body: '{}' })
+    }
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify([]),
+      body: JSON.stringify({ path: '', entries: [] }),
     })
   })
 

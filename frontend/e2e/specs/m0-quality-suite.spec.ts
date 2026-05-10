@@ -37,8 +37,8 @@ interface Scenario {
   name: string
   projectId: string
   setup: (state: FounderMockState) => void
-  /** ProjectPage tab (``brief`` | ``decisions``). */
-  tab: 'brief' | 'decisions'
+  /** ProjectPage tab (G7.5d: 6 tabs; ``summary`` is the default). */
+  tab: 'summary' | 'decisions' | 'shipped' | 'running' | 'blocked'
   verify: (helpers: {
     expectVisible: (text: RegExp | string) => Promise<void>
     expectHidden: (text: RegExp | string) => Promise<void>
@@ -50,7 +50,7 @@ const SCENARIOS: Scenario[] = [
   {
     name: 'happy_path',
     projectId: 'proj-m0-happy',
-    tab: 'brief',
+    tab: 'shipped',
     setup: (s) => {
       s.requests.push(
         makeRequest({ id: 'req-h', project_id: s.projectId, intent_summary: 'Polish landing copy' }),
@@ -112,7 +112,7 @@ const SCENARIOS: Scenario[] = [
   {
     name: 'blocked_error',
     projectId: 'proj-m0-error',
-    tab: 'brief',
+    tab: 'blocked',
     setup: (s) => {
       // Greenfield Brief surfaces blocked Requests directly. The legacy
       // pattern of seeding a blocked ExecutionRun under an open Request
@@ -136,7 +136,7 @@ const SCENARIOS: Scenario[] = [
   {
     name: 'empty_state',
     projectId: 'proj-m0-empty',
-    tab: 'brief',
+    tab: 'summary',
     setup: (_s) => {
       // No state seeded — Brief renders all five sections empty.
     },
@@ -149,7 +149,7 @@ const SCENARIOS: Scenario[] = [
   {
     name: 'multiple_requests',
     projectId: 'proj-m0-multi',
-    tab: 'brief',
+    tab: 'shipped',
     setup: (s) => {
       s.requests.push(
         makeRequest({ id: 'req-1', project_id: s.projectId, intent_summary: 'First task' }),
@@ -187,7 +187,7 @@ test.describe('M0 quality suite — UI surface across state-machine paths', () =
       sc.setup(state)
       await installFounderMocks(page, state)
 
-      const url = sc.tab === 'brief'
+      const url = sc.tab === 'summary'
         ? `/projects/${sc.projectId}`
         : `/projects/${sc.projectId}?tab=${sc.tab}`
       await page.goto(url)
