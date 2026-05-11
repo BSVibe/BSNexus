@@ -19,11 +19,12 @@ the resolver can return either client without callers branching.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 import structlog
-from bsvibe_llm import LlmClient, LlmSettings, RunAuditMetadata
+from bsvibe_llm import CompletionResult, LlmClient, LlmSettings, RunAuditMetadata
 
 logger = structlog.get_logger(__name__)
 
@@ -80,18 +81,19 @@ class DirectLLMAdapter:
         messages: list[dict[str, Any]],
         metadata: dict[str, Any],
         model: str,
-        workspace_dir: str | None = None,  # noqa: ARG002 — Protocol parity; orchestrator (G6.3) ignores for direct path
-        mcp_servers: dict[str, Any] | None = None,  # noqa: ARG002 — tool loop is G6.3 territory
+        workspace_dir: str | None = None,  # noqa: ARG002 — Protocol parity; tools run dispatcher-side
+        mcp_servers: dict[str, Any] | None = None,  # noqa: ARG002 — MCP is a separate path (BSage / BSGateway side)
+        tools: list[dict[str, Any]] | None = None,
         on_chunk: Callable[[str], Awaitable[None]] | None = None,
     ) -> dict[str, Any]:
         """Run a single completion through ``bsvibe_llm`` (``direct=True``)
         and return the shared executor-client result shape.
 
-        Streaming: ``LlmClient.complete()`` is non-streaming, so the
-        adapter emits one ``on_chunk(text)`` after the full response
-        arrives. Callers that need real-time token-level streaming
-        should use the BSGateway path (which streams natively) until
-        ``bsvibe_llm`` exposes an ``acomplete_stream``.
+        When ``tools`` is provided, the model may emit ``tool_calls``;
+        they're surfaced verbatim in the result dict so the G6.6
+        dispatcher tool loop can dispatch them. Streaming:
+        ``LlmClient.complete()`` is non-streaming, so the adapter emits
+        one ``on_chunk(text)`` after the full response arrives.
         """
         audit_metadata = _coerce_metadata(metadata)
         try:
@@ -100,6 +102,7 @@ class DirectLLMAdapter:
                 metadata=audit_metadata,
                 model=model,
                 direct=True,
+                tools=tools,
             )
         except Exception as exc:
             raise DirectLLMError(f"bsvibe_llm direct dispatch failed: {exc}") from exc
@@ -113,6 +116,7 @@ class DirectLLMAdapter:
             "output_ref": text,
             "actual_cost_cents": 0,
             "finish_reason": result.finish_reason,
+            "tool_calls": _extract_tool_calls(result),
         }
 
 
@@ -159,3 +163,41 @@ def _opt_str(value: Any) -> str | None:
 
 def _opt_int(value: Any) -> int | None:
     return None if value is None else int(value)
+
+
+def _extract_tool_calls(result: CompletionResult) -> list[dict[str, Any]] | None:
+    """Pull OpenAI-style ``tool_calls`` off the underlying litellm
+    response. Returns None when the model returned plain text.
+
+    LiteLLM normalises to ``choices[0].message.tool_calls`` for
+    both providers that support function calling and Ollama tool-call
+    streaming. Arguments come as a JSON string per the OpenAI spec —
+    we parse here so the dispatcher receives a typed dict.
+    """
+    raw = result.raw
+    if raw is None:
+        return None
+    choices = getattr(raw, "choices", None) or []
+    if not choices:
+        return None
+    message = getattr(choices[0], "message", None)
+    if message is None:
+        return None
+    tool_calls = getattr(message, "tool_calls", None)
+    if not tool_calls:
+        return None
+
+    extracted: list[dict[str, Any]] = []
+    for call in tool_calls:
+        call_id = str(getattr(call, "id", "") or "")
+        function = getattr(call, "function", None)
+        name = str(getattr(function, "name", "") or "")
+        raw_args = getattr(function, "arguments", "") or ""
+        try:
+            parsed_args = json.loads(raw_args) if isinstance(raw_args, str) else dict(raw_args)
+        except (TypeError, ValueError):
+            parsed_args = {"_raw_arguments": str(raw_args)}
+        if not isinstance(parsed_args, dict):
+            parsed_args = {"_raw_arguments": raw_args}
+        extracted.append({"id": call_id, "name": name, "arguments": parsed_args})
+    return extracted or None

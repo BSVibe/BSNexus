@@ -111,6 +111,7 @@ class BSGatewayClient:
         model: str,
         workspace_dir: str | None = None,
         mcp_servers: dict[str, Any] | None = None,
+        tools: list[dict[str, Any]] | None = None,  # noqa: ARG002 — BSGateway tool-call wire is a follow-up; G6.6 wires the direct path only
         on_chunk: Callable[[str], Awaitable[None]] | None = None,
     ) -> dict[str, Any]:
         """POST chat completion, stream the response, return aggregated output.
@@ -200,4 +201,7 @@ class BSGatewayClient:
             "output_ref": "".join(parts),
             "actual_cost_cents": 0,
             "finish_reason": finish_reason,
+            # BSGateway tool-call streaming wire is a follow-up; the
+            # dispatcher reads this and skips the tool loop when None.
+            "tool_calls": None,
         }

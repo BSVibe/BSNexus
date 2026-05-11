@@ -35,7 +35,17 @@ class ExecutorClient(Protocol):
             "output_ref": "...assembled assistant text...",
             "actual_cost_cents": int,
             "finish_reason": "stop" | "length" | "tool_calls" | None,
+            "tool_calls": [
+                {"id": "call_xxx", "name": "file_write",
+                 "arguments": {"path": "...", "content": "..."}},
+                ...
+            ] | None,
         }
+
+    ``tool_calls`` is None when the model returned plain text; it's a
+    list when ``finish_reason == "tool_calls"``. Callers (G6.6
+    dispatcher) drive the loop: invoke the tools, append the
+    tool-result messages, and call ``execute`` again.
     """
 
     async def execute(
@@ -46,5 +56,6 @@ class ExecutorClient(Protocol):
         model: str,
         workspace_dir: str | None = None,
         mcp_servers: dict[str, Any] | None = None,
+        tools: list[dict[str, Any]] | None = None,
         on_chunk: Callable[[str], Awaitable[None]] | None = None,
     ) -> dict[str, Any]: ...
