@@ -7,7 +7,14 @@ from backend.src.main import create_app
 
 
 FORBIDDEN_IMPORT_PREFIXES = (
-    "backend.src.core.llm",
+    # G6.2 — ``core.llm`` is now the legitimate greenfield home for the
+    # ``DirectLLMAdapter`` (litellm import is fenced to that package per
+    # the CLAUDE.md two-path LLM dispatch MUST rule). It used to be on
+    # this list because the **legacy** ``core.llm.*`` modules were
+    # retired in the G0 reset, but the greenfield rebuild reuses the
+    # package name. Files like ``proof.py`` / ``run_attempts.py`` still
+    # don't import from it, but enforcement of the fence has moved to
+    # the per-file litellm grep guard below.
     "backend.src.core.dispatcher",
     "backend.src.core.harness",
     "backend.src.core.run_artifacts",
@@ -49,7 +56,10 @@ ABSENT_LEGACY_FILES = (
     Path("src/api/run_summaries.py"),
     Path("src/core/dispatcher.py"),
     Path("src/core/harness.py"),
-    Path("src/core/llm/direct_client.py"),
+    # G6.2 — ``src/core/llm/direct_client.py`` is the greenfield
+    # DirectLLMAdapter (Phase 2b two-path LLM dispatch). It used to be
+    # on the absent-list because the legacy file was retired; the
+    # rebuild is now landed.
     Path("src/core/run_artifacts.py"),
     Path("src/core/run_orchestrator.py"),
     Path("src/core/tools.py"),
@@ -103,3 +113,23 @@ def test_known_legacy_runtime_files_are_removed():
     repo = Path.cwd()
     still_present = [str(path) for path in ABSENT_LEGACY_FILES if (repo / path).exists()]
     assert still_present == []
+
+
+def test_litellm_is_not_imported_directly_by_bsnexus():
+    """CLAUDE.md MUST rule + G6.2 follow-up — BSNexus never imports
+    ``litellm`` directly. ``core/llm/`` now routes through
+    ``bsvibe_llm.LlmClient`` (``direct=True``), which is the shared
+    BSVibe surface that owns retry / fallback / wire-contract. The
+    direct ``litellm`` pin was dropped from ``pyproject.toml``; the
+    package is now only a transitive dep of ``bsvibe-llm``."""
+    repo = Path.cwd()
+    src_root = repo / "src"
+    violations: list[str] = []
+    for path in src_root.rglob("*.py"):
+        for imported in _imports_for(path):
+            if imported == "litellm" or imported.startswith("litellm."):
+                violations.append(f"{path.relative_to(repo)}: {imported}")
+    assert violations == [], (
+        "BSNexus must not import ``litellm`` directly — use "
+        "``bsvibe_llm.LlmClient`` instead. Found leaks: " + str(violations)
+    )

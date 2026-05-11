@@ -51,13 +51,13 @@ dependencies = [
     # release tag once both branches land on main.
     "bsvibe-audit @ git+https://github.com/BSVibe/bsvibe-python.git@main#subdirectory=packages/bsvibe-audit",
     "mcp>=1.0",
-    # Direct-LLM path for ``executor_type=llm_api`` (Phase 2b /
-    # 2026-05-04). PR1 removed litellm because Direction §6 (reset
-    # 2026-05-03) mandated BSGateway-only routing. Company philosophy
-    # revision later that day made BSVibe integration optional, so
-    # BSNexus needs its own provider-agnostic LLM client for the
-    # opt-out path. Used by ``core.llm.direct_client``.
-    "litellm>=1.0.0",
+    # G6.2 (2026-05-11): the direct ``litellm`` pin is gone. BSNexus's
+    # ``DirectLLMAdapter`` now routes through ``bsvibe_llm.LlmClient``
+    # (``direct=True``), which owns the retry / fallback / wire-
+    # contract layer for every BSVibe product. ``litellm`` is a
+    # transitive dep of ``bsvibe-llm``. The ``test_litellm_is_fenced
+    # _to_core_llm`` guard enforces zero direct ``litellm`` imports
+    # under ``backend/src/``.
     # Demo stack helpers — JWT, LLM mock guard, tenant GC, session service.
     # Lives on feat/bsvibe-demo until merged.
     "bsvibe-demo[sqlalchemy] @ git+https://github.com/BSVibe/bsvibe-python.git@main#subdirectory=packages/bsvibe-demo",
