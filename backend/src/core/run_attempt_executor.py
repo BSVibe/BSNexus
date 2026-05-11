@@ -135,9 +135,11 @@ async def dispatch_run_attempt(
         "request_id": str(request.id),
         "project_id": str(request.project_id),
     }
-    messages = _build_messages(request=request, work_step=work_step)
-
     tool_registry = _build_tool_registry(workspace_dir)
+    workspace_overview = _workspace_overview(workspace_dir) if tool_registry is not None else None
+    messages = _build_messages(
+        request=request, work_step=work_step, workspace_overview=workspace_overview
+    )
 
     try:
         output_text = await _run_work_phase(
@@ -262,19 +264,35 @@ async def _finish_unconfigured(*, work_step: WorkStep, session: AsyncSession) ->
     )
 
 
-def _build_messages(*, request: Request, work_step: WorkStep) -> list[dict[str, str]]:
+def _build_messages(
+    *,
+    request: Request,
+    work_step: WorkStep,
+    workspace_overview: str | None = None,
+) -> list[dict[str, str]]:
     expected = "\n".join(f"- {item}" for item in (work_step.expected_outputs or []))
     user_block = f"Request intent:\n{request.intent}\n\nWork step: {work_step.name}\nObjective: {work_step.objective}\n"
     if expected:
         user_block += f"Expected outputs:\n{expected}\n"
+    if workspace_overview:
+        user_block += f"\nWorkspace contents (top-level):\n{workspace_overview}\n"
     return [
         {
             "role": "system",
             "content": (
-                "You are executing a single work step for an AI company. "
-                "Use the tools to read/list/write files in the workspace, run "
-                "shell commands when needed, and finish by sending a short "
-                "plain-text summary (no tool calls) so the verifier can take over."
+                "You execute a single coding work step for an AI company. The user can only "
+                "verify your work via files on disk and the verifier command (usually pytest). "
+                "RULES:\n"
+                "1. You MUST use file_write at least once to create or modify a code file. "
+                "Reading and listing alone are not a deliverable.\n"
+                "2. Plan briefly, then act: pick a target path, write the file, run the verifier "
+                "via shell_exec if useful, then send a one-paragraph plain-text summary (no tool "
+                "calls) to hand off to the verifier.\n"
+                "3. Do not respond with prose explaining what you would do — do it with tools first.\n"
+                "4. If the workspace is empty or sparse, that's expected; create the file you need "
+                "(for example backend/src/api/health.py for a /healthz endpoint).\n"
+                "5. Stay inside the workspace. Path traversal and destructive shell commands are "
+                "blocked at the tool boundary."
             ),
         },
         {"role": "user", "content": user_block},
@@ -289,6 +307,45 @@ def _build_tool_registry(workspace_dir: Path | str | None) -> ToolRegistry | Non
         logger.warning("dispatch_run_attempt_workspace_missing", workspace=str(path))
         return None
     return ToolRegistry(workspace_dir=path)
+
+
+# G6.7 — pass a short workspace tree summary in the first user
+# message so the model doesn't burn rounds listing files just to learn
+# what exists. Recursive, ~120 entries, depth 3, ignores cache dirs.
+_OVERVIEW_IGNORE = {".git", "__pycache__", ".pytest_cache", ".venv", "node_modules", "dist", "build"}
+_OVERVIEW_MAX_ENTRIES = 120
+_OVERVIEW_MAX_DEPTH = 3
+
+
+def _workspace_overview(workspace_dir: Path | str | None) -> str:
+    if workspace_dir is None:
+        return ""
+    root = Path(workspace_dir)
+    if not root.exists():
+        return ""
+    entries: list[str] = []
+
+    def _walk(current: Path, depth: int) -> None:
+        if depth > _OVERVIEW_MAX_DEPTH or len(entries) >= _OVERVIEW_MAX_ENTRIES:
+            return
+        try:
+            children = sorted(current.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
+        except OSError:
+            return
+        for child in children:
+            if child.name in _OVERVIEW_IGNORE or child.name.startswith("."):
+                continue
+            relative = child.relative_to(root).as_posix()
+            entries.append(relative + ("/" if child.is_dir() else ""))
+            if len(entries) >= _OVERVIEW_MAX_ENTRIES:
+                return
+            if child.is_dir():
+                _walk(child, depth + 1)
+
+    _walk(root, 1)
+    if not entries:
+        return "(workspace is empty — you will be creating files from scratch)"
+    return "\n".join(entries)
 
 
 class _ToolLoopTerminated(Exception):

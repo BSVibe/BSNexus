@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Awaitable, Callable, Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from statistics import median
 from typing import Any, Protocol
@@ -573,3 +573,200 @@ DEFAULT_M0_TASKS: tuple[BenchmarkTask, ...] = (
         expected_proof="python -m pytest",
     ),
 )
+
+
+# G6.7 — multi-run aggregation.
+#
+# 2026-05-11 measurement series exposed a third axis of measurement
+# error: same prompt, same workspace, same model → different
+# strict_pass tasks across runs. The single-run M0 gate would have
+# declared a hand-picked run as authoritative. Wrong.
+#
+# Spec evolution: M0 acceptance is now defined over K runs.
+# A task is "stably passing" iff it strict_pass'd in at least
+# ``min_per_task_strict_rate`` (default 0.7) of the K runs. The gate
+# requires:
+#   - ≥ 7 of the 10 M0 tasks are stably passing, AND
+#   - 0 fake_verified events in any of the K runs.
+# Single-run measurement is a special case (K=1, identical to the
+# pre-G6.7 spec).
+
+DEFAULT_AGGREGATE_RUNS = 3
+DEFAULT_MIN_PER_TASK_STRICT_RATE = 0.7
+
+
+@dataclass(frozen=True)
+class TaskRunRate:
+    """Per-task aggregation across K runs of the same suite."""
+
+    task_id: str
+    scenario: ScenarioKind
+    runs_total: int
+    strict_pass_runs: int
+    fake_verified_runs: int
+    verification_failed_runs: int
+    round_cap_blocked_runs: int
+
+    @property
+    def strict_pass_rate(self) -> float:
+        return self.strict_pass_runs / self.runs_total if self.runs_total else 0.0
+
+
+@dataclass(frozen=True)
+class MultiRunReport:
+    """Aggregation across K AcceptanceReports for the same suite.
+
+    ``reports`` are kept verbatim so the JSON archive carries every
+    per-run telemetry row — the aggregator only adds derived fields.
+    """
+
+    reports: list[AcceptanceReport]
+    task_rates: dict[str, TaskRunRate] = field(default_factory=dict)
+    min_per_task_strict_rate: float = DEFAULT_MIN_PER_TASK_STRICT_RATE
+
+    @property
+    def runs_total(self) -> int:
+        return len(self.reports)
+
+    @property
+    def total_strict_pass_cells(self) -> int:
+        return sum(rate.strict_pass_runs for rate in self.task_rates.values())
+
+    @property
+    def total_cells(self) -> int:
+        return sum(rate.runs_total for rate in self.task_rates.values())
+
+    @property
+    def total_fake_verified_cells(self) -> int:
+        return sum(rate.fake_verified_runs for rate in self.task_rates.values())
+
+    @property
+    def m0_passed(self) -> bool:
+        m0_rates = [r for r in self.task_rates.values() if r.scenario == ScenarioKind.m0]
+        if len(m0_rates) != 10:
+            return False
+        any_fake = any(r.fake_verified_runs > 0 for r in m0_rates)
+        stably_passing = sum(1 for r in m0_rates if r.strict_pass_rate >= self.min_per_task_strict_rate)
+        return not any_fake and stably_passing >= 7
+
+    @property
+    def greenfield_exit_ready(self) -> bool:
+        return self.m0_passed
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "runs_total": self.runs_total,
+            "total_strict_pass_cells": self.total_strict_pass_cells,
+            "total_cells": self.total_cells,
+            "total_fake_verified_cells": self.total_fake_verified_cells,
+            "min_per_task_strict_rate": self.min_per_task_strict_rate,
+            "m0_passed": self.m0_passed,
+            "greenfield_exit_ready": self.greenfield_exit_ready,
+            "task_rates": {
+                task_id: {
+                    "task_id": rate.task_id,
+                    "scenario": rate.scenario.value,
+                    "runs_total": rate.runs_total,
+                    "strict_pass_runs": rate.strict_pass_runs,
+                    "fake_verified_runs": rate.fake_verified_runs,
+                    "verification_failed_runs": rate.verification_failed_runs,
+                    "round_cap_blocked_runs": rate.round_cap_blocked_runs,
+                    "strict_pass_rate": rate.strict_pass_rate,
+                }
+                for task_id, rate in self.task_rates.items()
+            },
+            "per_run_summaries": [
+                {
+                    "strict_pass_count": report.strict_pass_count,
+                    "fake_verified_count": report.fake_verified_count,
+                    "round_cap_blocked_count": report.round_cap_blocked_count,
+                    "smoke_passed": report.smoke_passed,
+                    "easy_passed": report.easy_passed,
+                    "medium_passed": report.medium_passed,
+                    "m0_passed": report.m0_passed,
+                }
+                for report in self.reports
+            ],
+            "runs": [report.to_dict() for report in self.reports],
+        }
+
+
+def aggregate_runs(
+    reports: Sequence[AcceptanceReport],
+    *,
+    min_per_task_strict_rate: float = DEFAULT_MIN_PER_TASK_STRICT_RATE,
+) -> MultiRunReport:
+    """Roll K AcceptanceReports into per-task rate cells + a gate
+    verdict. Tasks present in any report are tracked; scenarios are
+    inferred from the first sighting (the suite is expected to be
+    identical across runs)."""
+    runs_total = len(reports)
+    if runs_total == 0:
+        return MultiRunReport(
+            reports=[], task_rates={}, min_per_task_strict_rate=min_per_task_strict_rate
+        )
+
+    strict_counts: dict[str, int] = defaultdict(int)
+    fake_counts: dict[str, int] = defaultdict(int)
+    failed_counts: dict[str, int] = defaultdict(int)
+    capped_counts: dict[str, int] = defaultdict(int)
+    scenarios: dict[str, ScenarioKind] = {}
+
+    for report in reports:
+        for result in report.results:
+            task_id = result.task.id
+            scenarios.setdefault(task_id, result.task.scenario)
+            if result.strict_pass:
+                strict_counts[task_id] += 1
+            if result.fake_verified:
+                fake_counts[task_id] += 1
+            if result.failure_reason == "verification_failed":
+                failed_counts[task_id] += 1
+            if result.round_cap_blocked:
+                capped_counts[task_id] += 1
+
+    task_rates = {
+        task_id: TaskRunRate(
+            task_id=task_id,
+            scenario=scenarios[task_id],
+            runs_total=runs_total,
+            strict_pass_runs=strict_counts[task_id],
+            fake_verified_runs=fake_counts[task_id],
+            verification_failed_runs=failed_counts[task_id],
+            round_cap_blocked_runs=capped_counts[task_id],
+        )
+        for task_id in scenarios
+    }
+    return MultiRunReport(
+        reports=list(reports),
+        task_rates=task_rates,
+        min_per_task_strict_rate=min_per_task_strict_rate,
+    )
+
+
+def render_multi_run_markdown(report: MultiRunReport) -> str:
+    """Render a markdown summary of a multi-run aggregate."""
+    lines = [
+        "# BSNexus M0 Quality Report (multi-run)",
+        "",
+        f"- runs: {report.runs_total}",
+        f"- strict_pass cells: {report.total_strict_pass_cells}/{report.total_cells}",
+        f"- fake_verified cells: {report.total_fake_verified_cells}",
+        f"- min_per_task_strict_rate threshold: {report.min_per_task_strict_rate:.2f}",
+        f"- m0_passed: {report.m0_passed}",
+        f"- greenfield_exit_ready: {report.greenfield_exit_ready}",
+        "",
+        "| task | scenario | strict_pass_rate | fake_runs | failed_runs | capped_runs |",
+        "| --- | --- | ---: | ---: | ---: | ---: |",
+    ]
+    ordered = sorted(report.task_rates.values(), key=lambda r: (r.scenario.value, r.task_id))
+    for rate in ordered:
+        lines.append(
+            f"| {rate.task_id} | {rate.scenario.value} | "
+            f"{rate.strict_pass_runs}/{rate.runs_total} "
+            f"({rate.strict_pass_rate:.2f}) | "
+            f"{rate.fake_verified_runs} | "
+            f"{rate.verification_failed_runs} | "
+            f"{rate.round_cap_blocked_runs} |"
+        )
+    return "\n".join(lines) + "\n"
