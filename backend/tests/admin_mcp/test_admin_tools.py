@@ -80,7 +80,7 @@ class TestProjectsCreate:
         call = lb.await_args
         assert call.args[1] == "POST"
         assert call.args[2] == "/projects"
-        assert call.kwargs["body"] == {"name": "alpha", "description": "hi", "settings": {}}
+        assert call.kwargs["body"] == {"name": "alpha", "description": "hi"}
         assert result == {"id": "p1", "name": "alpha"}
 
 

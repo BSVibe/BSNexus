@@ -61,16 +61,26 @@ class ProjectsShowInput(BaseModel):
 
 
 class ProjectsCreateInput(BaseModel):
+    """Mirrors REST :class:`backend.src.schemas.project.ProjectCreate`
+    (``extra="forbid"``) — no ``settings`` field on this resource;
+    integrations are wired via ``bsage_workspace_id`` /
+    ``bsupervisor_policy_id`` instead."""
+
     name: str = Field(min_length=1, max_length=255)
-    description: str = ""
-    settings: dict[str, Any] = Field(default_factory=dict)
+    description: str = Field("", max_length=10_000)
+    bsage_workspace_id: str | None = None
+    bsupervisor_policy_id: str | None = None
 
 
 class ProjectsUpdateInput(BaseModel):
+    """Mirrors REST :class:`backend.src.schemas.project.ProjectUpdate`."""
+
     project_id: UUID
     name: str | None = None
     description: str | None = None
-    settings: dict[str, Any] | None = None
+    status: str | None = None
+    bsage_workspace_id: str | None = None
+    bsupervisor_policy_id: str | None = None
 
 
 class ProjectsDeleteInput(BaseModel):
@@ -135,11 +145,10 @@ def _h_projects_show(lb: LoopbackCaller):
 
 def _h_projects_create(lb: LoopbackCaller):
     async def handler(args: ProjectsCreateInput, ctx: ToolContext) -> AdminToolResponse:
-        body = {
-            "name": args.name,
-            "description": args.description,
-            "settings": dict(args.settings),
-        }
+        # Use model_dump so only the fields the REST schema knows about
+        # land in the body. REST ProjectCreate has extra="forbid", so any
+        # stray key would 422.
+        body = args.model_dump(exclude_none=True, mode="json")
         return _ok(await lb(ctx, "POST", "/projects", body=body))
 
     return handler
@@ -151,7 +160,10 @@ def _h_projects_update(lb: LoopbackCaller):
         if not body:
             raise ToolError(
                 code="invalid_input",
-                message="at least one field (name/description/settings) is required",
+                message=(
+                    "at least one field (name / description / status / "
+                    "bsage_workspace_id / bsupervisor_policy_id) is required"
+                ),
             )
         return _ok(await lb(ctx, "PATCH", f"/projects/{args.project_id}", body=body))
 
