@@ -58,9 +58,33 @@ async def resolve_executor(
         return BSGatewayClient(base_url=base_url, api_key=api_key)
 
     if config.kind == ExecutorKind.llm_api:
-        return DirectLLMAdapter(base_url=config.base_url, api_key=api_key)
+        return DirectLLMAdapter(
+            base_url=config.base_url,
+            api_key=api_key,
+            temperature=_extract_temperature(config),
+        )
 
     raise ExecutorConfigError(f"Unknown executor kind: {config.kind!r}")
+
+
+def _extract_temperature(config: ExecutorConfig) -> float | None:
+    """Read optional ``extra_config["temperature"]`` so per-tenant
+    determinism (set 0.0 for reproducible M0 measurement runs) can
+    travel through the resolver without a schema migration. Returns
+    ``None`` when unset so litellm falls back to the provider default."""
+    extra = config.extra_config or {}
+    raw = extra.get("temperature")
+    if raw is None:
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        logger.warning(
+            "executor_config_temperature_invalid",
+            tenant_id=str(config.tenant_id),
+            raw=str(raw),
+        )
+        return None
 
 
 def _decrypt_api_key(config: ExecutorConfig) -> str:

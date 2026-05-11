@@ -56,6 +56,7 @@ class DirectLLMAdapter:
         *,
         base_url: str | None,
         api_key: str,
+        temperature: float | None = None,
         client: LlmClient | None = None,
     ) -> None:
         # ``base_url`` is None when the SaaS provider's endpoint is
@@ -63,6 +64,7 @@ class DirectLLMAdapter:
         # for self-host runtimes (Ollama, vLLM).
         self._base_url = base_url
         self._api_key = api_key
+        self._temperature = temperature
         if client is not None:
             self._client = client
         else:
@@ -103,6 +105,7 @@ class DirectLLMAdapter:
                 model=model,
                 direct=True,
                 tools=tools,
+                temperature=self._temperature,
             )
         except Exception as exc:
             raise DirectLLMError(f"bsvibe_llm direct dispatch failed: {exc}") from exc
