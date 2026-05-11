@@ -44,11 +44,14 @@ from backend.src.config import settings as app_settings
 from backend.src.core.executor_config.resolver import resolve_executor
 from backend.src.models.executor_config import ExecutorConfig
 from backend.src.quality.m0 import (
+    DEFAULT_MIN_PER_TASK_STRICT_RATE,
     BenchmarkTask,
+    aggregate_runs,
     default_tasks,
-    evaluate_task_result,
     evaluate_results,
+    evaluate_task_result,
     render_markdown_report,
+    render_multi_run_markdown,
 )
 from backend.src.quality.m0_executor import BridgeConfig, measure_task
 
@@ -61,9 +64,13 @@ async def run_live_measurement(
     workspace_root: Path,
     database_url: str | None = None,
     tasks: list[BenchmarkTask] | None = None,
+    runs: int = 1,
+    min_per_task_strict_rate: float = DEFAULT_MIN_PER_TASK_STRICT_RATE,
 ) -> dict:
-    """Run all M0 tasks against the per-tenant executor config and
-    return the :class:`AcceptanceReport.to_dict()` JSON payload."""
+    """Run the M0 suite K times against the per-tenant executor and
+    return both the per-run reports and the aggregated multi-run
+    verdict. K=1 keeps the single-run JSON shape backward-compatible
+    via the ``report`` key, plus adds ``multi_run`` always."""
     url = database_url or app_settings.database_url
     engine = create_async_engine(url, echo=False)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -95,25 +102,36 @@ async def run_live_measurement(
         session_factory=session_factory,
     )
 
-    results = []
-    for task in tasks or default_tasks():
-        logger.info("m0_live_task_start", task=task.id, scenario=task.scenario.value)
-        telemetry = await measure_task(task=task, config=bridge_config)
-        result = evaluate_task_result(task, telemetry)
-        results.append(result)
-        logger.info(
-            "m0_live_task_done",
-            task=task.id,
-            proof_state=telemetry.proof_state.value,
-            strict_pass=result.strict_pass,
-            failure_reason=result.failure_reason,
-        )
+    task_list = list(tasks) if tasks is not None else list(default_tasks())
+    per_run_reports = []
+    for run_index in range(runs):
+        logger.info("m0_live_run_start", run_index=run_index + 1, runs_total=runs)
+        results = []
+        for task in task_list:
+            logger.info(
+                "m0_live_task_start", run_index=run_index + 1, task=task.id, scenario=task.scenario.value
+            )
+            telemetry = await measure_task(task=task, config=bridge_config)
+            result = evaluate_task_result(task, telemetry)
+            results.append(result)
+            logger.info(
+                "m0_live_task_done",
+                run_index=run_index + 1,
+                task=task.id,
+                proof_state=telemetry.proof_state.value,
+                strict_pass=result.strict_pass,
+                failure_reason=result.failure_reason,
+            )
+        per_run_reports.append(evaluate_results(results))
 
-    report = evaluate_results(results)
     await engine.dispose()
+    multi = aggregate_runs(per_run_reports, min_per_task_strict_rate=min_per_task_strict_rate)
     return {
-        "markdown": render_markdown_report(report),
-        "report": report.to_dict(),
+        "markdown": render_multi_run_markdown(multi)
+        if runs > 1
+        else render_markdown_report(per_run_reports[0]),
+        "report": per_run_reports[0].to_dict() if runs == 1 else None,
+        "multi_run": multi.to_dict(),
     }
 
 
@@ -133,6 +151,21 @@ def _build_argparser() -> argparse.ArgumentParser:
         "--database-url",
         help="Override DATABASE_URL (defaults to the backend's settings.database_url)",
     )
+    parser.add_argument(
+        "--runs",
+        type=int,
+        default=1,
+        help=(
+            "Number of full-suite repetitions for multi-run aggregation (default 1). "
+            "M0 gate evaluates per-task strict_pass rate across K runs."
+        ),
+    )
+    parser.add_argument(
+        "--min-strict-rate",
+        type=float,
+        default=DEFAULT_MIN_PER_TASK_STRICT_RATE,
+        help="Per-task strict_pass rate threshold for stable passing (default 0.7)",
+    )
     return parser
 
 
@@ -149,13 +182,18 @@ async def _amain(argv: list[str]) -> int:
         tenant_id=uuid.UUID(args.tenant_id),
         workspace_root=workspace_root,
         database_url=args.database_url,
+        runs=args.runs,
+        min_per_task_strict_rate=args.min_strict_rate,
     )
     print(payload["markdown"])
 
     if args.output:
-        Path(args.output).write_text(json.dumps(payload["report"], indent=2, default=str))
+        archive = {"multi_run": payload["multi_run"]}
+        if payload["report"] is not None:
+            archive["report"] = payload["report"]
+        Path(args.output).write_text(json.dumps(archive, indent=2, default=str))
 
-    return 0 if payload["report"]["greenfield_exit_ready"] else 1
+    return 0 if payload["multi_run"]["greenfield_exit_ready"] else 1
 
 
 def main(argv: list[str] | None = None) -> int:
