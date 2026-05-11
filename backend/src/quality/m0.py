@@ -37,6 +37,14 @@ class BenchmarkTask:
     prompt: str
     expected_proof: str
     allow_human_review: bool = False
+    # G6.9 — optional per-task fixture: relative_path → file content.
+    # When set, the bridge resets ``workspace_root`` to exactly this
+    # tree before the LLM runs, so each task starts from a concrete
+    # broken state (failing test + half-written code) instead of
+    # forcing the model to invent everything from scratch. Default
+    # (None) preserves the bare-workspace behavior G6.7/G6.8
+    # measured against.
+    seed_workspace: dict[str, str] | None = field(default=None, hash=False, compare=False)
 
 
 @dataclass(frozen=True)
@@ -250,6 +258,8 @@ def _failure_reason(telemetry: TaskTelemetry, fake_verified: bool, round_cap_blo
         return "fake_verified"
     if round_cap_blocked:
         return "round_cap_blocked"
+    if "failed_nonconvergent" in telemetry.terminal_reason or "nonconvergent" in telemetry.terminal_reason:
+        return "nonconvergent"
     if telemetry.proof_state == ProofState.verification_failed:
         return "verification_failed"
     if telemetry.proof_state == ProofState.human_review_required:
@@ -456,12 +466,34 @@ DEFAULT_M0_TASKS: tuple[BenchmarkTask, ...] = (
         kind=TaskKind.regression,
         title="Restore /healthz after auth refactor",
         prompt=(
-            "Our production smoke test broke after the auth refactor — the /healthz route "
-            "returns 401 instead of 200. Restore the public health endpoint so it returns "
-            '{"status": "ok"} with HTTP 200 even without an Authorization header, and add a '
-            "regression test so we don't lose this again."
+            "Our production smoke test broke after the auth refactor — the health endpoint "
+            "no longer returns the expected status. Make ``healthz()`` in ``src/api.py`` "
+            "return ``{'status': 'ok'}`` so the existing regression test passes."
         ),
         expected_proof="python -m pytest",
+        seed_workspace={
+            "pyproject.toml": (
+                "[project]\nname = 'm0-1-healthz'\nversion = '0.0.0'\n"
+                "requires-python = '>=3.11'\n"
+            ),
+            "src/__init__.py": "",
+            "src/api.py": (
+                '"""Health API.\n\n'
+                "The /healthz endpoint was broken during the auth refactor — it now\n"
+                "returns the wrong shape. The single regression test in tests/test_healthz.py\n"
+                "pins the expected behavior.\n"
+                '"""\n\n\n'
+                "def healthz() -> dict:\n"
+                '    # BUG: should return {"status": "ok"}\n'
+                '    return {"status": "broken"}\n'
+            ),
+            "tests/__init__.py": "",
+            "tests/test_healthz.py": (
+                "from src.api import healthz\n\n\n"
+                "def test_healthz_returns_ok():\n"
+                '    assert healthz() == {"status": "ok"}\n'
+            ),
+        },
     ),
     BenchmarkTask(
         id="m0-2",
@@ -469,10 +501,39 @@ DEFAULT_M0_TASKS: tuple[BenchmarkTask, ...] = (
         kind=TaskKind.typo_docstring,
         title="Fix 'recieve' → 'receive' across docstrings",
         prompt=(
-            'There are several Python docstrings that misspell "receive" as "recieve". '
-            "Find every occurrence in src/ and fix them. Don't touch test files."
+            'Several Python docstrings in src/ misspell "receive" as "recieve". '
+            "Find every occurrence in src/*.py and fix them so the regression test passes."
         ),
-        expected_proof="syntax_or_test",
+        expected_proof="python -m pytest",
+        seed_workspace={
+            "pyproject.toml": "[project]\nname = 'm0-2-typo'\nversion = '0.0.0'\nrequires-python = '>=3.11'\n",
+            "src/__init__.py": "",
+            "src/sender.py": (
+                '"""Sender module — utilities for sending and recieving messages."""\n\n\n'
+                "def receive_payload(channel):\n"
+                '    """Recieve a payload from a channel."""\n'
+                '    return {"channel": channel}\n\n\n'
+                "def send_payload(channel, payload):\n"
+                '    """Send a payload via a channel; the recieving end is the listener."""\n'
+                '    return {"channel": channel, "payload": payload}\n\n\n'
+                "def acknowledge():\n"
+                '    """Acknowledge a recieved payload."""\n'
+                "    return True\n"
+            ),
+            "tests/__init__.py": "",
+            "tests/test_no_typos.py": (
+                "import pathlib\nimport re\n\n"
+                "TYPO = re.compile(r'\\brecieve', re.IGNORECASE)\n\n\n"
+                "def test_no_recieve_typos_in_src():\n"
+                "    src_dir = pathlib.Path(__file__).resolve().parent.parent / 'src'\n"
+                "    offenders = []\n"
+                "    for py in src_dir.rglob('*.py'):\n"
+                "        text = py.read_text()\n"
+                "        if TYPO.search(text):\n"
+                "            offenders.append(str(py.relative_to(src_dir)))\n"
+                "    assert offenders == [], f'recieve typos remain in: {offenders}'\n"
+            ),
+        },
     ),
     BenchmarkTask(
         id="m0-3",
@@ -491,25 +552,79 @@ DEFAULT_M0_TASKS: tuple[BenchmarkTask, ...] = (
         id="m0-4",
         scenario=ScenarioKind.m0,
         kind=TaskKind.bug_fix,
-        title="POST returns 500 on missing required fields",
+        title="Validation should report missing fields, not crash",
         prompt=(
-            "When clients POST a JSON body missing required fields, the API returns 500 with "
-            "an opaque stack trace instead of a 422 with a per-field error map. Make the "
-            "validation surface 422 and add a test covering the missing-field path."
+            "src/validator.py raises a generic KeyError when a required field is missing — "
+            "the API surfaces that as a 500. Make ``validate`` raise ``ValidationError`` with "
+            "``.fields`` listing every missing key. The regression test pins the contract."
         ),
         expected_proof="python -m pytest",
+        seed_workspace={
+            "pyproject.toml": "[project]\nname = 'm0-4-validator'\nversion = '0.0.0'\nrequires-python = '>=3.11'\n",
+            "src/__init__.py": "",
+            "src/validator.py": (
+                '"""Payload validation."""\n\n\n'
+                "class ValidationError(Exception):\n"
+                '    """Raised with .fields = list of missing field names."""\n\n'
+                "    def __init__(self, fields):\n"
+                '        super().__init__(f"missing fields: {fields}")\n'
+                "        self.fields = fields\n\n\n"
+                "def validate(payload, required):\n"
+                "    # BUG: raises bare KeyError instead of ValidationError(missing).\n"
+                "    for field in required:\n"
+                "        payload[field]\n"
+            ),
+            "tests/__init__.py": "",
+            "tests/test_validator.py": (
+                "import pytest\n\n"
+                "from src.validator import ValidationError, validate\n\n\n"
+                "def test_missing_fields_raises_validation_error_with_field_list():\n"
+                "    with pytest.raises(ValidationError) as exc_info:\n"
+                "        validate({'a': 1}, ['a', 'b', 'c'])\n"
+                "    assert sorted(exc_info.value.fields) == ['b', 'c']\n\n\n"
+                "def test_all_fields_present_passes():\n"
+                "    validate({'a': 1, 'b': 2}, ['a', 'b'])\n"
+            ),
+        },
     ),
     BenchmarkTask(
         id="m0-5",
         scenario=ScenarioKind.m0,
         kind=TaskKind.bug_fix,
-        title="List endpoint leaks across tenants",
+        title="List endpoint leaks across tenants when filter omitted",
         prompt=(
-            "The list endpoint returns rows from other tenants when the `tenant_id` filter is "
-            "omitted by mistake. Lock it down server-side (never trust the query param alone) "
-            "and add a regression test that asserts a cross-tenant request returns an empty list."
+            "src/repo.py::list_items currently returns every row when ``tenant_id`` is "
+            "omitted. That leaks data across tenants. Make the omitted-tenant case return "
+            "an empty list. The regression test pins both behaviours."
         ),
         expected_proof="python -m pytest",
+        seed_workspace={
+            "pyproject.toml": "[project]\nname = 'm0-5-tenant-leak'\nversion = '0.0.0'\nrequires-python = '>=3.11'\n",
+            "src/__init__.py": "",
+            "src/repo.py": (
+                '"""Tenant-scoped list endpoint."""\n\n'
+                "_ITEMS = [\n"
+                "    {'id': 1, 'tenant_id': 'a', 'name': 'alpha'},\n"
+                "    {'id': 2, 'tenant_id': 'b', 'name': 'beta'},\n"
+                "    {'id': 3, 'tenant_id': 'a', 'name': 'gamma'},\n"
+                "]\n\n\n"
+                "def list_items(tenant_id=None):\n"
+                "    # BUG: returns the full list when tenant_id is None.\n"
+                "    if tenant_id is None:\n"
+                "        return list(_ITEMS)\n"
+                "    return [item for item in _ITEMS if item['tenant_id'] == tenant_id]\n"
+            ),
+            "tests/__init__.py": "",
+            "tests/test_repo.py": (
+                "from src.repo import list_items\n\n\n"
+                "def test_omitted_tenant_returns_empty():\n"
+                "    assert list_items() == []\n"
+                "    assert list_items(None) == []\n\n\n"
+                "def test_explicit_tenant_filters():\n"
+                "    names = {item['name'] for item in list_items('a')}\n"
+                "    assert names == {'alpha', 'gamma'}\n"
+            ),
+        },
     ),
     BenchmarkTask(
         id="m0-6",
@@ -517,11 +632,37 @@ DEFAULT_M0_TASKS: tuple[BenchmarkTask, ...] = (
         kind=TaskKind.bug_fix,
         title="Signup accepts whitespace-only email",
         prompt=(
-            "Our signup form accepts whitespace-only email values because the validator only "
-            "checks for empty string. Trim the input and reject if the result is empty; cover "
-            "the whitespace case in a unit test."
+            "src/signup.py::is_valid_email returns True for whitespace-only inputs because "
+            "the check happens before trimming. Trim first, then validate. The regression "
+            "test pins both the whitespace-only rejection and the trim-then-accept paths."
         ),
         expected_proof="python -m pytest",
+        seed_workspace={
+            "pyproject.toml": "[project]\nname = 'm0-6-email'\nversion = '0.0.0'\nrequires-python = '>=3.11'\n",
+            "src/__init__.py": "",
+            "src/signup.py": (
+                '"""Email validation for signup."""\n\n\n'
+                "def is_valid_email(email):\n"
+                "    # BUG: whitespace-only strings sneak through because the empty\n"
+                "    # check happens before trimming.\n"
+                "    if not email:\n"
+                "        return False\n"
+                "    return '@' in email\n"
+            ),
+            "tests/__init__.py": "",
+            "tests/test_signup.py": (
+                "from src.signup import is_valid_email\n\n\n"
+                "def test_empty_string_rejected():\n"
+                "    assert is_valid_email('') is False\n\n\n"
+                "def test_whitespace_only_rejected():\n"
+                "    assert is_valid_email('   ') is False\n"
+                "    assert is_valid_email('\\t\\n') is False\n\n\n"
+                "def test_valid_email_trimmed_accepted():\n"
+                "    assert is_valid_email('  user@example.com  ') is True\n\n\n"
+                "def test_no_at_sign_rejected():\n"
+                "    assert is_valid_email('notanemail') is False\n"
+            ),
+        },
     ),
     BenchmarkTask(
         id="m0-7",
@@ -529,11 +670,47 @@ DEFAULT_M0_TASKS: tuple[BenchmarkTask, ...] = (
         kind=TaskKind.test_writing,
         title="Backfill rate-limit middleware coverage",
         prompt=(
-            "There's no test for the rate-limit middleware we shipped last sprint. Add unit "
-            "tests covering the under-limit, over-limit, and post-window-reset paths so the "
-            "next refactor can't silently regress it."
+            "src/rate_limit.py ships a working ``RateLimiter`` but has no real test "
+            "coverage. Rewrite the three placeholder tests in tests/test_rate_limit.py "
+            "so they actually exercise the under-limit, over-limit, and "
+            "after-window-reset paths. Hint: ``monkeypatch.setattr('time.time', ...)`` "
+            "to control the clock without sleeping."
         ),
         expected_proof="python -m pytest",
+        seed_workspace={
+            "pyproject.toml": "[project]\nname = 'm0-7-rate-limit'\nversion = '0.0.0'\nrequires-python = '>=3.11'\n",
+            "src/__init__.py": "",
+            "src/rate_limit.py": (
+                '"""Token-bucket rate limiter (working implementation, no test coverage yet)."""\n\n'
+                "import time\n\n\n"
+                "class RateLimiter:\n"
+                "    def __init__(self, window_s, max_requests):\n"
+                "        self.window_s = window_s\n"
+                "        self.max_requests = max_requests\n"
+                "        self._calls = {}\n\n"
+                "    def allow(self, key):\n"
+                "        now = time.time()\n"
+                "        history = self._calls.setdefault(key, [])\n"
+                "        cutoff = now - self.window_s\n"
+                "        history[:] = [ts for ts in history if ts >= cutoff]\n"
+                "        if len(history) >= self.max_requests:\n"
+                "            return False\n"
+                "        history.append(now)\n"
+                "        return True\n"
+            ),
+            "tests/__init__.py": "",
+            "tests/test_rate_limit.py": (
+                '"""Pin three behaviours of the rate limiter. Rewrite each placeholder."""\n\n'
+                "import pytest\n\n"
+                "from src.rate_limit import RateLimiter\n\n\n"
+                "def test_under_limit_allows(monkeypatch):\n"
+                "    pytest.fail('TODO: RateLimiter(1.0, 3) should allow 3 calls in the window')\n\n\n"
+                "def test_over_limit_blocks(monkeypatch):\n"
+                "    pytest.fail('TODO: 4th call within the window should return False')\n\n\n"
+                "def test_resets_after_window(monkeypatch):\n"
+                "    pytest.fail('TODO: after window elapses, allow() should return True again')\n"
+            ),
+        },
     ),
     BenchmarkTask(
         id="m0-8",
@@ -541,11 +718,33 @@ DEFAULT_M0_TASKS: tuple[BenchmarkTask, ...] = (
         kind=TaskKind.test_writing,
         title="EncryptionManager round-trip test",
         prompt=(
-            "EncryptionManager has no round-trip test — write one that encrypts a value with "
-            "a fresh key, decrypts it back, and asserts equality. This is a guard against "
-            "future key-rotation work breaking the at-rest contract."
+            "src/crypto.py::EncryptionManager has encrypt + decrypt methods but no test. "
+            "Replace the placeholder in tests/test_crypto.py with a real round-trip: encrypt "
+            "a plaintext with a fresh key, decrypt the result, assert the original returns."
         ),
         expected_proof="python -m pytest",
+        seed_workspace={
+            "pyproject.toml": "[project]\nname = 'm0-8-crypto'\nversion = '0.0.0'\nrequires-python = '>=3.11'\n",
+            "src/__init__.py": "",
+            "src/crypto.py": (
+                '"""Toy symmetric encryption — just enough surface to test the round-trip."""\n\n\n'
+                "class EncryptionManager:\n"
+                "    def __init__(self, key):\n"
+                "        self.key = key\n\n"
+                "    def encrypt(self, plaintext):\n"
+                "        return bytes(b ^ self.key for b in plaintext.encode('utf-8'))\n\n"
+                "    def decrypt(self, ciphertext):\n"
+                "        return bytes(b ^ self.key for b in ciphertext).decode('utf-8')\n"
+            ),
+            "tests/__init__.py": "",
+            "tests/test_crypto.py": (
+                '"""TODO: add a round-trip test."""\n\n'
+                "import pytest\n\n"
+                "from src.crypto import EncryptionManager\n\n\n"
+                "def test_encrypt_decrypt_round_trip_returns_original():\n"
+                "    pytest.fail('TODO: encrypt a plaintext, decrypt it, assert it round-trips')\n"
+            ),
+        },
     ),
     BenchmarkTask(
         id="m0-9",
@@ -564,13 +763,36 @@ DEFAULT_M0_TASKS: tuple[BenchmarkTask, ...] = (
         id="m0-10",
         scenario=ScenarioKind.m0,
         kind=TaskKind.refactor,
-        title="Extract duplicated session boilerplate",
+        title="Extract duplicated mutation helper",
         prompt=(
-            "Three places repeat the same `async with session_factory() as session: ...` "
-            "block with an identical fetch-update-commit shape. Extract a small helper, "
-            "migrate the three call sites, and make sure the existing tests still pass."
+            "src/helper.py exposes ``with_row`` but it isn't implemented yet. Implement it "
+            "so that ``with_row(rows, row_id, mutate)`` fetches the row, applies "
+            "``mutate(row)``, and returns the mutated row. The test pins the contract — "
+            "both the return value and that ``rows[row_id]`` reflects the mutation."
         ),
         expected_proof="python -m pytest",
+        seed_workspace={
+            "pyproject.toml": "[project]\nname = 'm0-10-helper'\nversion = '0.0.0'\nrequires-python = '>=3.11'\n",
+            "src/__init__.py": "",
+            "src/helper.py": (
+                '"""Mutation helper extracted from three near-identical inline blocks."""\n\n\n'
+                "def with_row(rows, row_id, mutate):\n"
+                "    # TODO(m0-10): fetch rows[row_id], apply mutate(row), return mutated row.\n"
+                "    raise NotImplementedError('with_row is not extracted yet')\n"
+            ),
+            "tests/__init__.py": "",
+            "tests/test_helper.py": (
+                "from src.helper import with_row\n\n\n"
+                "def test_with_row_applies_mutation_and_returns_row():\n"
+                "    rows = {1: {'name': 'alpha', 'count': 0}}\n\n"
+                "    def bump(row):\n"
+                "        row['count'] += 1\n"
+                "        return row\n\n"
+                "    result = with_row(rows, 1, bump)\n"
+                "    assert result['count'] == 1\n"
+                "    assert rows[1]['count'] == 1\n"
+            ),
+        },
     ),
 )
 

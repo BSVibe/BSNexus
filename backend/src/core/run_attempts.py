@@ -37,7 +37,7 @@ PHASE_ROUND_BUDGETS: dict[RunAttemptPhase, int] = {
 
 CATASTROPHIC_ROUND_CAP = 12
 REPETITION_WINDOW = 4
-REPETITION_TERMINATION_COUNT = 3
+REPETITION_TERMINATION_COUNT = 4
 
 LLM_OWNED_FIELDS = frozenset({"summary", "residual_risks", "notes", "suggested_next_steps"})
 FORBIDDEN_LLM_SYSTEM_FIELDS = frozenset(

@@ -37,6 +37,7 @@ class _StubExecutor:
     response_text: str = "Done."
     file_writes: list[tuple[str, str]] = field(default_factory=list)
     workspace_root: Path | None = None
+    calls: int = 0
 
     async def execute(
         self,
@@ -49,13 +50,22 @@ class _StubExecutor:
         tools: list[dict[str, Any]] | None = None,
         on_chunk: Callable[[str], Awaitable[None]] | None = None,
     ) -> dict[str, Any]:
-        # Simulate a future tool loop by writing files directly so the
-        # bridge's diff measurement sees real work.
-        if self.workspace_root is not None:
-            for rel_path, content in self.file_writes:
-                target = self.workspace_root / rel_path
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_text(content)
+        self.calls += 1
+        if self.file_writes and self.calls == 1:
+            return {
+                "output_type": "text",
+                "output_ref": "",
+                "actual_cost_cents": 0,
+                "finish_reason": "tool_calls",
+                "tool_calls": [
+                    {
+                        "id": f"call_{idx}",
+                        "name": "file_write",
+                        "arguments": {"path": rel_path, "content": content},
+                    }
+                    for idx, (rel_path, content) in enumerate(self.file_writes)
+                ],
+            }
         return {
             "output_type": "text",
             "output_ref": self.response_text,
@@ -150,10 +160,10 @@ async def test_bridge_reports_zero_files_touched_when_executor_does_not_write(
     telemetry = await measure_task(task=task, config=config)
 
     assert telemetry.workspace_files_touched == 0
-    assert telemetry.proof_state == ProofState.verified
-    # Spec change — verified + 0 touches = fake_verified now.
+    assert telemetry.proof_state == ProofState.verification_missing
     result = evaluate_task_result(task, telemetry)
-    assert result.fake_verified is True
+    assert result.fake_verified is False
+    assert result.failure_reason == "nonconvergent"
 
 
 @pytest.mark.asyncio

@@ -42,6 +42,23 @@ class _StubExecutor:
         self.calls.append({"messages": messages, "metadata": metadata, "model": model, "tools": tools})
         if self.raise_exc is not None:
             raise self.raise_exc
+        if not any(message.get("role") == "tool" for message in messages):
+            return {
+                "output_type": "text",
+                "output_ref": "",
+                "actual_cost_cents": 0,
+                "finish_reason": "tool_calls",
+                "tool_calls": [
+                    {
+                        "id": "call_bridge_write",
+                        "name": "file_write",
+                        "arguments": {
+                            "path": "src/bridge_helper.py",
+                            "content": "def bridge_marker() -> str:\n    return 'ok'\n",
+                        },
+                    }
+                ],
+            }
         return {
             "output_type": "text",
             "output_ref": self.response_text,
@@ -91,7 +108,7 @@ async def test_measure_task_records_verifier_passing_python_workspace_as_verifie
     assert telemetry.deliverables_created == 1
     assert telemetry.decisions_created == 0
     assert telemetry.terminal_reason == "summarized"
-    assert len(executor.calls) == 1
+    assert len(executor.calls) == 2
 
 
 @pytest.mark.asyncio
@@ -201,9 +218,7 @@ async def test_measure_task_increments_tool_event_count_when_executor_records_to
     db_engine, test_session_maker, mock_tenant_id, seeded_tenant, tmp_path
 ):
     """Telemetry's ``tool_count`` reflects ToolEvent rows from
-    ``record_tool_event``. The minimal G6.3 dispatcher doesn't call
-    tools yet, so the default count is zero — locking this in stops a
-    future tool-loop change from silently breaking the metric."""
+    ``record_tool_event``."""
     _seed_python_workspace(tmp_path)
     task = BenchmarkTask(
         id="bridge-5",
@@ -224,5 +239,5 @@ async def test_measure_task_increments_tool_event_count_when_executor_records_to
     )
 
     telemetry = await measure_task(task=task, config=config)
-    assert telemetry.tool_count == 0
+    assert telemetry.tool_count == 1
     assert telemetry.repeated_tool_sequence_count == 0
