@@ -46,6 +46,7 @@ class _StubExecutor:
         model: str,
         workspace_dir: str | None = None,
         mcp_servers: dict[str, Any] | None = None,
+        tools: list[dict[str, Any]] | None = None,
         on_chunk: Callable[[str], Awaitable[None]] | None = None,
     ) -> dict[str, Any]:
         # Simulate a future tool loop by writing files directly so the
@@ -60,6 +61,7 @@ class _StubExecutor:
             "output_ref": self.response_text,
             "actual_cost_cents": 0,
             "finish_reason": "stop",
+            "tool_calls": None,
         }
 
 

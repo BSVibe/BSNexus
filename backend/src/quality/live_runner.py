@@ -16,8 +16,10 @@ What it does:
      (qwen3-coder:30b on a 48GB Mac Mini per the M0 spec).
   3. Walks ``default_tasks()`` through :func:`measure_task`.
   4. Evaluates the :class:`AcceptanceReport` and prints the markdown
-     report to stdout. If ``--output`` is given, also writes the
-     full JSON for archival under ``backend/measurement/``.
+     report to stdout. If ``--output`` is given, also writes the full
+     JSON. Archive measurement output outside the tree (the repo
+     gitignores ``backend/measurement/``); ``~/Docs/BSNexus/measurement/``
+     is the convention.
 
 This is the founder-runnable gate: ``greenfield_exit_ready == True``
 in the JSON output is the green light for G8 repo-native delivery.

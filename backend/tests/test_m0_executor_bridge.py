@@ -36,9 +36,10 @@ class _StubExecutor:
         model: str,
         workspace_dir: str | None = None,
         mcp_servers: dict[str, Any] | None = None,
+        tools: list[dict[str, Any]] | None = None,
         on_chunk: Callable[[str], Awaitable[None]] | None = None,
     ) -> dict[str, Any]:
-        self.calls.append({"messages": messages, "metadata": metadata, "model": model})
+        self.calls.append({"messages": messages, "metadata": metadata, "model": model, "tools": tools})
         if self.raise_exc is not None:
             raise self.raise_exc
         return {
@@ -46,6 +47,7 @@ class _StubExecutor:
             "output_ref": self.response_text,
             "actual_cost_cents": 0,
             "finish_reason": "stop",
+            "tool_calls": None,
         }
 
 

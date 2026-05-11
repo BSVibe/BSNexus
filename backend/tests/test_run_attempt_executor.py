@@ -60,6 +60,7 @@ class _RecordingExecutor:
         model: str,
         workspace_dir: str | None = None,
         mcp_servers: dict[str, Any] | None = None,
+        tools: list[dict[str, Any]] | None = None,
         on_chunk: Callable[[str], Awaitable[None]] | None = None,
     ) -> dict[str, Any]:
         self.calls.append(
@@ -69,6 +70,7 @@ class _RecordingExecutor:
                 "model": model,
                 "workspace_dir": workspace_dir,
                 "mcp_servers": mcp_servers,
+                "tools": tools,
             }
         )
         if self.raise_exc is not None:

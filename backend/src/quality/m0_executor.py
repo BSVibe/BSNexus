@@ -116,6 +116,7 @@ async def measure_task(*, task: BenchmarkTask, config: BridgeConfig) -> TaskTele
             executor=config.executor,
             executor_kind=config.executor_kind,
             model=config.model,
+            workspace_dir=config.workspace_root,
         )
         attempt_id = dispatch_result.attempt.id
         deliverable_id = dispatch_result.deliverable.id if dispatch_result.deliverable else None

@@ -80,3 +80,4 @@ backend/data/workspaces/
 .env.demo
 deploy/.env.demo
 .vercel
+backend/measurement/
