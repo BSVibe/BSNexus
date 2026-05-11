@@ -250,8 +250,7 @@ def _smoke_passed(results: Sequence[TaskResult]) -> bool:
         and all(not result.round_cap_blocked for result in smoke)
         and all(result.telemetry.deliverables_created > 0 for result in smoke)
         and all(
-            result.telemetry.proof_state in {ProofState.verified, ProofState.human_review_required}
-            for result in smoke
+            result.telemetry.proof_state in {ProofState.verified, ProofState.human_review_required} for result in smoke
         )
         and all(not result.fake_verified for result in smoke)
     )
@@ -303,7 +302,9 @@ def task_distribution(tasks: Sequence[BenchmarkTask]) -> Counter[TaskKind]:
     return Counter(task.kind for task in tasks)
 
 
-def passing_telemetry(task: BenchmarkTask, *, rounds: int = 4, model: str = "ollama_chat/qwen3-coder:30b") -> TaskTelemetry:
+def passing_telemetry(
+    task: BenchmarkTask, *, rounds: int = 4, model: str = "ollama_chat/qwen3-coder:30b"
+) -> TaskTelemetry:
     return TaskTelemetry(
         model=model,
         scenario_id=task.id,
@@ -427,14 +428,126 @@ DEFAULT_SCENARIOS: tuple[BenchmarkTask, ...] = (
 
 
 DEFAULT_M0_TASKS: tuple[BenchmarkTask, ...] = (
-    BenchmarkTask("m0-1", ScenarioKind.m0, TaskKind.regression, "Regression", "Fix a regression.", "test"),
-    BenchmarkTask("m0-2", ScenarioKind.m0, TaskKind.typo_docstring, "Typo A", "Fix a typo.", "syntax_or_test"),
-    BenchmarkTask("m0-3", ScenarioKind.m0, TaskKind.typo_docstring, "Typo B", "Fix a docstring typo.", "syntax_or_test"),
-    BenchmarkTask("m0-4", ScenarioKind.m0, TaskKind.bug_fix, "Bug A", "Fix a small bug.", "test"),
-    BenchmarkTask("m0-5", ScenarioKind.m0, TaskKind.bug_fix, "Bug B", "Fix another small bug.", "test"),
-    BenchmarkTask("m0-6", ScenarioKind.m0, TaskKind.bug_fix, "Bug C", "Fix a validation bug.", "test"),
-    BenchmarkTask("m0-7", ScenarioKind.m0, TaskKind.test_writing, "Test A", "Add a regression test.", "test"),
-    BenchmarkTask("m0-8", ScenarioKind.m0, TaskKind.test_writing, "Test B", "Add missing coverage.", "test"),
-    BenchmarkTask("m0-9", ScenarioKind.m0, TaskKind.doc, "Doc", "Update a proof note.", "human_review_or_test"),
-    BenchmarkTask("m0-10", ScenarioKind.m0, TaskKind.refactor, "Refactor", "Refactor a helper.", "test"),
+    BenchmarkTask(
+        id="m0-1",
+        scenario=ScenarioKind.m0,
+        kind=TaskKind.regression,
+        title="Restore /healthz after auth refactor",
+        prompt=(
+            "Our production smoke test broke after the auth refactor — the /healthz route "
+            "returns 401 instead of 200. Restore the public health endpoint so it returns "
+            '{"status": "ok"} with HTTP 200 even without an Authorization header, and add a '
+            "regression test so we don't lose this again."
+        ),
+        expected_proof="python -m pytest",
+    ),
+    BenchmarkTask(
+        id="m0-2",
+        scenario=ScenarioKind.m0,
+        kind=TaskKind.typo_docstring,
+        title="Fix 'recieve' → 'receive' across docstrings",
+        prompt=(
+            'There are several Python docstrings that misspell "receive" as "recieve". '
+            "Find every occurrence in src/ and fix them. Don't touch test files."
+        ),
+        expected_proof="syntax_or_test",
+    ),
+    BenchmarkTask(
+        id="m0-3",
+        scenario=ScenarioKind.m0,
+        kind=TaskKind.typo_docstring,
+        title="README quick-start uses the wrong package manager",
+        prompt=(
+            "Our README still tells contributors to run `pip install -r requirements.txt`, "
+            "but we moved to `uv` months ago. Update the quick-start section and remove the "
+            "stale instructions; keep everything else intact."
+        ),
+        expected_proof="human_review_or_test",
+        allow_human_review=True,
+    ),
+    BenchmarkTask(
+        id="m0-4",
+        scenario=ScenarioKind.m0,
+        kind=TaskKind.bug_fix,
+        title="POST returns 500 on missing required fields",
+        prompt=(
+            "When clients POST a JSON body missing required fields, the API returns 500 with "
+            "an opaque stack trace instead of a 422 with a per-field error map. Make the "
+            "validation surface 422 and add a test covering the missing-field path."
+        ),
+        expected_proof="python -m pytest",
+    ),
+    BenchmarkTask(
+        id="m0-5",
+        scenario=ScenarioKind.m0,
+        kind=TaskKind.bug_fix,
+        title="List endpoint leaks across tenants",
+        prompt=(
+            "The list endpoint returns rows from other tenants when the `tenant_id` filter is "
+            "omitted by mistake. Lock it down server-side (never trust the query param alone) "
+            "and add a regression test that asserts a cross-tenant request returns an empty list."
+        ),
+        expected_proof="python -m pytest",
+    ),
+    BenchmarkTask(
+        id="m0-6",
+        scenario=ScenarioKind.m0,
+        kind=TaskKind.bug_fix,
+        title="Signup accepts whitespace-only email",
+        prompt=(
+            "Our signup form accepts whitespace-only email values because the validator only "
+            "checks for empty string. Trim the input and reject if the result is empty; cover "
+            "the whitespace case in a unit test."
+        ),
+        expected_proof="python -m pytest",
+    ),
+    BenchmarkTask(
+        id="m0-7",
+        scenario=ScenarioKind.m0,
+        kind=TaskKind.test_writing,
+        title="Backfill rate-limit middleware coverage",
+        prompt=(
+            "There's no test for the rate-limit middleware we shipped last sprint. Add unit "
+            "tests covering the under-limit, over-limit, and post-window-reset paths so the "
+            "next refactor can't silently regress it."
+        ),
+        expected_proof="python -m pytest",
+    ),
+    BenchmarkTask(
+        id="m0-8",
+        scenario=ScenarioKind.m0,
+        kind=TaskKind.test_writing,
+        title="EncryptionManager round-trip test",
+        prompt=(
+            "EncryptionManager has no round-trip test — write one that encrypts a value with "
+            "a fresh key, decrypts it back, and asserts equality. This is a guard against "
+            "future key-rotation work breaking the at-rest contract."
+        ),
+        expected_proof="python -m pytest",
+    ),
+    BenchmarkTask(
+        id="m0-9",
+        scenario=ScenarioKind.m0,
+        kind=TaskKind.doc,
+        title="Sync the API reference table with current routes",
+        prompt=(
+            "The API reference table in the README is out of date — `/api/v1/runs` was "
+            "renamed and several routes added/removed last quarter. Walk the routers and "
+            "update the table to match what actually ships. No code changes."
+        ),
+        expected_proof="human_review_or_test",
+        allow_human_review=True,
+    ),
+    BenchmarkTask(
+        id="m0-10",
+        scenario=ScenarioKind.m0,
+        kind=TaskKind.refactor,
+        title="Extract duplicated session boilerplate",
+        prompt=(
+            "Three places repeat the same `async with session_factory() as session: ...` "
+            "block with an identical fetch-update-commit shape. Extract a small helper, "
+            "migrate the three call sites, and make sure the existing tests still pass."
+        ),
+        expected_proof="python -m pytest",
+    ),
 )
