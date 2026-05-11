@@ -97,6 +97,12 @@ async def measure_task(*, task: BenchmarkTask, config: BridgeConfig) -> TaskTele
     """
     project_id, request_id, work_step_id = await _seed_project_request_step(task=task, config=config)
 
+    # G6.5 — snapshot the workspace *before* the LLM call so we can
+    # tell whether the executor / future tool loop actually changed
+    # files. Without this every always-passing pytest re-run shows up
+    # as ``strict_pass`` even though the LLM didn't do anything.
+    pre_snapshot = _snapshot_workspace(config.workspace_root)
+
     async with _session(config) as session:
         request = await session.get(Request, request_id)
         step = await session.get(WorkStep, work_step_id)
@@ -113,6 +119,13 @@ async def measure_task(*, task: BenchmarkTask, config: BridgeConfig) -> TaskTele
         )
         attempt_id = dispatch_result.attempt.id
         deliverable_id = dispatch_result.deliverable.id if dispatch_result.deliverable else None
+
+    # Compute the LLM-attributable workspace diff *before* the verifier
+    # runs — otherwise side effects of ``pytest`` (``__pycache__``
+    # bytecode, ``.pytest_cache``) would inflate the count. The ignore
+    # list still catches them, but measuring pre-verifier makes the
+    # signal precise instead of just "approximately correct".
+    workspace_files_touched = _count_workspace_changes(config.workspace_root, pre_snapshot)
 
     if deliverable_id is not None:
         async with _session(config) as session:
@@ -138,6 +151,7 @@ async def measure_task(*, task: BenchmarkTask, config: BridgeConfig) -> TaskTele
         deliverable_id=deliverable_id,
         request_id=request_id,
         project_id=project_id,
+        workspace_files_touched=workspace_files_touched,
     )
 
 
@@ -187,6 +201,7 @@ async def _collect_telemetry(
     deliverable_id: uuid.UUID | None,
     request_id: uuid.UUID,
     project_id: uuid.UUID,  # noqa: ARG001 — kept for future per-project telemetry (cost / cache hits)
+    workspace_files_touched: int = 0,
 ) -> TaskTelemetry:
     async with _session(config) as session:
         attempt = await session.get(RunAttempt, attempt_id)
@@ -240,6 +255,7 @@ async def _collect_telemetry(
         verifier_exit_code=verifier_exit_code,
         decisions_created=int(decisions_count or 0),
         terminal_reason=attempt.terminal_reason or "",
+        workspace_files_touched=workspace_files_touched,
     )
 
 
@@ -273,3 +289,80 @@ def _count_repeated_sequences(events: list[ToolEvent]) -> int:
 async def _session(config: BridgeConfig) -> AsyncIterator[AsyncSession]:
     async with config.session_factory() as session:
         yield session
+
+
+# G6.5 — workspace diff measurement.
+# Ignore set covers VCS metadata + build/test caches that get touched as
+# a side effect of running the verifier itself. They would inflate the
+# touched-files count without representing LLM work.
+_WORKSPACE_IGNORE_DIRS: frozenset[str] = frozenset(
+    {
+        ".git",
+        ".hg",
+        ".svn",
+        "__pycache__",
+        ".pytest_cache",
+        ".mypy_cache",
+        ".ruff_cache",
+        ".tox",
+        ".venv",
+        "venv",
+        "node_modules",
+        ".next",
+        "dist",
+        "build",
+        ".turbo",
+    }
+)
+_WORKSPACE_IGNORE_SUFFIXES: tuple[str, ...] = (
+    ".pyc",
+    ".pyo",
+    ".log",
+)
+
+
+def _snapshot_workspace(root: Path) -> dict[str, tuple[float, int]]:
+    """Map of ``relative_path → (mtime, size)`` for every non-ignored
+    file under ``root``. Returns an empty dict when ``root`` doesn't
+    exist (callers tolerate it).
+    """
+    if not root.exists():
+        return {}
+    snapshot: dict[str, tuple[float, int]] = {}
+    for path in root.rglob("*"):
+        if _is_ignored(path, root):
+            continue
+        if not path.is_file():
+            continue
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        snapshot[str(path.relative_to(root))] = (stat.st_mtime, stat.st_size)
+    return snapshot
+
+
+def _count_workspace_changes(root: Path, baseline: dict[str, tuple[float, int]]) -> int:
+    """Count files that were added/removed/modified vs ``baseline``."""
+    current = _snapshot_workspace(root)
+    changed = 0
+    for rel_path, current_meta in current.items():
+        baseline_meta = baseline.get(rel_path)
+        if baseline_meta is None or baseline_meta != current_meta:
+            changed += 1
+    for rel_path in baseline:
+        if rel_path not in current:
+            changed += 1
+    return changed
+
+
+def _is_ignored(path: Path, root: Path) -> bool:
+    try:
+        relative = path.relative_to(root)
+    except ValueError:
+        return True
+    if any(part in _WORKSPACE_IGNORE_DIRS for part in relative.parts):
+        return True
+    if path.is_file() and path.suffix in _WORKSPACE_IGNORE_SUFFIXES:
+        return True
+    return False

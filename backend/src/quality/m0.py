@@ -53,6 +53,14 @@ class TaskTelemetry:
     verifier_exit_code: int | None
     decisions_created: int
     terminal_reason: str
+    # G6.5 — workspace_files_touched is the number of distinct files the
+    # bridge observed change/create/delete in workspace_root between the
+    # measurement start and end. Used by ``evaluate_task_result`` to mark
+    # a ``verified`` deliverable as ``fake_verified`` when the LLM didn't
+    # actually touch the tree (always-passing pytest re-run masquerading
+    # as work). Default 0 keeps older callers strict-passable through the
+    # existing definition.
+    workspace_files_touched: int = 0
 
 
 @dataclass(frozen=True)
@@ -128,7 +136,17 @@ async def run_quality_suite(
 
 def evaluate_task_result(task: BenchmarkTask, telemetry: TaskTelemetry) -> TaskResult:
     verifier_shaped_proof = _has_verifier_shaped_proof(telemetry)
-    fake_verified = telemetry.proof_state == ProofState.verified and not verifier_shaped_proof
+    # G6.5 — a ``verified`` deliverable is only real work when both
+    #   1. the verifier ran a non-setup-only command and exited 0
+    #      (``verifier_shaped_proof``), AND
+    #   2. the LLM actually changed the workspace
+    #      (``workspace_files_touched > 0``)
+    # Otherwise the verifier was just re-running a pre-existing passing
+    # check against an untouched tree — the canonical "fake verified"
+    # pattern surfaced in the 2026-05-11 first live run.
+    fake_verified = telemetry.proof_state == ProofState.verified and (
+        not verifier_shaped_proof or telemetry.workspace_files_touched <= 0
+    )
     round_cap_blocked = "round_cap" in telemetry.terminal_reason or "round_budget" in telemetry.terminal_reason
     unnecessary_founder_decision = (
         task.scenario in {ScenarioKind.easy, ScenarioKind.m0}
@@ -318,6 +336,10 @@ def passing_telemetry(
         verifier_exit_code=0,
         decisions_created=0,
         terminal_reason="verified",
+        # G6.5 — a passing telemetry implies LLM-driven file changes.
+        # Static-executor stubs use this; live measurement supplies a
+        # real count from the workspace diff.
+        workspace_files_touched=2,
     )
 
 
