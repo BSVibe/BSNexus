@@ -166,9 +166,23 @@ async def lifespan(app: FastAPI):
     await audit_relay.start()
     app.state.audit_relay = audit_relay
 
+    # G6.1 — deterministic VerifierWorker consumes ``proof:queue`` and
+    # closes the loop that ``/api/v1/deliverables/{id}/verify`` opens.
+    # Disabled in tests (no real Redis) via the same ``stream_manager``
+    # override the rest of the harness uses.
+    from backend.src.workers.verifier import VerifierWorker  # noqa: PLC0415
+
+    verifier_worker = VerifierWorker(
+        stream_manager=stream_manager,
+        session_factory=async_session,
+    )
+    await verifier_worker.start()
+    app.state.verifier_worker = verifier_worker
+
     try:
         yield
     finally:
+        await verifier_worker.stop()
         await audit_relay.stop()
         await close_redis()
 
