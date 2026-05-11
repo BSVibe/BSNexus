@@ -82,6 +82,10 @@ class BridgeConfig:
     model: str
     session_factory: async_sessionmaker[AsyncSession]
     stream_manager: Any = None  # defaults to _NoopStreamManager()
+    # Workspace baseline used when a task has no seed_workspace. Without
+    # this, long live suites inherit files and failing tests from earlier
+    # tasks, which makes later verifier failures non-local.
+    default_seed_workspace: dict[str, str] | None = None
 
     def __post_init__(self) -> None:
         if self.stream_manager is None:
@@ -96,6 +100,13 @@ async def measure_task(*, task: BenchmarkTask, config: BridgeConfig) -> TaskTele
     matches how the dispatcher is wired in production.
     """
     project_id, request_id, work_step_id = await _seed_project_request_step(task=task, config=config)
+
+    # G6.9/G6.11 — apply per-task seed fixture if defined; otherwise
+    # fall back to the bridge's baseline so tasks do not inherit files
+    # from the previous suite item.
+    effective_seed = task.seed_workspace if task.seed_workspace is not None else config.default_seed_workspace
+    if effective_seed is not None:
+        _reset_workspace_to_seed(config.workspace_root, effective_seed)
 
     # G6.5 — snapshot the workspace *before* the LLM call so we can
     # tell whether the executor / future tool loop actually changed
@@ -367,3 +378,43 @@ def _is_ignored(path: Path, root: Path) -> bool:
     if path.is_file() and path.suffix in _WORKSPACE_IGNORE_SUFFIXES:
         return True
     return False
+
+
+def _reset_workspace_to_seed(root: Path, seed: dict[str, str]) -> None:
+    """G6.9 — wipe the workspace's non-ignored files and write the
+    task's seed fixture. Cache dirs (``.git``, ``__pycache__``,
+    ``.pytest_cache`` …) are preserved so the verifier doesn't have to
+    re-warm them between tasks. Paths inside ``seed`` are taken as
+    workspace-relative; absolute or ``..`` paths are rejected.
+    """
+    root = root.resolve()
+    if not root.exists():
+        root.mkdir(parents=True, exist_ok=True)
+    for path in list(root.rglob("*")):
+        if _is_ignored(path, root):
+            continue
+        if path.is_file() or path.is_symlink():
+            try:
+                path.unlink()
+            except OSError:
+                pass
+    # Remove emptied directories bottom-up, skipping the root + ignore set.
+    for path in sorted((p for p in root.rglob("*") if p.is_dir()), reverse=True):
+        if _is_ignored(path, root):
+            continue
+        try:
+            path.rmdir()
+        except OSError:
+            pass
+    for relative_path, content in seed.items():
+        if not isinstance(relative_path, str) or not relative_path:
+            continue
+        if relative_path.startswith("/") or ".." in Path(relative_path).parts:
+            continue
+        target = (root / relative_path).resolve()
+        try:
+            target.relative_to(root)
+        except ValueError:
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")

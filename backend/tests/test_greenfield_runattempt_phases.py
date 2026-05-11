@@ -138,11 +138,17 @@ async def test_repeated_identical_tool_calls_terminate_early(db_session, mock_te
         event_input=ToolEventInput(tool_name="file_read", args={"path": "same.py"}),
         session=db_session,
     )
+    fourth = await record_tool_event(
+        attempt=attempt,
+        event_input=ToolEventInput(tool_name="file_read", args={"path": "same.py"}),
+        session=db_session,
+    )
 
     assert first.terminated is False
     assert second.nudge == "You already performed this action. Move to summary or stop."
-    assert third.terminated is True
-    assert third.terminal_reason == "failed_nonconvergent:repeated_tool_call:file_read"
+    assert third.terminated is False
+    assert fourth.terminated is True
+    assert fourth.terminal_reason == "failed_nonconvergent:repeated_tool_call:file_read"
     assert attempt.phase == RunAttemptPhase.terminal
     assert attempt.status == RunAttemptStatus.failed
     assert attempt.terminal_reason == "failed_nonconvergent:repeated_tool_call:file_read"

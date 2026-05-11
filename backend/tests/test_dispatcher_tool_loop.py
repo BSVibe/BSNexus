@@ -22,7 +22,7 @@ from backend.src.core.domain import (
     WorkPlanCreatedBy,
     WorkStepStatus,
 )
-from backend.src.core.run_attempt_executor import dispatch_run_attempt
+from backend.src.core.run_attempt_executor import _workspace_overview, dispatch_run_attempt
 from backend.src.core.work_steps import WorkStepDraft, create_work_plan
 from backend.src.models import Deliverable, Project, Request, ToolEvent, WorkStep
 
@@ -76,6 +76,29 @@ class _ScriptedExecutor:
         }
 
 
+@dataclass
+class _SequenceExecutor:
+    """Executor stub that returns raw response dicts in order."""
+
+    responses: list[dict[str, Any]]
+    captured_messages: list[list[dict[str, Any]]] = field(default_factory=list)
+
+    async def execute(
+        self,
+        *,
+        messages: list[dict[str, Any]],
+        metadata: dict[str, Any],
+        model: str,
+        workspace_dir: str | None = None,
+        mcp_servers: dict[str, Any] | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        on_chunk: Callable[[str], Awaitable[None]] | None = None,
+    ) -> dict[str, Any]:
+        self.captured_messages.append([dict(m) for m in messages])
+        assert self.responses, "executor called more times than scripted"
+        return self.responses.pop(0)
+
+
 async def _seed_request_with_step(db_session, tenant_id) -> tuple[Request, WorkStep]:
     project = Project(tenant_id=tenant_id, name="Tool loop", description="")
     db_session.add(project)
@@ -92,6 +115,20 @@ async def _seed_request_with_step(db_session, tenant_id) -> tuple[Request, WorkS
     )
     step = (await db_session.execute(select(WorkStep).where(WorkStep.plan_id == plan.id))).scalar_one()
     return request, step
+
+
+def test_workspace_overview_includes_small_seed_file_previews(tmp_path):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "api.py").write_text("def healthz():\n    return {'status': 'broken'}\n")
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_api.py").write_text("from src.api import healthz\n")
+
+    overview = _workspace_overview(tmp_path)
+
+    assert "Tree:" in overview
+    assert "src/api.py" in overview
+    assert "Seed file previews:" in overview
+    assert "return {'status': 'broken'}" in overview
 
 
 @pytest.mark.asyncio
@@ -221,8 +258,9 @@ async def test_dispatcher_records_failed_tool_call_with_error_message_and_keeps_
         workspace_dir=tmp_path,
     )
 
-    # Loop completed successfully — tool error didn't crash the dispatcher.
-    assert result.terminal_reason == "summarized"
+    # Tool errors are fed back to the LLM, but a workspace run still
+    # cannot produce a deliverable unless a later turn writes a file.
+    assert result.terminal_reason == "failed_nonconvergent:no_workspace_write"
     events = (
         (await db_session.execute(select(ToolEvent).where(ToolEvent.run_attempt_id == result.attempt.id)))
         .scalars()
@@ -236,13 +274,103 @@ async def test_dispatcher_records_failed_tool_call_with_error_message_and_keeps_
     second_messages = executor.captured_messages[1]
     tool_msgs = [m for m in second_messages if m.get("role") == "tool"]
     assert tool_msgs and "denylist" in str(tool_msgs[-1].get("content", ""))
+    assert result.deliverable is None
+
+
+@pytest.mark.asyncio
+async def test_dispatcher_nudges_when_model_returns_plain_text_before_file_write(
+    db_session, mock_tenant_id, seeded_tenant, mock_stream_manager, tmp_path
+):
+    """A workspace run cannot accept prose as work before a file is
+    written. The dispatcher gives local LLMs a recovery turn, then only
+    summarizes after a successful file_write.
+    """
+    request, step = await _seed_request_with_step(db_session, mock_tenant_id)
+    executor = _SequenceExecutor(
+        responses=[
+            {
+                "output_type": "text",
+                "output_ref": "I will update the file.",
+                "actual_cost_cents": 0,
+                "finish_reason": "stop",
+                "tool_calls": None,
+            },
+            {
+                "output_type": "text",
+                "output_ref": "",
+                "actual_cost_cents": 0,
+                "finish_reason": "tool_calls",
+                "tool_calls": [
+                    {
+                        "id": "call_write",
+                        "name": "file_write",
+                        "arguments": {"path": "src/done.py", "content": "DONE = True\n"},
+                    }
+                ],
+            },
+            {
+                "output_type": "text",
+                "output_ref": "Wrote the file.",
+                "actual_cost_cents": 0,
+                "finish_reason": "stop",
+                "tool_calls": None,
+            },
+        ]
+    )
+
+    result = await dispatch_run_attempt(
+        request=request,
+        work_step=step,
+        tenant_id=mock_tenant_id,
+        session=db_session,
+        stream_manager=mock_stream_manager,
+        executor=executor,
+        executor_kind="injected",
+        model="stub-model",
+        workspace_dir=tmp_path,
+    )
+
+    assert (tmp_path / "src" / "done.py").read_text() == "DONE = True\n"
+    assert result.deliverable is not None
+    assert result.terminal_reason == "summarized"
+    assert any("not created or modified any file" in str(m.get("content")) for m in executor.captured_messages[1])
+
+
+@pytest.mark.asyncio
+async def test_dispatcher_fails_without_deliverable_when_model_never_writes_workspace(
+    db_session, mock_tenant_id, seeded_tenant, mock_stream_manager, tmp_path
+):
+    request, step = await _seed_request_with_step(db_session, mock_tenant_id)
+    executor = _ScriptedExecutor(final_text="Done in prose only.")
+
+    result = await dispatch_run_attempt(
+        request=request,
+        work_step=step,
+        tenant_id=mock_tenant_id,
+        session=db_session,
+        stream_manager=mock_stream_manager,
+        executor=executor,
+        executor_kind="injected",
+        model="stub-model",
+        workspace_dir=tmp_path,
+    )
+
+    assert result.deliverable is None
+    assert result.terminal_reason == "failed_nonconvergent:no_workspace_write"
+    assert result.attempt.status == RunAttemptStatus.failed
+    await db_session.refresh(step)
+    assert step.status == WorkStepStatus.failed
+    proof_calls = [
+        call for call in mock_stream_manager.publish.await_args_list if call.args and call.args[0] == "proof:queue"
+    ]
+    assert proof_calls == []
 
 
 @pytest.mark.asyncio
 async def test_dispatcher_terminates_on_repeated_identical_tool_calls(
     db_session, mock_tenant_id, seeded_tenant, mock_stream_manager, tmp_path
 ):
-    """Repeating the same (tool, args) 3x in a 4-round window must
+    """Repeating the same (tool, args) 4x in a 4-round window must
     terminate via the phase machine's repetition guard. The dispatcher
     surfaces the terminal_reason and skips Deliverable creation."""
     repeated_call = [
@@ -255,7 +383,7 @@ async def test_dispatcher_terminates_on_repeated_identical_tool_calls(
     (tmp_path / "pyproject.toml").write_text('[project]\nname="x"\n')
     request, step = await _seed_request_with_step(db_session, mock_tenant_id)
     executor = _ScriptedExecutor(
-        tool_call_scripts=[repeated_call, repeated_call, repeated_call],
+        tool_call_scripts=[repeated_call, repeated_call, repeated_call, repeated_call],
         final_text="should not reach",
     )
 
@@ -280,6 +408,53 @@ async def test_dispatcher_terminates_on_repeated_identical_tool_calls(
         call for call in mock_stream_manager.publish.await_args_list if call.args and call.args[0] == "proof:queue"
     ]
     assert proof_calls == []
+
+
+@pytest.mark.asyncio
+async def test_dispatcher_sends_repetition_nudge_back_to_model(
+    db_session, mock_tenant_id, seeded_tenant, mock_stream_manager, tmp_path
+):
+    repeated_read = [
+        {
+            "id": "call_read",
+            "name": "file_read",
+            "arguments": {"path": "pyproject.toml"},
+        }
+    ]
+    write_call = [
+        {
+            "id": "call_write",
+            "name": "file_write",
+            "arguments": {"path": "src/recovered.py", "content": "VALUE = 'ok'\n"},
+        }
+    ]
+    (tmp_path / "pyproject.toml").write_text('[project]\nname="x"\n')
+    request, step = await _seed_request_with_step(db_session, mock_tenant_id)
+    executor = _ScriptedExecutor(
+        tool_call_scripts=[repeated_read, repeated_read, write_call],
+        final_text="Recovered after repetition nudge.",
+    )
+
+    result = await dispatch_run_attempt(
+        request=request,
+        work_step=step,
+        tenant_id=mock_tenant_id,
+        session=db_session,
+        stream_manager=mock_stream_manager,
+        executor=executor,
+        executor_kind="injected",
+        model="stub-model",
+        workspace_dir=tmp_path,
+    )
+
+    assert result.deliverable is not None
+    assert result.terminal_reason == "summarized"
+    assert (tmp_path / "src" / "recovered.py").exists()
+    assert any(
+        "Do not repeat the same read/list call" in str(message.get("content"))
+        for captured in executor.captured_messages
+        for message in captured
+    )
 
 
 @pytest.mark.asyncio

@@ -66,6 +66,27 @@ def test_setup_only_command_cannot_be_verified_proof():
     assert result.strict_pass is False
 
 
+def test_nonconvergent_terminal_reason_is_reported_directly():
+    task = DEFAULT_M0_TASKS[0]
+    telemetry = _telemetry(
+        task.id,
+        proof_state=ProofState.verification_missing,
+        verifier_command=None,
+        verifier_exit_code=None,
+    )
+    telemetry = TaskTelemetry(
+        **{
+            **telemetry.__dict__,
+            "terminal_reason": "failed_nonconvergent:no_workspace_write",
+        }
+    )
+
+    result = evaluate_task_result(task, telemetry)
+
+    assert result.strict_pass is False
+    assert result.failure_reason == "nonconvergent"
+
+
 def test_medium_accepts_one_clear_missing_proof_failure():
     medium_tasks = [task for task in DEFAULT_SCENARIOS if task.scenario == ScenarioKind.medium]
     results = [

@@ -69,6 +69,7 @@ SUMMARY_PREVIEW_CHARS = 500
 # case the model returns zero tool_calls but garbage text repeatedly
 # (no ToolEvent rows means the round-budget logic never fires).
 MAX_WORK_LOOP_ITERATIONS = 12
+MAX_NO_WORK_NUDGES = 2
 
 
 @dataclass(frozen=True)
@@ -315,6 +316,9 @@ def _build_tool_registry(workspace_dir: Path | str | None) -> ToolRegistry | Non
 _OVERVIEW_IGNORE = {".git", "__pycache__", ".pytest_cache", ".venv", "node_modules", "dist", "build"}
 _OVERVIEW_MAX_ENTRIES = 120
 _OVERVIEW_MAX_DEPTH = 3
+_OVERVIEW_MAX_PREVIEW_FILES = 10
+_OVERVIEW_PREVIEW_CHARS = 900
+_OVERVIEW_PREVIEW_SUFFIXES = {".md", ".py", ".toml", ".json", ".txt", ".yaml", ".yml"}
 
 
 def _workspace_overview(workspace_dir: Path | str | None) -> str:
@@ -324,6 +328,7 @@ def _workspace_overview(workspace_dir: Path | str | None) -> str:
     if not root.exists():
         return ""
     entries: list[str] = []
+    preview_paths: list[Path] = []
 
     def _walk(current: Path, depth: int) -> None:
         if depth > _OVERVIEW_MAX_DEPTH or len(entries) >= _OVERVIEW_MAX_ENTRIES:
@@ -337,6 +342,12 @@ def _workspace_overview(workspace_dir: Path | str | None) -> str:
                 continue
             relative = child.relative_to(root).as_posix()
             entries.append(relative + ("/" if child.is_dir() else ""))
+            if (
+                child.is_file()
+                and len(preview_paths) < _OVERVIEW_MAX_PREVIEW_FILES
+                and child.suffix in _OVERVIEW_PREVIEW_SUFFIXES
+            ):
+                preview_paths.append(child)
             if len(entries) >= _OVERVIEW_MAX_ENTRIES:
                 return
             if child.is_dir():
@@ -345,7 +356,24 @@ def _workspace_overview(workspace_dir: Path | str | None) -> str:
     _walk(root, 1)
     if not entries:
         return "(workspace is empty — you will be creating files from scratch)"
-    return "\n".join(entries)
+    overview = ["Tree:", *entries]
+    if preview_paths:
+        overview.append("")
+        overview.append("Seed file previews:")
+        for path in preview_paths:
+            try:
+                content = path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                continue
+            except OSError:
+                continue
+            relative = path.relative_to(root).as_posix()
+            preview = content[:_OVERVIEW_PREVIEW_CHARS]
+            if len(content) > _OVERVIEW_PREVIEW_CHARS:
+                preview += "\n...<truncated>"
+            overview.append(f"--- {relative} ---")
+            overview.append(preview)
+    return "\n".join(overview)
 
 
 class _ToolLoopTerminated(Exception):
@@ -382,6 +410,8 @@ async def _run_work_phase(
     tools_schema = tool_registry.schema_for(work_tools) if tool_registry is not None else None
     workspace_dir_str = str(workspace_dir) if workspace_dir is not None else None
     final_text = ""
+    files_written = 0
+    no_work_nudges = 0
 
     for _ in range(MAX_WORK_LOOP_ITERATIONS):
         executor_result = await executor.execute(
@@ -394,8 +424,33 @@ async def _run_work_phase(
         final_text = str(executor_result.get("output_ref") or "")
         tool_calls = executor_result.get("tool_calls")
 
-        if not tool_calls or tool_registry is None:
+        if tool_registry is None:
             return final_text
+
+        if not tool_calls:
+            if files_written > 0:
+                return final_text
+            if no_work_nudges < MAX_NO_WORK_NUDGES:
+                no_work_nudges += 1
+                messages.append({"role": "assistant", "content": final_text or "(no tool calls)"})
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            "You have not created or modified any file yet. A prose answer is not a deliverable. "
+                            "Use file_write now to create or modify the required file, then run shell_exec if a "
+                            "verifier is available. If you need context, use file_read or file_list first."
+                        ),
+                    }
+                )
+                continue
+            await finish_run_attempt(
+                attempt=attempt,
+                status=RunAttemptStatus.failed,
+                terminal_reason="failed_nonconvergent:no_workspace_write",
+                session=session,
+            )
+            raise _ToolLoopTerminated(attempt=attempt, reason="failed_nonconvergent:no_workspace_write")
 
         messages.append(_assistant_tool_call_message(final_text, tool_calls))
 
@@ -405,6 +460,8 @@ async def _run_work_phase(
             arguments = call.get("arguments") if isinstance(call.get("arguments"), dict) else {}
 
             tool_output, exit_code, writes = await _invoke_tool_safely(tool_registry, tool_name, arguments)
+            if tool_name == "file_write" and exit_code == 0 and writes:
+                files_written += len(writes)
             event_input = ToolEventInput(
                 tool_name=tool_name,
                 args=arguments,
@@ -430,6 +487,17 @@ async def _run_work_phase(
                 raise _ToolLoopTerminated(
                     attempt=attempt,
                     reason=event_result.terminal_reason or "work_loop_terminated",
+                )
+            if event_result.nudge:
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            f"{event_result.nudge} You have already seen this tool result. "
+                            "Do not repeat the same read/list call. If no file has been written yet, "
+                            "use file_write with the required change now; otherwise send the final summary."
+                        ),
+                    }
                 )
 
     # Outer cap hit without convergence — terminate.

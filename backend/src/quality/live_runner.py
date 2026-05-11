@@ -100,6 +100,18 @@ async def run_live_measurement(
         executor_kind=executor_kind,
         model=model,
         session_factory=session_factory,
+        # Baseline for unfixtured smoke/easy/medium tasks. M0 tasks carry
+        # their own fixtures; this prevents cross-task pollution in the
+        # rest of the suite while still letting workspace_files_touched
+        # detect fake verified runs.
+        default_seed_workspace={
+            "pyproject.toml": (
+                "[project]\nname = 'm0-baseline'\nversion = '0.0.0'\n"
+                "requires-python = '>=3.11'\n"
+            ),
+            "tests/__init__.py": "",
+            "tests/test_seed.py": "def test_seed_always_passes():\n    assert True\n",
+        },
     )
 
     task_list = list(tasks) if tasks is not None else list(default_tasks())
@@ -152,6 +164,11 @@ def _build_argparser() -> argparse.ArgumentParser:
         help="Override DATABASE_URL (defaults to the backend's settings.database_url)",
     )
     parser.add_argument(
+        "--task-id",
+        action="append",
+        help="Restrict the run to specific task ids (repeatable). Default: full suite.",
+    )
+    parser.add_argument(
         "--runs",
         type=int,
         default=1,
@@ -178,12 +195,22 @@ async def _amain(argv: list[str]) -> int:
         print(f"workspace not found: {workspace_root}", file=sys.stderr)
         return 2
 
+    filtered_tasks = None
+    if args.task_id:
+        wanted = set(args.task_id)
+        filtered_tasks = [task for task in default_tasks() if task.id in wanted]
+        missing = wanted.difference(t.id for t in filtered_tasks)
+        if missing:
+            print(f"unknown --task-id values: {sorted(missing)}", file=sys.stderr)
+            return 2
+
     payload = await run_live_measurement(
         tenant_id=uuid.UUID(args.tenant_id),
         workspace_root=workspace_root,
         database_url=args.database_url,
         runs=args.runs,
         min_per_task_strict_rate=args.min_strict_rate,
+        tasks=filtered_tasks,
     )
     print(payload["markdown"])
 
