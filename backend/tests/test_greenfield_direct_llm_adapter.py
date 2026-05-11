@@ -1,179 +1,198 @@
 """Tests for ``core.llm.DirectLLMAdapter`` (G6.2 — Piece 2).
 
-litellm direct path for ``executor_type=llm_api``. Mirrors the
-``BSGatewayClient.execute()`` contract so the resolver returned client
-is interchangeable from the caller's POV (G6.3 RunAttempt executor).
+The adapter wraps :class:`bsvibe_llm.LlmClient` (``direct=True``) so
+the shared retry / fallback / reasoning-suppression / wire-contract
+plumbing lives in one place across all BSVibe products. BSNexus does
+not import ``litellm`` directly anywhere — the fence is enforced by
+``test_litellm_is_fenced_to_core_llm`` in the legacy-erasure suite.
 
-litellm itself is mocked here — the adapter is a thin async wrapper
-around ``litellm.acompletion(..., stream=True)`` and the test focuses
-on the wire shape, the on_chunk callback, and the result dict.
+Both ``BSGatewayClient`` and ``DirectLLMAdapter`` satisfy the
+``ExecutorClient`` Protocol; the resolver returns the Protocol type so
+callers never branch on the concrete class.
 """
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
+from bsvibe_llm import CompletionResult, LlmClient
+
+from backend.src.core.executor_config import ExecutorClient
+from backend.src.core.llm import DirectLLMAdapter, DirectLLMError
 
 
-class _FakeStreamChunk:
-    """Mimic the minimal litellm streaming chunk shape: ``choices[0].delta.content``
-    plus an optional ``finish_reason``."""
-
-    def __init__(self, content: str | None, finish_reason: str | None = None) -> None:
-        self.choices = [_FakeStreamChoice(content, finish_reason)]
-
-
-class _FakeStreamChoice:
-    def __init__(self, content: str | None, finish_reason: str | None) -> None:
-        self.delta = _FakeDelta(content)
-        self.finish_reason = finish_reason
+def _stub_client(result: CompletionResult | Exception) -> LlmClient:
+    """Build an ``LlmClient`` whose ``.complete()`` returns a fixed
+    ``CompletionResult`` (or raises). Avoids touching any real
+    ``litellm`` / network surface from the test."""
+    client = LlmClient.__new__(LlmClient)
+    if isinstance(result, Exception):
+        client.complete = AsyncMock(side_effect=result)  # type: ignore[method-assign]
+    else:
+        client.complete = AsyncMock(return_value=result)  # type: ignore[method-assign]
+    return client
 
 
-class _FakeDelta:
-    def __init__(self, content: str | None) -> None:
-        self.content = content
-
-
-async def _fake_stream(chunks: list[_FakeStreamChunk]) -> AsyncIterator[_FakeStreamChunk]:
-    for chunk in chunks:
-        yield chunk
+def _completion(text: str, finish_reason: str = "stop") -> CompletionResult:
+    return CompletionResult(
+        text=text,
+        model="ollama_chat/qwen3-coder:30b",
+        finish_reason=finish_reason,
+        prompt_tokens=0,
+        completion_tokens=0,
+    )
 
 
 @pytest.mark.asyncio
-async def test_direct_llm_adapter_returns_concatenated_text(monkeypatch):
-    """The adapter should iterate the litellm stream, collect text
-    deltas, and return the BSGateway-style result dict so callers can
-    treat both paths identically."""
-    from backend.src.core.llm import DirectLLMAdapter
+async def test_direct_adapter_returns_shared_executor_result_shape():
+    """The adapter result must match the same ``execute()`` contract
+    BSGatewayClient returns so downstream callers (G6.3 RunAttempt
+    executor, G6.4 M0 harness bridge) don't branch."""
+    stub = _stub_client(_completion("hello world"))
+    adapter = DirectLLMAdapter(
+        base_url="http://localhost:11434",
+        api_key="sk-x",
+        client=stub,
+    )
 
-    chunks = [
-        _FakeStreamChunk("hello "),
-        _FakeStreamChunk("world"),
-        _FakeStreamChunk(None, finish_reason="stop"),
-    ]
-
-    captured: dict[str, Any] = {}
-
-    async def fake_acompletion(**kwargs: Any) -> AsyncIterator[_FakeStreamChunk]:
-        captured.update(kwargs)
-        return _fake_stream(chunks)
-
-    monkeypatch.setattr("backend.src.core.llm.direct_client.acompletion", fake_acompletion)
-
-    adapter = DirectLLMAdapter(base_url="http://host.docker.internal:11434", api_key="sk-x")
     result = await adapter.execute(
         messages=[{"role": "user", "content": "hi"}],
-        metadata={},
+        metadata={"tenant_id": "11111111-1111-4111-8111-111111111111", "run_id": "r-1"},
         model="ollama_chat/qwen3-coder:30b",
     )
 
     assert result["output_type"] == "text"
     assert result["output_ref"] == "hello world"
     assert result["finish_reason"] == "stop"
-    # ``actual_cost_cents`` is 0 — BSNexus doesn't price the call here.
     assert result["actual_cost_cents"] == 0
-    # litellm received the model + messages + stream flag + api_base
-    # (we use the per-tenant ``base_url`` so a self-host Ollama hits
-    # localhost, not the upstream provider).
-    assert captured["model"] == "ollama_chat/qwen3-coder:30b"
-    assert captured["messages"] == [{"role": "user", "content": "hi"}]
-    assert captured["stream"] is True
-    assert captured["api_base"] == "http://host.docker.internal:11434"
-    assert captured["api_key"] == "sk-x"
 
 
 @pytest.mark.asyncio
-async def test_direct_llm_adapter_invokes_on_chunk_callback(monkeypatch):
-    """The orchestrator (G6.3) wires ``on_chunk`` to fan SSE deltas
-    onto the project stream so the founder sees the model thinking in
-    real time. Without this, the LLM output appears in one blob at the
-    end of the call."""
-    from backend.src.core.llm import DirectLLMAdapter
+async def test_direct_adapter_passes_direct_true_to_bsvibe_llm():
+    """``direct=True`` is the Decision #11 opt-out — without it
+    ``bsvibe_llm`` routes through BSGateway and the per-tenant
+    self-host endpoint never wins."""
+    stub = _stub_client(_completion(""))
+    adapter = DirectLLMAdapter(base_url=None, api_key="sk-x", client=stub)
 
-    chunks = [
-        _FakeStreamChunk("first "),
-        _FakeStreamChunk("second"),
-        _FakeStreamChunk(None, finish_reason="stop"),
-    ]
-
-    async def fake_acompletion(**_kwargs: Any) -> AsyncIterator[_FakeStreamChunk]:
-        return _fake_stream(chunks)
-
-    monkeypatch.setattr("backend.src.core.llm.direct_client.acompletion", fake_acompletion)
-
-    streamed: list[str] = []
-
-    async def on_chunk(delta: str) -> None:
-        streamed.append(delta)
-
-    adapter = DirectLLMAdapter(base_url=None, api_key="sk-x")
     await adapter.execute(
         messages=[{"role": "user", "content": "hi"}],
-        metadata={},
+        metadata={"tenant_id": "t1", "run_id": "r1"},
         model="gpt-4o",
-        on_chunk=on_chunk,
     )
 
-    assert streamed == ["first ", "second"]
+    stub.complete.assert_awaited_once()  # type: ignore[attr-defined]
+    kwargs = stub.complete.await_args.kwargs  # type: ignore[attr-defined]
+    assert kwargs["direct"] is True
+    assert kwargs["model"] == "gpt-4o"
 
 
 @pytest.mark.asyncio
-async def test_direct_llm_adapter_raises_on_litellm_error(monkeypatch):
-    """A failing acompletion raises ``DirectLLMError`` with the partial
-    text accumulated so far — mirrors ``BSGatewayError.partial_output``
-    so the orchestrator can surface what the model produced before the
-    failure."""
-    from backend.src.core.llm import DirectLLMAdapter, DirectLLMError
+async def test_direct_adapter_coerces_metadata_to_run_audit_metadata():
+    """``LlmClient.complete()`` requires a typed ``RunAuditMetadata``.
+    The adapter accepts a free-form dict from the orchestrator and
+    coerces it; required keys (`tenant_id`, `run_id`) are checked."""
+    from bsvibe_llm import RunAuditMetadata
 
-    chunks = [
-        _FakeStreamChunk("partial "),
-        _FakeStreamChunk("text "),
-    ]
+    stub = _stub_client(_completion(""))
+    adapter = DirectLLMAdapter(base_url=None, api_key="sk-x", client=stub)
 
-    async def fake_stream_then_fail() -> AsyncIterator[_FakeStreamChunk]:
-        for chunk in chunks:
-            yield chunk
-        raise RuntimeError("upstream timeout")
+    await adapter.execute(
+        messages=[{"role": "user", "content": "hi"}],
+        metadata={
+            "tenant_id": "11111111-1111-4111-8111-111111111111",
+            "run_id": "r-1",
+            "project_id": "p-1",
+            "novel_key": "passthrough-via-extras",
+        },
+        model="gpt-4o",
+    )
 
-    async def fake_acompletion(**_kwargs: Any) -> AsyncIterator[_FakeStreamChunk]:
-        return fake_stream_then_fail()
+    kwargs = stub.complete.await_args.kwargs  # type: ignore[attr-defined]
+    md = kwargs["metadata"]
+    assert isinstance(md, RunAuditMetadata)
+    assert md.tenant_id == "11111111-1111-4111-8111-111111111111"
+    assert md.run_id == "r-1"
+    assert md.project_id == "p-1"
+    assert md.extras == {"novel_key": "passthrough-via-extras"}
 
-    monkeypatch.setattr("backend.src.core.llm.direct_client.acompletion", fake_acompletion)
 
-    adapter = DirectLLMAdapter(base_url=None, api_key="sk-x")
-    with pytest.raises(DirectLLMError) as exc_info:
+@pytest.mark.asyncio
+async def test_direct_adapter_rejects_metadata_without_required_keys():
+    """Missing ``tenant_id`` / ``run_id`` is a contract failure, not a
+    silent-best-effort. ``bsvibe_llm`` rejects anonymous traffic; we
+    fail-fast at the adapter boundary so the orchestrator gets a
+    structured error."""
+    stub = _stub_client(_completion(""))
+    adapter = DirectLLMAdapter(base_url=None, api_key="sk-x", client=stub)
+
+    with pytest.raises(DirectLLMError):
         await adapter.execute(
             messages=[{"role": "user", "content": "hi"}],
             metadata={},
             model="gpt-4o",
         )
-
-    assert exc_info.value.partial_output == "partial text "
+    stub.complete.assert_not_awaited()  # type: ignore[attr-defined]
 
 
 @pytest.mark.asyncio
-async def test_direct_llm_adapter_omits_api_base_when_unset(monkeypatch):
-    """SaaS providers (OpenAI / Anthropic) infer the endpoint from the
-    model id; we must not force ``api_base=None`` into the call because
-    litellm treats that as ``api_base=""`` and skips its built-in
-    routing. Omit the kwarg entirely when ``base_url`` is None."""
-    from backend.src.core.llm import DirectLLMAdapter
+async def test_direct_adapter_invokes_on_chunk_with_full_output():
+    """``LlmClient.complete()`` is non-streaming. The adapter still
+    fires ``on_chunk(full_text)`` once at the end so the orchestrator's
+    SSE fan-out path stays unified across both executor kinds
+    (BSGateway streams; direct sends one chunk)."""
+    stub = _stub_client(_completion("the whole reply"))
+    adapter = DirectLLMAdapter(base_url=None, api_key="sk-x", client=stub)
 
-    captured: dict[str, Any] = {}
+    chunks: list[str] = []
 
-    async def fake_acompletion(**kwargs: Any) -> AsyncIterator[_FakeStreamChunk]:
-        captured.update(kwargs)
-        return _fake_stream([_FakeStreamChunk(None, finish_reason="stop")])
+    async def on_chunk(delta: str) -> None:
+        chunks.append(delta)
 
-    monkeypatch.setattr("backend.src.core.llm.direct_client.acompletion", fake_acompletion)
-
-    adapter = DirectLLMAdapter(base_url=None, api_key="sk-x")
     await adapter.execute(
         messages=[{"role": "user", "content": "hi"}],
-        metadata={},
+        metadata={"tenant_id": "t1", "run_id": "r1"},
         model="gpt-4o",
+        on_chunk=on_chunk,
     )
 
-    assert "api_base" not in captured
+    assert chunks == ["the whole reply"]
+
+
+@pytest.mark.asyncio
+async def test_direct_adapter_raises_direct_llm_error_on_provider_failure():
+    """A failing ``LlmClient.complete()`` (network, provider 500, retry
+    exhaustion) surfaces as ``DirectLLMError`` so the orchestrator can
+    transition the RunAttempt to ``blocked`` uniformly."""
+    stub = _stub_client(RuntimeError("upstream 503"))
+    adapter = DirectLLMAdapter(base_url=None, api_key="sk-x", client=stub)
+
+    with pytest.raises(DirectLLMError):
+        await adapter.execute(
+            messages=[{"role": "user", "content": "hi"}],
+            metadata={"tenant_id": "t1", "run_id": "r1"},
+            model="gpt-4o",
+        )
+
+
+def test_direct_adapter_conforms_to_executor_client_protocol():
+    """Structural Protocol check — ``DirectLLMAdapter`` exposes the
+    same ``execute()`` surface as ``BSGatewayClient``, so the resolver
+    can hand back either without callers branching on the concrete
+    class."""
+    stub = _stub_client(_completion(""))
+    adapter = DirectLLMAdapter(base_url=None, api_key="sk-x", client=stub)
+    assert isinstance(adapter, ExecutorClient)
+
+
+def test_bsgateway_client_conforms_to_executor_client_protocol() -> None:
+    """The other half of the same contract: ``BSGatewayClient`` must
+    also satisfy the Protocol so the resolver's single return type is
+    legitimate."""
+    from backend.src.core.bsgateway.client import BSGatewayClient
+
+    client = BSGatewayClient(base_url="https://gateway.bsvibe.dev", api_key="x")
+    assert isinstance(client, ExecutorClient)
+    _ = Any  # silence unused-import lint when this test file evolves

@@ -1,18 +1,14 @@
-"""``resolve_executor(tenant_id, session)`` — load per-tenant LLM
-dispatch config and return the right client.
+"""``resolve_executor(tenant_id, session)`` — per-tenant LLM dispatch.
 
-Two-path LLM dispatch (CLAUDE.md MUST rule):
-  - ``ExecutorKind.bsgateway`` → ``BSGatewayClient``
-  - ``ExecutorKind.llm_api``   → ``DirectLLMAdapter``
-
-Both expose the same ``execute()`` contract, so the caller treats the
-return value as a single ``ExecutorClient`` type alias.
+Returns an :class:`ExecutorClient` (Protocol) — never a Union of the
+concrete classes. Callers depend on the interface only, so adding a
+new ``ExecutorKind`` later means one new class + one resolver branch,
+not a Union widening across the whole codebase.
 """
 
 from __future__ import annotations
 
 import uuid
-from typing import Union
 
 import structlog
 from sqlalchemy import select
@@ -21,21 +17,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.src.config import settings as app_settings
 from backend.src.core.bsgateway.client import BSGatewayClient
 from backend.src.core.encryption import EncryptionManager
+from backend.src.core.executor_config.protocol import ExecutorClient
 from backend.src.core.llm import DirectLLMAdapter
 from backend.src.models.executor_config import ExecutorConfig, ExecutorKind
 
 logger = structlog.get_logger(__name__)
 
-ExecutorClient = Union[BSGatewayClient, DirectLLMAdapter]
-
 
 class ExecutorConfigError(Exception):
-    """Raised when a per-tenant ExecutorConfig row exists but cannot
-    produce a usable client — typically because the encrypted api_key
-    fails to decrypt (rotated encryption key, hand-edited DB).
+    """Raised when a per-tenant ``ExecutorConfig`` row exists but
+    cannot produce a usable client — typically because the encrypted
+    api_key fails to decrypt (rotated key, hand-edited DB).
 
     The caller treats this as a config error: block the run instead of
-    dispatching to BSGateway with nonsense credentials.
+    dispatching with nonsense credentials.
     """
 
 

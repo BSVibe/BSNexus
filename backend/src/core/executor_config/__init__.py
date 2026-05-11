@@ -1,17 +1,19 @@
 """``backend.src.core.executor_config`` — per-tenant LLM dispatch resolver.
 
-Loads the ``executor_configs`` row for a tenant, decrypts
-``api_key_encrypted`` via ``EncryptionManager``, and returns either a
-``BSGatewayClient`` or a ``DirectLLMAdapter``. Both implement the
-same ``execute()`` contract so the caller (G6.3 RunAttempt executor)
-doesn't branch on kind.
-
-This is the indirection that the G7.5b admin surface (the LLM Dispatch
-tab in Settings) populates and the runtime consumes.
+Public surface:
+  - :class:`ExecutorClient` — the Protocol every per-tenant LLM client
+    satisfies. Both ``BSGatewayClient`` and ``DirectLLMAdapter``
+    structurally implement it; adding a new kind = one new class +
+    one resolver branch, no Union widening.
+  - :func:`resolve_executor` — load the ``executor_configs`` row for
+    a tenant, decrypt the api_key, return the right concrete client
+    as an ``ExecutorClient``.
+  - :class:`ExecutorConfigError` — raised when the row exists but
+    cannot produce a usable client (rotated encryption key, etc.).
 """
 
+from backend.src.core.executor_config.protocol import ExecutorClient
 from backend.src.core.executor_config.resolver import (
-    ExecutorClient,
     ExecutorConfigError,
     resolve_executor,
 )

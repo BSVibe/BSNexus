@@ -1,10 +1,11 @@
 """Tests for ``core.executor_config.resolve_executor`` (G6.2 — Piece 5).
 
 Loads the per-tenant ``ExecutorConfig`` row, decrypts
-``api_key_encrypted``, returns either a ``BSGatewayClient`` or a
-``DirectLLMAdapter``. Both implement the same ``execute()`` contract so
-the G6.3 RunAttempt executor can call ``client.execute(...)`` without
-caring about the path.
+``api_key_encrypted``, returns an ``ExecutorClient`` (the Protocol;
+the concrete client may be ``BSGatewayClient``, ``DirectLLMAdapter``,
+or a future kind). Callers depend on the Protocol — never on the
+concrete classes — so the resolver's signature doesn't widen as
+``ExecutorKind`` grows.
 """
 
 from __future__ import annotations

@@ -115,27 +115,21 @@ def test_known_legacy_runtime_files_are_removed():
     assert still_present == []
 
 
-def test_litellm_is_fenced_to_core_llm():
-    """CLAUDE.md MUST rule — only ``backend/src/core/llm/`` may import
-    ``litellm``. Everywhere else goes through ``BSGatewayClient`` or
-    (G6.2) the ``DirectLLMAdapter`` indirection. Catches the
-    well-meaning ``from litellm import ...`` that drifts past code
-    review."""
+def test_litellm_is_not_imported_directly_by_bsnexus():
+    """CLAUDE.md MUST rule + G6.2 follow-up — BSNexus never imports
+    ``litellm`` directly. ``core/llm/`` now routes through
+    ``bsvibe_llm.LlmClient`` (``direct=True``), which is the shared
+    BSVibe surface that owns retry / fallback / wire-contract. The
+    direct ``litellm`` pin was dropped from ``pyproject.toml``; the
+    package is now only a transitive dep of ``bsvibe-llm``."""
     repo = Path.cwd()
     src_root = repo / "src"
-    fenced_root = src_root / "core" / "llm"
     violations: list[str] = []
     for path in src_root.rglob("*.py"):
-        # The fence allows ``backend/src/core/llm/`` itself.
-        try:
-            path.relative_to(fenced_root)
-            continue
-        except ValueError:
-            pass
         for imported in _imports_for(path):
             if imported == "litellm" or imported.startswith("litellm."):
                 violations.append(f"{path.relative_to(repo)}: {imported}")
     assert violations == [], (
-        f"litellm imports must be confined to backend/src/core/llm/. "
-        f"Found leaks: {violations}"
+        "BSNexus must not import ``litellm`` directly — use "
+        "``bsvibe_llm.LlmClient`` instead. Found leaks: " + str(violations)
     )
