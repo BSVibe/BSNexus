@@ -152,6 +152,11 @@ def _build_argparser() -> argparse.ArgumentParser:
         help="Override DATABASE_URL (defaults to the backend's settings.database_url)",
     )
     parser.add_argument(
+        "--task-id",
+        action="append",
+        help="Restrict the run to specific task ids (repeatable). Default: full suite.",
+    )
+    parser.add_argument(
         "--runs",
         type=int,
         default=1,
@@ -178,12 +183,22 @@ async def _amain(argv: list[str]) -> int:
         print(f"workspace not found: {workspace_root}", file=sys.stderr)
         return 2
 
+    filtered_tasks = None
+    if args.task_id:
+        wanted = set(args.task_id)
+        filtered_tasks = [task for task in default_tasks() if task.id in wanted]
+        missing = wanted.difference(t.id for t in filtered_tasks)
+        if missing:
+            print(f"unknown --task-id values: {sorted(missing)}", file=sys.stderr)
+            return 2
+
     payload = await run_live_measurement(
         tenant_id=uuid.UUID(args.tenant_id),
         workspace_root=workspace_root,
         database_url=args.database_url,
         runs=args.runs,
         min_per_task_strict_rate=args.min_strict_rate,
+        tasks=filtered_tasks,
     )
     print(payload["markdown"])
 

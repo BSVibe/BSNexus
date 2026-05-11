@@ -37,6 +37,14 @@ class BenchmarkTask:
     prompt: str
     expected_proof: str
     allow_human_review: bool = False
+    # G6.9 — optional per-task fixture: relative_path → file content.
+    # When set, the bridge resets ``workspace_root`` to exactly this
+    # tree before the LLM runs, so each task starts from a concrete
+    # broken state (failing test + half-written code) instead of
+    # forcing the model to invent everything from scratch. Default
+    # (None) preserves the bare-workspace behavior G6.7/G6.8
+    # measured against.
+    seed_workspace: dict[str, str] | None = field(default=None, hash=False, compare=False)
 
 
 @dataclass(frozen=True)
@@ -456,12 +464,34 @@ DEFAULT_M0_TASKS: tuple[BenchmarkTask, ...] = (
         kind=TaskKind.regression,
         title="Restore /healthz after auth refactor",
         prompt=(
-            "Our production smoke test broke after the auth refactor — the /healthz route "
-            "returns 401 instead of 200. Restore the public health endpoint so it returns "
-            '{"status": "ok"} with HTTP 200 even without an Authorization header, and add a '
-            "regression test so we don't lose this again."
+            "Our production smoke test broke after the auth refactor — the health endpoint "
+            "no longer returns the expected status. Make ``healthz()`` in ``src/api.py`` "
+            "return ``{'status': 'ok'}`` so the existing regression test passes."
         ),
         expected_proof="python -m pytest",
+        seed_workspace={
+            "pyproject.toml": (
+                "[project]\nname = 'm0-1-healthz'\nversion = '0.0.0'\n"
+                "requires-python = '>=3.11'\n"
+            ),
+            "src/__init__.py": "",
+            "src/api.py": (
+                '"""Health API.\n\n'
+                "The /healthz endpoint was broken during the auth refactor — it now\n"
+                "returns the wrong shape. The single regression test in tests/test_healthz.py\n"
+                "pins the expected behavior.\n"
+                '"""\n\n\n'
+                "def healthz() -> dict:\n"
+                '    # BUG: should return {"status": "ok"}\n'
+                '    return {"status": "broken"}\n'
+            ),
+            "tests/__init__.py": "",
+            "tests/test_healthz.py": (
+                "from src.api import healthz\n\n\n"
+                "def test_healthz_returns_ok():\n"
+                '    assert healthz() == {"status": "ok"}\n'
+            ),
+        },
     ),
     BenchmarkTask(
         id="m0-2",
