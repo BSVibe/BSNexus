@@ -385,76 +385,345 @@ DEFAULT_SCENARIOS: tuple[BenchmarkTask, ...] = (
         id="smoke-1",
         scenario=ScenarioKind.smoke,
         kind=TaskKind.doc,
-        title="Create tiny validated note",
-        prompt="Create a tiny deliverable and mark missing deterministic proof as human review if needed.",
-        expected_proof="human_review_or_valid_verifier",
-        allow_human_review=True,
+        title="Add project README",
+        prompt=(
+            "This workspace has no README. Create ``README.md`` whose first non-empty line "
+            "is exactly ``# notes``. The regression test pins that exact heading."
+        ),
+        expected_proof="python -m pytest",
+        seed_workspace={
+            "pyproject.toml": (
+                "[project]\nname = 'smoke-1-readme'\nversion = '0.0.0'\n"
+                "requires-python = '>=3.11'\n"
+            ),
+            "tests/__init__.py": "",
+            "tests/test_readme.py": (
+                "import pathlib\n\n\n"
+                "def test_readme_has_notes_heading():\n"
+                "    root = pathlib.Path(__file__).resolve().parent.parent\n"
+                "    readme = root / 'README.md'\n"
+                "    assert readme.exists(), 'README.md is missing'\n"
+                "    first_line = next(\n"
+                "        (line for line in readme.read_text().splitlines() if line.strip()),\n"
+                "        '',\n"
+                "    )\n"
+                "    assert first_line.strip() == '# notes', f'unexpected first line: {first_line!r}'\n"
+            ),
+        },
     ),
     BenchmarkTask(
         id="smoke-2",
         scenario=ScenarioKind.smoke,
         kind=TaskKind.typo_docstring,
-        title="Fix a docstring typo",
-        prompt="Fix a docstring typo and produce a proof-aware deliverable.",
-        expected_proof="valid_verifier_or_human_review",
-        allow_human_review=True,
+        title="Fix 'Helo' typo in src/greeter.py docstring",
+        prompt=(
+            "src/greeter.py module docstring starts with 'Helo, world.' — fix it to "
+            "'Hello, world.' so the regression test (which reads ``greeter.__doc__``) passes."
+        ),
+        expected_proof="python -m pytest",
+        seed_workspace={
+            "pyproject.toml": (
+                "[project]\nname = 'smoke-2-greeter'\nversion = '0.0.0'\n"
+                "requires-python = '>=3.11'\n"
+            ),
+            "src/__init__.py": "",
+            "src/greeter.py": (
+                '"""Helo, world.\n\n'
+                "This module is a placeholder for greeting helpers. The opening word\n"
+                "above is misspelled.\n"
+                '"""\n'
+            ),
+            "tests/__init__.py": "",
+            "tests/test_greeter.py": (
+                "from src import greeter\n\n\n"
+                "def test_module_docstring_starts_with_hello():\n"
+                "    doc = greeter.__doc__ or ''\n"
+                "    assert doc.splitlines()[0] == 'Hello, world.', doc.splitlines()[0]\n"
+            ),
+        },
     ),
     BenchmarkTask(
         id="smoke-3",
         scenario=ScenarioKind.smoke,
         kind=TaskKind.doc,
-        title="Summarize proof status",
-        prompt="Create a brief proof-status summary with no fake verified state.",
-        expected_proof="human_review_or_valid_verifier",
-        allow_human_review=True,
+        title="Add CHANGELOG.md Unreleased section",
+        prompt=(
+            "Create ``CHANGELOG.md`` whose first non-empty line is exactly "
+            "``## [Unreleased]``. The regression test pins that marker."
+        ),
+        expected_proof="python -m pytest",
+        seed_workspace={
+            "pyproject.toml": (
+                "[project]\nname = 'smoke-3-changelog'\nversion = '0.0.0'\n"
+                "requires-python = '>=3.11'\n"
+            ),
+            "tests/__init__.py": "",
+            "tests/test_changelog.py": (
+                "import pathlib\n\n\n"
+                "def test_changelog_has_unreleased_section():\n"
+                "    root = pathlib.Path(__file__).resolve().parent.parent\n"
+                "    changelog = root / 'CHANGELOG.md'\n"
+                "    assert changelog.exists(), 'CHANGELOG.md is missing'\n"
+                "    first_line = next(\n"
+                "        (line for line in changelog.read_text().splitlines() if line.strip()),\n"
+                "        '',\n"
+                "    )\n"
+                "    assert first_line.strip() == '## [Unreleased]', first_line\n"
+            ),
+        },
     ),
     BenchmarkTask(
         id="easy-1",
         scenario=ScenarioKind.easy,
         kind=TaskKind.test_writing,
-        title="Add small function with tests",
-        prompt="Add a small pure function and pytest coverage.",
+        title="Implement sum_positive",
+        prompt=(
+            "src/util.py exposes ``sum_positive(xs)`` as a stub that raises "
+            "NotImplementedError. Implement it to return the sum of strictly positive "
+            "integers in ``xs`` (skip zero and negatives). Tests pin both an all-positive "
+            "list and a mixed list."
+        ),
         expected_proof="python -m pytest",
+        seed_workspace={
+            "pyproject.toml": (
+                "[project]\nname = 'easy-1-sum-positive'\nversion = '0.0.0'\n"
+                "requires-python = '>=3.11'\n"
+            ),
+            "src/__init__.py": "",
+            "src/util.py": (
+                '"""Numeric utilities."""\n\n\n'
+                "def sum_positive(xs):\n"
+                '    """Return the sum of strictly positive ints in ``xs``."""\n'
+                "    raise NotImplementedError\n"
+            ),
+            "tests/__init__.py": "",
+            "tests/test_util.py": (
+                "from src.util import sum_positive\n\n\n"
+                "def test_sum_positive_all_positive():\n"
+                "    assert sum_positive([1, 2, 3]) == 6\n\n\n"
+                "def test_sum_positive_mixed():\n"
+                "    assert sum_positive([-1, 0, 4, -2, 5]) == 9\n\n\n"
+                "def test_sum_positive_empty():\n"
+                "    assert sum_positive([]) == 0\n"
+            ),
+        },
     ),
     BenchmarkTask(
         id="easy-2",
         scenario=ScenarioKind.easy,
         kind=TaskKind.bug_fix,
-        title="Fix one-line parser bug",
-        prompt="Fix a one-line parser bug and add a regression test.",
+        title="parse_int drops leading '+' sign",
+        prompt=(
+            "src/parser.py::parse_int strips whitespace and parses digits, but it rejects "
+            "a leading '+' (returns None for '+5'). Fix it to accept an optional leading "
+            "'+'. The negative-sign and digit paths must still work. Tests pin '+5', '5', "
+            "'-3', and invalid input."
+        ),
         expected_proof="python -m pytest",
+        seed_workspace={
+            "pyproject.toml": (
+                "[project]\nname = 'easy-2-parser'\nversion = '0.0.0'\n"
+                "requires-python = '>=3.11'\n"
+            ),
+            "src/__init__.py": "",
+            "src/parser.py": (
+                '"""Tiny int parser."""\n\n\n'
+                "def parse_int(text):\n"
+                "    s = text.strip() if isinstance(text, str) else ''\n"
+                "    if not s:\n"
+                "        return None\n"
+                "    # BUG: only '-' is accepted as a sign; '+' falls through and fails.\n"
+                "    if s[0] == '-':\n"
+                "        body = s[1:]\n"
+                "        sign = -1\n"
+                "    else:\n"
+                "        body = s\n"
+                "        sign = 1\n"
+                "    if not body.isdigit():\n"
+                "        return None\n"
+                "    return sign * int(body)\n"
+            ),
+            "tests/__init__.py": "",
+            "tests/test_parser.py": (
+                "from src.parser import parse_int\n\n\n"
+                "def test_parse_plain_int():\n"
+                "    assert parse_int('5') == 5\n\n\n"
+                "def test_parse_negative_int():\n"
+                "    assert parse_int('-3') == -3\n\n\n"
+                "def test_parse_explicit_positive_int():\n"
+                "    assert parse_int('+5') == 5\n\n\n"
+                "def test_parse_invalid_returns_none():\n"
+                "    assert parse_int('abc') is None\n"
+            ),
+        },
     ),
     BenchmarkTask(
         id="easy-3",
         scenario=ScenarioKind.easy,
         kind=TaskKind.typo_docstring,
-        title="Docstring plus syntax validation",
-        prompt="Fix a docstring and run syntax validation.",
-        expected_proof="compile_or_test",
+        title="Fix 'Calcuator' typo in src/calc.py docstring",
+        prompt=(
+            "src/calc.py module docstring opens with 'Calcuator helpers.' — fix the typo to "
+            "'Calculator helpers.'. The regression test reads ``calc.__doc__``."
+        ),
+        expected_proof="python -m pytest",
+        seed_workspace={
+            "pyproject.toml": (
+                "[project]\nname = 'easy-3-calc'\nversion = '0.0.0'\n"
+                "requires-python = '>=3.11'\n"
+            ),
+            "src/__init__.py": "",
+            "src/calc.py": (
+                '"""Calcuator helpers.\n\n'
+                "Pure-Python helpers for basic arithmetic.\n"
+                '"""\n\n\n'
+                "def add(a, b):\n"
+                "    return a + b\n"
+            ),
+            "tests/__init__.py": "",
+            "tests/test_calc.py": (
+                "from src import calc\n\n\n"
+                "def test_module_docstring_says_calculator():\n"
+                "    doc = calc.__doc__ or ''\n"
+                "    first = doc.splitlines()[0]\n"
+                "    assert first == 'Calculator helpers.', first\n"
+            ),
+        },
     ),
     BenchmarkTask(
         id="medium-1",
         scenario=ScenarioKind.medium,
         kind=TaskKind.bug_fix,
-        title="Small FastAPI route with test",
-        prompt="Add a small FastAPI route and an API contract test.",
+        title="Router returns 200 for unknown paths",
+        prompt=(
+            "src/router.py::handle returns 200 for the '/healthz' path (correct), but it "
+            "also returns 200 for every other path — it should return 404 for anything "
+            "except '/healthz'. Fix the dispatcher. Tests pin both the 200 and the 404 "
+            "branch."
+        ),
         expected_proof="python -m pytest",
+        seed_workspace={
+            "pyproject.toml": (
+                "[project]\nname = 'medium-1-router'\nversion = '0.0.0'\n"
+                "requires-python = '>=3.11'\n"
+            ),
+            "src/__init__.py": "",
+            "src/router.py": (
+                '"""Tiny path → status dispatcher."""\n\n\n'
+                "def handle(path):\n"
+                "    if path == '/healthz':\n"
+                "        return 200\n"
+                "    # BUG: returns 200 for every other path. Should be 404.\n"
+                "    return 200\n"
+            ),
+            "tests/__init__.py": "",
+            "tests/test_router.py": (
+                "from src.router import handle\n\n\n"
+                "def test_healthz_returns_200():\n"
+                "    assert handle('/healthz') == 200\n\n\n"
+                "def test_unknown_returns_404():\n"
+                "    assert handle('/nope') == 404\n\n\n"
+                "def test_root_returns_404():\n"
+                "    assert handle('/') == 404\n"
+            ),
+        },
     ),
     BenchmarkTask(
         id="medium-2",
         scenario=ScenarioKind.medium,
         kind=TaskKind.refactor,
-        title="Refactor helper with coverage",
-        prompt="Refactor a helper and keep pytest coverage passing.",
+        title="Extract duplicated percent-off helper",
+        prompt=(
+            "src/pricing.py has two functions, ``apply_member_discount(amount, pct)`` and "
+            "``apply_promo_discount(amount, pct)``, that compute "
+            "``amount - amount * pct / 100`` independently. Extract a private helper "
+            "``_apply_percent(amount, pct)`` and call it from both. Tests pin the existing "
+            "behavior; do not change return values."
+        ),
         expected_proof="python -m pytest",
+        seed_workspace={
+            "pyproject.toml": (
+                "[project]\nname = 'medium-2-pricing'\nversion = '0.0.0'\n"
+                "requires-python = '>=3.11'\n"
+            ),
+            "src/__init__.py": "",
+            "src/pricing.py": (
+                '"""Discount helpers."""\n\n\n'
+                "def apply_member_discount(amount, pct):\n"
+                "    return amount - amount * pct / 100\n\n\n"
+                "def apply_promo_discount(amount, pct):\n"
+                "    return amount - amount * pct / 100\n"
+            ),
+            "tests/__init__.py": "",
+            "tests/test_pricing.py": (
+                "import inspect\n\n"
+                "from src import pricing\n"
+                "from src.pricing import apply_member_discount, apply_promo_discount\n\n\n"
+                "def test_member_discount_value():\n"
+                "    assert apply_member_discount(100, 10) == 90\n\n\n"
+                "def test_promo_discount_value():\n"
+                "    assert apply_promo_discount(200, 25) == 150\n\n\n"
+                "def test_shared_helper_is_extracted():\n"
+                "    # Refactor must introduce a helper that both call sites use.\n"
+                "    helpers = [\n"
+                "        name for name in dir(pricing)\n"
+                "        if name.startswith('_') and name not in {'__doc__', '__name__'}\n"
+                "        and callable(getattr(pricing, name))\n"
+                "        and not inspect.isclass(getattr(pricing, name))\n"
+                "    ]\n"
+                "    assert helpers, 'expected a private helper after refactor'\n"
+                "    member_src = inspect.getsource(apply_member_discount)\n"
+                "    promo_src = inspect.getsource(apply_promo_discount)\n"
+                "    assert any(h in member_src for h in helpers), member_src\n"
+                "    assert any(h in promo_src for h in helpers), promo_src\n"
+            ),
+        },
     ),
     BenchmarkTask(
         id="medium-3",
         scenario=ScenarioKind.medium,
         kind=TaskKind.test_writing,
-        title="Add Node test path",
-        prompt="Add a small Node test path and run package test script.",
-        expected_proof="npm test or pnpm test",
+        title="Cover FifoQueue with three tests",
+        prompt=(
+            "src/queue.py exposes ``FifoQueue`` with ``push`` / ``pop`` / ``__len__``. "
+            "``tests/test_queue.py`` is empty. Add three tests: pop on empty raises "
+            "IndexError, FIFO order across multiple pushes, and ``len`` reflects pushes "
+            "and pops. Do not modify ``src/queue.py``."
+        ),
+        expected_proof="python -m pytest",
+        seed_workspace={
+            "pyproject.toml": (
+                "[project]\nname = 'medium-3-queue'\nversion = '0.0.0'\n"
+                "requires-python = '>=3.11'\n"
+            ),
+            "src/__init__.py": "",
+            "src/queue.py": (
+                '"""Minimal FIFO queue."""\n\n\n'
+                "class FifoQueue:\n"
+                "    def __init__(self):\n"
+                "        self._items = []\n\n"
+                "    def push(self, item):\n"
+                "        self._items.append(item)\n\n"
+                "    def pop(self):\n"
+                "        if not self._items:\n"
+                "            raise IndexError('pop from empty FifoQueue')\n"
+                "        return self._items.pop(0)\n\n"
+                "    def __len__(self):\n"
+                "        return len(self._items)\n"
+            ),
+            "tests/__init__.py": "",
+            "tests/test_queue.py": (
+                '"""Pin three behaviours of FifoQueue. Rewrite each placeholder."""\n\n'
+                "import pytest\n\n"
+                "from src.queue import FifoQueue\n\n\n"
+                "def test_pop_empty_raises_index_error():\n"
+                "    pytest.fail('TODO: pop on empty FifoQueue should raise IndexError')\n\n\n"
+                "def test_push_pop_preserves_fifo_order():\n"
+                "    pytest.fail('TODO: pushing a, b, c then popping should yield a, b, c')\n\n\n"
+                "def test_len_reflects_push_and_pop():\n"
+                "    pytest.fail('TODO: len() should grow on push and shrink on pop')\n"
+            ),
+        },
     ),
 )
 
@@ -539,14 +808,39 @@ DEFAULT_M0_TASKS: tuple[BenchmarkTask, ...] = (
         id="m0-3",
         scenario=ScenarioKind.m0,
         kind=TaskKind.typo_docstring,
-        title="README quick-start uses the wrong package manager",
+        title="README quick-start still says pip install -r requirements.txt",
         prompt=(
-            "Our README still tells contributors to run `pip install -r requirements.txt`, "
-            "but we moved to `uv` months ago. Update the quick-start section and remove the "
-            "stale instructions; keep everything else intact."
+            "``README.md`` Quick Start tells contributors to run "
+            "``pip install -r requirements.txt`` but we moved to ``uv`` months ago. "
+            "Replace that line with ``uv sync`` (keep the rest of the README unchanged). "
+            "The regression test asserts the README now contains ``uv sync`` and no longer "
+            "mentions ``pip install -r requirements.txt``."
         ),
-        expected_proof="human_review_or_test",
-        allow_human_review=True,
+        expected_proof="python -m pytest",
+        seed_workspace={
+            "pyproject.toml": (
+                "[project]\nname = 'm0-3-readme'\nversion = '0.0.0'\n"
+                "requires-python = '>=3.11'\n"
+            ),
+            "README.md": (
+                "# m0-3-readme\n\n"
+                "## Quick Start\n\n"
+                "Install dependencies:\n\n"
+                "```\npip install -r requirements.txt\n```\n\n"
+                "Then run the app.\n"
+            ),
+            "tests/__init__.py": "",
+            "tests/test_readme.py": (
+                "import pathlib\n\n\n"
+                "def test_readme_uses_uv_sync():\n"
+                "    root = pathlib.Path(__file__).resolve().parent.parent\n"
+                "    text = (root / 'README.md').read_text()\n"
+                "    assert 'uv sync' in text, 'README.md should mention `uv sync`'\n"
+                "    assert 'pip install -r requirements.txt' not in text, (\n"
+                "        'README.md still references the stale pip install line'\n"
+                "    )\n"
+            ),
+        },
     ),
     BenchmarkTask(
         id="m0-4",
@@ -643,11 +937,12 @@ DEFAULT_M0_TASKS: tuple[BenchmarkTask, ...] = (
             "src/signup.py": (
                 '"""Email validation for signup."""\n\n\n'
                 "def is_valid_email(email):\n"
-                "    # BUG: whitespace-only strings sneak through because the empty\n"
-                "    # check happens before trimming.\n"
+                "    # BUG: the empty check happens before trimming AND the validation\n"
+                "    # forgot to require '@', so whitespace-only and at-less inputs\n"
+                "    # both sneak through.\n"
                 "    if not email:\n"
                 "        return False\n"
-                "    return '@' in email\n"
+                "    return True\n"
             ),
             "tests/__init__.py": "",
             "tests/test_signup.py": (
@@ -750,14 +1045,43 @@ DEFAULT_M0_TASKS: tuple[BenchmarkTask, ...] = (
         id="m0-9",
         scenario=ScenarioKind.m0,
         kind=TaskKind.doc,
-        title="Sync the API reference table with current routes",
+        title="API reference table still lists the old /api/v1/runs route",
         prompt=(
-            "The API reference table in the README is out of date — `/api/v1/runs` was "
-            "renamed and several routes added/removed last quarter. Walk the routers and "
-            "update the table to match what actually ships. No code changes."
+            "``README.md`` has an API reference table that still lists ``/api/v1/runs`` — "
+            "that endpoint was renamed to ``/api/v1/run-attempts`` last quarter. Update the "
+            "table row so the path column reads ``/api/v1/run-attempts`` (keep the rest of "
+            "the table and README unchanged). The regression test asserts the new path is "
+            "present and the old path is gone."
         ),
-        expected_proof="human_review_or_test",
-        allow_human_review=True,
+        expected_proof="python -m pytest",
+        seed_workspace={
+            "pyproject.toml": (
+                "[project]\nname = 'm0-9-api-ref'\nversion = '0.0.0'\n"
+                "requires-python = '>=3.11'\n"
+            ),
+            "README.md": (
+                "# m0-9-api-ref\n\n"
+                "## API Reference\n\n"
+                "| Path | Method | Description |\n"
+                "| ---- | ------ | ----------- |\n"
+                "| /api/v1/healthz | GET | Liveness probe |\n"
+                "| /api/v1/runs | POST | Start a run (deprecated path) |\n"
+                "| /api/v1/deliverables | GET | List deliverables |\n"
+            ),
+            "tests/__init__.py": "",
+            "tests/test_api_reference.py": (
+                "import pathlib\n\n\n"
+                "def test_api_reference_uses_run_attempts():\n"
+                "    root = pathlib.Path(__file__).resolve().parent.parent\n"
+                "    text = (root / 'README.md').read_text()\n"
+                "    assert '/api/v1/run-attempts' in text, (\n"
+                "        'README.md API table should reference /api/v1/run-attempts'\n"
+                "    )\n"
+                "    assert '/api/v1/runs' not in text, (\n"
+                "        'README.md still references the old /api/v1/runs path'\n"
+                "    )\n"
+            ),
+        },
     ),
     BenchmarkTask(
         id="m0-10",
