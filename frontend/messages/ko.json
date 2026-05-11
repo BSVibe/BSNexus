@@ -102,7 +102,7 @@
         "blockingDecisionsSub": "{open}개 열림",
         "activeRequests": "진행 중인 요청",
         "activeRequestsSub": "전체 {total}개",
-        "deliveredWindow": "이번 주 납품",
+        "deliveredWindow": "이번 주 완료",
         "deliveredWindowSub": "검토 대기"
       },
       "projectsHeading": "프로젝트",
@@ -118,7 +118,7 @@
       "card": {
         "requests": "요청",
         "pending": "대기",
-        "shipped": "납품"
+        "shipped": "완료"
       },
       "createModal": {
         "title": "새 프로젝트",

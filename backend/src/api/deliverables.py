@@ -173,6 +173,20 @@ async def verify_deliverable(
             "attempt_id": str(attempt.id),
         },
     )
+    # G6.1 VerifierWorker handoff — the route only stamps the running
+    # state; the worker consumes ``proof:queue`` and finishes the
+    # deliverable's proof_state (verified / verification_failed /
+    # human_review_required). Tenant-scoped payload so the consumer
+    # can refuse cross-tenant pulls.
+    from backend.src.workers.verifier import PROOF_QUEUE_STREAM  # noqa: PLC0415
+
+    await stream_manager.publish(
+        PROOF_QUEUE_STREAM,
+        {
+            "deliverable_id": str(deliverable.id),
+            "tenant_id": str(tenant_id),
+        },
+    )
     return await _deliverable_response(db, deliverable)
 
 
