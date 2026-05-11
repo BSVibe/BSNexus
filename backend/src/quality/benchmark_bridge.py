@@ -11,7 +11,7 @@ production pipeline that landed in G6.1 / G6.2 / G6.3:
     → collect rows back into a :class:`TaskTelemetry`
 
 The bridge is the only piece the M0 acceptance gate needs: once it
-exists, ``run_quality_suite`` from ``quality.m0`` evaluates the
+exists, ``run_quality_suite`` from ``quality.benchmark`` evaluates the
 ``AcceptanceReport`` (strict ≥ 7/10 + fake_verified == 0 for M0). The
 live CLI in :mod:`backend.src.quality.live_runner` is a thin wrapper
 that supplies a real :class:`ExecutorClient` from ``resolve_executor``
@@ -50,7 +50,7 @@ from backend.src.models import (
     ToolEvent,
     WorkStep,
 )
-from backend.src.quality.m0 import BenchmarkTask, TaskTelemetry
+from backend.src.quality.benchmark import BenchmarkTask, TaskTelemetry
 from backend.src.workers.verifier import process_one
 
 logger = structlog.get_logger(__name__)

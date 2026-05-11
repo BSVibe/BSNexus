@@ -8,7 +8,7 @@ from typing import Any
 from urllib import request
 
 from backend.src.core.domain import ProofState
-from backend.src.quality.m0 import BenchmarkTask, TaskTelemetry
+from backend.src.quality.benchmark import BenchmarkTask, TaskTelemetry
 
 
 Transport = Callable[[str, dict[str, Any], float], dict[str, Any]]

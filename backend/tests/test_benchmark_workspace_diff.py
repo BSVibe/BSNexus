@@ -22,14 +22,14 @@ from typing import Any
 import pytest
 
 from backend.src.core.domain import ProofState
-from backend.src.quality.m0 import (
+from backend.src.quality.benchmark import (
     BenchmarkTask,
     ScenarioKind,
     TaskKind,
     TaskTelemetry,
     evaluate_task_result,
 )
-from backend.src.quality.m0_executor import BridgeConfig, measure_task
+from backend.src.quality.benchmark_bridge import BridgeConfig, measure_task
 
 
 @dataclass

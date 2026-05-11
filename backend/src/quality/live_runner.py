@@ -43,7 +43,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from backend.src.config import settings as app_settings
 from backend.src.core.executor_config.resolver import resolve_executor
 from backend.src.models.executor_config import ExecutorConfig
-from backend.src.quality.m0 import (
+from backend.src.quality.benchmark import (
     DEFAULT_MIN_PER_TASK_STRICT_RATE,
     BenchmarkTask,
     aggregate_runs,
@@ -53,7 +53,7 @@ from backend.src.quality.m0 import (
     render_markdown_report,
     render_multi_run_markdown,
 )
-from backend.src.quality.m0_executor import BridgeConfig, measure_task
+from backend.src.quality.benchmark_bridge import BridgeConfig, measure_task
 
 logger = structlog.get_logger(__name__)
 

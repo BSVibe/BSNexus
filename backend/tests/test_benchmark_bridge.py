@@ -18,8 +18,8 @@ import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from backend.src.core.domain import ProofState
-from backend.src.quality.m0 import BenchmarkTask, ScenarioKind, TaskKind
-from backend.src.quality.m0_executor import BridgeConfig, measure_task
+from backend.src.quality.benchmark import BenchmarkTask, ScenarioKind, TaskKind
+from backend.src.quality.benchmark_bridge import BridgeConfig, measure_task
 
 
 @dataclass
