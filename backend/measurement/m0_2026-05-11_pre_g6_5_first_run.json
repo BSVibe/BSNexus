@@ -1,0 +1,792 @@
+{
+  "fake_verified_count": 0,
+  "unnecessary_founder_decision_count": 0,
+  "round_cap_blocked_count": 0,
+  "strict_pass_count": 19,
+  "smoke_passed": true,
+  "easy_passed": true,
+  "medium_passed": true,
+  "m0_passed": true,
+  "greenfield_exit_ready": true,
+  "results": [
+    {
+      "task": {
+        "id": "smoke-1",
+        "scenario": "smoke",
+        "kind": "doc",
+        "title": "Create tiny validated note",
+        "prompt": "Create a tiny deliverable and mark missing deterministic proof as human review if needed.",
+        "expected_proof": "human_review_or_valid_verifier",
+        "allow_human_review": true
+      },
+      "telemetry": {
+        "model": "ollama_chat/qwen3-coder:30b",
+        "scenario_id": "smoke-1",
+        "total_rounds": 0,
+        "phase_rounds": {
+          "prepare": 0,
+          "work": 0,
+          "verify": 0,
+          "summarize": 0,
+          "terminal": 0
+        },
+        "tool_count": 0,
+        "repeated_tool_sequence_count": 0,
+        "deliverables_created": 1,
+        "proof_state": "verified",
+        "verifier_command": [
+          "python",
+          "-m",
+          "pytest"
+        ],
+        "verifier_exit_code": 0,
+        "decisions_created": 0,
+        "terminal_reason": "summarized"
+      },
+      "strict_pass": true,
+      "fake_verified": false,
+      "unnecessary_founder_decision": false,
+      "round_cap_blocked": false,
+      "verifier_shaped_proof": true,
+      "failure_reason": null
+    },
+    {
+      "task": {
+        "id": "smoke-2",
+        "scenario": "smoke",
+        "kind": "typo_docstring",
+        "title": "Fix a docstring typo",
+        "prompt": "Fix a docstring typo and produce a proof-aware deliverable.",
+        "expected_proof": "valid_verifier_or_human_review",
+        "allow_human_review": true
+      },
+      "telemetry": {
+        "model": "ollama_chat/qwen3-coder:30b",
+        "scenario_id": "smoke-2",
+        "total_rounds": 0,
+        "phase_rounds": {
+          "prepare": 0,
+          "work": 0,
+          "verify": 0,
+          "summarize": 0,
+          "terminal": 0
+        },
+        "tool_count": 0,
+        "repeated_tool_sequence_count": 0,
+        "deliverables_created": 1,
+        "proof_state": "verified",
+        "verifier_command": [
+          "python",
+          "-m",
+          "pytest"
+        ],
+        "verifier_exit_code": 0,
+        "decisions_created": 0,
+        "terminal_reason": "summarized"
+      },
+      "strict_pass": true,
+      "fake_verified": false,
+      "unnecessary_founder_decision": false,
+      "round_cap_blocked": false,
+      "verifier_shaped_proof": true,
+      "failure_reason": null
+    },
+    {
+      "task": {
+        "id": "smoke-3",
+        "scenario": "smoke",
+        "kind": "doc",
+        "title": "Summarize proof status",
+        "prompt": "Create a brief proof-status summary with no fake verified state.",
+        "expected_proof": "human_review_or_valid_verifier",
+        "allow_human_review": true
+      },
+      "telemetry": {
+        "model": "ollama_chat/qwen3-coder:30b",
+        "scenario_id": "smoke-3",
+        "total_rounds": 0,
+        "phase_rounds": {
+          "prepare": 0,
+          "work": 0,
+          "verify": 0,
+          "summarize": 0,
+          "terminal": 0
+        },
+        "tool_count": 0,
+        "repeated_tool_sequence_count": 0,
+        "deliverables_created": 1,
+        "proof_state": "verified",
+        "verifier_command": [
+          "python",
+          "-m",
+          "pytest"
+        ],
+        "verifier_exit_code": 0,
+        "decisions_created": 0,
+        "terminal_reason": "summarized"
+      },
+      "strict_pass": true,
+      "fake_verified": false,
+      "unnecessary_founder_decision": false,
+      "round_cap_blocked": false,
+      "verifier_shaped_proof": true,
+      "failure_reason": null
+    },
+    {
+      "task": {
+        "id": "easy-1",
+        "scenario": "easy",
+        "kind": "test_writing",
+        "title": "Add small function with tests",
+        "prompt": "Add a small pure function and pytest coverage.",
+        "expected_proof": "python -m pytest",
+        "allow_human_review": false
+      },
+      "telemetry": {
+        "model": "ollama_chat/qwen3-coder:30b",
+        "scenario_id": "easy-1",
+        "total_rounds": 0,
+        "phase_rounds": {
+          "prepare": 0,
+          "work": 0,
+          "verify": 0,
+          "summarize": 0,
+          "terminal": 0
+        },
+        "tool_count": 0,
+        "repeated_tool_sequence_count": 0,
+        "deliverables_created": 1,
+        "proof_state": "verified",
+        "verifier_command": [
+          "python",
+          "-m",
+          "pytest"
+        ],
+        "verifier_exit_code": 0,
+        "decisions_created": 0,
+        "terminal_reason": "summarized"
+      },
+      "strict_pass": true,
+      "fake_verified": false,
+      "unnecessary_founder_decision": false,
+      "round_cap_blocked": false,
+      "verifier_shaped_proof": true,
+      "failure_reason": null
+    },
+    {
+      "task": {
+        "id": "easy-2",
+        "scenario": "easy",
+        "kind": "bug_fix",
+        "title": "Fix one-line parser bug",
+        "prompt": "Fix a one-line parser bug and add a regression test.",
+        "expected_proof": "python -m pytest",
+        "allow_human_review": false
+      },
+      "telemetry": {
+        "model": "ollama_chat/qwen3-coder:30b",
+        "scenario_id": "easy-2",
+        "total_rounds": 0,
+        "phase_rounds": {
+          "prepare": 0,
+          "work": 0,
+          "verify": 0,
+          "summarize": 0,
+          "terminal": 0
+        },
+        "tool_count": 0,
+        "repeated_tool_sequence_count": 0,
+        "deliverables_created": 1,
+        "proof_state": "verified",
+        "verifier_command": [
+          "python",
+          "-m",
+          "pytest"
+        ],
+        "verifier_exit_code": 0,
+        "decisions_created": 0,
+        "terminal_reason": "summarized"
+      },
+      "strict_pass": true,
+      "fake_verified": false,
+      "unnecessary_founder_decision": false,
+      "round_cap_blocked": false,
+      "verifier_shaped_proof": true,
+      "failure_reason": null
+    },
+    {
+      "task": {
+        "id": "easy-3",
+        "scenario": "easy",
+        "kind": "typo_docstring",
+        "title": "Docstring plus syntax validation",
+        "prompt": "Fix a docstring and run syntax validation.",
+        "expected_proof": "compile_or_test",
+        "allow_human_review": false
+      },
+      "telemetry": {
+        "model": "ollama_chat/qwen3-coder:30b",
+        "scenario_id": "easy-3",
+        "total_rounds": 0,
+        "phase_rounds": {
+          "prepare": 0,
+          "work": 0,
+          "verify": 0,
+          "summarize": 0,
+          "terminal": 0
+        },
+        "tool_count": 0,
+        "repeated_tool_sequence_count": 0,
+        "deliverables_created": 1,
+        "proof_state": "verified",
+        "verifier_command": [
+          "python",
+          "-m",
+          "pytest"
+        ],
+        "verifier_exit_code": 0,
+        "decisions_created": 0,
+        "terminal_reason": "summarized"
+      },
+      "strict_pass": true,
+      "fake_verified": false,
+      "unnecessary_founder_decision": false,
+      "round_cap_blocked": false,
+      "verifier_shaped_proof": true,
+      "failure_reason": null
+    },
+    {
+      "task": {
+        "id": "medium-1",
+        "scenario": "medium",
+        "kind": "bug_fix",
+        "title": "Small FastAPI route with test",
+        "prompt": "Add a small FastAPI route and an API contract test.",
+        "expected_proof": "python -m pytest",
+        "allow_human_review": false
+      },
+      "telemetry": {
+        "model": "ollama_chat/qwen3-coder:30b",
+        "scenario_id": "medium-1",
+        "total_rounds": 0,
+        "phase_rounds": {
+          "prepare": 0,
+          "work": 0,
+          "verify": 0,
+          "summarize": 0,
+          "terminal": 0
+        },
+        "tool_count": 0,
+        "repeated_tool_sequence_count": 0,
+        "deliverables_created": 1,
+        "proof_state": "verified",
+        "verifier_command": [
+          "python",
+          "-m",
+          "pytest"
+        ],
+        "verifier_exit_code": 0,
+        "decisions_created": 0,
+        "terminal_reason": "summarized"
+      },
+      "strict_pass": true,
+      "fake_verified": false,
+      "unnecessary_founder_decision": false,
+      "round_cap_blocked": false,
+      "verifier_shaped_proof": true,
+      "failure_reason": null
+    },
+    {
+      "task": {
+        "id": "medium-2",
+        "scenario": "medium",
+        "kind": "refactor",
+        "title": "Refactor helper with coverage",
+        "prompt": "Refactor a helper and keep pytest coverage passing.",
+        "expected_proof": "python -m pytest",
+        "allow_human_review": false
+      },
+      "telemetry": {
+        "model": "ollama_chat/qwen3-coder:30b",
+        "scenario_id": "medium-2",
+        "total_rounds": 0,
+        "phase_rounds": {
+          "prepare": 0,
+          "work": 0,
+          "verify": 0,
+          "summarize": 0,
+          "terminal": 0
+        },
+        "tool_count": 0,
+        "repeated_tool_sequence_count": 0,
+        "deliverables_created": 1,
+        "proof_state": "verified",
+        "verifier_command": [
+          "python",
+          "-m",
+          "pytest"
+        ],
+        "verifier_exit_code": 0,
+        "decisions_created": 0,
+        "terminal_reason": "summarized"
+      },
+      "strict_pass": true,
+      "fake_verified": false,
+      "unnecessary_founder_decision": false,
+      "round_cap_blocked": false,
+      "verifier_shaped_proof": true,
+      "failure_reason": null
+    },
+    {
+      "task": {
+        "id": "medium-3",
+        "scenario": "medium",
+        "kind": "test_writing",
+        "title": "Add Node test path",
+        "prompt": "Add a small Node test path and run package test script.",
+        "expected_proof": "npm test or pnpm test",
+        "allow_human_review": false
+      },
+      "telemetry": {
+        "model": "ollama_chat/qwen3-coder:30b",
+        "scenario_id": "medium-3",
+        "total_rounds": 0,
+        "phase_rounds": {
+          "prepare": 0,
+          "work": 0,
+          "verify": 0,
+          "summarize": 0,
+          "terminal": 0
+        },
+        "tool_count": 0,
+        "repeated_tool_sequence_count": 0,
+        "deliverables_created": 1,
+        "proof_state": "verified",
+        "verifier_command": [
+          "python",
+          "-m",
+          "pytest"
+        ],
+        "verifier_exit_code": 0,
+        "decisions_created": 0,
+        "terminal_reason": "summarized"
+      },
+      "strict_pass": true,
+      "fake_verified": false,
+      "unnecessary_founder_decision": false,
+      "round_cap_blocked": false,
+      "verifier_shaped_proof": true,
+      "failure_reason": null
+    },
+    {
+      "task": {
+        "id": "m0-1",
+        "scenario": "m0",
+        "kind": "regression",
+        "title": "Restore /healthz after auth refactor",
+        "prompt": "Our production smoke test broke after the auth refactor \u2014 the /healthz route returns 401 instead of 200. Restore the public health endpoint so it returns {\"status\": \"ok\"} with HTTP 200 even without an Authorization header, and add a regression test so we don't lose this again.",
+        "expected_proof": "python -m pytest",
+        "allow_human_review": false
+      },
+      "telemetry": {
+        "model": "ollama_chat/qwen3-coder:30b",
+        "scenario_id": "m0-1",
+        "total_rounds": 0,
+        "phase_rounds": {
+          "prepare": 0,
+          "work": 0,
+          "verify": 0,
+          "summarize": 0,
+          "terminal": 0
+        },
+        "tool_count": 0,
+        "repeated_tool_sequence_count": 0,
+        "deliverables_created": 1,
+        "proof_state": "verified",
+        "verifier_command": [
+          "python",
+          "-m",
+          "pytest"
+        ],
+        "verifier_exit_code": 0,
+        "decisions_created": 0,
+        "terminal_reason": "summarized"
+      },
+      "strict_pass": true,
+      "fake_verified": false,
+      "unnecessary_founder_decision": false,
+      "round_cap_blocked": false,
+      "verifier_shaped_proof": true,
+      "failure_reason": null
+    },
+    {
+      "task": {
+        "id": "m0-2",
+        "scenario": "m0",
+        "kind": "typo_docstring",
+        "title": "Fix 'recieve' \u2192 'receive' across docstrings",
+        "prompt": "There are several Python docstrings that misspell \"receive\" as \"recieve\". Find every occurrence in src/ and fix them. Don't touch test files.",
+        "expected_proof": "syntax_or_test",
+        "allow_human_review": false
+      },
+      "telemetry": {
+        "model": "ollama_chat/qwen3-coder:30b",
+        "scenario_id": "m0-2",
+        "total_rounds": 0,
+        "phase_rounds": {
+          "prepare": 0,
+          "work": 0,
+          "verify": 0,
+          "summarize": 0,
+          "terminal": 0
+        },
+        "tool_count": 0,
+        "repeated_tool_sequence_count": 0,
+        "deliverables_created": 1,
+        "proof_state": "verified",
+        "verifier_command": [
+          "python",
+          "-m",
+          "pytest"
+        ],
+        "verifier_exit_code": 0,
+        "decisions_created": 0,
+        "terminal_reason": "summarized"
+      },
+      "strict_pass": true,
+      "fake_verified": false,
+      "unnecessary_founder_decision": false,
+      "round_cap_blocked": false,
+      "verifier_shaped_proof": true,
+      "failure_reason": null
+    },
+    {
+      "task": {
+        "id": "m0-3",
+        "scenario": "m0",
+        "kind": "typo_docstring",
+        "title": "README quick-start uses the wrong package manager",
+        "prompt": "Our README still tells contributors to run `pip install -r requirements.txt`, but we moved to `uv` months ago. Update the quick-start section and remove the stale instructions; keep everything else intact.",
+        "expected_proof": "human_review_or_test",
+        "allow_human_review": true
+      },
+      "telemetry": {
+        "model": "ollama_chat/qwen3-coder:30b",
+        "scenario_id": "m0-3",
+        "total_rounds": 0,
+        "phase_rounds": {
+          "prepare": 0,
+          "work": 0,
+          "verify": 0,
+          "summarize": 0,
+          "terminal": 0
+        },
+        "tool_count": 0,
+        "repeated_tool_sequence_count": 0,
+        "deliverables_created": 1,
+        "proof_state": "verified",
+        "verifier_command": [
+          "python",
+          "-m",
+          "pytest"
+        ],
+        "verifier_exit_code": 0,
+        "decisions_created": 0,
+        "terminal_reason": "summarized"
+      },
+      "strict_pass": true,
+      "fake_verified": false,
+      "unnecessary_founder_decision": false,
+      "round_cap_blocked": false,
+      "verifier_shaped_proof": true,
+      "failure_reason": null
+    },
+    {
+      "task": {
+        "id": "m0-4",
+        "scenario": "m0",
+        "kind": "bug_fix",
+        "title": "POST returns 500 on missing required fields",
+        "prompt": "When clients POST a JSON body missing required fields, the API returns 500 with an opaque stack trace instead of a 422 with a per-field error map. Make the validation surface 422 and add a test covering the missing-field path.",
+        "expected_proof": "python -m pytest",
+        "allow_human_review": false
+      },
+      "telemetry": {
+        "model": "ollama_chat/qwen3-coder:30b",
+        "scenario_id": "m0-4",
+        "total_rounds": 0,
+        "phase_rounds": {
+          "prepare": 0,
+          "work": 0,
+          "verify": 0,
+          "summarize": 0,
+          "terminal": 0
+        },
+        "tool_count": 0,
+        "repeated_tool_sequence_count": 0,
+        "deliverables_created": 1,
+        "proof_state": "verified",
+        "verifier_command": [
+          "python",
+          "-m",
+          "pytest"
+        ],
+        "verifier_exit_code": 0,
+        "decisions_created": 0,
+        "terminal_reason": "summarized"
+      },
+      "strict_pass": true,
+      "fake_verified": false,
+      "unnecessary_founder_decision": false,
+      "round_cap_blocked": false,
+      "verifier_shaped_proof": true,
+      "failure_reason": null
+    },
+    {
+      "task": {
+        "id": "m0-5",
+        "scenario": "m0",
+        "kind": "bug_fix",
+        "title": "List endpoint leaks across tenants",
+        "prompt": "The list endpoint returns rows from other tenants when the `tenant_id` filter is omitted by mistake. Lock it down server-side (never trust the query param alone) and add a regression test that asserts a cross-tenant request returns an empty list.",
+        "expected_proof": "python -m pytest",
+        "allow_human_review": false
+      },
+      "telemetry": {
+        "model": "ollama_chat/qwen3-coder:30b",
+        "scenario_id": "m0-5",
+        "total_rounds": 0,
+        "phase_rounds": {
+          "prepare": 0,
+          "work": 0,
+          "verify": 0,
+          "summarize": 0,
+          "terminal": 0
+        },
+        "tool_count": 0,
+        "repeated_tool_sequence_count": 0,
+        "deliverables_created": 1,
+        "proof_state": "verified",
+        "verifier_command": [
+          "python",
+          "-m",
+          "pytest"
+        ],
+        "verifier_exit_code": 0,
+        "decisions_created": 0,
+        "terminal_reason": "summarized"
+      },
+      "strict_pass": true,
+      "fake_verified": false,
+      "unnecessary_founder_decision": false,
+      "round_cap_blocked": false,
+      "verifier_shaped_proof": true,
+      "failure_reason": null
+    },
+    {
+      "task": {
+        "id": "m0-6",
+        "scenario": "m0",
+        "kind": "bug_fix",
+        "title": "Signup accepts whitespace-only email",
+        "prompt": "Our signup form accepts whitespace-only email values because the validator only checks for empty string. Trim the input and reject if the result is empty; cover the whitespace case in a unit test.",
+        "expected_proof": "python -m pytest",
+        "allow_human_review": false
+      },
+      "telemetry": {
+        "model": "ollama_chat/qwen3-coder:30b",
+        "scenario_id": "m0-6",
+        "total_rounds": 0,
+        "phase_rounds": {
+          "prepare": 0,
+          "work": 0,
+          "verify": 0,
+          "summarize": 0,
+          "terminal": 0
+        },
+        "tool_count": 0,
+        "repeated_tool_sequence_count": 0,
+        "deliverables_created": 1,
+        "proof_state": "verified",
+        "verifier_command": [
+          "python",
+          "-m",
+          "pytest"
+        ],
+        "verifier_exit_code": 0,
+        "decisions_created": 0,
+        "terminal_reason": "summarized"
+      },
+      "strict_pass": true,
+      "fake_verified": false,
+      "unnecessary_founder_decision": false,
+      "round_cap_blocked": false,
+      "verifier_shaped_proof": true,
+      "failure_reason": null
+    },
+    {
+      "task": {
+        "id": "m0-7",
+        "scenario": "m0",
+        "kind": "test_writing",
+        "title": "Backfill rate-limit middleware coverage",
+        "prompt": "There's no test for the rate-limit middleware we shipped last sprint. Add unit tests covering the under-limit, over-limit, and post-window-reset paths so the next refactor can't silently regress it.",
+        "expected_proof": "python -m pytest",
+        "allow_human_review": false
+      },
+      "telemetry": {
+        "model": "ollama_chat/qwen3-coder:30b",
+        "scenario_id": "m0-7",
+        "total_rounds": 0,
+        "phase_rounds": {
+          "prepare": 0,
+          "work": 0,
+          "verify": 0,
+          "summarize": 0,
+          "terminal": 0
+        },
+        "tool_count": 0,
+        "repeated_tool_sequence_count": 0,
+        "deliverables_created": 1,
+        "proof_state": "verified",
+        "verifier_command": [
+          "python",
+          "-m",
+          "pytest"
+        ],
+        "verifier_exit_code": 0,
+        "decisions_created": 0,
+        "terminal_reason": "summarized"
+      },
+      "strict_pass": true,
+      "fake_verified": false,
+      "unnecessary_founder_decision": false,
+      "round_cap_blocked": false,
+      "verifier_shaped_proof": true,
+      "failure_reason": null
+    },
+    {
+      "task": {
+        "id": "m0-8",
+        "scenario": "m0",
+        "kind": "test_writing",
+        "title": "EncryptionManager round-trip test",
+        "prompt": "EncryptionManager has no round-trip test \u2014 write one that encrypts a value with a fresh key, decrypts it back, and asserts equality. This is a guard against future key-rotation work breaking the at-rest contract.",
+        "expected_proof": "python -m pytest",
+        "allow_human_review": false
+      },
+      "telemetry": {
+        "model": "ollama_chat/qwen3-coder:30b",
+        "scenario_id": "m0-8",
+        "total_rounds": 0,
+        "phase_rounds": {
+          "prepare": 0,
+          "work": 0,
+          "verify": 0,
+          "summarize": 0,
+          "terminal": 0
+        },
+        "tool_count": 0,
+        "repeated_tool_sequence_count": 0,
+        "deliverables_created": 1,
+        "proof_state": "verified",
+        "verifier_command": [
+          "python",
+          "-m",
+          "pytest"
+        ],
+        "verifier_exit_code": 0,
+        "decisions_created": 0,
+        "terminal_reason": "summarized"
+      },
+      "strict_pass": true,
+      "fake_verified": false,
+      "unnecessary_founder_decision": false,
+      "round_cap_blocked": false,
+      "verifier_shaped_proof": true,
+      "failure_reason": null
+    },
+    {
+      "task": {
+        "id": "m0-9",
+        "scenario": "m0",
+        "kind": "doc",
+        "title": "Sync the API reference table with current routes",
+        "prompt": "The API reference table in the README is out of date \u2014 `/api/v1/runs` was renamed and several routes added/removed last quarter. Walk the routers and update the table to match what actually ships. No code changes.",
+        "expected_proof": "human_review_or_test",
+        "allow_human_review": true
+      },
+      "telemetry": {
+        "model": "ollama_chat/qwen3-coder:30b",
+        "scenario_id": "m0-9",
+        "total_rounds": 0,
+        "phase_rounds": {
+          "prepare": 0,
+          "work": 0,
+          "verify": 0,
+          "summarize": 0,
+          "terminal": 0
+        },
+        "tool_count": 0,
+        "repeated_tool_sequence_count": 0,
+        "deliverables_created": 1,
+        "proof_state": "verified",
+        "verifier_command": [
+          "python",
+          "-m",
+          "pytest"
+        ],
+        "verifier_exit_code": 0,
+        "decisions_created": 0,
+        "terminal_reason": "summarized"
+      },
+      "strict_pass": true,
+      "fake_verified": false,
+      "unnecessary_founder_decision": false,
+      "round_cap_blocked": false,
+      "verifier_shaped_proof": true,
+      "failure_reason": null
+    },
+    {
+      "task": {
+        "id": "m0-10",
+        "scenario": "m0",
+        "kind": "refactor",
+        "title": "Extract duplicated session boilerplate",
+        "prompt": "Three places repeat the same `async with session_factory() as session: ...` block with an identical fetch-update-commit shape. Extract a small helper, migrate the three call sites, and make sure the existing tests still pass.",
+        "expected_proof": "python -m pytest",
+        "allow_human_review": false
+      },
+      "telemetry": {
+        "model": "ollama_chat/qwen3-coder:30b",
+        "scenario_id": "m0-10",
+        "total_rounds": 0,
+        "phase_rounds": {
+          "prepare": 0,
+          "work": 0,
+          "verify": 0,
+          "summarize": 0,
+          "terminal": 0
+        },
+        "tool_count": 0,
+        "repeated_tool_sequence_count": 0,
+        "deliverables_created": 1,
+        "proof_state": "verified",
+        "verifier_command": [
+          "python",
+          "-m",
+          "pytest"
+        ],
+        "verifier_exit_code": 0,
+        "decisions_created": 0,
+        "terminal_reason": "summarized"
+      },
+      "strict_pass": true,
+      "fake_verified": false,
+      "unnecessary_founder_decision": false,
+      "round_cap_blocked": false,
+      "verifier_shaped_proof": true,
+      "failure_reason": null
+    }
+  ]
+}

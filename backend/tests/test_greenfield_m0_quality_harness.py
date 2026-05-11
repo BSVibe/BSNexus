@@ -156,7 +156,12 @@ def _telemetry(
     verifier_command: list[str] | None,
     verifier_exit_code: int | None,
     rounds: int = 4,
+    workspace_files_touched: int | None = None,
 ) -> TaskTelemetry:
+    # Default: a passing verifier implies the LLM actually changed
+    # files in the workspace. G6.5 fake_verified spec needs the count.
+    if workspace_files_touched is None:
+        workspace_files_touched = 2 if proof_state == ProofState.verified else 0
     return TaskTelemetry(
         model="ollama_chat/qwen3-coder:30b",
         scenario_id=scenario_id,
@@ -170,4 +175,5 @@ def _telemetry(
         verifier_exit_code=verifier_exit_code,
         decisions_created=0,
         terminal_reason=proof_state.value,
+        workspace_files_touched=workspace_files_touched,
     )
