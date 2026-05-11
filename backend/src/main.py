@@ -179,6 +179,22 @@ async def lifespan(app: FastAPI):
     await verifier_worker.start()
     app.state.verifier_worker = verifier_worker
 
+    # ─── Admin MCP lifespan (Round 4) ────────────────────────────────────
+    # build_streamable_http_asgi_app reads ``app.state.admin_mcp_session_manager``;
+    # the manager's task group must be entered before the first request.
+    from backend.src.admin_mcp.lifespan import admin_mcp_lifespan  # noqa: PLC0415
+
+    registry = getattr(app.state, "admin_mcp_registry", None)
+    if registry is not None:
+        async with admin_mcp_lifespan(app, registry=registry):
+            try:
+                yield
+            finally:
+                await verifier_worker.stop()
+                await audit_relay.stop()
+                await close_redis()
+        return
+
     try:
         yield
     finally:
@@ -241,6 +257,35 @@ def create_app(
     @_app.get("/health")
     async def health():
         return {"status": "healthy", "version": "0.2.0"}
+
+    # ─── BSNexus admin MCP (Round 4) ─────────────────────────────────────
+    # Mount the streamable-HTTP admin MCP server at /mcp. Tools are wired
+    # to the same FastAPI routes the bsnexus CLI hits, authenticated by
+    # the caller's PAT JWT via bsvibe-authz. Distinct from
+    # ``backend.src.mcp`` which serves run-scoped HMAC tokens for
+    # BSGateway-spawned workers (per-run; not user-facing).
+    from backend.src.admin_mcp.admin_tools import register_admin_tools  # noqa: PLC0415
+    from backend.src.admin_mcp.api import ToolRegistry  # noqa: PLC0415
+    from backend.src.admin_mcp.lifespan import (  # noqa: PLC0415
+        build_streamable_http_asgi_app,
+        make_loopback_caller,
+    )
+
+    _admin_mcp_registry = ToolRegistry()
+    register_admin_tools(_admin_mcp_registry, make_loopback_caller(_app))
+    _app.state.admin_mcp_registry = _admin_mcp_registry
+
+    @_app.get("/mcp/health")
+    async def admin_mcp_health() -> dict[str, object]:
+        """Unauthenticated liveness probe — mirrors gateway/sage/supervisor."""
+        registry = getattr(_app.state, "admin_mcp_registry", _admin_mcp_registry)
+        return {
+            "status": "ok",
+            "server": "bsnexus",
+            "tool_count": len(registry.names()),
+        }
+
+    _app.mount("/mcp", build_streamable_http_asgi_app(_app))
 
     @_app.get("/health/deps")
     async def health_deps():
