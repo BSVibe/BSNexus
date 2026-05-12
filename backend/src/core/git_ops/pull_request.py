@@ -86,19 +86,14 @@ def _default_pr_title(request: Request) -> str:
     return intent
 
 
-def _placeholder_pr_body(request: Request) -> str:
-    """G8.3 ships a minimal PR body. G8.4 will replace this with the
-    founder-summary / proof / decisions / risks composer; the placeholder
-    is intentional so reviewers can recognize the stand-in.
+async def _composed_pr_body(*, request: Request, session: AsyncSession) -> str:
+    """G8.4 — defer to the composer for the Markdown body. Lives as a
+    local helper so callers that pass an explicit ``body=...`` (tests,
+    future custom integrations) can still override.
     """
-    lines = [
-        f"Request: `{request.id}`",
-        "",
-        f"Intent:\n\n> {(request.intent or '').strip() or '(no intent recorded)'}",
-        "",
-        "_Body will be filled in by the BSNexus PR composer (G8.4)._",
-    ]
-    return "\n".join(lines)
+    from backend.src.core.git_ops.pr_body import compose_pr_body
+
+    return await compose_pr_body(request=request, session=session)
 
 
 async def open_request_pr(
@@ -152,10 +147,31 @@ async def open_request_pr(
         except GithubError as exc:
             raise PullRequestOpError("github_unavailable", str(exc)) from exc
 
+        composed_body = body if body is not None else await _composed_pr_body(request=request, session=session)
+
         if existing:
             pr = existing[0]
             number = int(pr.get("number") or 0)
             url = str(pr.get("html_url") or "")
+            # G8.4 — refresh the PR body so reviewers see the latest
+            # verified deliverables / decisions / risks even if the PR
+            # was opened earlier in the Request's lifecycle. A no-op
+            # PATCH is acceptable cost; the alternative is a stale body
+            # that's misleading to anyone landing on the PR.
+            try:
+                await client.update_pull(owner, repo, number, body=composed_body)
+            except GithubAuthError as exc:
+                raise PullRequestOpError("github_auth", str(exc)) from exc
+            except GithubError as exc:
+                # Stale body is a soft failure: the PR still exists and
+                # the founder can see it. Log + continue.
+                logger.warning(
+                    "pr_body_refresh_failed",
+                    request_id=str(request.id),
+                    pr_number=number,
+                    status_code=exc.status_code,
+                    message=str(exc),
+                )
             request.pr_number = number
             request.pr_url = url
             await session.flush()
@@ -182,7 +198,7 @@ async def open_request_pr(
                 title=title or _default_pr_title(request),
                 head=branch_info.name,
                 base=branch_info.base_branch,
-                body=body if body is not None else _placeholder_pr_body(request),
+                body=composed_body,
             )
         except GithubAuthError as exc:
             raise PullRequestOpError("github_auth", str(exc)) from exc
