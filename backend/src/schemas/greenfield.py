@@ -59,6 +59,8 @@ class RequestResponse(BaseModel):
     status: RequestStatus
     current_step_id: uuid.UUID | None
     last_brief_id: uuid.UUID | None
+    pr_number: int | None = None
+    pr_url: str | None = None
     created_at: datetime
     updated_at: datetime
 
