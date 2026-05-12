@@ -21,6 +21,7 @@ from backend.src.api import (
     executor_config as executor_config_api,
     integrations as integrations_api,
     projects,
+    repo_branch as repo_branch_api,
     repo_config as repo_config_api,
     requests_api,
     workspace_files as workspace_files_api,
@@ -216,6 +217,7 @@ _ROUTERS = [
     integrations_api.router,
     executor_config_api.router,
     repo_config_api.router,
+    repo_branch_api.router,
     workspace_files_api.router,
 ]
 
