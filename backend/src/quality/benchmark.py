@@ -822,12 +822,54 @@ DEFAULT_M0_TASKS: tuple[BenchmarkTask, ...] = (
                 "[project]\nname = 'm0-3-readme'\nversion = '0.0.0'\n"
                 "requires-python = '>=3.11'\n"
             ),
+            # README is intentionally realistic in size (>900 chars) so the
+            # workspace overview cannot inline the whole file. The model
+            # must call ``file_read`` to find the stale install command —
+            # this primes the tool loop and avoids the prose-only failure
+            # mode small fixtures hit.
             "README.md": (
                 "# m0-3-readme\n\n"
+                "A small example project used by the BSNexus M0 quality\n"
+                "harness to exercise documentation-edit tasks against a\n"
+                "deterministic verifier.\n\n"
+                "## Status\n\n"
+                "This package is intentionally minimal. The CI runs the\n"
+                "regression suite under `tests/`. There are no runtime\n"
+                "dependencies beyond the Python standard library; the\n"
+                "Quick Start below is the only contributor onboarding\n"
+                "step and is regression-tested by `tests/test_readme.py`.\n\n"
+                "## Features\n\n"
+                "- Predictable layout (`src/` + `tests/`) shared with the\n"
+                "  other M0 fixtures.\n"
+                "- No third-party dependencies, so the verifier finishes\n"
+                "  in well under a second on the local-LLM minimum spec\n"
+                "  (48 GB Mac Mini running qwen3-coder:30b).\n"
+                "- A single regression test, kept short on purpose.\n\n"
                 "## Quick Start\n\n"
-                "Install dependencies:\n\n"
+                "Clone the repo, change into the project directory, then\n"
+                "install dependencies:\n\n"
                 "```\npip install -r requirements.txt\n```\n\n"
-                "Then run the app.\n"
+                "Then run the regression suite:\n\n"
+                "```\npython -m pytest\n```\n\n"
+                "The Quick Start above is the source of truth for the\n"
+                "onboarding flow. If the install command changes, update\n"
+                "it here — the regression test asserts the README content\n"
+                "after the change.\n\n"
+                "## Layout\n\n"
+                "```\n"
+                "m0-3-readme/\n"
+                "├── README.md         # you are here\n"
+                "├── pyproject.toml    # project metadata\n"
+                "└── tests/\n"
+                "    └── test_readme.py  # asserts README content\n"
+                "```\n\n"
+                "## Contributing\n\n"
+                "Edits to this README must keep the Quick Start install\n"
+                "command on its own line inside a fenced code block. The\n"
+                "regression test does a substring check; whitespace and\n"
+                "fenced-code formatting do not affect the assertion.\n\n"
+                "## License\n\n"
+                "Internal BSNexus benchmark fixture — not distributed.\n"
             ),
             "tests/__init__.py": "",
             "tests/test_readme.py": (
@@ -1047,11 +1089,11 @@ DEFAULT_M0_TASKS: tuple[BenchmarkTask, ...] = (
         kind=TaskKind.doc,
         title="API reference table still lists the old /api/v1/runs route",
         prompt=(
-            "``README.md`` has an API reference table that still lists ``/api/v1/runs`` — "
-            "that endpoint was renamed to ``/api/v1/run-attempts`` last quarter. Update the "
-            "table row so the path column reads ``/api/v1/run-attempts`` (keep the rest of "
-            "the table and README unchanged). The regression test asserts the new path is "
-            "present and the old path is gone."
+            "``README.md`` still mentions the old path ``/api/v1/runs`` — that endpoint was "
+            "renamed to ``/api/v1/run-attempts`` last quarter. Replace every occurrence of "
+            "``/api/v1/runs`` in README.md with ``/api/v1/run-attempts`` (keep all other "
+            "content unchanged). The regression test asserts the new path is present and "
+            "the old path is gone."
         ),
         expected_proof="python -m pytest",
         seed_workspace={
@@ -1059,14 +1101,54 @@ DEFAULT_M0_TASKS: tuple[BenchmarkTask, ...] = (
                 "[project]\nname = 'm0-9-api-ref'\nversion = '0.0.0'\n"
                 "requires-python = '>=3.11'\n"
             ),
+            # README is intentionally realistic in size (>900 chars) so the
+            # workspace overview cannot inline the whole file. The model
+            # must call ``file_read`` to find the stale route — this primes
+            # the tool loop and avoids the prose-only failure mode that
+            # small fixtures hit.
             "README.md": (
                 "# m0-9-api-ref\n\n"
+                "A small example service whose README carries the\n"
+                "canonical API reference table. Downstream clients link\n"
+                "to this section directly, so the path column must stay\n"
+                "in sync with the routes that actually ship.\n\n"
+                "## Overview\n\n"
+                "The service exposes three endpoints today. Two are\n"
+                "stable (``/api/v1/healthz``, ``/api/v1/deliverables``)\n"
+                "and one was renamed last quarter without the README\n"
+                "being updated. The regression test under ``tests/``\n"
+                "pins the table content after the fix.\n\n"
+                "## Run It Locally\n\n"
+                "```\npython -m pytest\n```\n\n"
+                "There is no runtime dependency beyond the Python\n"
+                "standard library; the table below is the source of\n"
+                "truth that the test asserts on.\n\n"
                 "## API Reference\n\n"
                 "| Path | Method | Description |\n"
                 "| ---- | ------ | ----------- |\n"
                 "| /api/v1/healthz | GET | Liveness probe |\n"
                 "| /api/v1/runs | POST | Start a run (deprecated path) |\n"
-                "| /api/v1/deliverables | GET | List deliverables |\n"
+                "| /api/v1/deliverables | GET | List deliverables |\n\n"
+                "Each row is a single line; the test asserts substring\n"
+                "matches against the rendered Markdown, so column\n"
+                "spacing does not matter. The Description column is\n"
+                "free-form prose for human readers — the test only\n"
+                "checks the Path column content.\n\n"
+                "## Change History\n\n"
+                "- The original ``Start a run`` endpoint at "
+                "``/api/v1/runs``\n"
+                "  was renamed to the new path during last quarter's\n"
+                "  schema rebuild.\n"
+                "- Both ``/api/v1/healthz`` and ``/api/v1/deliverables``\n"
+                "  are unchanged.\n"
+                "- Future renames belong here too, so reviewers can see\n"
+                "  the route history at a glance.\n\n"
+                "## Contributing\n\n"
+                "When a route changes name, update the Path column in\n"
+                "the table above to match the renamed endpoint and drop\n"
+                "the old path from the README entirely. The regression\n"
+                "test asserts both the new path's presence and the old\n"
+                "path's absence.\n"
             ),
             "tests/__init__.py": "",
             "tests/test_api_reference.py": (
