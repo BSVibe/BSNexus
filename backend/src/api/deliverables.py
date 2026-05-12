@@ -221,6 +221,7 @@ async def _deliverable_response(db: AsyncSession, deliverable: Deliverable) -> d
         },
         "status": deliverable.status,
         "risk_summary": deliverable.risk_summary,
+        "commit_sha": deliverable.commit_sha,
         "created_at": deliverable.created_at,
         "updated_at": deliverable.updated_at,
     }

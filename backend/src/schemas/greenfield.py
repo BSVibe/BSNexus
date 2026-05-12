@@ -132,6 +132,7 @@ class DeliverableResponse(BaseModel):
     proof_status: ProofStatusResponse | None = None
     status: DeliverableStatus
     risk_summary: str | None
+    commit_sha: str | None = None
     created_at: datetime
     updated_at: datetime
 
