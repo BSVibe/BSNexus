@@ -14,6 +14,7 @@ client + auth header.
 
 from __future__ import annotations
 
+import base64
 import re
 from typing import Any
 
@@ -126,6 +127,60 @@ class GithubClient:
             # 422 but the ref isn't there — surface the original error.
             self._raise_for_status(resp, action="create_ref")
         self._raise_for_status(resp, action="create_ref")
+        return resp.json()
+
+    async def get_file_sha(self, owner: str, repo: str, path: str, branch: str) -> str | None:
+        """``GET /repos/{owner}/{repo}/contents/{path}?ref={branch}``.
+
+        Returns the file's blob SHA when it exists on ``branch``, or
+        ``None`` when the path is absent. Needed by ``put_file_content``
+        to update an existing file (GitHub requires the prior SHA on
+        update; PUT without SHA is "create only").
+        """
+        resp = await self._client.get(f"/repos/{owner}/{repo}/contents/{path}", params={"ref": branch})
+        if resp.status_code == 404:
+            return None
+        self._raise_for_status(resp, action="get_file_sha")
+        body = resp.json()
+        # The contents endpoint returns a list for directories; we
+        # only treat single-file responses as a hit.
+        if isinstance(body, dict):
+            sha = body.get("sha")
+            return str(sha) if isinstance(sha, str) else None
+        return None
+
+    async def put_file_content(
+        self,
+        owner: str,
+        repo: str,
+        path: str,
+        *,
+        content: bytes,
+        message: str,
+        branch: str,
+        sha: str | None = None,
+        author_name: str | None = None,
+        author_email: str | None = None,
+    ) -> dict[str, Any]:
+        """``PUT /repos/{owner}/{repo}/contents/{path}`` — create or
+        update a file on ``branch``. ``sha`` MUST be the file's prior
+        blob SHA when updating, MUST be omitted when creating; callers
+        can pre-resolve via ``get_file_sha`` to make the call uniform.
+
+        Returns the GitHub response body which contains ``commit.sha``
+        for the new commit.
+        """
+        body: dict[str, Any] = {
+            "message": message,
+            "branch": branch,
+            "content": base64.b64encode(content).decode("ascii"),
+        }
+        if sha:
+            body["sha"] = sha
+        if author_name and author_email:
+            body["committer"] = {"name": author_name, "email": author_email}
+        resp = await self._client.put(f"/repos/{owner}/{repo}/contents/{path}", json=body)
+        self._raise_for_status(resp, action="put_file_content")
         return resp.json()
 
     @staticmethod

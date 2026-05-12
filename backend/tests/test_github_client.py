@@ -171,3 +171,136 @@ async def test_get_ref_5xx_raises_generic_github_error() -> None:
         assert exc_info.value.status_code == 503
         # Not the more specific subclasses.
         assert not isinstance(exc_info.value, (GithubAuthError, GithubNotFound))
+
+
+# ──────────────────── Contents API tests (G8.2) ────────────────────
+
+
+@pytest.mark.asyncio
+async def test_get_file_sha_returns_sha_on_200() -> None:
+    captured: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["path"] = request.url.path
+        captured["query"] = (
+            request.url.query.decode("ascii") if isinstance(request.url.query, bytes) else str(request.url.query)
+        )
+        return httpx.Response(200, json={"sha": "blob-123", "path": "src/api.py"})
+
+    async with _make_client(handler) as client:
+        sha = await client.get_file_sha("acme", "widget", "src/api.py", "main")
+
+    assert sha == "blob-123"
+    assert captured["path"] == "/repos/acme/widget/contents/src/api.py"
+    assert "ref=main" in captured["query"]
+
+
+@pytest.mark.asyncio
+async def test_get_file_sha_returns_none_on_404() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"message": "Not Found"})
+
+    async with _make_client(handler) as client:
+        sha = await client.get_file_sha("acme", "widget", "missing.py", "main")
+    assert sha is None
+
+
+@pytest.mark.asyncio
+async def test_get_file_sha_returns_none_for_directory_response() -> None:
+    """Contents API returns a list for directories; we treat that as
+    'no single file' and return None so callers don't accidentally
+    pass a directory listing as a blob SHA on update.
+    """
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=[{"sha": "x", "path": "src/a.py"}])
+
+    async with _make_client(handler) as client:
+        sha = await client.get_file_sha("acme", "widget", "src", "main")
+    assert sha is None
+
+
+@pytest.mark.asyncio
+async def test_put_file_content_creates_file_when_sha_none() -> None:
+    import base64
+
+    captured: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["path"] = request.url.path
+        captured["body"] = request.content
+        return httpx.Response(
+            201,
+            json={
+                "content": {"sha": "new-blob", "path": "src/a.py"},
+                "commit": {"sha": "commit-1"},
+            },
+        )
+
+    async with _make_client(handler) as client:
+        resp = await client.put_file_content(
+            "acme",
+            "widget",
+            "src/a.py",
+            content=b"hello\n",
+            message="add a.py",
+            branch="bsnexus/req-x",
+        )
+
+    assert resp["commit"]["sha"] == "commit-1"
+    assert captured["path"] == "/repos/acme/widget/contents/src/a.py"
+    body = captured["body"]
+    assert isinstance(body, (bytes, bytearray))
+    assert b'"branch":"bsnexus/req-x"' in body
+    assert b'"message":"add a.py"' in body
+    # Content base64-encoded.
+    assert base64.b64encode(b"hello\n").decode("ascii").encode("ascii") in body
+    # Create path must NOT include a sha key.
+    assert b'"sha"' not in body
+
+
+@pytest.mark.asyncio
+async def test_put_file_content_updates_file_when_sha_set() -> None:
+    captured_bodies: list[bytes] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_bodies.append(request.content)
+        return httpx.Response(
+            200,
+            json={
+                "content": {"sha": "new-blob"},
+                "commit": {"sha": "commit-2"},
+            },
+        )
+
+    async with _make_client(handler) as client:
+        resp = await client.put_file_content(
+            "acme",
+            "widget",
+            "src/a.py",
+            content=b"updated\n",
+            message="update a.py",
+            branch="bsnexus/req-x",
+            sha="old-blob",
+        )
+
+    assert resp["commit"]["sha"] == "commit-2"
+    assert b'"sha":"old-blob"' in captured_bodies[0]
+
+
+@pytest.mark.asyncio
+async def test_put_file_content_raises_on_409() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(409, json={"message": "Conflict"})
+
+    async with _make_client(handler) as client:
+        with pytest.raises(GithubError) as exc_info:
+            await client.put_file_content(
+                "acme",
+                "widget",
+                "src/a.py",
+                content=b"x",
+                message="m",
+                branch="b",
+            )
+        assert exc_info.value.status_code == 409

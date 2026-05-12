@@ -28,6 +28,9 @@ import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from backend.src.core.domain import ProofState
+from backend.src.core.git_ops import CommitOpError, commit_deliverable
+from backend.src.core.git_ops.branch import GithubClientFactory
 from backend.src.core.proof import run_proof_attempt
 from backend.src.models import Deliverable, Project
 from backend.src.queue.streams import RedisStreamManager
@@ -46,6 +49,7 @@ async def process_one(
     tenant_id: uuid.UUID,
     session: AsyncSession,
     publish_event: PublishEvent | None,
+    github_client_factory: GithubClientFactory | None = None,
 ) -> None:
     """Run the deterministic verifier against a single Deliverable.
 
@@ -53,6 +57,13 @@ async def process_one(
     given tenant scope (a cross-tenant message must not leak verifier
     capacity). The caller's job is to ack-then-skip in that case so a
     poisoned message doesn't pin a slot.
+
+    G8.2 — when the proof state transitions to ``verified`` and the
+    project has a repo binding, the deliverable's artifact files are
+    committed to ``bsnexus/req-<id>`` via the GitHub Contents API and
+    ``deliverable.commit_sha`` is stamped. Commit failures NEVER
+    revert ``verified`` — they're soft warnings (logged + surfaced as
+    ``commit_sha=None``) so the proof signal stays canonical.
     """
     deliverable = await _load_scoped(session, deliverable_id, tenant_id)
     project = await _load_project(session, deliverable.project_id)
@@ -73,6 +84,34 @@ async def process_one(
         changed_files=tuple(_artifact_paths(deliverable)),
     )
 
+    if (
+        deliverable.proof_state == ProofState.verified
+        and project.github_repo_url
+        and project.github_token_encrypted
+        and deliverable.request_id is not None
+    ):
+        try:
+            result = await commit_deliverable(
+                deliverable=deliverable,
+                session=session,
+                client_factory=github_client_factory,
+            )
+            await session.flush()
+            logger.info(
+                "verifier_worker_committed",
+                deliverable_id=str(deliverable.id),
+                branch=result.branch_name,
+                commit_sha=result.commit_sha,
+            )
+        except CommitOpError as exc:
+            # Soft failure: keep the verified state, leave commit_sha None.
+            logger.warning(
+                "verifier_worker_commit_skipped",
+                deliverable_id=str(deliverable.id),
+                reason=exc.reason,
+                message=str(exc),
+            )
+
     if publish_event is not None:
         await publish_event(
             str(deliverable.project_id),
@@ -81,6 +120,7 @@ async def process_one(
                 "id": str(deliverable.id),
                 "project_id": str(deliverable.project_id),
                 "proof_state": deliverable.proof_state.value,
+                "commit_sha": deliverable.commit_sha,
             },
         )
     logger.info(

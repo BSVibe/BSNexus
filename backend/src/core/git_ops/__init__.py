@@ -11,10 +11,18 @@ from backend.src.core.git_ops.branch import (
     build_request_branch_name,
     ensure_request_branch,
 )
+from backend.src.core.git_ops.commit import (
+    CommitOpError,
+    CommitResult,
+    commit_deliverable,
+)
 
 __all__ = [
     "BranchInfo",
     "BranchOpError",
+    "CommitOpError",
+    "CommitResult",
     "build_request_branch_name",
+    "commit_deliverable",
     "ensure_request_branch",
 ]
