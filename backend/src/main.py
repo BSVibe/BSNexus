@@ -285,7 +285,31 @@ def create_app(
             "tool_count": len(registry.names()),
         }
 
-    _app.mount("/mcp", build_streamable_http_asgi_app(_app))
+    # RFC 9728 protected-resource discovery: unauth requests to /mcp get a
+    # 401 + WWW-Authenticate referencing /.well-known/oauth-protected-resource.
+    # Round 5 Phase B of the BSVibe OAuth migration (mirrors BSGateway PR #60).
+    from backend.src.admin_mcp.oauth_protected_resource import (  # noqa: PLC0415
+        build_protected_resource_metadata,
+        wrap_mcp_with_oauth_401,
+    )
+    from fastapi import Request as _FastAPIRequest  # noqa: PLC0415
+    from fastapi.responses import JSONResponse as _JSONResponse  # noqa: PLC0415
+
+    @_app.get("/.well-known/oauth-protected-resource", tags=["mcp"])
+    async def oauth_protected_resource(request: _FastAPIRequest) -> _JSONResponse:
+        proto = request.headers.get("x-forwarded-proto") or request.url.scheme
+        host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+        resource_url = f"{proto}://{host}" if host else str(request.base_url).rstrip("/")
+        return _JSONResponse(
+            content=build_protected_resource_metadata(
+                resource_url=resource_url,
+                authorization_server=app_settings.bsvibe_auth_url.rstrip("/"),
+                scopes_supported=["nexus:*"],
+            ),
+            headers={"Cache-Control": "public, max-age=300"},
+        )
+
+    _app.mount("/mcp", wrap_mcp_with_oauth_401(build_streamable_http_asgi_app(_app)))
 
     @_app.get("/health/deps")
     async def health_deps():
