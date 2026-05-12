@@ -183,6 +183,11 @@ class BriefRequestCard(BaseModel):
     status: RequestStatus
     created_at: datetime
     updated_at: datetime
+    # G8.3 — surface the bound GitHub PR right on the Brief card so the
+    # founder can jump from a running/blocked request to the in-flight
+    # PR without drilling into the Request detail.
+    pr_number: int | None = None
+    pr_url: str | None = None
 
 
 class BriefBlockedRequestCard(BriefRequestCard):

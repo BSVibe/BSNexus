@@ -121,6 +121,25 @@ export function DeliverableCard({ d }: { d: BriefDeliverable }) {
             <Badge tone="gray">{d.verifier_type}</Badge>
           </>
         )}
+        {d.commit_sha && d.diff_url && (
+          <>
+            <span>·</span>
+            <a
+              href={d.diff_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mono"
+              style={{
+                fontSize: 11,
+                color: 'var(--blue-500)',
+                textDecoration: 'none',
+              }}
+              title={t('deliverable.openCommitTitle', { sha: d.commit_sha })}
+            >
+              {d.commit_sha.slice(0, 7)}
+            </a>
+          </>
+        )}
         <span style={{ flex: 1 }} />
         {firstArtifact && (
           <button

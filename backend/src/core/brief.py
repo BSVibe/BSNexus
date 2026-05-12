@@ -181,6 +181,8 @@ async def _request_cards(
             "status": request.status.value,
             "created_at": request.created_at,
             "updated_at": request.updated_at,
+            "pr_number": request.pr_number,
+            "pr_url": request.pr_url,
         }
         for request in requests
     ]

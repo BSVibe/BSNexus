@@ -20,6 +20,11 @@ export interface Request {
   user_confirmed: boolean
   superseded_by_id: string | null
   composition_root_id: string | null
+  // G8.3 — populated when the Request ships and a GitHub PR is opened
+  // off ``bsnexus/req-<id>``. Null when the project has no repo binding
+  // or the PR creation soft-failed.
+  pr_number: number | null
+  pr_url: string | null
   created_at: string
   updated_at: string
 }
@@ -63,6 +68,12 @@ export interface Deliverable {
   proof_refs: ProofRef[] | null
   risk_summary: string | null
   verified_at: string | null
+  // G8.2 + G8.5 — populated when the Deliverable's artifacts are
+  // committed to ``bsnexus/req-<id>``. ``diff_url`` is the GitHub
+  // commit page link; both null when the project has no repo binding
+  // or the commit soft-failed.
+  commit_sha: string | null
+  diff_url: string | null
 }
 
 export interface DeliverableVersion {
@@ -216,6 +227,11 @@ export interface BriefDeliverable {
   verified_at: string | null
   created_at: string
   artifact_refs: ArtifactRef[]
+  // G8.2 + G8.5 — same fields the full Deliverable carries so the
+  // Brief shipped card can render a commit link without a second
+  // query.
+  commit_sha: string | null
+  diff_url: string | null
 }
 
 export interface BriefDecision {
@@ -233,6 +249,9 @@ export interface BriefRequest {
   status: RequestStatus
   created_at: string
   updated_at: string
+  // G8.3 — populated when the Request has a bound GitHub PR.
+  pr_number: number | null
+  pr_url: string | null
 }
 
 export type BriefBlockedItem =
