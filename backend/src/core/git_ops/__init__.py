@@ -16,6 +16,7 @@ from backend.src.core.git_ops.commit import (
     CommitResult,
     commit_deliverable,
 )
+from backend.src.core.git_ops.pr_body import compose_pr_body
 from backend.src.core.git_ops.pull_request import (
     PullRequestInfo,
     PullRequestOpError,
@@ -31,6 +32,7 @@ __all__ = [
     "PullRequestOpError",
     "build_request_branch_name",
     "commit_deliverable",
+    "compose_pr_body",
     "ensure_request_branch",
     "open_request_pr",
 ]

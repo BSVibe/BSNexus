@@ -190,6 +190,28 @@ class GithubClient:
         self._raise_for_status(resp, action="create_pull")
         return resp.json()
 
+    async def update_pull(
+        self,
+        owner: str,
+        repo: str,
+        number: int,
+        *,
+        title: str | None = None,
+        body: str | None = None,
+    ) -> dict[str, Any]:
+        """``PATCH /repos/{owner}/{repo}/pulls/{number}`` — update an
+        existing PR's title and/or body. Only fields with a non-None
+        value are sent; pass ``body=""`` to explicitly clear the body.
+        """
+        payload: dict[str, Any] = {}
+        if title is not None:
+            payload["title"] = title
+        if body is not None:
+            payload["body"] = body
+        resp = await self._client.patch(f"/repos/{owner}/{repo}/pulls/{number}", json=payload)
+        self._raise_for_status(resp, action="update_pull")
+        return resp.json()
+
     async def put_file_content(
         self,
         owner: str,

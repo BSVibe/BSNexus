@@ -380,3 +380,55 @@ async def test_create_pull_raises_on_422_no_commits() -> None:
         with pytest.raises(GithubError) as exc_info:
             await client.create_pull("acme", "widget", title="t", head="bsnexus/req-x", base="main")
     assert exc_info.value.status_code == 422
+
+
+# ──────────────────── update_pull (G8.4) ────────────────────
+
+
+@pytest.mark.asyncio
+async def test_update_pull_patches_only_provided_fields() -> None:
+    captured_bodies: list[bytes] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_bodies.append(request.content)
+        return httpx.Response(
+            200,
+            json={"number": 7, "html_url": "https://github.com/acme/widget/pull/7", "state": "open"},
+        )
+
+    async with _make_client(handler) as client:
+        resp = await client.update_pull("acme", "widget", 7, body="updated body")
+    assert resp["number"] == 7
+    body = captured_bodies[0]
+    assert isinstance(body, (bytes, bytearray))
+    assert b'"body":"updated body"' in body
+    assert b'"title"' not in body  # title was not passed → not sent
+
+
+@pytest.mark.asyncio
+async def test_update_pull_accepts_title_only() -> None:
+    captured: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = request.content
+        captured["path"] = request.url.path
+        return httpx.Response(200, json={"number": 7})
+
+    async with _make_client(handler) as client:
+        await client.update_pull("acme", "widget", 7, title="New title")
+    assert captured["path"] == "/repos/acme/widget/pulls/7"
+    body = captured["body"]
+    assert isinstance(body, (bytes, bytearray))
+    assert b'"title":"New title"' in body
+    assert b'"body"' not in body
+
+
+@pytest.mark.asyncio
+async def test_update_pull_raises_on_404() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"message": "Not Found"})
+
+    async with _make_client(handler) as client:
+        with pytest.raises(GithubNotFound) as exc_info:
+            await client.update_pull("acme", "widget", 99, body="x")
+    assert exc_info.value.status_code == 404
