@@ -13,7 +13,8 @@ from backend.src.core.domain import (
     ProofState,
     RequestStatus,
 )
-from backend.src.models import Decision, Deliverable, ProofAttempt, Request
+from backend.src.core.git_ops import build_deliverable_diff_url
+from backend.src.models import Decision, Deliverable, Project, ProofAttempt, Request
 
 
 def _empty_sections() -> dict:
@@ -203,6 +204,8 @@ async def _deliverable_card(session: AsyncSession, deliverable: Deliverable) -> 
     verified_at: datetime | None = None
     if attempt is not None and attempt.status == ProofAttemptStatus.verified:
         verified_at = attempt.completed_at
+    project = await session.get(Project, deliverable.project_id)
+    diff_url = build_deliverable_diff_url(project=project, deliverable=deliverable) if project else None
     return {
         "id": str(deliverable.id),
         "project_id": str(deliverable.project_id),
@@ -215,4 +218,6 @@ async def _deliverable_card(session: AsyncSession, deliverable: Deliverable) -> 
         "verified_at": verified_at,
         "created_at": deliverable.created_at,
         "artifact_refs": list(deliverable.artifact_refs or []),
+        "commit_sha": deliverable.commit_sha,
+        "diff_url": diff_url,
     }

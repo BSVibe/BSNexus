@@ -16,6 +16,7 @@ from backend.src.core.git_ops.commit import (
     CommitResult,
     commit_deliverable,
 )
+from backend.src.core.git_ops.diff_url import build_deliverable_diff_url
 from backend.src.core.git_ops.pr_body import compose_pr_body
 from backend.src.core.git_ops.pull_request import (
     PullRequestInfo,
@@ -30,6 +31,7 @@ __all__ = [
     "CommitResult",
     "PullRequestInfo",
     "PullRequestOpError",
+    "build_deliverable_diff_url",
     "build_request_branch_name",
     "commit_deliverable",
     "compose_pr_body",
