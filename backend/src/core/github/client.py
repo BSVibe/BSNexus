@@ -149,6 +149,47 @@ class GithubClient:
             return str(sha) if isinstance(sha, str) else None
         return None
 
+    async def list_pulls(
+        self, owner: str, repo: str, *, head: str | None = None, state: str = "open"
+    ) -> list[dict[str, Any]]:
+        """``GET /repos/{owner}/{repo}/pulls`` filtered by ``state`` and
+        optionally ``head`` (GitHub expects ``owner:branch``; we accept
+        the bare branch and prepend ``owner:``).
+        """
+        params: dict[str, str] = {"state": state}
+        if head:
+            params["head"] = f"{owner}:{head}"
+        resp = await self._client.get(f"/repos/{owner}/{repo}/pulls", params=params)
+        self._raise_for_status(resp, action="list_pulls")
+        body = resp.json()
+        return list(body) if isinstance(body, list) else []
+
+    async def create_pull(
+        self,
+        owner: str,
+        repo: str,
+        *,
+        title: str,
+        head: str,
+        base: str,
+        body: str = "",
+        draft: bool = False,
+    ) -> dict[str, Any]:
+        """``POST /repos/{owner}/{repo}/pulls`` — open a PR from
+        ``head`` against ``base``. Returns the GitHub PR object
+        (``number``, ``html_url``, ``state``, ...).
+        """
+        payload: dict[str, Any] = {
+            "title": title,
+            "head": head,
+            "base": base,
+            "body": body,
+            "draft": draft,
+        }
+        resp = await self._client.post(f"/repos/{owner}/{repo}/pulls", json=payload)
+        self._raise_for_status(resp, action="create_pull")
+        return resp.json()
+
     async def put_file_content(
         self,
         owner: str,

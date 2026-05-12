@@ -23,6 +23,7 @@ from backend.src.api import (
     projects,
     repo_branch as repo_branch_api,
     repo_config as repo_config_api,
+    repo_pull_request as repo_pull_request_api,
     requests_api,
     workspace_files as workspace_files_api,
 )
@@ -218,6 +219,7 @@ _ROUTERS = [
     executor_config_api.router,
     repo_config_api.router,
     repo_branch_api.router,
+    repo_pull_request_api.router,
     workspace_files_api.router,
 ]
 

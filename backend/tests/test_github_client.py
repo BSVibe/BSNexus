@@ -304,3 +304,79 @@ async def test_put_file_content_raises_on_409() -> None:
                 branch="b",
             )
         assert exc_info.value.status_code == 409
+
+
+# ──────────────────── Pulls API tests (G8.3) ────────────────────
+
+
+@pytest.mark.asyncio
+async def test_list_pulls_filters_state_and_head() -> None:
+    captured: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["path"] = request.url.path
+        captured["query"] = str(
+            request.url.query.decode() if isinstance(request.url.query, bytes) else request.url.query
+        )
+        return httpx.Response(200, json=[{"number": 9, "html_url": "https://x"}])
+
+    async with _make_client(handler) as client:
+        prs = await client.list_pulls("acme", "widget", head="bsnexus/req-x", state="open")
+    assert len(prs) == 1
+    assert prs[0]["number"] == 9
+    assert captured["path"] == "/repos/acme/widget/pulls"
+    assert "state=open" in captured["query"]
+    assert "head=acme%3Absnexus%2Freq-x" in captured["query"]
+
+
+@pytest.mark.asyncio
+async def test_list_pulls_returns_empty_for_no_match() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=[])
+
+    async with _make_client(handler) as client:
+        prs = await client.list_pulls("acme", "widget", head="missing")
+    assert prs == []
+
+
+@pytest.mark.asyncio
+async def test_create_pull_posts_title_head_base_body() -> None:
+    captured: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["path"] = request.url.path
+        captured["body"] = request.content
+        return httpx.Response(
+            201,
+            json={"number": 17, "html_url": "https://github.com/acme/widget/pull/17", "state": "open"},
+        )
+
+    async with _make_client(handler) as client:
+        pr = await client.create_pull(
+            "acme",
+            "widget",
+            title="Add /healthz",
+            head="bsnexus/req-x",
+            base="main",
+            body="founder summary here",
+        )
+    assert pr["number"] == 17
+    assert captured["path"] == "/repos/acme/widget/pulls"
+    body = captured["body"]
+    assert isinstance(body, (bytes, bytearray))
+    assert b'"title":"Add /healthz"' in body
+    assert b'"head":"bsnexus/req-x"' in body
+    assert b'"base":"main"' in body
+    assert b'"body":"founder summary here"' in body
+    assert b'"draft":false' in body
+
+
+@pytest.mark.asyncio
+async def test_create_pull_raises_on_422_no_commits() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(422, json={"message": "No commits between main and bsnexus/req-x"})
+
+    async with _make_client(handler) as client:
+        with pytest.raises(GithubError) as exc_info:
+            await client.create_pull("acme", "widget", title="t", head="bsnexus/req-x", base="main")
+    assert exc_info.value.status_code == 422

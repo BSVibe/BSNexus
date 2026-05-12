@@ -16,13 +16,21 @@ from backend.src.core.git_ops.commit import (
     CommitResult,
     commit_deliverable,
 )
+from backend.src.core.git_ops.pull_request import (
+    PullRequestInfo,
+    PullRequestOpError,
+    open_request_pr,
+)
 
 __all__ = [
     "BranchInfo",
     "BranchOpError",
     "CommitOpError",
     "CommitResult",
+    "PullRequestInfo",
+    "PullRequestOpError",
     "build_request_branch_name",
     "commit_deliverable",
     "ensure_request_branch",
+    "open_request_pr",
 ]
