@@ -116,12 +116,12 @@ def test_service_token_payload_rejects_invalid_audience():
     from bsvibe_authz import ServiceTokenPayload
 
     # Valid audiences.
-    for aud in ("bsage", "bsgateway", "bsupervisor", "bsnexus"):
+    for aud in ("sage", "gateway", "supervisor", "nexus"):
         payload = ServiceTokenPayload(
             iss="i",
             sub="s",
             aud=aud,
-            scope=f"{aud}.read",
+            scope=f"{aud}:read",
             iat=1,
             exp=2,
             token_type="service",
@@ -134,7 +134,7 @@ def test_service_token_payload_rejects_invalid_audience():
             iss="i",
             sub="s",
             aud="random-service",
-            scope="random-service.read",
+            scope="random-service:read",
             iat=1,
             exp=2,
             token_type="service",
