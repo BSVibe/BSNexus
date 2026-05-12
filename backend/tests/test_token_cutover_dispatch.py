@@ -1,22 +1,18 @@
-"""TASK-004 — 3-way auth dispatch via ``bsvibe-authz``.
+"""Auth dispatch via ``bsvibe-authz``.
 
-Pin: ``backend.src.core.auth.get_current_user`` no longer routes through
-``bsvibe_auth.BsvibeAuthProvider``. It dispatches by token prefix:
+Pin: ``backend.src.core.auth.get_current_user`` dispatches by token prefix:
 
-  * ``bsv_admin_*`` → :func:`bsvibe_authz.verify_bootstrap_token`
-  * ``bsv_sk_*``    → :func:`bsvibe_authz.verify_opaque_token`
-  * otherwise       → :func:`bsvibe_authz.verify_user_jwt`
+  * ``bsv_sk_*`` → :func:`bsvibe_authz.verify_opaque_token`
+  * otherwise    → :func:`bsvibe_authz.verify_user_jwt`
 
-Pre-existing guarantees that MUST hold across the cutover:
+Pre-existing guarantees that MUST hold:
 
   * ``E2E_TEST_TOKEN`` short-circuit still bypasses dispatch in non-prod.
-  * Invalid bootstrap token (digest mismatch) returns 401.
   * Invalid arbitrary tokens return 401.
 """
 
 from __future__ import annotations
 
-import hashlib
 import os
 from unittest.mock import patch
 
@@ -71,59 +67,12 @@ async def authd_client(real_engine):
 
 
 @pytest.mark.asyncio
-async def test_bootstrap_token_grants_access_when_digest_matches(authd_client):
-    """A ``bsv_admin_*`` token whose sha256 matches
-    ``settings.bootstrap_token_hash`` MUST hit a protected endpoint and
-    return 200 — the bootstrap path in the bsvibe-authz dispatch."""
-    raw = "bsv_admin_secret-test-token-001"
-    digest = hashlib.sha256(raw.encode()).hexdigest()
-
+async def test_arbitrary_bsv_admin_token_returns_401(authd_client):
+    """The legacy ``bsv_admin_*`` bootstrap path is gone — any such token
+    is now an unrecognised garbage bearer and must be rejected with 401."""
     env = {k: v for k, v in os.environ.items() if k != "ENVIRONMENT"}
     with (
         patch.dict(os.environ, env, clear=True),
-        patch("backend.src.core.auth.settings.bootstrap_token_hash", digest),
-        patch("backend.src.core.auth.settings.e2e_test_token", ""),
-    ):
-        resp = await authd_client.get(
-            "/api/v1/auth/me",
-            headers={"Authorization": f"Bearer {raw}"},
-        )
-
-    assert resp.status_code == 200, resp.text
-    body = resp.json()
-    assert body["id"] == "bootstrap"
-    assert body["role"] == "admin"
-
-
-@pytest.mark.asyncio
-async def test_bootstrap_token_mismatch_returns_401(authd_client):
-    """A ``bsv_admin_*`` token whose digest does NOT match must be
-    rejected with 401 — and the response MUST NOT echo the raw token."""
-    bogus_hash = "0" * 64
-
-    env = {k: v for k, v in os.environ.items() if k != "ENVIRONMENT"}
-    with (
-        patch.dict(os.environ, env, clear=True),
-        patch("backend.src.core.auth.settings.bootstrap_token_hash", bogus_hash),
-        patch("backend.src.core.auth.settings.e2e_test_token", ""),
-    ):
-        resp = await authd_client.get(
-            "/api/v1/auth/me",
-            headers={"Authorization": "Bearer bsv_admin_completely-wrong-secret"},
-        )
-
-    assert resp.status_code == 401, resp.text
-    assert "bsv_admin_completely-wrong-secret" not in resp.text
-
-
-@pytest.mark.asyncio
-async def test_bootstrap_path_disabled_when_hash_empty(authd_client):
-    """When ``bootstrap_token_hash`` is empty the bootstrap path MUST be
-    disabled: any ``bsv_admin_*`` token is rejected, regardless of value."""
-    env = {k: v for k, v in os.environ.items() if k != "ENVIRONMENT"}
-    with (
-        patch.dict(os.environ, env, clear=True),
-        patch("backend.src.core.auth.settings.bootstrap_token_hash", ""),
         patch("backend.src.core.auth.settings.e2e_test_token", ""),
     ):
         resp = await authd_client.get(
@@ -135,13 +84,12 @@ async def test_bootstrap_path_disabled_when_hash_empty(authd_client):
 
 @pytest.mark.asyncio
 async def test_invalid_token_returns_401(authd_client):
-    """A garbage bearer that is neither bsv_admin_/bsv_sk_ nor a valid
-    JWT must return 401 — the JWT verifier rejects it via the
-    bsvibe-authz dispatch path."""
+    """A garbage bearer that is neither ``bsv_sk_`` nor a valid JWT must
+    return 401 — the JWT verifier rejects it via the bsvibe-authz
+    dispatch path."""
     env = {k: v for k, v in os.environ.items() if k != "ENVIRONMENT"}
     with (
         patch.dict(os.environ, env, clear=True),
-        patch("backend.src.core.auth.settings.bootstrap_token_hash", ""),
         patch("backend.src.core.auth.settings.e2e_test_token", ""),
     ):
         resp = await authd_client.get(
@@ -162,7 +110,6 @@ async def test_e2e_bypass_short_circuits_before_dispatch(authd_client):
     env = {k: v for k, v in os.environ.items() if k != "ENVIRONMENT"}
     with (
         patch.dict(os.environ, env, clear=True),
-        patch("backend.src.core.auth.settings.bootstrap_token_hash", ""),
         patch("backend.src.core.auth.settings.e2e_test_token", bypass),
         patch("backend.src.core.auth.settings.e2e_test_user_id", "e2e-test-user"),
         patch("backend.src.core.auth.settings.e2e_test_user_email", "e2e@bsnexus.test"),
@@ -199,7 +146,6 @@ async def test_opaque_token_passes_when_introspection_returns_active(authd_clien
     env = {k: v for k, v in os.environ.items() if k != "ENVIRONMENT"}
     with (
         patch.dict(os.environ, env, clear=True),
-        patch("backend.src.core.auth.settings.bootstrap_token_hash", ""),
         patch("backend.src.core.auth.settings.e2e_test_token", ""),
         patch("backend.src.core.auth._get_introspection_client", return_value=fake_client),
     ):
@@ -221,7 +167,6 @@ async def test_opaque_token_path_disabled_returns_401(authd_client):
     env = {k: v for k, v in os.environ.items() if k != "ENVIRONMENT"}
     with (
         patch.dict(os.environ, env, clear=True),
-        patch("backend.src.core.auth.settings.bootstrap_token_hash", ""),
         patch("backend.src.core.auth.settings.introspection_url", ""),
         patch("backend.src.core.auth.settings.e2e_test_token", ""),
         patch("backend.src.core.auth._introspection_client", None),
@@ -237,33 +182,39 @@ async def test_opaque_token_path_disabled_returns_401(authd_client):
 async def test_query_string_token_works_for_sse(authd_client):
     """Browsers can't set Authorization headers on EventSource. The
     ``?token=`` query-string fallback must accept the same dispatch."""
-    raw = "bsv_admin_query-bootstrap-token"
-    digest = hashlib.sha256(raw.encode()).hexdigest()
+    from unittest.mock import AsyncMock
+
+    from bsvibe_authz.types import IntrospectionResponse
+
+    fake_client = AsyncMock()
+    fake_client.introspect = AsyncMock(
+        return_value=IntrospectionResponse(
+            active=True,
+            sub="opaque-sse-user",
+            scope=["bsnexus.events.read"],
+        ),
+    )
 
     env = {k: v for k, v in os.environ.items() if k != "ENVIRONMENT"}
     with (
         patch.dict(os.environ, env, clear=True),
-        patch("backend.src.core.auth.settings.bootstrap_token_hash", digest),
         patch("backend.src.core.auth.settings.e2e_test_token", ""),
+        patch("backend.src.core.auth._get_introspection_client", return_value=fake_client),
     ):
-        resp = await authd_client.get(f"/api/v1/auth/me?token={raw}")
+        resp = await authd_client.get("/api/v1/auth/me?token=bsv_sk_query_string")
 
     assert resp.status_code == 200, resp.text
 
 
 @pytest.mark.asyncio
-async def test_bootstrap_token_blocked_in_production_environment(authd_client):
-    """Even in production the bootstrap path is intentionally available
-    (it's the recovery hatch). The e2e bypass, however, MUST stay
-    disabled — pin the production guard against the e2e shortcut.
-
-    Concretely: a string equal to ``e2e_test_token`` but tried while
-    ENVIRONMENT=production must NOT hit the bypass and must instead
-    fall into the dispatch, which rejects it as an invalid JWT."""
+async def test_e2e_bypass_blocked_in_production_environment(authd_client):
+    """The e2e bypass MUST stay disabled in production — a string equal
+    to ``e2e_test_token`` but tried while ENVIRONMENT=production must
+    NOT hit the bypass and must fall into the dispatch, which rejects
+    it as an invalid JWT."""
     bypass = "leaked-dev-bypass"
     with (
         patch.dict(os.environ, {"ENVIRONMENT": "production"}, clear=False),
-        patch("backend.src.core.auth.settings.bootstrap_token_hash", ""),
         patch("backend.src.core.auth.settings.e2e_test_token", bypass),
     ):
         resp = await authd_client.get(
