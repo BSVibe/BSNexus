@@ -10,6 +10,7 @@ import { Modal } from '../common/Modal'
 import DecisionsView from '../decisions/DecisionsView'
 import { DirectionInputCard } from '../dashboard/DirectionInputCard'
 import HomeView from '../brief/HomeView'
+import RepoConfigModal from '../settings/RepoConfigModal'
 import WorkspaceIndex from '../workspace/WorkspaceIndex'
 import { Section, DeliverableCard, RequestRow, BlockedRow } from '../brief/sections'
 import { briefApi } from '../../api/brief'
@@ -49,6 +50,7 @@ export default function ProjectPage() {
   const tab = parseTab(search.get('tab'))
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [overflowOpen, setOverflowOpen] = useState(false)
+  const [repoConfigOpen, setRepoConfigOpen] = useState(false)
   const router = useRouter()
   const queryClient = useQueryClient()
   const overflowRef = useRef<HTMLDivElement | null>(null)
@@ -206,6 +208,23 @@ export default function ProjectPage() {
                 style={{
                   width: '100%',
                   justifyContent: 'flex-start',
+                  minHeight: 44,
+                }}
+                onClick={() => {
+                  setOverflowOpen(false)
+                  setRepoConfigOpen(true)
+                }}
+              >
+                <I.Doc size={14} />
+                <span style={{ marginLeft: 6 }}>{t('repoConfig.menuItem')}</span>
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="btn btn-ghost"
+                style={{
+                  width: '100%',
+                  justifyContent: 'flex-start',
                   color: 'var(--rose-500)',
                   minHeight: 44,
                 }}
@@ -259,6 +278,14 @@ export default function ProjectPage() {
           </p>
         )}
       </Modal>
+
+      {projectId && (
+        <RepoConfigModal
+          open={repoConfigOpen}
+          onClose={() => setRepoConfigOpen(false)}
+          projectId={projectId}
+        />
+      )}
 
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
         {tab === 'home' && (
