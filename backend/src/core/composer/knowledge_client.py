@@ -376,9 +376,9 @@ def resolve_knowledge_client(
         client = BSageKnowledgeClient(cfg.base_url, api_key=None, auth_token=None)
         client._base.set_auth_provider(
             service_jwt_minter.make_auth_provider(
-                audience="bsage",
+                audience="sage",
                 tenant_id=tenant_id,
-                scope=["bsage.read"],
+                scope=["sage:read"],
             )
         )
         return client

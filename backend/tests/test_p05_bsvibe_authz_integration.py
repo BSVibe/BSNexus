@@ -94,16 +94,16 @@ def test_service_token_payload_shape_matches_minter_output():
     payload = ServiceTokenPayload(
         iss="https://auth.bsvibe.dev",
         sub="user:abc",
-        aud="bsage",
-        scope="bsage.read",
+        aud="sage",
+        scope="sage:read",
         iat=1000,
         exp=2000,
         token_type="service",
         tenant_id="t1",
     )
-    assert payload.aud == "bsage"
-    assert payload.scopes == ["bsage.read"]
-    assert payload.has_scope("bsage.read")
+    assert payload.aud == "sage"
+    assert payload.scopes == ["sage:read"]
+    assert payload.has_scope("sage:read")
     assert payload.tenant_id == "t1"
 
 
@@ -166,8 +166,8 @@ def test_service_token_payload_scope_audience_binding():
     bad_payload = {
         "iss": "https://auth.bsvibe.dev",
         "sub": "user:x",
-        "aud": "bsage",
-        "scope": "bsupervisor.write",  # cross-audience — must be rejected
+        "aud": "sage",
+        "scope": "supervisor:audit.write",  # cross-audience — must be rejected
         "iat": 1000,
         "exp": 9999999999,
         "token_type": "service",
@@ -175,16 +175,20 @@ def test_service_token_payload_scope_audience_binding():
     token = pyjwt.encode(bad_payload, signing_secret, algorithm="HS256")
 
     with pytest.raises(AuthError) as exc_info:
-        verify_service_jwt(token, settings, "bsage")
+        verify_service_jwt(token, settings, "sage")
     # Either the package surfaces the cross-audience scope mismatch
     # message or the bound-validator rejects it earlier — both are OK.
     msg = str(exc_info.value).lower()
-    assert "scope" in msg or "audience" in msg or "bsupervisor" in msg or "payload invalid" in msg
+    assert "scope" in msg or "audience" in msg or "supervisor" in msg or "payload invalid" in msg
 
 
 def test_bsnexus_service_jwt_minter_audience_set_matches_authz_package():
-    """The audiences BSNexus mints for (``bsage``, ``bsupervisor``,
-    ``bsgateway``) must be valid in ``bsvibe_authz.types.ServiceAudience``.
+    """The audiences BSNexus mints for (``sage``, ``supervisor``,
+    ``gateway``) must be valid in ``bsvibe_authz.types.ServiceAudience``.
+
+    Round 5 Step 3c flipped producer audiences from legacy ``bs*`` to
+    MCP-aligned bare names. bsvibe-authz 0.9.2 still accepts both
+    grammars during the transition window; Step 5 will remove legacy.
 
     Pin: drift between the producer (this minter) and the verifier
     (the receiving service's ``ServiceKeyAuth``) silently fails auth.
@@ -195,7 +199,7 @@ def test_bsnexus_service_jwt_minter_audience_set_matches_authz_package():
     import typing
 
     valid = set(typing.get_args(ServiceAudience))
-    bsnexus_outbound = {"bsage", "bsupervisor", "bsgateway"}
+    bsnexus_outbound = {"sage", "supervisor", "gateway"}
     assert bsnexus_outbound.issubset(valid), (
         f"BSNexus mints for {bsnexus_outbound}, but bsvibe-authz only accepts {valid} as ServiceAudience"
     )

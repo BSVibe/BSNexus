@@ -79,7 +79,7 @@ async def test_mint_returns_token_via_oauth_endpoint(monkeypatch, base_kwargs):
     _patch_oauth_transport(monkeypatch, _oauth_handler(capture=capture))
 
     minter = ServiceJWTMinter(**base_kwargs)
-    tok = await minter.mint(audience="bsage", tenant_id="t-1", scope=["bsage.read"])
+    tok = await minter.mint(audience="sage", tenant_id="t-1", scope=["sage:read"])
 
     assert tok == "tok-1"
     assert len(capture) == 1
@@ -87,8 +87,8 @@ async def test_mint_returns_token_via_oauth_endpoint(monkeypatch, base_kwargs):
     assert call["url"].endswith("/api/oauth/token")
     assert call["form"] == {
         "grant_type": "client_credentials",
-        "audience": "bsage",
-        "scope": "bsage.read",
+        "audience": "sage",
+        "scope": "sage:read",
     }
     decoded = base64.b64decode(call["authorization"][len("Basic ") :]).decode()
     assert decoded == "bsnexus-prod:very-long-random-secret"
@@ -100,8 +100,8 @@ async def test_mint_caches_per_audience_and_scope(monkeypatch, base_kwargs):
     _patch_oauth_transport(monkeypatch, _oauth_handler(capture=capture))
     minter = ServiceJWTMinter(**base_kwargs)
 
-    await minter.mint(audience="bsage", tenant_id="t-1", scope=["bsage.read"])
-    await minter.mint(audience="bsage", tenant_id="t-1", scope=["bsage.read"])
+    await minter.mint(audience="sage", tenant_id="t-1", scope=["sage:read"])
+    await minter.mint(audience="sage", tenant_id="t-1", scope=["sage:read"])
 
     assert len(capture) == 1, "second call must hit the cache"
 
@@ -112,8 +112,8 @@ async def test_mint_separate_cache_per_audience(monkeypatch, base_kwargs):
     _patch_oauth_transport(monkeypatch, _oauth_handler(capture=capture))
     minter = ServiceJWTMinter(**base_kwargs)
 
-    await minter.mint(audience="bsage", tenant_id="t-1", scope=["bsage.read"])
-    await minter.mint(audience="bsupervisor", tenant_id="t-1", scope=["bsupervisor.write"])
+    await minter.mint(audience="sage", tenant_id="t-1", scope=["sage:read"])
+    await minter.mint(audience="supervisor", tenant_id="t-1", scope=["supervisor:audit.write"])
 
     assert len(capture) == 2
 
@@ -124,8 +124,8 @@ async def test_mint_separate_cache_per_scope(monkeypatch, base_kwargs):
     _patch_oauth_transport(monkeypatch, _oauth_handler(capture=capture))
     minter = ServiceJWTMinter(**base_kwargs)
 
-    await minter.mint(audience="bsage", tenant_id="t-1", scope=["bsage.read"])
-    await minter.mint(audience="bsage", tenant_id="t-1", scope=["bsage.write"])
+    await minter.mint(audience="sage", tenant_id="t-1", scope=["sage:read"])
+    await minter.mint(audience="sage", tenant_id="t-1", scope=["sage:write"])
 
     assert len(capture) == 2
 
@@ -138,7 +138,7 @@ async def test_mint_returns_empty_string_on_4xx(monkeypatch, base_kwargs):
     )
     minter = ServiceJWTMinter(**base_kwargs)
 
-    tok = await minter.mint(audience="bsage", tenant_id="t-1", scope=["bsage.read"])
+    tok = await minter.mint(audience="sage", tenant_id="t-1", scope=["sage:read"])
     assert tok == ""
 
 
@@ -150,7 +150,7 @@ async def test_mint_returns_empty_string_on_transport_error(monkeypatch, base_kw
     _patch_oauth_transport(monkeypatch, httpx.MockTransport(handler))
     minter = ServiceJWTMinter(**base_kwargs)
 
-    tok = await minter.mint(audience="bsage", tenant_id="t-1", scope=["bsage.read"])
+    tok = await minter.mint(audience="sage", tenant_id="t-1", scope=["sage:read"])
     assert tok == ""
 
 
@@ -159,7 +159,7 @@ async def test_make_auth_provider_returns_callable(monkeypatch, base_kwargs):
     _patch_oauth_transport(monkeypatch, _oauth_handler())
     minter = ServiceJWTMinter(**base_kwargs)
 
-    provider = minter.make_auth_provider(audience="bsage", tenant_id="t-1", scope=["bsage.read"])
+    provider = minter.make_auth_provider(audience="sage", tenant_id="t-1", scope=["sage:read"])
     assert callable(provider)
     tok = await provider()
     assert tok == "tok-1"
@@ -171,9 +171,9 @@ async def test_invalidate_drops_cache(monkeypatch, base_kwargs):
     _patch_oauth_transport(monkeypatch, _oauth_handler(capture=capture))
     minter = ServiceJWTMinter(**base_kwargs)
 
-    await minter.mint(audience="bsage", tenant_id="t-1", scope=["bsage.read"])
-    minter.invalidate(audience="bsage", tenant_id="t-1", scope=["bsage.read"])
-    await minter.mint(audience="bsage", tenant_id="t-1", scope=["bsage.read"])
+    await minter.mint(audience="sage", tenant_id="t-1", scope=["sage:read"])
+    minter.invalidate(audience="sage", tenant_id="t-1", scope=["sage:read"])
+    await minter.mint(audience="sage", tenant_id="t-1", scope=["sage:read"])
 
     assert len(capture) == 2
 
@@ -191,7 +191,7 @@ async def test_concurrent_mints_dedupe_to_single_upstream_call(monkeypatch, base
     minter = ServiceJWTMinter(**base_kwargs)
 
     results = await asyncio.gather(
-        *(minter.mint(audience="bsage", tenant_id="t-1", scope=["bsage.read"]) for _ in range(5))
+        *(minter.mint(audience="sage", tenant_id="t-1", scope=["sage:read"]) for _ in range(5))
     )
     assert all(r == "tok-shared" for r in results)
     assert len(capture) == 1
@@ -236,6 +236,6 @@ async def test_mint_returns_empty_string_on_invalid_audience(monkeypatch, base_k
     tok = await minter.mint(
         audience="not-a-real-audience",
         tenant_id="t-1",
-        scope=["bsage.read"],
+        scope=["sage:read"],
     )
     assert tok == ""
