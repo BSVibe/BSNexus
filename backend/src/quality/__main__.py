@@ -5,7 +5,7 @@ import asyncio
 import json
 from pathlib import Path
 
-from backend.src.quality.m0 import default_tasks, render_markdown_report, run_quality_suite, run_with_static_executor
+from backend.src.quality.benchmark import default_tasks, render_markdown_report, run_quality_suite, run_with_static_executor
 from backend.src.quality.ollama import LiveOllamaExecutor
 
 

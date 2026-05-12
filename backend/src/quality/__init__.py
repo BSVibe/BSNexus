@@ -1,4 +1,4 @@
-from backend.src.quality.m0 import (
+from backend.src.quality.benchmark import (
     DEFAULT_M0_TASKS,
     DEFAULT_SCENARIOS,
     AcceptanceReport,

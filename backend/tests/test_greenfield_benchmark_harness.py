@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from backend.src.core.domain import ProofState
-from backend.src.quality.m0 import (
+from backend.src.quality.benchmark import (
     DEFAULT_M0_TASKS,
     DEFAULT_SCENARIOS,
     ScenarioKind,

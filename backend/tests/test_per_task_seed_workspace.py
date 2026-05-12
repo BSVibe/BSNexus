@@ -9,13 +9,13 @@ from typing import Any
 import pytest
 
 from backend.src.core.domain import ProofState
-from backend.src.quality.m0 import (
+from backend.src.quality.benchmark import (
     DEFAULT_M0_TASKS,
     BenchmarkTask,
     ScenarioKind,
     TaskKind,
 )
-from backend.src.quality.m0_executor import BridgeConfig, _reset_workspace_to_seed, measure_task
+from backend.src.quality.benchmark_bridge import BridgeConfig, _reset_workspace_to_seed, measure_task
 
 
 @dataclass
