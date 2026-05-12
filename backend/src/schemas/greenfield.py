@@ -135,6 +135,7 @@ class DeliverableResponse(BaseModel):
     status: DeliverableStatus
     risk_summary: str | None
     commit_sha: str | None = None
+    diff_url: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -157,6 +158,8 @@ class BriefDeliverableCard(BaseModel):
     verified_at: datetime | None = None
     created_at: datetime
     artifact_refs: list = Field(default_factory=list)
+    commit_sha: str | None = None
+    diff_url: str | None = None
 
 
 class BriefDecisionCard(BaseModel):

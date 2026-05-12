@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.src.core.auth import get_current_user
 from backend.src.core.deliverables import WorkOutputDraft, create_deliverable_from_work_output
 from backend.src.core.domain import DeliverableStatus, ProofAttemptStatus, ProofState
+from backend.src.core.git_ops import build_deliverable_diff_url
 from backend.src.core.tenant_context import get_tenant_id
 from backend.src.models import Deliverable, Project, ProofAttempt, Request, WorkStep
 from backend.src.queue.streams import RedisStreamManager
@@ -199,6 +200,8 @@ async def _deliverable_response(db: AsyncSession, deliverable: Deliverable) -> d
             .limit(1)
         )
     ).scalar_one_or_none()
+    project = await db.get(Project, deliverable.project_id)
+    diff_url = build_deliverable_diff_url(project=project, deliverable=deliverable) if project else None
     return {
         "id": deliverable.id,
         "tenant_id": deliverable.tenant_id,
@@ -222,6 +225,7 @@ async def _deliverable_response(db: AsyncSession, deliverable: Deliverable) -> d
         "status": deliverable.status,
         "risk_summary": deliverable.risk_summary,
         "commit_sha": deliverable.commit_sha,
+        "diff_url": diff_url,
         "created_at": deliverable.created_at,
         "updated_at": deliverable.updated_at,
     }
