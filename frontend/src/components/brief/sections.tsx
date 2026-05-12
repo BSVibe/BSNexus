@@ -91,7 +91,31 @@ export function RequestRow({ r }: { r: BriefRequest }) {
           {r.status}
         </Badge>
       </div>
-      <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{relTime(r.updated_at)}</div>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          fontSize: 11,
+          color: 'var(--text-tertiary)',
+        }}
+      >
+        <span>{relTime(r.updated_at)}</span>
+        {r.pr_number && r.pr_url && (
+          <>
+            <span>·</span>
+            <a
+              href={r.pr_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: 'var(--blue-500)', textDecoration: 'none' }}
+              title={r.pr_url}
+            >
+              PR #{r.pr_number}
+            </a>
+          </>
+        )}
+      </div>
     </div>
   )
 }

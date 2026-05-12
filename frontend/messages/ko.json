@@ -232,7 +232,8 @@
         "verifyButton": "재검증",
         "verifyAria": "이 deliverable 의 검증을 다시 실행",
         "openInFiles": "파일에서 열기",
-        "openInFilesAria": "이 artifact 를 프로젝트 파일 탭에서 열기"
+        "openInFilesAria": "이 artifact 를 프로젝트 파일 탭에서 열기",
+        "openCommitTitle": "GitHub 커밋 {sha} 열기"
       }
     },
     "decisionInbox": {
