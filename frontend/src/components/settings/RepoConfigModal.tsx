@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
@@ -50,15 +50,24 @@ export default function RepoConfigModal({
   const [clearToken, setClearToken] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
 
-  // Reload fields when the modal opens or the server data lands.
-  useEffect(() => {
-    if (!open) return
-    setRepoUrl(data?.repo_url ?? '')
-    setBranch(data?.branch ?? 'main')
-    setTokenInput('')
-    setClearToken(false)
-    setSaveError(null)
-  }, [open, data])
+  // React 19 compiler-friendly resync: reset the draft when the modal
+  // opens or when the server-side binding changes. We track a tiny
+  // fingerprint instead of using ``useEffect`` because setting state
+  // synchronously in ``useEffect`` trips ``react-hooks/set-state-in-effect``.
+  const fingerprint = open
+    ? `${data?.repo_url ?? ''}|${data?.branch ?? ''}|${data?.has_token ? '1' : '0'}`
+    : 'closed'
+  const [seenFingerprint, setSeenFingerprint] = useState(fingerprint)
+  if (fingerprint !== seenFingerprint) {
+    setSeenFingerprint(fingerprint)
+    if (open) {
+      setRepoUrl(data?.repo_url ?? '')
+      setBranch(data?.branch ?? 'main')
+      setTokenInput('')
+      setClearToken(false)
+      setSaveError(null)
+    }
+  }
 
   const upsert = useMutation({
     mutationFn: async () => {
