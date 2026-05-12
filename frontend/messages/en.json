@@ -163,7 +163,27 @@
       },
       "noProjectSelected": "No project selected.",
       "fallbackTitle": "Project",
-      "headerOverflowAria": "Project actions"
+      "headerOverflowAria": "Project actions",
+      "repoConfig": {
+        "menuItem": "Repository settings",
+        "title": "Repository settings",
+        "subtitle": "Bind a GitHub repository as the delivery target for this project. Does not change the project workspace.",
+        "loadFailed": "Failed to load repo config.",
+        "saveFailed": "Failed to save.",
+        "clearFailed": "Failed to clear.",
+        "clearBinding": "Unbind",
+        "tokenStored": "(stored)",
+        "tokenPlaceholderStored": "••••••••",
+        "tokenPlaceholderEmpty": "ghp_…",
+        "clearStoredToken": "Clear stored token on next save",
+        "field": {
+          "repoUrl": "Repository URL",
+          "repoUrlHint": "Example: https://github.com/owner/repo (HTTPS only)",
+          "branch": "Base branch",
+          "branchHint": "BSNexus will branch off this as the delivery base.",
+          "token": "Personal Access Token"
+        }
+      }
     },
     "workspace": {
       "loading": "Loading…",
