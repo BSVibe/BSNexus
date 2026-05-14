@@ -90,6 +90,53 @@ async def test_direct_adapter_passes_direct_true_to_bsvibe_llm():
 
 
 @pytest.mark.asyncio
+async def test_direct_adapter_forwards_self_host_endpoint_to_litellm():
+    """A per-tenant ``ExecutorConfig`` self-host runtime (Ollama, vLLM)
+    carries an explicit ``base_url``. ``bsvibe_llm`` drops ``api_base``
+    for ``direct=True`` calls (``_resolve_api_base`` returns "") and
+    ``LlmSettings`` silently ignores unknown kwargs, so the *only* wire
+    that reaches ``litellm.acompletion`` is ``complete(extra=...)``.
+    Without this the call falls back to litellm's ``localhost:11434``
+    default and 500s on any host where Ollama isn't co-located."""
+    stub = _stub_client(_completion("ok"))
+    adapter = DirectLLMAdapter(
+        base_url="http://host.docker.internal:11434",
+        api_key="sk-tenant",
+        client=stub,
+    )
+
+    await adapter.execute(
+        messages=[{"role": "user", "content": "hi"}],
+        metadata={"tenant_id": "t1", "run_id": "r1"},
+        model="ollama_chat/qwen3-coder:30b",
+    )
+
+    kwargs = stub.complete.await_args.kwargs  # type: ignore[attr-defined]
+    assert kwargs["extra"]["api_base"] == "http://host.docker.internal:11434"
+    assert kwargs["extra"]["api_key"] == "sk-tenant"
+
+
+@pytest.mark.asyncio
+async def test_direct_adapter_omits_api_base_when_no_self_host_endpoint():
+    """SaaS providers (``base_url=None``) infer the endpoint from the
+    model id — the adapter must not pin a bogus ``api_base``. The
+    ``api_key`` still flows so litellm authenticates the vendor call."""
+    stub = _stub_client(_completion("ok"))
+    adapter = DirectLLMAdapter(base_url=None, api_key="sk-vendor", client=stub)
+
+    await adapter.execute(
+        messages=[{"role": "user", "content": "hi"}],
+        metadata={"tenant_id": "t1", "run_id": "r1"},
+        model="gpt-4o",
+    )
+
+    kwargs = stub.complete.await_args.kwargs  # type: ignore[attr-defined]
+    extra = kwargs.get("extra") or {}
+    assert "api_base" not in extra
+    assert extra["api_key"] == "sk-vendor"
+
+
+@pytest.mark.asyncio
 async def test_direct_adapter_coerces_metadata_to_run_audit_metadata():
     """``LlmClient.complete()`` requires a typed ``RunAuditMetadata``.
     The adapter accepts a free-form dict from the orchestrator and

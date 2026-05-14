@@ -182,6 +182,19 @@ async def lifespan(app: FastAPI):
     await verifier_worker.start()
     app.state.verifier_worker = verifier_worker
 
+    # G9 — RequestWorker consumes ``request:queue`` and drives a
+    # founder Direction's Request into execution (WorkPlan → WorkStep
+    # → dispatch_run_attempt → Deliverable → proof:queue). Together
+    # with VerifierWorker it closes the autonomous production loop.
+    from backend.src.workers.request_worker import RequestWorker  # noqa: PLC0415
+
+    request_worker = RequestWorker(
+        stream_manager=stream_manager,
+        session_factory=async_session,
+    )
+    await request_worker.start()
+    app.state.request_worker = request_worker
+
     # ─── Admin MCP lifespan (Round 4) ────────────────────────────────────
     # build_streamable_http_asgi_app reads ``app.state.admin_mcp_session_manager``;
     # the manager's task group must be entered before the first request.
@@ -193,6 +206,7 @@ async def lifespan(app: FastAPI):
             try:
                 yield
             finally:
+                await request_worker.stop()
                 await verifier_worker.stop()
                 await audit_relay.stop()
                 await close_redis()
@@ -201,6 +215,7 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        await request_worker.stop()
         await verifier_worker.stop()
         await audit_relay.stop()
         await close_redis()

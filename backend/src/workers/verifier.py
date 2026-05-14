@@ -112,6 +112,27 @@ async def process_one(
                 message=str(exc),
             )
 
+    # G9 — back-half orchestration. Walk the WorkStep + Request state
+    # machines forward now that this Deliverable's proof has resolved;
+    # a fully-verified Request reaches ``shipped`` here, which fires
+    # the G8.3 PR hook. Soft by contract — an orchestration hiccup
+    # must never revert the verified proof we just stamped.
+    # Imported lazily: ``orchestration`` → ``run_attempt_executor`` →
+    # ``verifier`` is a module cycle; the deferred import breaks it.
+    from backend.src.core.orchestration import advance_request_after_proof  # noqa: PLC0415
+
+    try:
+        await advance_request_after_proof(
+            deliverable=deliverable,
+            session=session,
+            stream_manager=_stream_manager_from_publish(publish_event),
+        )
+    except Exception:
+        logger.exception(
+            "verifier_worker_advance_failed",
+            deliverable_id=str(deliverable.id),
+        )
+
     if publish_event is not None:
         await publish_event(
             str(deliverable.project_id),
@@ -129,6 +150,17 @@ async def process_one(
         project_id=str(deliverable.project_id),
         proof_state=deliverable.proof_state.value,
     )
+
+
+def _stream_manager_from_publish(publish_event: PublishEvent | None) -> object:
+    """``advance_request_after_proof`` only needs a stream manager to
+    pass through to ``transition_request``'s G8.3 PR hook, which in
+    turn just needs *something* truthy when a repo is bound. The
+    VerifierWorker hands ``publish_event`` (a bound method of the
+    RedisStreamManager) — recover the manager off ``__self__`` when
+    present; otherwise ``None`` (the M0 bridge path, no Redis).
+    """
+    return getattr(publish_event, "__self__", None)
 
 
 async def _load_scoped(session: AsyncSession, deliverable_id: uuid.UUID, tenant_id: uuid.UUID) -> Deliverable:
