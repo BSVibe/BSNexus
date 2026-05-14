@@ -310,7 +310,7 @@ def create_app(
             content=build_protected_resource_metadata(
                 resource_url=resource_url,
                 authorization_server=app_settings.bsvibe_auth_url.rstrip("/"),
-                scopes_supported=["nexus:*"],
+                scopes_supported=["bsnexus:*"],
             ),
             headers={"Cache-Control": "public, max-age=300"},
         )

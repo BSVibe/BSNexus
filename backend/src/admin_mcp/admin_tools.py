@@ -268,7 +268,7 @@ def register_admin_tools(registry: ToolRegistry, lb: LoopbackCaller) -> None:
             input_schema=ProjectsListInput,
             output_schema=AdminToolResponse,
             handler=_h_projects_list(lb),
-            required_scopes=["nexus:projects:read"],
+            required_scopes=["bsnexus:projects:read"],
         )
     )
     registry.register(
@@ -278,7 +278,7 @@ def register_admin_tools(registry: ToolRegistry, lb: LoopbackCaller) -> None:
             input_schema=ProjectsShowInput,
             output_schema=AdminToolResponse,
             handler=_h_projects_show(lb),
-            required_scopes=["nexus:projects:read"],
+            required_scopes=["bsnexus:projects:read"],
         )
     )
     registry.register(
@@ -288,7 +288,7 @@ def register_admin_tools(registry: ToolRegistry, lb: LoopbackCaller) -> None:
             input_schema=ProjectsCreateInput,
             output_schema=AdminToolResponse,
             handler=_h_projects_create(lb),
-            required_scopes=["nexus:projects:write"],
+            required_scopes=["bsnexus:projects:write"],
             audit_event="bsnexus.mcp.projects_create.invoked",
         )
     )
@@ -299,7 +299,7 @@ def register_admin_tools(registry: ToolRegistry, lb: LoopbackCaller) -> None:
             input_schema=ProjectsUpdateInput,
             output_schema=AdminToolResponse,
             handler=_h_projects_update(lb),
-            required_scopes=["nexus:projects:write"],
+            required_scopes=["bsnexus:projects:write"],
             audit_event="bsnexus.mcp.projects_update.invoked",
         )
     )
@@ -310,7 +310,7 @@ def register_admin_tools(registry: ToolRegistry, lb: LoopbackCaller) -> None:
             input_schema=ProjectsDeleteInput,
             output_schema=AdminToolResponse,
             handler=_h_projects_delete(lb),
-            required_scopes=["nexus:projects:write"],
+            required_scopes=["bsnexus:projects:write"],
             audit_event="bsnexus.mcp.projects_delete.invoked",
         )
     )
@@ -321,7 +321,7 @@ def register_admin_tools(registry: ToolRegistry, lb: LoopbackCaller) -> None:
             input_schema=RequestsListInput,
             output_schema=AdminToolResponse,
             handler=_h_requests_list(lb),
-            required_scopes=["nexus:requests:read"],
+            required_scopes=["bsnexus:requests:read"],
         )
     )
     registry.register(
@@ -331,7 +331,7 @@ def register_admin_tools(registry: ToolRegistry, lb: LoopbackCaller) -> None:
             input_schema=DecisionsListInput,
             output_schema=AdminToolResponse,
             handler=_h_decisions_list(lb),
-            required_scopes=["nexus:decisions:read"],
+            required_scopes=["bsnexus:decisions:read"],
         )
     )
     registry.register(
@@ -341,7 +341,7 @@ def register_admin_tools(registry: ToolRegistry, lb: LoopbackCaller) -> None:
             input_schema=DecisionsResolveInput,
             output_schema=AdminToolResponse,
             handler=_h_decisions_resolve(lb),
-            required_scopes=["nexus:decisions:write"],
+            required_scopes=["bsnexus:decisions:write"],
             audit_event="bsnexus.mcp.decisions_resolve.invoked",
         )
     )
@@ -352,7 +352,7 @@ def register_admin_tools(registry: ToolRegistry, lb: LoopbackCaller) -> None:
             input_schema=DeliverablesListInput,
             output_schema=AdminToolResponse,
             handler=_h_deliverables_list(lb),
-            required_scopes=["nexus:deliverables:read"],
+            required_scopes=["bsnexus:deliverables:read"],
         )
     )
     registry.register(
@@ -362,7 +362,7 @@ def register_admin_tools(registry: ToolRegistry, lb: LoopbackCaller) -> None:
             input_schema=DeliverablesVerifyInput,
             output_schema=AdminToolResponse,
             handler=_h_deliverables_verify(lb),
-            required_scopes=["nexus:deliverables:write"],
+            required_scopes=["bsnexus:deliverables:write"],
             audit_event="bsnexus.mcp.deliverables_verify.invoked",
         )
     )
@@ -373,7 +373,7 @@ def register_admin_tools(registry: ToolRegistry, lb: LoopbackCaller) -> None:
             input_schema=BriefShowInput,
             output_schema=AdminToolResponse,
             handler=_h_brief_show(lb),
-            required_scopes=["nexus:brief:read"],
+            required_scopes=["bsnexus:brief:read"],
         )
     )
 

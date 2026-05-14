@@ -30,7 +30,7 @@ def _make_user(scopes: list[str] | None = None, tenant: UUID | None = None) -> U
         active_tenant_id=tenant,
         tenants=[],
         is_service=False,
-        scope=["nexus:*"] if scopes is None else scopes,
+        scope=["bsnexus:*"] if scopes is None else scopes,
     )
 
 

@@ -230,9 +230,9 @@ def resolve_audit_sink(
         )
         sink._base.set_auth_provider(
             service_jwt_minter.make_auth_provider(
-                audience="supervisor",
+                audience="bsupervisor",
                 tenant_id=tenant_id,
-                scope=["supervisor:audit.write"],
+                scope=["bsupervisor:audit.write"],
             )
         )
         return sink
