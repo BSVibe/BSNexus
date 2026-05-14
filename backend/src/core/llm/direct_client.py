@@ -66,13 +66,14 @@ class DirectLLMAdapter:
         if client is not None:
             self._client = client
         else:
+            # ``LlmSettings`` has no ``api_base`` / ``api_key`` fields and
+            # inherits ``extra="ignore"`` — passing them here would be
+            # silently dropped. The per-tenant endpoint + credential are
+            # instead forwarded per-call via ``complete(extra=...)``
+            # (see ``execute``); ``_resolve_api_base`` returns "" for
+            # ``direct=True`` by design, leaving the caller in control.
             self._client = LlmClient(
-                settings=LlmSettings(
-                    bsgateway_url="",
-                    route_default="direct",
-                    api_key=api_key,
-                    api_base=base_url or "",
-                ),
+                settings=LlmSettings(bsgateway_url="", route_default="direct"),
             )
 
     async def execute(
@@ -96,6 +97,16 @@ class DirectLLMAdapter:
         one ``on_chunk(text)`` after the full response arrives.
         """
         audit_metadata = _coerce_metadata(metadata)
+        # ``extra`` is forwarded verbatim to ``litellm.acompletion``.
+        # It's the only wire that reaches litellm for ``direct=True``
+        # calls: ``bsvibe_llm._resolve_api_base`` returns "" for direct,
+        # so a self-host runtime's endpoint must ride here or litellm
+        # falls back to its ``localhost:11434`` default.
+        extra: dict[str, Any] = {}
+        if self._base_url:
+            extra["api_base"] = self._base_url
+        if self._api_key:
+            extra["api_key"] = self._api_key
         try:
             result = await self._client.complete(
                 messages=messages,
@@ -103,6 +114,7 @@ class DirectLLMAdapter:
                 model=model,
                 direct=True,
                 tools=tools,
+                extra=extra or None,
             )
         except Exception as exc:
             raise DirectLLMError(f"bsvibe_llm direct dispatch failed: {exc}") from exc
