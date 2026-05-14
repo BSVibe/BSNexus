@@ -1,13 +1,11 @@
-"""TASK-005 — Integration smoke for the bsvibe-authz 3-way cutover.
+"""Integration smoke for the bsvibe-authz token dispatch.
 
-Single-file end-to-end exercise of the token-cutover surface area:
+Single-file end-to-end exercise of the auth surface area:
 
-  (a) bootstrap admin token (``bsv_admin_*``) hits a protected route → 200
-  (b) opaque token (``bsv_sk_*``) via mocked introspection
-        - ``*`` scope ⇒ admin ⇒ permission-gated route returns 200
-        - narrow scope ⇒ viewer ⇒ same route returns 403
-  (c) e2e bypass (``settings.e2e_test_token`` set, non-prod) keeps working
-  (d) garbage bearer ⇒ 401
+  (a) opaque token (``bsv_sk_*``) via mocked introspection — viewer role,
+      admin route returns 403 (opaque tokens cannot grant admin)
+  (b) e2e bypass (``settings.e2e_test_token`` set, non-prod) keeps working
+  (c) garbage bearer ⇒ 401
 
 These overlap deliberately with ``test_token_cutover_dispatch.py``: that
 file pins each dispatch branch in isolation; this file is the smoke test
@@ -17,7 +15,6 @@ that proves the wired path is live (route → ``get_current_user`` →
 
 from __future__ import annotations
 
-import hashlib
 import os
 from unittest.mock import AsyncMock, patch
 
@@ -99,65 +96,13 @@ def _scrub_env() -> dict[str, str]:
     return {k: v for k, v in os.environ.items() if k != "ENVIRONMENT"}
 
 
-# ── (a) Bootstrap path ───────────────────────────────────────────────
+# ── (a) Opaque path ──────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_smoke_bootstrap_admin_hits_protected_route(smoke_client):
-    raw = "bsv_admin_smoke-bootstrap-001"
-    digest = hashlib.sha256(raw.encode()).hexdigest()
-
-    with (
-        patch.dict(os.environ, _scrub_env(), clear=True),
-        patch("backend.src.core.auth.settings.bootstrap_token_hash", digest),
-        patch("backend.src.core.auth.settings.e2e_test_token", ""),
-    ):
-        resp = await smoke_client.get(
-            "/api/v1/_test/admin-only",
-            headers={"Authorization": f"Bearer {raw}"},
-        )
-
-    assert resp.status_code == 200, resp.text
-    body = resp.json()
-    assert body["role"] == "admin"
-
-
-# ── (b) Opaque path ──────────────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_smoke_opaque_admin_scope_grants_access(smoke_client):
-    """Opaque token with ``*`` scope ⇒ admin ⇒ permission route 200."""
-    from bsvibe_authz.types import IntrospectionResponse
-
-    fake_client = AsyncMock()
-    fake_client.introspect = AsyncMock(
-        return_value=IntrospectionResponse(
-            active=True,
-            sub="opaque-admin",
-            scope=["*"],
-        ),
-    )
-
-    with (
-        patch.dict(os.environ, _scrub_env(), clear=True),
-        patch("backend.src.core.auth.settings.bootstrap_token_hash", ""),
-        patch("backend.src.core.auth.settings.e2e_test_token", ""),
-        patch("backend.src.core.auth._get_introspection_client", return_value=fake_client),
-    ):
-        resp = await smoke_client.get(
-            "/api/v1/_test/admin-only",
-            headers={"Authorization": "Bearer bsv_sk_admin-scope-token"},
-        )
-
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["id"] == "opaque-admin"
-    fake_client.introspect.assert_awaited_once()
-
-
-@pytest.mark.asyncio
-async def test_smoke_opaque_narrow_scope_returns_403(smoke_client):
-    """Opaque token without ``*`` scope ⇒ viewer ⇒ admin route 403."""
+async def test_smoke_opaque_viewer_returns_403(smoke_client):
+    """Opaque tokens cannot grant admin via introspection alone (no
+    app_metadata path). The smoke route is admin-gated → 403."""
     from bsvibe_authz.types import IntrospectionResponse
 
     fake_client = AsyncMock()
@@ -171,7 +116,6 @@ async def test_smoke_opaque_narrow_scope_returns_403(smoke_client):
 
     with (
         patch.dict(os.environ, _scrub_env(), clear=True),
-        patch("backend.src.core.auth.settings.bootstrap_token_hash", ""),
         patch("backend.src.core.auth.settings.e2e_test_token", ""),
         patch("backend.src.core.auth._get_introspection_client", return_value=fake_client),
     ):
@@ -183,7 +127,7 @@ async def test_smoke_opaque_narrow_scope_returns_403(smoke_client):
     assert resp.status_code == 403, resp.text
 
 
-# ── (c) E2E bypass regression guard ──────────────────────────────────
+# ── (b) E2E bypass regression guard ──────────────────────────────────
 
 
 @pytest.mark.asyncio
@@ -196,7 +140,6 @@ async def test_smoke_e2e_bypass_still_authenticates_in_dev(smoke_client):
 
     with (
         patch.dict(os.environ, _scrub_env(), clear=True),
-        patch("backend.src.core.auth.settings.bootstrap_token_hash", ""),
         patch("backend.src.core.auth.settings.e2e_test_token", bypass),
         patch("backend.src.core.auth.settings.e2e_test_user_id", "e2e-test-user"),
         patch("backend.src.core.auth.settings.e2e_test_user_email", "e2e@bsnexus.test"),
@@ -213,17 +156,16 @@ async def test_smoke_e2e_bypass_still_authenticates_in_dev(smoke_client):
     assert body["role"] == "admin"
 
 
-# ── (d) Invalid token ────────────────────────────────────────────────
+# ── (c) Invalid token ────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
 async def test_smoke_invalid_token_returns_401(smoke_client):
-    """Garbage bearer that's neither bootstrap, opaque, nor a JWT must
-    produce a clean 401 — and the response MUST NOT echo the raw token."""
+    """Garbage bearer that's neither opaque nor a JWT must produce a
+    clean 401 — and the response MUST NOT echo the raw token."""
     bogus = "not-a-token-at-all"
     with (
         patch.dict(os.environ, _scrub_env(), clear=True),
-        patch("backend.src.core.auth.settings.bootstrap_token_hash", ""),
         patch("backend.src.core.auth.settings.e2e_test_token", ""),
     ):
         resp = await smoke_client.get(

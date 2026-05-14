@@ -1,10 +1,9 @@
 """Auth dispatch via ``bsvibe-authz``.
 
 Delegates token verification to :func:`bsvibe_authz.deps.get_current_user`,
-which performs the canonical bootstrap → opaque → JWT → PAT-JWT
-introspection-fallback flow. Future bsvibe-authz auth changes
-propagate to BSNexus automatically — same shape as BSage's
-``combined_principal``.
+which performs the canonical opaque → JWT → PAT-JWT introspection-fallback
+flow. Future bsvibe-authz auth changes propagate to BSNexus automatically
+— same shape as BSage's ``combined_principal``.
 
 The pre-existing ``E2E_TEST_TOKEN`` bypass short-circuits BEFORE
 dispatch in non-production environments. It is the only path that
@@ -37,9 +36,6 @@ from backend.src.core.tenant_context import (
 )
 from backend.src.storage.database import get_db
 
-# Kept for downstream test imports + matrix lookups; no longer consumed
-# inside this module since the dispatch is fully delegated.
-BOOTSTRAP_TOKEN_PREFIX = "bsv_admin_"
 OPAQUE_TOKEN_PREFIX = "bsv_sk_"
 
 
@@ -154,7 +150,6 @@ def _authz_settings() -> AuthzSettings:
         # up Supabase ES256 key rotation without a redeploy. Empty
         # default leaves the legacy secret/public-key paths intact.
         user_jwt_jwks_url=settings.user_jwt_jwks_url or None,
-        bootstrap_token_hash=settings.bootstrap_token_hash,
         introspection_url=settings.introspection_url,
         introspection_client_id=settings.introspection_client_id,
         introspection_client_secret=settings.introspection_client_secret,
@@ -209,9 +204,9 @@ def _to_bsvibe_user(authz_user: AuthzUser, *, default_role: str = "viewer") -> B
     1. ``authz_user.app_metadata`` — populated by the lib's
        :func:`parse_user_token` from the verified user-JWT payload. For
        Supabase admins this carries ``role: "admin"``.
-    2. Empty (bootstrap, opaque, PAT-JWT-introspection paths). Fall back
-       to ``"admin"`` for ``is_service`` / ``"*"``-scope principals,
-       otherwise ``default_role``.
+    2. Empty (opaque + PAT-JWT-introspection paths). Fall back to
+       ``"admin"`` for ``is_service`` principals, otherwise
+       ``default_role``.
 
     Tenant id falls back from ``authz_user.active_tenant_id`` (which the
     lib already lifts from ``app_metadata.tenant_id`` when the
@@ -221,7 +216,7 @@ def _to_bsvibe_user(authz_user: AuthzUser, *, default_role: str = "viewer") -> B
 
     role = raw_meta.get("role")
     if not isinstance(role, str) or not role:
-        role = "admin" if (authz_user.is_service or "*" in authz_user.scope) else default_role
+        role = "admin" if authz_user.is_service else default_role
     raw_meta["role"] = role
 
     if authz_user.active_tenant_id and not raw_meta.get("tenant_id"):
@@ -239,9 +234,9 @@ async def _dispatch_token(token: str) -> BSVibeUser:
     """Run the bsvibe-authz dispatch and return a BSVibeUser.
 
     Delegates to :func:`bsvibe_authz.deps.get_current_user` for the full
-    bootstrap → opaque → JWT → PAT-JWT-introspection flow, then maps the
-    returned :class:`bsvibe_authz.User` to BSNexus's :class:`BSVibeUser`
-    shape. Library-level dispatch changes propagate here automatically.
+    opaque → JWT → PAT-JWT-introspection flow, then maps the returned
+    :class:`bsvibe_authz.User` to BSNexus's :class:`BSVibeUser` shape.
+    Library-level dispatch changes propagate here automatically.
 
     Since bsvibe-authz #22 the lib's ``parse_user_token`` lifts
     ``app_metadata`` / ``user_metadata`` off the verified JWT payload and
@@ -287,8 +282,8 @@ async def get_current_user(
 
     SECURITY:
 
-      * Verification runs through ``bsvibe-authz`` (bootstrap → opaque
-        → JWT). A forged token surfaces ``HTTP 401``.
+      * Verification runs through ``bsvibe-authz`` (opaque → JWT). A
+        forged token surfaces ``HTTP 401``.
       * The verified user's tenant id is re-stamped onto
         ``request.state.tenant_id``, overriding any unverified value the
         middleware may have written. ``get_tenant_id`` reads from that

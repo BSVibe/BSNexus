@@ -113,27 +113,12 @@ class Settings(BsvibeSettings):
     bsvibe_client_id: str = ""
     bsvibe_client_secret: str = ""
 
-    # ── Phase 1 token cutover (2026-05-07) ──────────────────────────
-    # Hybrid 3-way auth dispatch via ``bsvibe-authz``:
-    #   bootstrap_token → opaque RFC 7662 introspection → JWT.
-    # ``bootstrap_token_hash`` stores the SHA-256 hex digest of the
-    # ``bsv_admin_*`` admin token; the raw token is never persisted.
-    # Operators pre-hash with::
-    #
-    #     python -c 'import hashlib,sys; \
-    #         print(hashlib.sha256(sys.argv[1].encode()).hexdigest())' \
-    #         bsv_admin_xxx
-    #
-    # Empty default → bootstrap path is disabled.
-    #
+    # ── bsvibe-authz dispatch ───────────────────────────────────────
+    # 2-way auth: opaque RFC 7662 introspection → JWT.
     # ``BSV_*``-prefixed aliases let prod operators use one consistent
     # naming scheme across every product Settings class — matches the
-    # alias set on :class:`bsvibe_authz.Settings` (bsvibe-python PR #21)
-    # so a single ``.env`` configures the lib + product layers.
-    bootstrap_token_hash: str = Field(
-        default="",
-        validation_alias=AliasChoices("bootstrap_token_hash", "bsv_bootstrap_token_hash"),
-    )
+    # alias set on :class:`bsvibe_authz.Settings` so a single ``.env``
+    # configures the lib + product layers.
 
     # RFC 7662 introspection endpoint for opaque ``bsv_sk_*`` tokens.
     # Empty default → opaque path falls through to the JWT verifier.
