@@ -26,7 +26,7 @@ What this PR does ship
 * The package's public surface (``ServiceTokenPayload``, ``ServiceKeyAuth``,
   ``verify_service_jwt``) imports cleanly from BSNexus
 * The package's ``Permission.parse`` types match the namespacing
-  BSNexus's ``require_permission`` will use (``nexus.<resource>.<action>``)
+  BSNexus's ``require_permission`` will use (``bsnexus.<resource>.<action>``)
 * The ``ServiceJWTMinter`` produces tokens whose payload satisfies
   ``ServiceTokenPayload`` shape (cross-package contract)
 """
@@ -59,25 +59,25 @@ def test_bsvibe_authz_package_importable():
 
 
 def test_permission_namespace_for_bsnexus_routes():
-    """BSNexus's permission identifiers will follow ``nexus.<resource>.<action>``
+    """BSNexus's permission identifiers will follow ``bsnexus.<resource>.<action>``
     — the convention pinned by ``Permission.parse`` validator. Ensure
     common BSNexus permissions parse without error so adding
-    ``require_permission("nexus.projects.write")`` later doesn't crash
+    ``require_permission("bsnexus.projects.write")`` later doesn't crash
     at import time."""
     from bsvibe_authz import Permission
 
     bsnexus_perms = [
-        "nexus.projects.read",
-        "nexus.projects.write",
-        "nexus.runs.read",
-        "nexus.deliverables.read",
-        "nexus.decisions.write",
-        "nexus.integrations.write",
+        "bsnexus.projects.read",
+        "bsnexus.projects.write",
+        "bsnexus.runs.read",
+        "bsnexus.deliverables.read",
+        "bsnexus.decisions.write",
+        "bsnexus.integrations.write",
     ]
     for p in bsnexus_perms:
         parsed = Permission.parse(p)
         assert str(parsed) == p
-        assert parsed.product == "nexus"
+        assert parsed.product == "bsnexus"
 
 
 def test_service_token_payload_shape_matches_minter_output():
@@ -94,16 +94,16 @@ def test_service_token_payload_shape_matches_minter_output():
     payload = ServiceTokenPayload(
         iss="https://auth.bsvibe.dev",
         sub="user:abc",
-        aud="sage",
-        scope="sage:read",
+        aud="bsage",
+        scope="bsage:read",
         iat=1000,
         exp=2000,
         token_type="service",
         tenant_id="t1",
     )
-    assert payload.aud == "sage"
-    assert payload.scopes == ["sage:read"]
-    assert payload.has_scope("sage:read")
+    assert payload.aud == "bsage"
+    assert payload.scopes == ["bsage:read"]
+    assert payload.has_scope("bsage:read")
     assert payload.tenant_id == "t1"
 
 
@@ -116,7 +116,7 @@ def test_service_token_payload_rejects_invalid_audience():
     from bsvibe_authz import ServiceTokenPayload
 
     # Valid audiences.
-    for aud in ("sage", "gateway", "supervisor", "nexus"):
+    for aud in ("bsage", "bsgateway", "bsupervisor", "bsnexus"):
         payload = ServiceTokenPayload(
             iss="i",
             sub="s",
@@ -166,8 +166,8 @@ def test_service_token_payload_scope_audience_binding():
     bad_payload = {
         "iss": "https://auth.bsvibe.dev",
         "sub": "user:x",
-        "aud": "sage",
-        "scope": "supervisor:audit.write",  # cross-audience — must be rejected
+        "aud": "bsage",
+        "scope": "bsupervisor:audit.write",  # cross-audience — must be rejected
         "iat": 1000,
         "exp": 9999999999,
         "token_type": "service",
@@ -175,20 +175,20 @@ def test_service_token_payload_scope_audience_binding():
     token = pyjwt.encode(bad_payload, signing_secret, algorithm="HS256")
 
     with pytest.raises(AuthError) as exc_info:
-        verify_service_jwt(token, settings, "sage")
+        verify_service_jwt(token, settings, "bsage")
     # Either the package surfaces the cross-audience scope mismatch
     # message or the bound-validator rejects it earlier — both are OK.
     msg = str(exc_info.value).lower()
-    assert "scope" in msg or "audience" in msg or "supervisor" in msg or "payload invalid" in msg
+    assert "scope" in msg or "audience" in msg or "bsupervisor" in msg or "payload invalid" in msg
 
 
 def test_bsnexus_service_jwt_minter_audience_set_matches_authz_package():
-    """The audiences BSNexus mints for (``sage``, ``supervisor``,
-    ``gateway``) must be valid in ``bsvibe_authz.types.ServiceAudience``.
+    """The audiences BSNexus mints for (``bsage``, ``bsupervisor``,
+    ``bsgateway``) must be valid in ``bsvibe_authz.types.ServiceAudience``.
 
-    Round 5 Step 3c flipped producer audiences from legacy ``bs*`` to
-    MCP-aligned bare names. bsvibe-authz 0.9.2 still accepts both
-    grammars during the transition window; Step 5 will remove legacy.
+    bsvibe-authz 1.2.0 reverted ``ServiceAudience`` to ``bs``-prefixed
+    product names; the whole ecosystem flipped outbound audiences +
+    scope-string prefixes back to ``bsXXX`` to match.
 
     Pin: drift between the producer (this minter) and the verifier
     (the receiving service's ``ServiceKeyAuth``) silently fails auth.
@@ -199,7 +199,7 @@ def test_bsnexus_service_jwt_minter_audience_set_matches_authz_package():
     import typing
 
     valid = set(typing.get_args(ServiceAudience))
-    bsnexus_outbound = {"sage", "supervisor", "gateway"}
+    bsnexus_outbound = {"bsage", "bsupervisor", "bsgateway"}
     assert bsnexus_outbound.issubset(valid), (
         f"BSNexus mints for {bsnexus_outbound}, but bsvibe-authz only accepts {valid} as ServiceAudience"
     )
