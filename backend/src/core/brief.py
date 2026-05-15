@@ -9,12 +9,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.src.core.domain import (
     BriefScope,
     DeliverableStatus,
-    ProofAttemptStatus,
+    ProofAspectStatus,
+    ProofAspectType,
     ProofState,
     RequestStatus,
 )
 from backend.src.core.git_ops import build_deliverable_diff_url
-from backend.src.models import Decision, Deliverable, Project, ProofAttempt, Request
+from backend.src.models import Decision, Deliverable, Project, Request, VerificationAspect
 
 
 def _empty_sections() -> dict:
@@ -188,24 +189,34 @@ async def _request_cards(
     ]
 
 
-async def _latest_proof_attempt(session: AsyncSession, deliverable_id: uuid.UUID) -> ProofAttempt | None:
-    """Return the most recent ProofAttempt for a deliverable, regardless
-    of status — the verifier_type / proof_summary / completed_at columns
-    on the Brief deliverable card join from this row."""
+async def _latest_test_aspect(
+    session: AsyncSession, deliverable_id: uuid.UUID
+) -> VerificationAspect | None:
+    """Return the most recent ``code_test`` aspect for a deliverable.
+
+    The Brief card surfaces the test aspect as the primary verifier
+    signal — that's the row whose ``result_summary`` / ``completed_at``
+    join into the card. Lint / install_smoke aspects also contribute
+    to ``proof_state`` (via the roll-up) but the card stays focused on
+    "did pytest pass". A richer multi-aspect card is a later milestone.
+    """
     stmt = (
-        select(ProofAttempt)
-        .where(ProofAttempt.deliverable_id == deliverable_id)
-        .order_by(ProofAttempt.created_at.desc())
+        select(VerificationAspect)
+        .where(
+            VerificationAspect.deliverable_id == deliverable_id,
+            VerificationAspect.aspect_type == ProofAspectType.code_test,
+        )
+        .order_by(VerificationAspect.created_at.desc())
         .limit(1)
     )
     return (await session.execute(stmt)).scalars().first()
 
 
 async def _deliverable_card(session: AsyncSession, deliverable: Deliverable) -> dict:
-    attempt = await _latest_proof_attempt(session, deliverable.id)
+    aspect = await _latest_test_aspect(session, deliverable.id)
     verified_at: datetime | None = None
-    if attempt is not None and attempt.status == ProofAttemptStatus.verified:
-        verified_at = attempt.completed_at
+    if aspect is not None and aspect.status == ProofAspectStatus.passed:
+        verified_at = aspect.completed_at
     project = await session.get(Project, deliverable.project_id)
     diff_url = build_deliverable_diff_url(project=project, deliverable=deliverable) if project else None
     return {
@@ -215,8 +226,8 @@ async def _deliverable_card(session: AsyncSession, deliverable: Deliverable) -> 
         "title": deliverable.title,
         "type": deliverable.type.value,
         "proof_state": deliverable.proof_state.value,
-        "proof_summary": attempt.proof_summary if attempt is not None else None,
-        "verifier_type": attempt.verifier_type if attempt is not None else None,
+        "proof_summary": aspect.result_summary if aspect is not None else None,
+        "verifier_type": aspect.aspect_type.value if aspect is not None else None,
         "verified_at": verified_at,
         "created_at": deliverable.created_at,
         "artifact_refs": list(deliverable.artifact_refs or []),

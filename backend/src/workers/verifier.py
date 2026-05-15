@@ -31,7 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from backend.src.core.domain import ProofState
 from backend.src.core.git_ops import CommitOpError, commit_deliverable
 from backend.src.core.git_ops.branch import GithubClientFactory
-from backend.src.core.proof import run_proof_attempt
+from backend.src.core.verification import run_verification
 from backend.src.models import Deliverable, Project
 from backend.src.queue.streams import RedisStreamManager
 
@@ -70,14 +70,12 @@ async def process_one(
 
     workspace_root = project.workspace_dir or ""
     if not workspace_root or not Path(workspace_root).exists():
-        # No workspace on disk → no deterministic policy can run.
-        # Mark human_review_required via the verifier's no-policy branch
-        # by passing a phantom root; ``run_proof_attempt`` resolves to
-        # ``no_policy`` when neither pyproject nor package.json is
-        # present.
+        # No workspace on disk → no aspects can run. ``run_verification``
+        # falls to ``human_review_required`` when ``select_verification_aspects``
+        # returns []. Phantom root avoids a FileNotFoundError lower down.
         workspace_root = workspace_root or "/tmp"
 
-    await run_proof_attempt(
+    await run_verification(
         deliverable=deliverable,
         workspace_root=workspace_root,
         session=session,

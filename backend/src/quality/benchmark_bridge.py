@@ -44,12 +44,13 @@ from backend.src.models import (
     Decision,
     Deliverable,
     Project,
-    ProofAttempt,
     Request,
     RunAttempt,
     ToolEvent,
+    VerificationAspect,
     WorkStep,
 )
+from backend.src.core.domain import ProofAspectType
 from backend.src.quality.benchmark import BenchmarkTask, TaskTelemetry
 from backend.src.workers.verifier import process_one
 
@@ -238,20 +239,23 @@ async def _collect_telemetry(
         ).scalar_one()
 
         deliverable = None
-        latest_proof: ProofAttempt | None = None
+        latest_test_aspect: VerificationAspect | None = None
         if deliverable_id is not None:
             deliverable = await session.get(Deliverable, deliverable_id)
-            latest_proof = (
+            latest_test_aspect = (
                 await session.execute(
-                    select(ProofAttempt)
-                    .where(ProofAttempt.deliverable_id == deliverable_id)
-                    .order_by(ProofAttempt.created_at.desc())
+                    select(VerificationAspect)
+                    .where(
+                        VerificationAspect.deliverable_id == deliverable_id,
+                        VerificationAspect.aspect_type == ProofAspectType.code_test,
+                    )
+                    .order_by(VerificationAspect.created_at.desc())
                     .limit(1)
                 )
             ).scalar_one_or_none()
 
     proof_state = deliverable.proof_state if deliverable is not None else ProofState.verification_missing
-    verifier_command, verifier_exit_code = _extract_verifier_signal(latest_proof)
+    verifier_command, verifier_exit_code = _extract_verifier_signal(latest_test_aspect)
     phase_rounds = (attempt.telemetry or {}).get("phase_rounds") or {}
 
     return TaskTelemetry(
@@ -272,17 +276,17 @@ async def _collect_telemetry(
 
 
 def _extract_verifier_signal(
-    latest_proof: ProofAttempt | None,
+    aspect: VerificationAspect | None,
 ) -> tuple[list[str] | None, int | None]:
-    if latest_proof is None:
+    if aspect is None:
         return None, None
-    inputs = latest_proof.inputs or {}
-    raw_command = inputs.get("command") if isinstance(inputs, dict) else None
-    if isinstance(raw_command, list) and raw_command:
-        command: list[str] | None = [str(part) for part in raw_command]
-    else:
-        command = None
-    return command, latest_proof.exit_code
+    inputs = aspect.inputs or {}
+    commands = inputs.get("commands") if isinstance(inputs, dict) else None
+    if isinstance(commands, list) and commands:
+        first = commands[0]
+        if isinstance(first, list):
+            return [str(part) for part in first], aspect.exit_code
+    return None, aspect.exit_code
 
 
 def _count_repeated_sequences(events: list[ToolEvent]) -> int:

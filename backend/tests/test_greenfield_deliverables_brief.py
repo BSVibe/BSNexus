@@ -8,11 +8,12 @@ from sqlalchemy import select
 from backend.src.core.domain import (
     DeliverableStatus,
     DeliverableType,
-    ProofAttemptStatus,
+    ProofAspectStatus,
+    ProofAspectType,
     ProofState,
     RequestStatus,
 )
-from backend.src.models import Decision, Deliverable, Project, ProofAttempt, Request
+from backend.src.models import Decision, Deliverable, Project, Request, VerificationAspect
 
 
 async def _make_project(db_session, tenant_id: uuid.UUID, name: str = "Greenfield G5") -> Project:
@@ -79,22 +80,25 @@ async def test_post_deliverable_persists_work_output_without_dispatching_verifie
     assert body["proof_state"] == "verification_missing"
     assert body["proof_status"] == {
         "state": "verification_missing",
-        "policy_id": None,
-        "latest_attempt_id": None,
-        "latest_attempt_status": None,
-        "latest_attempt_summary": None,
-        "latest_attempt_completed_at": None,
+        "aspects": [],
+        "latest_test_status": None,
+        "latest_test_summary": None,
+        "latest_test_completed_at": None,
     }
 
     deliverable = await db_session.get(Deliverable, uuid.UUID(body["id"]))
     assert deliverable is not None
     assert deliverable.proof_state == ProofState.verification_missing
-    attempts = (
-        (await db_session.execute(select(ProofAttempt).where(ProofAttempt.deliverable_id == deliverable.id)))
+    aspects = (
+        (
+            await db_session.execute(
+                select(VerificationAspect).where(VerificationAspect.deliverable_id == deliverable.id)
+            )
+        )
         .scalars()
         .all()
     )
-    assert attempts == []
+    assert aspects == []
 
 
 @pytest.mark.asyncio
@@ -111,16 +115,15 @@ async def test_deliverable_list_surfaces_latest_proof_status(client, db_session,
     )
     db_session.add(deliverable)
     await db_session.flush()
-    attempt = ProofAttempt(
+    aspect = VerificationAspect(
         deliverable_id=deliverable.id,
-        verifier_type="python_test",
-        inputs={"command": ["python", "-m", "pytest"]},
-        status=ProofAttemptStatus.verified,
+        aspect_type=ProofAspectType.code_test,
+        inputs={"commands": [["python", "-m", "pytest"]]},
+        status=ProofAspectStatus.passed,
         exit_code=0,
-        proof_summary="pytest passed",
-        proof_refs=[{"kind": "verifier_command"}],
+        result_summary="pytest passed",
     )
-    db_session.add(attempt)
+    db_session.add(aspect)
     await db_session.commit()
 
     resp = await client.get(
@@ -131,9 +134,12 @@ async def test_deliverable_list_surfaces_latest_proof_status(client, db_session,
     assert resp.status_code == 200, resp.text
     [card] = resp.json()
     assert card["proof_status"]["state"] == "verified"
-    assert card["proof_status"]["latest_attempt_id"] == str(attempt.id)
-    assert card["proof_status"]["latest_attempt_status"] == "verified"
-    assert card["proof_status"]["latest_attempt_summary"] == "pytest passed"
+    aspects = card["proof_status"]["aspects"]
+    assert len(aspects) == 1
+    assert aspects[0]["aspect_type"] == "code_test"
+    assert aspects[0]["status"] == "passed"
+    assert card["proof_status"]["latest_test_status"] == "passed"
+    assert card["proof_status"]["latest_test_summary"] == "pytest passed"
 
 
 @pytest.mark.asyncio

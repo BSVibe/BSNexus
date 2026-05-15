@@ -8,7 +8,8 @@ from backend.src.core.domain import (
     DeliverableStatus,
     DeliverableType,
     DirectionSource,
-    ProofAttemptStatus,
+    ProofAspectStatus,
+    ProofAspectType,
     ProofState,
     RequestStatus,
     RunAttemptPhase,
@@ -23,10 +24,10 @@ from backend.src.models.deliverable import Deliverable
 from backend.src.models.direction import Direction
 from backend.src.models.executor_config import ExecutorConfig, ExecutorKind
 from backend.src.models.project import Project, ProjectStatus, WorkspaceType
-from backend.src.models.proof import ProofAttempt, ProofPolicy
 from backend.src.models.request import Request
 from backend.src.models.run_attempt import RunAttempt, ToolEvent
 from backend.src.models.tenant import Tenant, TenantMember
+from backend.src.models.verification_aspect import VerificationAspect
 from backend.src.models.work_plan import WorkPlan
 from backend.src.models.work_step import WorkStep
 from backend.src.storage.database import Base
@@ -50,9 +51,8 @@ __all__ = [
     "DirectionSource",
     "ExecutorConfig",
     "ExecutorKind",
-    "ProofAttempt",
-    "ProofAttemptStatus",
-    "ProofPolicy",
+    "ProofAspectStatus",
+    "ProofAspectType",
     "ProofState",
     "Project",
     "ProjectStatus",
@@ -64,6 +64,7 @@ __all__ = [
     "Tenant",
     "TenantMember",
     "ToolEvent",
+    "VerificationAspect",
     "WorkPlan",
     "WorkPlanCreatedBy",
     "WorkPlanStatus",

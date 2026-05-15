@@ -71,12 +71,11 @@ async def test_alembic_upgrade_head_on_fresh_pg():
         "decisions",
         "deliverables",
         "directions",
-        "proof_attempts",
-        "proof_policies",
         "projects",
         "requests",
         "run_attempts",
         "tool_events",
+        "verification_aspects",
         "work_plans",
         "work_steps",
     }

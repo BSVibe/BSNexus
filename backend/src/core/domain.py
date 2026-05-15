@@ -87,11 +87,43 @@ class ProofState(str, enum.Enum):
 
 
 class ProofAttemptStatus(str, enum.Enum):
+    """DEPRECATED: kept only for old ProofAttempt rows during the
+    multi-aspect migration. New code should use ``ProofAspectStatus``.
+    Remove once all consumers have migrated."""
+
     queued = "queued"
     running = "running"
     verified = "verified"
     failed = "failed"
     human_review_required = "human_review_required"
+
+
+class ProofAspectType(str, enum.Enum):
+    """A discrete verification dimension. Each deliverable can have N
+    aspects; the deliverable is ``verified`` iff every blocking aspect
+    ``passed``. Adding a new aspect (security audit, knowledge check,
+    marketing copy fact-check) is additive — no rework of the roll-up
+    or the rest of the pipeline."""
+
+    code_test = "code_test"
+    code_lint = "code_lint"
+    code_install_smoke = "code_install_smoke"
+
+
+class ProofAspectStatus(str, enum.Enum):
+    """Per-aspect lifecycle. ``passed`` / ``failed`` are the verdicts
+    the roll-up uses; ``error`` means the infra itself broke and the
+    aspect can't pronounce a verdict (so the deliverable falls to
+    ``human_review_required`` instead of being penalised for our
+    own bug). ``skipped`` is reserved for opt-in cases — most
+    not-applicable aspects are simply *absent*, not skipped."""
+
+    queued = "queued"
+    running = "running"
+    passed = "passed"
+    failed = "failed"
+    skipped = "skipped"
+    error = "error"
 
 
 class BriefScope(str, enum.Enum):

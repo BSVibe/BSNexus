@@ -345,14 +345,14 @@ async def test_worker_commits_on_verified_and_stamps_sha(
     handler, _ = _branch_aware_handler(branch_name)
 
     # Force the verifier to declare verified without running a real pytest:
-    # monkeypatch run_proof_attempt to flip proof_state directly.
-    async def fake_run_proof_attempt(*, deliverable, session, **_kwargs) -> None:
+    # monkeypatch run_verification to flip proof_state directly.
+    async def fake_run_verification(*, deliverable, session, **_kwargs) -> None:
         deliverable.proof_state = ProofState.verified
-        # Real run_proof_attempt commits before returning; the worker
+        # Real run_verification commits before returning; the worker
         # test relies on that for state to survive a later refresh.
         await session.commit()
 
-    monkeypatch.setattr("backend.src.workers.verifier.run_proof_attempt", fake_run_proof_attempt)
+    monkeypatch.setattr("backend.src.workers.verifier.run_verification", fake_run_verification)
 
     events: list[tuple[str, str, dict]] = []
 
@@ -386,13 +386,13 @@ async def test_worker_keeps_verified_on_commit_failure(
         artifact_files={"src/api.py": "x\n"},
     )
 
-    async def fake_run_proof_attempt(*, deliverable, session, **_kwargs) -> None:
+    async def fake_run_verification(*, deliverable, session, **_kwargs) -> None:
         deliverable.proof_state = ProofState.verified
-        # Real run_proof_attempt commits before returning; the worker
+        # Real run_verification commits before returning; the worker
         # test relies on that for state to survive a later refresh.
         await session.commit()
 
-    monkeypatch.setattr("backend.src.workers.verifier.run_proof_attempt", fake_run_proof_attempt)
+    monkeypatch.setattr("backend.src.workers.verifier.run_verification", fake_run_verification)
 
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(503, json={"message": "down"})
@@ -427,13 +427,13 @@ async def test_worker_skips_commit_when_repo_not_bound(
     project.github_token_encrypted = None
     await db_session.commit()
 
-    async def fake_run_proof_attempt(*, deliverable, session, **_kwargs) -> None:
+    async def fake_run_verification(*, deliverable, session, **_kwargs) -> None:
         deliverable.proof_state = ProofState.verified
-        # Real run_proof_attempt commits before returning; the worker
+        # Real run_verification commits before returning; the worker
         # test relies on that for state to survive a later refresh.
         await session.commit()
 
-    monkeypatch.setattr("backend.src.workers.verifier.run_proof_attempt", fake_run_proof_attempt)
+    monkeypatch.setattr("backend.src.workers.verifier.run_verification", fake_run_verification)
 
     factory_was_called: dict[str, bool] = {"called": False}
 

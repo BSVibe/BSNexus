@@ -30,7 +30,7 @@ GREENFIELD_FILES = (
     Path("src/core/brief.py"),
     Path("src/core/deliverables.py"),
     Path("src/core/directions.py"),
-    Path("src/core/proof.py"),
+    Path("src/core/verification.py"),
     Path("src/core/run_attempts.py"),
     Path("src/core/work_steps.py"),
     Path("src/api/directions.py"),
