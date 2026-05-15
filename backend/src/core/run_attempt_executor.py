@@ -111,6 +111,9 @@ async def dispatch_run_attempt(
     executor_kind: str | None = None,
     model: str | None = None,
     workspace_dir: Path | str | None = None,
+    step_index: int | None = None,
+    total_steps: int | None = None,
+    prior_step_names: tuple[str, ...] = (),
 ) -> DispatchRunAttemptResult:
     """Drive ``work_step`` through one RunAttempt against
     ``executor`` (resolved if ``None``) and enqueue the resulting
@@ -152,7 +155,12 @@ async def dispatch_run_attempt(
     tool_registry = _build_tool_registry(workspace_dir)
     workspace_overview = _workspace_overview(workspace_dir) if tool_registry is not None else None
     messages = _build_messages(
-        request=request, work_step=work_step, workspace_overview=workspace_overview
+        request=request,
+        work_step=work_step,
+        workspace_overview=workspace_overview,
+        step_index=step_index,
+        total_steps=total_steps,
+        prior_step_names=prior_step_names,
     )
 
     try:
@@ -354,9 +362,26 @@ def _build_messages(
     request: Request,
     work_step: WorkStep,
     workspace_overview: str | None = None,
+    step_index: int | None = None,
+    total_steps: int | None = None,
+    prior_step_names: tuple[str, ...] = (),
 ) -> list[dict[str, str]]:
     expected = "\n".join(f"- {item}" for item in (work_step.expected_outputs or []))
-    user_block = f"Request intent:\n{request.intent}\n\nWork step: {work_step.name}\nObjective: {work_step.objective}\n"
+    user_block = f"Request intent:\n{request.intent}\n\n"
+    # G10 — when the WorkPlan has multiple steps, tell the model where
+    # it sits in the sequence. Keeps each step focused on its own
+    # objective instead of trying to satisfy the whole Request in one
+    # shot. Single-step plans get the original user block.
+    if step_index is not None and total_steps is not None and total_steps > 1:
+        user_block += f"This is step {step_index + 1} of {total_steps}.\n"
+        if prior_step_names:
+            user_block += "Already completed steps: " + ", ".join(prior_step_names) + ".\n"
+        user_block += (
+            "Focus only on this step's objective and expected_outputs. "
+            "Earlier steps' work is already on disk — read it if helpful, "
+            "but do not redo it.\n\n"
+        )
+    user_block += f"Work step: {work_step.name}\nObjective: {work_step.objective}\n"
     if expected:
         user_block += f"Expected outputs:\n{expected}\n"
     if workspace_overview:
@@ -421,10 +446,10 @@ def _build_messages(
                 "fails to ship.\n"
                 "12. FLAT-LAYOUT SETUPTOOLS TRAP — when your pyproject.toml uses setuptools and your "
                 "code is at the workspace root (e.g. ``app.py`` and ``test_app.py`` next to each "
-                "other, no ``src/`` dir), setuptools 67+ refuses ``pip install -e .`` with \"Multiple "
-                "top-level modules discovered in a flat-layout\". Add this to pyproject.toml:\n"
+                'other, no ``src/`` dir), setuptools 67+ refuses ``pip install -e .`` with "Multiple '
+                'top-level modules discovered in a flat-layout". Add this to pyproject.toml:\n'
                 "   ``[tool.setuptools]``\n"
-                "   ``py_modules = [\"app\"]``  # the single module that IS the package\n"
+                '   ``py_modules = ["app"]``  # the single module that IS the package\n'
                 "This tells setuptools which file is the package and excludes test_app.py from the "
                 "build. Required for any flat-layout install_smoke to pass."
             ),
@@ -623,10 +648,7 @@ def _format_aspect_feedback(failures, retries_left: int) -> str:
         "to confirm before sending your final plain-text summary."
     ]
     for failure in failures:
-        parts.append(
-            f"\n[{failure.aspect_type.value}] status={failure.status.value} "
-            f"exit_code={failure.exit_code}"
-        )
+        parts.append(f"\n[{failure.aspect_type.value}] status={failure.status.value} exit_code={failure.exit_code}")
         parts.append(failure.summary[:1500] if failure.summary else "(no summary)")
     parts.append(
         f"\nYou have {retries_left} aspect-retry round(s) left after this turn. "
