@@ -143,7 +143,7 @@ async def dispatch_run_attempt(
     )
 
     try:
-        output_text = await _run_work_phase(
+        output_text, written_paths = await _run_work_phase(
             attempt=attempt,
             messages=messages,
             metadata=metadata,
@@ -202,7 +202,7 @@ async def dispatch_run_attempt(
             title=work_step.name,
             summary=output_text[:SUMMARY_PREVIEW_CHARS] or None,
             type=DeliverableType.code,
-            artifact_refs=[],
+            artifact_refs=written_paths,
         ),
         session=session,
     )
@@ -397,10 +397,13 @@ async def _run_work_phase(
     tool_registry: ToolRegistry | None,
     workspace_dir: Path | str | None,
     session: AsyncSession,
-) -> str:
-    """Tool-call loop for the work phase. Returns the model's final
-    plain-text response so the dispatcher can persist it as the
-    deliverable summary.
+) -> tuple[str, list[str]]:
+    """Tool-call loop for the work phase. Returns ``(final_text,
+    written_paths)`` — the model's final plain-text response (persisted
+    as the deliverable summary) and the de-duplicated, first-seen-order
+    list of every ``file_write`` target (persisted as the deliverable's
+    ``artifact_refs`` so the verifier and the G8.2 commit step know
+    what the run produced).
 
     The loop is bounded by both the per-phase ``record_tool_event``
     budget (already wired into the phase machine) and
@@ -410,7 +413,7 @@ async def _run_work_phase(
     tools_schema = tool_registry.schema_for(work_tools) if tool_registry is not None else None
     workspace_dir_str = str(workspace_dir) if workspace_dir is not None else None
     final_text = ""
-    files_written = 0
+    written_paths: list[str] = []
     no_work_nudges = 0
 
     for _ in range(MAX_WORK_LOOP_ITERATIONS):
@@ -425,11 +428,11 @@ async def _run_work_phase(
         tool_calls = executor_result.get("tool_calls")
 
         if tool_registry is None:
-            return final_text
+            return final_text, written_paths
 
         if not tool_calls:
-            if files_written > 0:
-                return final_text
+            if written_paths:
+                return final_text, written_paths
             if no_work_nudges < MAX_NO_WORK_NUDGES:
                 no_work_nudges += 1
                 messages.append({"role": "assistant", "content": final_text or "(no tool calls)"})
@@ -461,7 +464,9 @@ async def _run_work_phase(
 
             tool_output, exit_code, writes = await _invoke_tool_safely(tool_registry, tool_name, arguments)
             if tool_name == "file_write" and exit_code == 0 and writes:
-                files_written += len(writes)
+                for path in writes:
+                    if path not in written_paths:
+                        written_paths.append(path)
             event_input = ToolEventInput(
                 tool_name=tool_name,
                 args=arguments,
