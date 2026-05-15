@@ -20,6 +20,7 @@ the resolver can return either client without callers branching.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -120,15 +121,22 @@ class DirectLLMAdapter:
             raise DirectLLMError(f"bsvibe_llm direct dispatch failed: {exc}") from exc
 
         text = result.text or ""
-        if on_chunk is not None and text:
-            await on_chunk(text)
+        tool_calls = _extract_tool_calls(result)
+        # When tool calls were recovered from Qwen's text format, the
+        # raw ``<function=...>`` XML is still in ``text``. Strip it so
+        # the dispatcher doesn't echo the markup back into conversation
+        # history (which trips the repetition guard) or surface it as a
+        # deliverable summary.
+        surfaced_text = _strip_qwen_function_blocks(text) if tool_calls else text
+        if on_chunk is not None and surfaced_text:
+            await on_chunk(surfaced_text)
 
         return {
             "output_type": "text",
-            "output_ref": text,
+            "output_ref": surfaced_text,
             "actual_cost_cents": 0,
             "finish_reason": result.finish_reason,
-            "tool_calls": _extract_tool_calls(result),
+            "tool_calls": tool_calls,
         }
 
 
@@ -177,6 +185,53 @@ def _opt_int(value: Any) -> int | None:
     return None if value is None else int(value)
 
 
+# qwen3-coder (and other Qwen models) emit tool calls in a native
+# text format — ``<function=name><parameter=key>value</parameter></function>``
+# — rather than structured ``message.tool_calls``. Ollama's ``/api/chat``
+# and litellm's ``ollama_chat`` provider do not reliably parse it back,
+# so the call arrives as plain ``content`` and ``raw.tool_calls`` is
+# empty. Without this fallback the dispatcher tool loop sees zero tool
+# calls and fails every Request with ``no_workspace_write``.
+_QWEN_FUNCTION_RE = re.compile(r"<function=([^>\s]+)\s*>(.*?)</function>", re.DOTALL)
+_QWEN_PARAMETER_RE = re.compile(r"<parameter=([^>\s]+)\s*>(.*?)</parameter>", re.DOTALL)
+
+
+def _strip_one_wrapping_newline(value: str) -> str:
+    """Qwen wraps each parameter value as ``>\\n<value>\\n</`` — drop
+    exactly one leading and one trailing newline so file content keeps
+    its own internal whitespace intact."""
+    if value.startswith("\n"):
+        value = value[1:]
+    if value.endswith("\n"):
+        value = value[:-1]
+    return value
+
+
+def _strip_qwen_function_blocks(text: str) -> str:
+    """Remove ``<function=...>...</function>`` blocks (and a stray
+    ``</tool_call>`` trailer Qwen sometimes appends) from surfaced
+    text, leaving only any genuine prose the model wrote alongside."""
+    cleaned = _QWEN_FUNCTION_RE.sub("", text)
+    cleaned = cleaned.replace("</tool_call>", "").replace("<tool_call>", "")
+    return cleaned.strip()
+
+
+def _parse_qwen_text_tool_calls(text: str) -> list[dict[str, Any]] | None:
+    """Recover tool calls from Qwen's native ``<function=...>`` text
+    format. Returns None when the text carries no function block, so
+    genuine prose answers still read as 'no tool calls'."""
+    if "<function=" not in text:
+        return None
+    extracted: list[dict[str, Any]] = []
+    for index, (name, body) in enumerate(_QWEN_FUNCTION_RE.findall(text)):
+        arguments = {
+            key: _strip_one_wrapping_newline(value)
+            for key, value in _QWEN_PARAMETER_RE.findall(body)
+        }
+        extracted.append({"id": f"qwen_call_{index}", "name": name, "arguments": arguments})
+    return extracted or None
+
+
 def _extract_tool_calls(result: CompletionResult) -> list[dict[str, Any]] | None:
     """Pull OpenAI-style ``tool_calls`` off the underlying litellm
     response. Returns None when the model returned plain text.
@@ -185,19 +240,21 @@ def _extract_tool_calls(result: CompletionResult) -> list[dict[str, Any]] | None
     both providers that support function calling and Ollama tool-call
     streaming. Arguments come as a JSON string per the OpenAI spec —
     we parse here so the dispatcher receives a typed dict.
+
+    Falls back to ``_parse_qwen_text_tool_calls`` when the provider
+    returned no structured calls — Ollama-hosted Qwen models emit them
+    as plain text instead.
     """
     raw = result.raw
-    if raw is None:
-        return None
-    choices = getattr(raw, "choices", None) or []
-    if not choices:
-        return None
-    message = getattr(choices[0], "message", None)
-    if message is None:
-        return None
-    tool_calls = getattr(message, "tool_calls", None)
+    message = None
+    if raw is not None:
+        choices = getattr(raw, "choices", None) or []
+        if choices:
+            message = getattr(choices[0], "message", None)
+
+    tool_calls = getattr(message, "tool_calls", None) if message is not None else None
     if not tool_calls:
-        return None
+        return _parse_qwen_text_tool_calls(result.text or "")
 
     extracted: list[dict[str, Any]] = []
     for call in tool_calls:

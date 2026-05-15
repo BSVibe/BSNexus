@@ -89,6 +89,133 @@ async def test_direct_adapter_passes_direct_true_to_bsvibe_llm():
     assert kwargs["model"] == "gpt-4o"
 
 
+def _completion_with_raw(text: str, *, tool_calls: object = None) -> CompletionResult:
+    """A ``CompletionResult`` carrying a litellm-shaped ``raw`` whose
+    ``message.tool_calls`` is ``tool_calls`` (default: none)."""
+    from types import SimpleNamespace
+
+    message = SimpleNamespace(content=text, tool_calls=tool_calls)
+    raw = SimpleNamespace(choices=[SimpleNamespace(message=message)])
+    return CompletionResult(
+        text=text,
+        model="ollama_chat/qwen3-coder:30b",
+        finish_reason="stop",
+        prompt_tokens=0,
+        completion_tokens=0,
+        raw=raw,
+    )
+
+
+@pytest.mark.asyncio
+async def test_direct_adapter_parses_qwen_text_format_tool_calls():
+    """qwen3-coder via Ollama emits tool calls in its native
+    ``<function=name><parameter=key>value</parameter></function>``
+    text format, NOT structured ``message.tool_calls``. Ollama's
+    ``/api/chat`` + litellm's ``ollama_chat`` provider do not reliably
+    parse it back, so ``raw.tool_calls`` is empty and the call arrives
+    as plain ``content``. The adapter must recover the call from the
+    text or the dispatcher tool loop sees zero tool calls and fails
+    every Request with ``no_workspace_write``."""
+    qwen_text = (
+        "<function=file_write>\n"
+        "<parameter=path>\n"
+        "greet.py\n"
+        "</parameter>\n"
+        "<parameter=content>\n"
+        'def greet(name):\n    return f"Hello, {name}!"\n'
+        "</parameter>\n"
+        "</function>"
+    )
+    stub = _stub_client(_completion_with_raw(qwen_text))
+    adapter = DirectLLMAdapter(base_url="http://localhost:11434", api_key="sk-x", client=stub)
+
+    result = await adapter.execute(
+        messages=[{"role": "user", "content": "hi"}],
+        metadata={"tenant_id": "t1", "run_id": "r1"},
+        model="ollama_chat/qwen3-coder:30b",
+    )
+
+    calls = result["tool_calls"]
+    assert calls is not None and len(calls) == 1
+    assert calls[0]["name"] == "file_write"
+    assert calls[0]["arguments"]["path"] == "greet.py"
+    assert calls[0]["arguments"]["content"] == 'def greet(name):\n    return f"Hello, {name}!"'
+
+
+@pytest.mark.asyncio
+async def test_direct_adapter_strips_qwen_markup_from_surfaced_text():
+    """Once the ``<function=...>`` block is parsed into a tool call,
+    the raw markup must not leak into ``output_ref`` — the dispatcher
+    echoes that back into conversation history and would surface it as
+    a deliverable summary. Genuine prose written alongside is kept."""
+    qwen_text = (
+        "I'll create the file now.\n"
+        "<function=file_write>\n"
+        "<parameter=path>\ngreet.py\n</parameter>\n"
+        "<parameter=content>\ndef greet(name):\n    return name\n</parameter>\n"
+        "</function>\n"
+        "</tool_call>"
+    )
+    stub = _stub_client(_completion_with_raw(qwen_text))
+    adapter = DirectLLMAdapter(base_url="http://localhost:11434", api_key="sk-x", client=stub)
+
+    result = await adapter.execute(
+        messages=[{"role": "user", "content": "hi"}],
+        metadata={"tenant_id": "t1", "run_id": "r1"},
+        model="ollama_chat/qwen3-coder:30b",
+    )
+
+    assert "<function=" not in result["output_ref"]
+    assert "</tool_call>" not in result["output_ref"]
+    assert result["output_ref"] == "I'll create the file now."
+    assert result["tool_calls"][0]["name"] == "file_write"
+
+
+@pytest.mark.asyncio
+async def test_direct_adapter_text_format_parse_skipped_when_structured_present():
+    """When the provider DID return structured ``tool_calls`` (SaaS
+    vendors, or a correctly-templated Ollama model), the structured
+    path wins — the text fallback must not double-count."""
+    from types import SimpleNamespace
+
+    structured = [
+        SimpleNamespace(
+            id="call_1",
+            function=SimpleNamespace(name="file_read", arguments='{"path": "README.md"}'),
+        )
+    ]
+    stub = _stub_client(_completion_with_raw("", tool_calls=structured))
+    adapter = DirectLLMAdapter(base_url=None, api_key="sk-x", client=stub)
+
+    result = await adapter.execute(
+        messages=[{"role": "user", "content": "hi"}],
+        metadata={"tenant_id": "t1", "run_id": "r1"},
+        model="gpt-4o",
+    )
+
+    calls = result["tool_calls"]
+    assert calls is not None and len(calls) == 1
+    assert calls[0]["name"] == "file_read"
+    assert calls[0]["arguments"] == {"path": "README.md"}
+
+
+@pytest.mark.asyncio
+async def test_direct_adapter_plain_prose_yields_no_tool_calls():
+    """A genuine prose answer with no ``<function=...>`` block must
+    still return ``tool_calls=None`` — the text parser must not
+    false-positive on ordinary text."""
+    stub = _stub_client(_completion_with_raw("I would create greet.py with a greet function."))
+    adapter = DirectLLMAdapter(base_url="http://localhost:11434", api_key="sk-x", client=stub)
+
+    result = await adapter.execute(
+        messages=[{"role": "user", "content": "hi"}],
+        metadata={"tenant_id": "t1", "run_id": "r1"},
+        model="ollama_chat/qwen3-coder:30b",
+    )
+
+    assert result["tool_calls"] is None
+
+
 @pytest.mark.asyncio
 async def test_direct_adapter_forwards_self_host_endpoint_to_litellm():
     """A per-tenant ``ExecutorConfig`` self-host runtime (Ollama, vLLM)
