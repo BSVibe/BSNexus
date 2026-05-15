@@ -254,6 +254,9 @@ def select_verification_aspects(
     smoke = _code_install_smoke_aspect(root)
     if smoke is not None:
         specs.append(smoke)
+    build = _code_build_aspect(root)
+    if build is not None:
+        specs.append(build)
     return specs
 
 
@@ -378,6 +381,26 @@ def _code_install_smoke_aspect(root: Path) -> AspectSpec | None:
         ),
         required_refs=("pyproject.toml",),
         timeout_s=180,
+        blocking=True,
+    )
+
+
+def _code_build_aspect(root: Path) -> AspectSpec | None:
+    """Activate when a top-level ``Dockerfile`` exists.
+
+    The runner (``_run_docker_build``) shells out to ``docker build``.
+    Skips gracefully (status=skipped, not failed) when the docker CLI
+    is not available, so CI environments without a docker socket
+    don't get a spurious blocking failure. Cost: 30-180s when active."""
+    if not (root / "Dockerfile").exists():
+        return None
+    return AspectSpec(
+        aspect_type=ProofAspectType.code_build,
+        commands=(
+            ("docker", "build", "--quiet", "--tag", "<tmptag>", "."),
+        ),
+        required_refs=("Dockerfile",),
+        timeout_s=240,
         blocking=True,
     )
 
@@ -545,10 +568,56 @@ async def _run_install_smoke(
         shutil.rmtree(tmpdir, ignore_errors=True)
 
 
+async def _run_docker_build(
+    spec: AspectSpec, workspace_root: Path
+) -> tuple[ProofAspectStatus, str, int | None]:
+    """``docker build --quiet`` against the workspace's Dockerfile.
+
+    Catches the class of Dockerfile bug that pytest/lint/install-smoke
+    can't see: deprecated CLI invocations (``poetry export`` removed
+    from recent Poetry), exec-form shell-expansion traps (``$PORT``
+    in ``CMD [...]``), missing files in ``COPY``, etc.
+
+    Skips gracefully when docker isn't available — verifier
+    environments without a docker socket shouldn't fail every code
+    deliverable. Image is tagged with a unique throwaway name and
+    cleaned up on the way out."""
+    if shutil.which("docker") is None:
+        return (
+            ProofAspectStatus.skipped,
+            "docker CLI not available in this verifier environment",
+            None,
+        )
+    tag = f"bsnexus-smoke-{uuid.uuid4().hex[:12]}"
+    try:
+        exit_code, output = await _run_command(
+            ("docker", "build", "--quiet", "--tag", tag, "."),
+            cwd=workspace_root,
+            timeout_s=spec.timeout_s,
+        )
+        if exit_code != 0:
+            return (
+                ProofAspectStatus.failed,
+                f"`docker build` failed (exit {exit_code})\n{output}",
+                exit_code,
+            )
+        return ProofAspectStatus.passed, f"docker build (exit 0) — image {tag[:24]}…", 0
+    finally:
+        # Best-effort cleanup. If docker isn't reachable here we're
+        # already out of the aspect's verdict path; swallow the error.
+        try:
+            await _run_command(
+                ("docker", "rmi", "--force", tag), cwd=workspace_root, timeout_s=30
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
+
 _RUNNERS: dict[ProofAspectType, Any] = {
     ProofAspectType.code_test: _run_default_aspect,
     ProofAspectType.code_lint: _run_default_aspect,
     ProofAspectType.code_install_smoke: _run_install_smoke,
+    ProofAspectType.code_build: _run_docker_build,
 }
 
 

@@ -202,6 +202,29 @@ def test_install_smoke_aspect_absent_when_no_deps_declared(tmp_path):
     assert ProofAspectType.code_install_smoke not in types
 
 
+def test_code_build_aspect_activates_when_dockerfile_present(tmp_path):
+    """Top-level Dockerfile → code_build aspect added."""
+    (tmp_path / "Dockerfile").write_text("FROM scratch\n")
+    specs = select_verification_aspects(
+        workspace_root=tmp_path,
+        deliverable_type=DeliverableType.code,
+        changed_files=["Dockerfile"],
+    )
+    types = [s.aspect_type for s in specs]
+    assert ProofAspectType.code_build in types
+
+
+def test_code_build_aspect_absent_without_dockerfile(tmp_path):
+    (tmp_path / "pyproject.toml").write_text("[project]\nname='demo'\ndependencies=['fastapi']\n")
+    specs = select_verification_aspects(
+        workspace_root=tmp_path,
+        deliverable_type=DeliverableType.code,
+        changed_files=["app.py"],
+    )
+    types = [s.aspect_type for s in specs]
+    assert ProofAspectType.code_build not in types
+
+
 # ─────────────────────────── setup-only helper ───────────────────────────
 
 

@@ -29,15 +29,18 @@ ALLOWED_TOOLS_BY_PHASE: dict[RunAttemptPhase, frozenset[str]] = {
 
 PHASE_ROUND_BUDGETS: dict[RunAttemptPhase, int] = {
     RunAttemptPhase.prepare: 3,
-    # ``work`` budget tuned for real scaffolds (README + config + code
-    # + tests + a couple verifier runs + an iteration on failure all
-    # in one Request). The original ``8`` was sized for M0-toy tasks
-    # and starved Phase 3 dogfooding on the first real product
-    # (Heartline scaffold needed 9+ rounds, all useful, but budget
-    # killed the deliverable). 16 leaves ~2x headroom; the partial-
-    # work preservation in ``dispatch_run_attempt`` handles anything
-    # past that without losing artifacts.
-    RunAttemptPhase.work: 16,
+    # ``work`` budget tuned for real-product Directions (full v0:
+    # pyproject + multi-file app + tests + Dockerfile + compose +
+    # README + a couple debug iterations). Cycle 0 dogfooding showed
+    # 17 rounds needed for a Heartline-shaped product in a single
+    # Direction — every round produced useful work, but the prior
+    # 16-budget cut before convergence. 24 leaves headroom for one
+    # full debug loop; the partial-work preservation in
+    # ``dispatch_run_attempt`` handles anything past that without
+    # losing artifacts. Multi-step LLM plan (G9 follow-up) is the
+    # proper structural fix for multi-component Directions; this
+    # budget bump is the stop-gap.
+    RunAttemptPhase.work: 24,
     RunAttemptPhase.verify: 1,
     RunAttemptPhase.summarize: 2,
     RunAttemptPhase.terminal: 0,
@@ -45,7 +48,7 @@ PHASE_ROUND_BUDGETS: dict[RunAttemptPhase, int] = {
 
 # Total-round catastrophic cap. Must exceed the ``work`` budget plus
 # the other phases combined or the work budget never gets a chance.
-CATASTROPHIC_ROUND_CAP = 24
+CATASTROPHIC_ROUND_CAP = 32
 REPETITION_WINDOW = 4
 REPETITION_TERMINATION_COUNT = 4
 

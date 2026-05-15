@@ -525,10 +525,10 @@ async def test_dispatcher_preserves_partial_work_when_budget_hits_after_writes(
     from backend.src.core.domain import ProofState
     from backend.src.models import RunAttempt, ToolEvent
 
-    # 18 distinct file_writes — enough to exceed work budget (16) by
+    # 28 distinct file_writes — enough to exceed work budget (24) by
     # several rounds, with real artifacts to preserve.
     scripts: list[list[dict[str, Any]]] = []
-    for i in range(18):
+    for i in range(28):
         scripts.append(
             [
                 {
@@ -591,7 +591,7 @@ async def test_dispatcher_preserves_partial_work_when_budget_hits_after_writes(
         .scalars()
         .all()
     )
-    assert len(events) >= 16  # ran out by budget around the 17th
+    assert len(events) >= 24  # ran out by budget around the 25th
 
 
 @pytest.mark.asyncio
@@ -643,13 +643,13 @@ async def test_dispatcher_caps_outer_loop_iterations(
     """If the model keeps requesting tool calls past the phase round
     budget, the budget guard fires first. Pin the behaviour so a
     future tweak to the cap doesn't silently bypass the per-phase guard."""
-    # 20 distinct file_list calls (different paths so the repetition
-    # guard doesn't fire) — enough to exhaust the work phase round
-    # budget (8) before hitting the outer iteration cap (12).
-    for sub in range(20):
+    # 30 distinct file_list calls (different paths so the repetition
+    # guard doesn't fire) — enough to exhaust the work-phase round
+    # budget (24) before hitting the outer iteration cap (32).
+    for sub in range(30):
         (tmp_path / f"d{sub}").mkdir()
     scripts: list[list[dict[str, Any]]] = []
-    for i in range(20):
+    for i in range(30):
         scripts.append(
             [
                 {
