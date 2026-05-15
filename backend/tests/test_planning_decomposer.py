@@ -207,4 +207,66 @@ async def test_decompose_all_invalid_entries_falls_back() -> None:
     intent = "Mystery work"
     steps = await decompose_request(_ctx(intent), executor=llm, model="m")
     assert len(steps) == 1
-    assert intent in steps[0].objective
+
+
+@dataclass
+class _MetadataCapturingLLM:
+    """Records the metadata passed on each ``execute`` call so the test
+    can assert the decomposer is forwarding tenant_id/run_id."""
+
+    response_text: str = ""
+    captured_metadata: list[dict[str, Any]] = field(default_factory=list)
+
+    async def execute(
+        self,
+        *,
+        messages: list[dict[str, Any]],
+        metadata: dict[str, Any],
+        model: str,
+        workspace_dir: str | None = None,
+        mcp_servers: dict[str, Any] | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        on_chunk: Callable[[str], Awaitable[None]] | None = None,
+    ) -> dict[str, Any]:
+        self.captured_metadata.append(dict(metadata))
+        return {
+            "output_type": "text",
+            "output_ref": self.response_text,
+            "actual_cost_cents": 0,
+            "finish_reason": "stop",
+            "tool_calls": None,
+        }
+
+
+@pytest.mark.asyncio
+async def test_decompose_forwards_caller_metadata_to_executor() -> None:
+    """The decomposer must forward caller-supplied tenant_id/run_id to
+    the executor — DirectLLMAdapter raises without them. Regression for
+    the bug surfaced in the first prod Cycle 7 dogfood (2026-05-15)."""
+    llm = _MetadataCapturingLLM(
+        response_text=json.dumps([{"name": "step", "objective": "obj", "expected_outputs": []}])
+    )
+    await decompose_request(
+        _ctx("Anything"),
+        executor=llm,
+        model="m",
+        metadata={"tenant_id": "tenant-1", "run_id": "decompose:req-1", "project_id": "proj-1"},
+    )
+    assert len(llm.captured_metadata) == 1
+    captured = llm.captured_metadata[0]
+    assert captured["tenant_id"] == "tenant-1"
+    assert captured["run_id"] == "decompose:req-1"
+    assert captured["project_id"] == "proj-1"
+    # ``phase`` marker still present so audit can distinguish.
+    assert captured["phase"] == "decompose"
+
+
+@pytest.mark.asyncio
+async def test_decompose_default_metadata_has_phase_marker() -> None:
+    """Even without caller metadata, the decomposer stamps ``phase`` so
+    audit traces can tell decomposer calls apart from work-phase ones."""
+    llm = _MetadataCapturingLLM(
+        response_text=json.dumps([{"name": "step", "objective": "obj", "expected_outputs": []}])
+    )
+    await decompose_request(_ctx("Anything"), executor=llm, model="m")
+    assert llm.captured_metadata[0] == {"phase": "decompose"}

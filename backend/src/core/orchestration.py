@@ -331,5 +331,20 @@ async def _build_work_steps(
         )
 
     ctx = await build_project_context(request=request, session=session)
-    steps = await decompose_request(ctx, executor=executor, model=model or "")
+    # Wire-required metadata. The decomposer fires BEFORE any
+    # RunAttempt is created, so ``run_id`` is a synthetic per-Request
+    # placeholder. BSGateway accepts it; DirectLLMAdapter just needs
+    # both fields truthy.
+    decomposer_metadata = {
+        "tenant_id": str(tenant_id),
+        "run_id": f"decompose:{request.id}",
+        "request_id": str(request.id),
+        "project_id": str(request.project_id),
+    }
+    steps = await decompose_request(
+        ctx,
+        executor=executor,
+        model=model or "",
+        metadata=decomposer_metadata,
+    )
     return steps, WorkPlanCreatedBy.llm_assisted, executor, executor_kind, model

@@ -42,8 +42,18 @@ async def decompose_request(
     *,
     executor: ExecutorClient,
     model: str,
+    metadata: dict[str, Any] | None = None,
 ) -> list[WorkStepDraft]:
     """Return a list of WorkStepDrafts derived from ``ctx``.
+
+    ``metadata`` is forwarded to ``executor.execute`` so the wire
+    contracts of each path are satisfied (DirectLLMAdapter requires
+    ``tenant_id`` + ``run_id``; BSGateway requires ``tenant_id``).
+    Surfaced as a bug in the first prod dogfood: a missing-metadata
+    call raised inside DirectLLMAdapter and silently triggered the
+    single-step fallback. Production callers MUST pass both keys —
+    a synthetic ``decompose:<request_id>`` works fine for ``run_id``
+    since this LLM call doesn't have a tracked RunAttempt yet.
 
     Always returns at least one draft. If the LLM call fails, returns
     a single-step plan that mirrors the Request intent (G9 behavior).
@@ -55,7 +65,9 @@ async def decompose_request(
 
     messages = render_decomposer_messages(ctx, max_steps=MAX_STEPS)
 
-    text = await _call_with_parse_retry(executor=executor, model=model, messages=messages)
+    merged_metadata: dict[str, Any] = {"phase": "decompose", **(metadata or {})}
+
+    text = await _call_with_parse_retry(executor=executor, model=model, messages=messages, metadata=merged_metadata)
     if text is None:
         logger.info("decompose_fallback", reason="llm_unavailable_or_unparseable", intent=intent[:80])
         return fallback
@@ -72,7 +84,13 @@ async def decompose_request(
     return drafts
 
 
-async def _call_with_parse_retry(*, executor: ExecutorClient, model: str, messages: list[dict[str, str]]) -> str | None:
+async def _call_with_parse_retry(
+    *,
+    executor: ExecutorClient,
+    model: str,
+    messages: list[dict[str, str]],
+    metadata: dict[str, Any],
+) -> str | None:
     """Invoke the executor up to ``_PARSE_RETRIES + 1`` times. Returns
     the first text response whose JSON parses, or None if every attempt
     raises / returns blank / yields no valid JSON.
@@ -80,7 +98,7 @@ async def _call_with_parse_retry(*, executor: ExecutorClient, model: str, messag
     last_text: str | None = None
     for attempt in range(_PARSE_RETRIES + 1):
         try:
-            result = await executor.execute(messages=messages, metadata={"phase": "decompose"}, model=model, tools=None)
+            result = await executor.execute(messages=messages, metadata=metadata, model=model, tools=None)
         except Exception as exc:  # noqa: BLE001 — decomposer must never bubble
             logger.warning("decompose_executor_error", attempt=attempt, error=str(exc))
             return None
