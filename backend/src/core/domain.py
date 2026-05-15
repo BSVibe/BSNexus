@@ -108,6 +108,7 @@ class ProofAspectType(str, enum.Enum):
     code_test = "code_test"
     code_lint = "code_lint"
     code_install_smoke = "code_install_smoke"
+    code_build = "code_build"
 
 
 class ProofAspectStatus(str, enum.Enum):

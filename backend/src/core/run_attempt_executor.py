@@ -69,7 +69,7 @@ SUMMARY_PREVIEW_CHARS = 500
 # runaway loops, but we also bound the *number of LLM round-trips* in
 # case the model returns zero tool_calls but garbage text repeatedly
 # (no ToolEvent rows means the round-budget logic never fires).
-MAX_WORK_LOOP_ITERATIONS = 24
+MAX_WORK_LOOP_ITERATIONS = 32
 MAX_NO_WORK_NUDGES = 2
 
 
@@ -158,11 +158,14 @@ async def dispatch_run_attempt(
         await transition_work_step(step=work_step, target=WorkStepStatus.failed, session=session)
         # Partial-work preservation: if the model produced any file
         # writes before termination, surface them as a deliverable
-        # marked ``human_review_required`` so the founder can inspect
-        # what landed instead of staring at a null deliverable. No
-        # proof:queue enqueue — the verifier must not overwrite the
-        # state we just stamped, and a non-converged run can't be
-        # auto-verified anyway.
+        # so the founder can inspect what landed instead of staring
+        # at a null deliverable. Run aspects on what we have to give
+        # the founder *diagnostic* signal (which lint errors? which
+        # tests fail? does it install?) — but a non-converged run
+        # can never be auto-``verified``, so we cap the roll-up at
+        # ``human_review_required``.
+        # No proof:queue enqueue — the verifier worker must not
+        # overwrite the state we just stamped.
         partial_deliverable = None
         if terminated.written_paths:
             partial_deliverable = await create_deliverable_from_work_output(
@@ -178,8 +181,30 @@ async def dispatch_run_attempt(
                 ),
                 session=session,
             )
-            partial_deliverable.proof_state = ProofState.human_review_required
             await session.flush()
+            # Lazy-import: ``orchestration`` → ``run_attempt_executor``
+            # → ``verification`` shares the import-cycle break we set
+            # up for the back-half orchestration hook.
+            from backend.src.core.verification import run_verification  # noqa: PLC0415
+
+            try:
+                await run_verification(
+                    deliverable=partial_deliverable,
+                    workspace_root=workspace_dir or "/tmp",
+                    session=session,
+                    changed_files=tuple(terminated.written_paths),
+                )
+            except Exception:
+                logger.exception(
+                    "partial_deliverable_verification_crashed",
+                    deliverable_id=str(partial_deliverable.id),
+                )
+            # Demote ``verified`` → ``human_review_required``. The
+            # aspects ran for diagnostics, but the model didn't reach
+            # a final summary; the run is non-converged by definition.
+            if partial_deliverable.proof_state == ProofState.verified:
+                partial_deliverable.proof_state = ProofState.human_review_required
+                await session.flush()
         return DispatchRunAttemptResult(
             attempt=terminated.attempt,
             deliverable=partial_deliverable,
@@ -322,7 +347,26 @@ def _build_messages(
                 "6. PRESERVE existing tests and code. If a test file or module already exists in the "
                 "workspace, file_read it first and ADD to it — do not rewrite the file from scratch "
                 "and do not delete tests that cover behaviour outside this work step's scope. "
-                "Overwriting prior work breaks the cumulative dogfooding loop."
+                "Overwriting prior work breaks the cumulative dogfooding loop.\n"
+                "7. FIX FAILING TESTS BEFORE ADDING NEW CODE. If pytest (or any verifier) reports a "
+                "failure, read the failure, fix the code OR the test, and re-run BEFORE moving on. "
+                "Do not write more new files while existing tests are still red — the verifier "
+                "blocks the deliverable on a single failure regardless of how much else is added.\n"
+                "8. PYTHON PACKAGING — when authoring pyproject.toml:\n"
+                "   - NEVER declare standard-library modules as dependencies (sqlite3, json, os, "
+                "datetime, uuid, hashlib, logging, asyncio, etc. ship with Python — pip cannot "
+                "install them and the install_smoke aspect will fail).\n"
+                "   - Prefer PEP 621 (``[project]`` section) over Poetry-only (``[tool.poetry]``). "
+                "PEP 621 makes ``pip install -e .`` install deps; Poetry-only needs ``poetry``.\n"
+                "   - When writing a Dockerfile, install deps via the pyproject (``COPY pyproject.toml "
+                "./`` then ``RUN pip install --no-cache-dir .``), NOT hardcoded ``pip install fastapi``. "
+                "Hardcoded lists silently desync from pyproject.\n"
+                "9. DOCKER COMPOSE — when authoring docker-compose.yml:\n"
+                "   - OMIT the top-level ``version:`` key. It's obsolete in Compose v2 and produces a "
+                "warning. Just start with ``services:``.\n"
+                "   - For SQLite or any single-file persistence, mount a *directory* and put the file "
+                "inside it (``./data:/app/data``), or use a named volume. Mounting a non-existent host "
+                "file creates a directory on the host with that name, breaking the app."
             ),
         },
         {"role": "user", "content": user_block},

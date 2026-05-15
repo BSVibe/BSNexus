@@ -177,7 +177,9 @@ async def test_phase_round_budget_prevents_blind_loop(db_session, mock_tenant_id
     assert result.terminated is True
     assert result.terminal_reason == "phase_round_budget_exceeded:work"
     assert attempt.status == RunAttemptStatus.timed_out
-    assert attempt.round_count < 20
+    # Round count must stay within (budget + 1) — anything wider means
+    # the budget guard is firing late.
+    assert attempt.round_count <= PHASE_ROUND_BUDGETS[RunAttemptPhase.work] + 1
 
 
 @pytest.mark.asyncio
