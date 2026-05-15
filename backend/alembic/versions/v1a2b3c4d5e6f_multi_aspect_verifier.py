@@ -33,6 +33,7 @@ from typing import Sequence, Union
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.dialects import postgresql
 
 revision: str = "v1a2b3c4d5e6f"
 down_revision: Union[str, Sequence[str], None] = "cb713805c963"
@@ -45,11 +46,29 @@ _ASPECT_STATUS_VALUES = ("queued", "running", "passed", "failed", "skipped", "er
 
 
 def upgrade() -> None:
-    # 1. enums
-    aspect_type = sa.Enum(*_ASPECT_TYPE_VALUES, name="proof_aspect_type")
-    aspect_status = sa.Enum(*_ASPECT_STATUS_VALUES, name="proof_aspect_status")
-    aspect_type.create(op.get_bind(), checkfirst=True)
-    aspect_status.create(op.get_bind(), checkfirst=True)
+    # 1. enums — created via raw SQL with an explicit existence guard,
+    # since ``Enum.create(checkfirst=True)`` is flaky on the asyncpg
+    # dialect and ``op.create_table`` will auto-create the type a
+    # second time if the column reference doesn't pin ``create_type=False``.
+    op.execute(
+        "DO $$ BEGIN "
+        "IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'proof_aspect_type') THEN "
+        "CREATE TYPE proof_aspect_type AS ENUM ('code_test', 'code_lint', 'code_install_smoke'); "
+        "END IF; END $$;"
+    )
+    op.execute(
+        "DO $$ BEGIN "
+        "IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'proof_aspect_status') THEN "
+        "CREATE TYPE proof_aspect_status AS ENUM "
+        "('queued', 'running', 'passed', 'failed', 'skipped', 'error'); "
+        "END IF; END $$;"
+    )
+    aspect_type_col = postgresql.ENUM(
+        *_ASPECT_TYPE_VALUES, name="proof_aspect_type", create_type=False
+    )
+    aspect_status_col = postgresql.ENUM(
+        *_ASPECT_STATUS_VALUES, name="proof_aspect_status", create_type=False
+    )
 
     # 2. verification_aspects table
     op.create_table(
@@ -61,10 +80,10 @@ def upgrade() -> None:
             sa.ForeignKey("deliverables.id", ondelete="CASCADE"),
             nullable=False,
         ),
-        sa.Column("aspect_type", aspect_type, nullable=False),
+        sa.Column("aspect_type", aspect_type_col, nullable=False),
         sa.Column(
             "status",
-            aspect_status,
+            aspect_status_col,
             nullable=False,
             server_default="queued",
         ),
