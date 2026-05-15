@@ -73,6 +73,62 @@ def test_selects_python_pytest_policy_from_workspace(tmp_path):
     assert "tests/" in policy.required_refs
 
 
+def test_selects_python_policy_from_root_level_test_file(tmp_path):
+    """A bare workspace with no pyproject.toml / tests/ dir but a
+    root-level ``test_*.py`` file must still get the python_test
+    policy — pytest discovers root-level test files fine, and this is
+    exactly what a model produces for a small standalone task. Without
+    this the deliverable falls to no_policy → human_review_required and
+    the Request can never reach shipped."""
+    (tmp_path / "calculator.py").write_text("def add(a, b):\n    return a + b\n")
+    (tmp_path / "test_calculator.py").write_text(
+        "from calculator import add\n\ndef test_add():\n    assert add(1, 2) == 3\n"
+    )
+
+    policy = select_proof_policy(
+        workspace_root=tmp_path,
+        deliverable_type=DeliverableType.code,
+        changed_files=["calculator.py", "test_calculator.py"],
+    )
+
+    assert policy is not None
+    assert policy.verifier_type == "python_test"
+    assert policy.command == ("python", "-m", "pytest")
+    assert "test_calculator.py" in policy.required_refs
+
+
+def test_selects_python_policy_from_suffix_style_test_file(tmp_path):
+    """pytest's other discovery convention — ``*_test.py`` — counts too."""
+    (tmp_path / "stringutils.py").write_text("def reverse(s):\n    return s[::-1]\n")
+    (tmp_path / "stringutils_test.py").write_text(
+        "from stringutils import reverse\n\ndef test_reverse():\n    assert reverse('ab') == 'ba'\n"
+    )
+
+    policy = select_proof_policy(
+        workspace_root=tmp_path,
+        deliverable_type=DeliverableType.code,
+        changed_files=["stringutils.py", "stringutils_test.py"],
+    )
+
+    assert policy is not None
+    assert policy.verifier_type == "python_test"
+
+
+def test_no_policy_for_python_file_without_any_test(tmp_path):
+    """A lone non-test ``.py`` file with no config and no test file
+    must NOT false-positive into a pytest policy — there is nothing
+    for pytest to assert against, so human review is correct."""
+    (tmp_path / "calculator.py").write_text("def add(a, b):\n    return a + b\n")
+
+    policy = select_proof_policy(
+        workspace_root=tmp_path,
+        deliverable_type=DeliverableType.code,
+        changed_files=["calculator.py"],
+    )
+
+    assert policy is None
+
+
 def test_selects_node_test_policy_and_package_manager(tmp_path):
     (tmp_path / "package.json").write_text('{"scripts": {"test": "vitest run", "build": "vite build"}}')
     (tmp_path / "pnpm-lock.yaml").write_text("lockfileVersion: '9.0'\n")

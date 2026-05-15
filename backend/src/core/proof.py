@@ -5,7 +5,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import shlex
 from typing import Any
 
@@ -143,9 +143,9 @@ def select_proof_policy(
     if deliverable_type not in {DeliverableType.code, DeliverableType.pr, DeliverableType.preview}:
         return None
 
-    python_policy = _python_policy(root)
-    node_policy = _node_policy(root)
     changed = tuple(changed_files)
+    python_policy = _python_policy(root, changed)
+    node_policy = _node_policy(root)
 
     if changed:
         if python_policy is not None and any(_is_python_change(path) for path in changed):
@@ -187,12 +187,43 @@ def _coerce_explicit_policy(policy: Mapping[str, Any] | SelectedProofPolicy) -> 
     return selection
 
 
-def _python_policy(root: Path) -> SelectedProofPolicy | None:
+def _is_pytest_test_file(path: str) -> bool:
+    """pytest's default discovery — a basename of ``test_*.py`` or
+    ``*_test.py`` — anywhere in the tree."""
+    name = PurePosixPath(path.replace("\\", "/")).name
+    return name.endswith(".py") and (name.startswith("test_") or name.endswith("_test.py"))
+
+
+def _root_pytest_test_files(root: Path) -> list[str]:
+    """Root-level ``test_*.py`` / ``*_test.py`` files. A model handling
+    a small standalone task writes its test beside the code at the
+    workspace root rather than under ``tests/`` — pytest discovers
+    those fine, so the proof policy must too. Root-level only keeps
+    this O(files in root), not a full-tree walk."""
+    try:
+        names = sorted(p.name for p in root.iterdir() if p.is_file() and _is_pytest_test_file(p.name))
+    except OSError:
+        return []
+    return names
+
+
+def _python_policy(root: Path, changed_files: Sequence[str] = ()) -> SelectedProofPolicy | None:
     refs = [name for name in ("pyproject.toml", "pytest.ini", "tox.ini", "setup.cfg") if (root / name).exists()]
-    if not refs and not (root / "tests").is_dir():
+    has_tests_dir = (root / "tests").is_dir()
+    root_test_files = _root_pytest_test_files(root)
+    changed_test_files = [path for path in changed_files if _is_pytest_test_file(path)]
+
+    if not refs and not has_tests_dir and not root_test_files and not changed_test_files:
         return None
-    if (root / "tests").is_dir():
+
+    if has_tests_dir:
         refs.append("tests/")
+    # Surface the actual test files that justified the policy so the
+    # ProofAttempt records what pytest will run.
+    for test_file in (*changed_test_files, *root_test_files):
+        if test_file not in refs:
+            refs.append(test_file)
+
     return SelectedProofPolicy(
         verifier_type="python_test",
         command=("python", "-m", "pytest"),
