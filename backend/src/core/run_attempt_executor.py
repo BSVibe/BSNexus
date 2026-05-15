@@ -70,7 +70,7 @@ SUMMARY_PREVIEW_CHARS = 500
 # runaway loops, but we also bound the *number of LLM round-trips* in
 # case the model returns zero tool_calls but garbage text repeatedly
 # (no ToolEvent rows means the round-budget logic never fires).
-MAX_WORK_LOOP_ITERATIONS = 32
+MAX_WORK_LOOP_ITERATIONS = 40
 MAX_NO_WORK_NUDGES = 2
 
 # Aspect-feedback loop: after the model converges (natural exit, no
