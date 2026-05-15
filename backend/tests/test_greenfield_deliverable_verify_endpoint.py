@@ -22,10 +22,9 @@ from sqlalchemy import select
 from backend.src.core.domain import (
     DeliverableStatus,
     DeliverableType,
-    ProofAttemptStatus,
     ProofState,
 )
-from backend.src.models import Deliverable, Project, ProofAttempt
+from backend.src.models import Deliverable, Project, VerificationAspect
 
 
 async def _make_project(db_session, tenant_id: uuid.UUID, name: str = "Verify EP") -> Project:
@@ -85,9 +84,12 @@ async def test_verify_endpoint_returns_verifying_state(
 
 
 @pytest.mark.asyncio
-async def test_verify_endpoint_creates_proof_attempt_in_running_state(
+async def test_verify_endpoint_stamps_deliverable_verifying_and_enqueues(
     client, db_session, mock_tenant_id, seeded_tenant, mock_stream_manager
 ):
+    """Manual re-verify flips proof_state to verifying and enqueues the
+    deliverable; the worker creates the per-aspect ``VerificationAspect``
+    rows on its next pass. The route itself no longer pre-seeds aspects."""
     project = await _make_project(db_session, mock_tenant_id)
     deliverable = await _make_deliverable(db_session, mock_tenant_id, project.id)
 
@@ -96,20 +98,15 @@ async def test_verify_endpoint_creates_proof_attempt_in_running_state(
         headers={"Authorization": "Bearer fake"},
     )
 
-    attempts = list(
-        (
-            await db_session.execute(
-                select(ProofAttempt).where(ProofAttempt.deliverable_id == deliverable.id)
-            )
-        ).scalars()
-    )
-    assert len(attempts) == 1
-    [attempt] = attempts
-    assert attempt.status == ProofAttemptStatus.running
-    # The worker that completes the attempt will overwrite verifier_type
-    # with the matched policy; the enqueue marker keeps the trigger
-    # provenance auditable.
-    assert "manual_re_verify" in (attempt.inputs or {}).get("trigger", "")
+    await db_session.refresh(deliverable)
+    assert deliverable.proof_state == ProofState.verifying
+    # No aspect rows yet — the worker creates them.
+    aspect_count = (
+        await db_session.execute(
+            select(VerificationAspect).where(VerificationAspect.deliverable_id == deliverable.id)
+        )
+    ).scalars().all()
+    assert aspect_count == []
 
 
 @pytest.mark.asyncio

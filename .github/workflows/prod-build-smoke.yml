@@ -65,7 +65,7 @@ jobs:
           from backend.src.core.brief import empty_brief_snapshot
           from backend.src.core.domain import RunAttemptPhase
           from backend.src.core.state_machines import RUN_ATTEMPT_PHASE_ORDER
-          from backend.src.models import Direction, Request, RunAttempt, Deliverable, ProofAttempt
+          from backend.src.models import Direction, Request, RunAttempt, Deliverable, VerificationAspect
           from backend.src.main import create_app
           app = create_app(cors_origins=[], rate_limit=False)
           assert app is not None, 'create_app returned None'
@@ -74,6 +74,6 @@ jobs:
           route_paths = {route.path for route in app.routes}
           assert '/api/v1/directions' in route_paths
           assert '/api/v1/projects/{project_id}/messages' not in route_paths
-          assert Direction and Request and RunAttempt and Deliverable and ProofAttempt and BSGatewayClient
+          assert Direction and Request and RunAttempt and Deliverable and VerificationAspect and BSGatewayClient
           print('prod greenfield imports + create_app OK')
           "

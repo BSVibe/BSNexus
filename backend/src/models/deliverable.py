@@ -41,9 +41,6 @@ class Deliverable(Base):
         default=ProofState.verification_missing,
         server_default=ProofState.verification_missing.value,
     )
-    proof_policy_id: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid, ForeignKey("proof_policies.id", ondelete="SET NULL"), nullable=True
-    )
     risk_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     # G8.2 — populated by the VerifierWorker when a verified deliverable's
     # artifacts are committed to the request's repo branch. Null when the

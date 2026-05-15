@@ -13,7 +13,8 @@ from sqlalchemy import select
 from backend.src.config import settings as app_settings
 from backend.src.core.domain import (
     DeliverableType,
-    ProofAttemptStatus,
+    ProofAspectStatus,
+    ProofAspectType,
     ProofState,
     WorkPlanCreatedBy,
 )
@@ -24,9 +25,9 @@ from backend.src.core.work_steps import WorkStepDraft, create_work_plan
 from backend.src.models import (
     Decision,
     Deliverable,
-    ProofAttempt,
     Project,
     Request,
+    VerificationAspect,
     WorkStep,
 )
 from backend.src.models.project import WorkspaceType
@@ -106,14 +107,14 @@ async def test_compose_pr_body_lists_verified_deliverables_with_commit_and_verif
     db_session.add(deliverable)
     await db_session.commit()
     await db_session.refresh(deliverable)
-    attempt = ProofAttempt(
+    aspect = VerificationAspect(
         deliverable_id=deliverable.id,
-        verifier_type="python_test",
-        inputs={"command": ["python", "-m", "pytest"]},
-        status=ProofAttemptStatus.verified,
+        aspect_type=ProofAspectType.code_test,
+        inputs={"commands": [["python", "-m", "pytest"]]},
+        status=ProofAspectStatus.passed,
         exit_code=0,
     )
-    db_session.add(attempt)
+    db_session.add(aspect)
     await db_session.commit()
 
     body = await compose_pr_body(request=request_row, session=db_session)

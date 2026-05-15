@@ -26,8 +26,8 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.src.core.domain import ProofState
-from backend.src.models import Decision, Deliverable, ProofAttempt, Request
+from backend.src.core.domain import ProofAspectType, ProofState
+from backend.src.models import Decision, Deliverable, Request, VerificationAspect
 
 
 async def compose_pr_body(*, request: Request, session: AsyncSession) -> str:
@@ -55,8 +55,8 @@ async def compose_pr_body(*, request: Request, session: AsyncSession) -> str:
     if verified:
         parts.append("## Verified Deliverables\n")
         for deliverable in verified:
-            attempt = await _latest_proof_attempt(session, deliverable.id)
-            verifier_line = _verifier_line(attempt)
+            test_aspect = await _latest_aspect(session, deliverable.id, ProofAspectType.code_test)
+            verifier_line = _verifier_line(test_aspect)
             commit_line = f"`{deliverable.commit_sha[:12]}`" if deliverable.commit_sha else "_not yet committed_"
             parts.append(f"### {deliverable.title or 'Untitled deliverable'}")
             parts.append(f"- Type: `{deliverable.type.value}`")
@@ -103,32 +103,39 @@ async def compose_pr_body(*, request: Request, session: AsyncSession) -> str:
     return "\n".join(parts).rstrip() + "\n"
 
 
-def _verifier_line(attempt: ProofAttempt | None) -> str:
-    if attempt is None:
-        return "_no proof attempt recorded_"
+def _verifier_line(aspect: VerificationAspect | None) -> str:
+    if aspect is None:
+        return "_no verification aspect recorded_"
     command = ""
-    inputs = attempt.inputs or {}
+    inputs = aspect.inputs or {}
     if isinstance(inputs, dict):
-        raw = inputs.get("command")
-        if isinstance(raw, list) and raw:
-            command = " ".join(str(part) for part in raw)
-        elif isinstance(raw, str):
-            command = raw
-    exit_code = attempt.exit_code
+        commands = inputs.get("commands")
+        if isinstance(commands, list) and commands:
+            first = commands[0]
+            if isinstance(first, list) and first:
+                command = " ".join(str(part) for part in first)
+            elif isinstance(first, str):
+                command = first
+    exit_code = aspect.exit_code
     if command and exit_code is not None:
         return f"`{command}` (exit {exit_code})"
     if command:
         return f"`{command}`"
     if exit_code is not None:
         return f"exit {exit_code}"
-    return f"{attempt.verifier_type or 'verifier'}"
+    return aspect.aspect_type.value
 
 
-async def _latest_proof_attempt(session: AsyncSession, deliverable_id: object) -> ProofAttempt | None:
+async def _latest_aspect(
+    session: AsyncSession, deliverable_id: object, aspect_type: ProofAspectType
+) -> VerificationAspect | None:
     stmt = (
-        select(ProofAttempt)
-        .where(ProofAttempt.deliverable_id == deliverable_id)
-        .order_by(ProofAttempt.created_at.desc())
+        select(VerificationAspect)
+        .where(
+            VerificationAspect.deliverable_id == deliverable_id,
+            VerificationAspect.aspect_type == aspect_type,
+        )
+        .order_by(VerificationAspect.created_at.desc())
         .limit(1)
     )
     return (await session.execute(stmt)).scalar_one_or_none()

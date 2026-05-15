@@ -318,7 +318,11 @@ def _build_messages(
                 "4. If the workspace is empty or sparse, that's expected; create the file you need "
                 "(for example backend/src/api/health.py for a /healthz endpoint).\n"
                 "5. Stay inside the workspace. Path traversal and destructive shell commands are "
-                "blocked at the tool boundary."
+                "blocked at the tool boundary.\n"
+                "6. PRESERVE existing tests and code. If a test file or module already exists in the "
+                "workspace, file_read it first and ADD to it — do not rewrite the file from scratch "
+                "and do not delete tests that cover behaviour outside this work step's scope. "
+                "Overwriting prior work breaks the cumulative dogfooding loop."
             ),
         },
         {"role": "user", "content": user_block},

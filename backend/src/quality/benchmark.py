@@ -9,7 +9,7 @@ from statistics import median
 from typing import Any, Protocol
 
 from backend.src.core.domain import ProofState
-from backend.src.core.proof import is_setup_only_command
+from backend.src.core.verification import is_setup_only_command
 
 
 class ScenarioKind(StrEnum):

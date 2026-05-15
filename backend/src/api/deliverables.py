@@ -8,10 +8,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.core.auth import get_current_user
 from backend.src.core.deliverables import WorkOutputDraft, create_deliverable_from_work_output
-from backend.src.core.domain import DeliverableStatus, ProofAttemptStatus, ProofState
+from backend.src.core.domain import (
+    DeliverableStatus,
+    ProofAspectType,
+    ProofState,
+)
 from backend.src.core.git_ops import build_deliverable_diff_url
 from backend.src.core.tenant_context import get_tenant_id
-from backend.src.models import Deliverable, Project, ProofAttempt, Request, WorkStep
+from backend.src.models import Deliverable, Project, Request, VerificationAspect, WorkStep
 from backend.src.queue.streams import RedisStreamManager
 from backend.src.schemas import DeliverableCreate, DeliverableResponse
 from backend.src.storage.database import get_db
@@ -125,12 +129,13 @@ async def verify_deliverable(
     """Manually re-enqueue the Verifier Worker for this deliverable
     (decision-locks **A1**).
 
-    Today this stamps ``proof_state=verifying`` and records a fresh
-    ProofAttempt(running) so the founder gets immediate feedback (the
-    DeliverableCard ``ProofBadge`` flips to verifying). The
-    deterministic worker that completes the attempt is wired during
-    the quality-engineering phase; until then the queue entry sits in
-    ``running`` for the worker to pick up.
+    Stamps ``proof_state=verifying`` so the founder gets immediate
+    feedback (the DeliverableCard ``ProofBadge`` flips). The worker
+    consumes ``proof:queue`` and overwrites the deliverable's aspect
+    rows on its next pass — we deliberately do NOT pre-seed a
+    ``re_verify_pending`` aspect row, since the new multi-aspect model
+    creates the right aspects (test/lint/install_smoke) from the
+    workspace at run time.
 
     Tenant-scoped: a deliverable that belongs to another tenant 404s
     so verifier capacity can't be burned across tenant boundaries.
@@ -145,19 +150,8 @@ async def verify_deliverable(
 
     deliverable.proof_state = ProofState.verifying
     deliverable.status = DeliverableStatus.verifying
-    attempt = ProofAttempt(
-        deliverable_id=deliverable.id,
-        # The matched policy's verifier_type overwrites this when the
-        # worker picks the attempt up; until then ``re_verify_pending``
-        # records the trigger provenance.
-        verifier_type="re_verify_pending",
-        inputs={"trigger": "manual_re_verify"},
-        status=ProofAttemptStatus.running,
-    )
-    db.add(attempt)
     await db.commit()
     await db.refresh(deliverable)
-    await db.refresh(attempt)
 
     # G7.2 SSE wiring — fan the proof-state transition onto the project
     # stream so other open BSNexus tabs flip the badge without a manual
@@ -171,7 +165,6 @@ async def verify_deliverable(
             "id": str(deliverable.id),
             "project_id": str(deliverable.project_id),
             "proof_state": deliverable.proof_state.value,
-            "attempt_id": str(attempt.id),
         },
     )
     # G6.1 VerifierWorker handoff — the route only stamps the running
@@ -192,14 +185,21 @@ async def verify_deliverable(
 
 
 async def _deliverable_response(db: AsyncSession, deliverable: Deliverable) -> dict:
-    latest_attempt = (
-        await db.execute(
-            select(ProofAttempt)
-            .where(ProofAttempt.deliverable_id == deliverable.id)
-            .order_by(ProofAttempt.created_at.desc())
-            .limit(1)
+    aspect_rows = (
+        (
+            await db.execute(
+                select(VerificationAspect)
+                .where(VerificationAspect.deliverable_id == deliverable.id)
+                .order_by(VerificationAspect.created_at.asc())
+            )
         )
-    ).scalar_one_or_none()
+        .scalars()
+        .all()
+    )
+    latest_test = next(
+        (a for a in reversed(aspect_rows) if a.aspect_type == ProofAspectType.code_test),
+        None,
+    )
     project = await db.get(Project, deliverable.project_id)
     diff_url = build_deliverable_diff_url(project=project, deliverable=deliverable) if project else None
     return {
@@ -213,14 +213,23 @@ async def _deliverable_response(db: AsyncSession, deliverable: Deliverable) -> d
         "summary": deliverable.summary,
         "artifact_refs": deliverable.artifact_refs,
         "proof_state": deliverable.proof_state,
-        "proof_policy_id": deliverable.proof_policy_id,
         "proof_status": {
             "state": deliverable.proof_state,
-            "policy_id": deliverable.proof_policy_id,
-            "latest_attempt_id": latest_attempt.id if latest_attempt is not None else None,
-            "latest_attempt_status": latest_attempt.status if latest_attempt is not None else None,
-            "latest_attempt_summary": latest_attempt.proof_summary if latest_attempt is not None else None,
-            "latest_attempt_completed_at": latest_attempt.completed_at if latest_attempt is not None else None,
+            "aspects": [
+                {
+                    "id": a.id,
+                    "aspect_type": a.aspect_type,
+                    "status": a.status,
+                    "exit_code": a.exit_code,
+                    "summary": a.result_summary,
+                    "completed_at": a.completed_at,
+                    "blocking": a.blocking,
+                }
+                for a in aspect_rows
+            ],
+            "latest_test_status": latest_test.status if latest_test is not None else None,
+            "latest_test_summary": latest_test.result_summary if latest_test is not None else None,
+            "latest_test_completed_at": latest_test.completed_at if latest_test is not None else None,
         },
         "status": deliverable.status,
         "risk_summary": deliverable.risk_summary,

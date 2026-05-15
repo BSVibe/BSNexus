@@ -11,7 +11,8 @@ from backend.src.core.domain import (
     DeliverableStatus,
     DeliverableType,
     DirectionSource,
-    ProofAttemptStatus,
+    ProofAspectStatus,
+    ProofAspectType,
     ProofState,
     RequestStatus,
 )
@@ -110,13 +111,22 @@ class DeliverableCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class ProofAspectResponse(BaseModel):
+    id: uuid.UUID
+    aspect_type: ProofAspectType
+    status: ProofAspectStatus
+    exit_code: int | None = None
+    summary: str | None = None
+    completed_at: datetime | None = None
+    blocking: bool
+
+
 class ProofStatusResponse(BaseModel):
     state: ProofState
-    policy_id: uuid.UUID | None
-    latest_attempt_id: uuid.UUID | None = None
-    latest_attempt_status: ProofAttemptStatus | None = None
-    latest_attempt_summary: str | None = None
-    latest_attempt_completed_at: datetime | None = None
+    aspects: list[ProofAspectResponse] = []
+    latest_test_status: ProofAspectStatus | None = None
+    latest_test_summary: str | None = None
+    latest_test_completed_at: datetime | None = None
 
 
 class DeliverableResponse(BaseModel):
@@ -130,7 +140,6 @@ class DeliverableResponse(BaseModel):
     summary: str | None
     artifact_refs: list
     proof_state: ProofState
-    proof_policy_id: uuid.UUID | None
     proof_status: ProofStatusResponse | None = None
     status: DeliverableStatus
     risk_summary: str | None
