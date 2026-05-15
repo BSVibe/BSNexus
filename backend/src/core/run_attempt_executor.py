@@ -366,7 +366,20 @@ def _build_messages(
                 "warning. Just start with ``services:``.\n"
                 "   - For SQLite or any single-file persistence, mount a *directory* and put the file "
                 "inside it (``./data:/app/data``), or use a named volume. Mounting a non-existent host "
-                "file creates a directory on the host with that name, breaking the app."
+                "file creates a directory on the host with that name, breaking the app.\n"
+                "10. WORKSPACE PYTHON ENV — the workspace's Python interpreter (``python`` / "
+                "``python3``) already has fastapi, uvicorn, httpx, pytest, pytest-asyncio, ruff, "
+                "sqlalchemy and asyncpg installed. Run ``python -m pytest`` and "
+                "``python -m ruff check .`` directly. DO NOT run ``pip install`` — the deps are "
+                "already there, install attempts only waste rounds (they may also fail because the "
+                "verifier env doesn't have setuptools wired for editable installs).\n"
+                "11. FINAL VERIFICATION SWEEP — before sending your plain-text summary (which exits "
+                "the loop), you MUST have run BOTH ``python -m pytest`` AND ``python -m ruff check .`` "
+                "(and ``python -m ruff format --check .`` if ruff is declared) in the last few rounds, "
+                "and ALL of them must have passed with exit 0. The deliverable is auto-rejected by the "
+                "code_test / code_lint aspects if either is dirty when you summarize. If ruff reports "
+                "F401 (unused import) or any lint error, fix it and re-run. The cost of ignoring "
+                "this rule is the entire Direction failing to ship."
             ),
         },
         {"role": "user", "content": user_block},
