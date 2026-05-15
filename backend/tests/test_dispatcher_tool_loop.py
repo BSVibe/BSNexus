@@ -22,7 +22,11 @@ from backend.src.core.domain import (
     WorkPlanCreatedBy,
     WorkStepStatus,
 )
-from backend.src.core.run_attempt_executor import _workspace_overview, dispatch_run_attempt
+from backend.src.core.run_attempt_executor import (
+    _build_messages,
+    _workspace_overview,
+    dispatch_run_attempt,
+)
 from backend.src.core.work_steps import WorkStepDraft, create_work_plan
 from backend.src.models import Deliverable, Project, Request, ToolEvent, WorkStep
 
@@ -115,6 +119,36 @@ async def _seed_request_with_step(db_session, tenant_id) -> tuple[Request, WorkS
     )
     step = (await db_session.execute(select(WorkStep).where(WorkStep.plan_id == plan.id))).scalar_one()
     return request, step
+
+
+def test_build_messages_omits_step_preamble_for_single_step() -> None:
+    """A single-step plan must not be told it's "step 1 of 1" — that
+    would pollute the prompt with multi-step rules that don't apply."""
+    from types import SimpleNamespace
+
+    request = SimpleNamespace(intent="Add /healthz")
+    work_step = SimpleNamespace(name="step", objective="obj", expected_outputs=[])
+    messages = _build_messages(request=request, work_step=work_step, step_index=0, total_steps=1)
+    user_block = messages[1]["content"]
+    assert "step 1 of" not in user_block
+    assert "Already completed steps" not in user_block
+
+
+def test_build_messages_includes_step_preamble_for_multi_step() -> None:
+    from types import SimpleNamespace
+
+    request = SimpleNamespace(intent="Build task tracker")
+    work_step = SimpleNamespace(name="API", objective="wire endpoints", expected_outputs=["api.py"])
+    messages = _build_messages(
+        request=request,
+        work_step=work_step,
+        step_index=1,
+        total_steps=3,
+        prior_step_names=("Schema",),
+    )
+    user_block = messages[1]["content"]
+    assert "step 2 of 3" in user_block
+    assert "Already completed steps: Schema." in user_block
 
 
 def test_workspace_overview_includes_small_seed_file_previews(tmp_path):
@@ -700,8 +734,7 @@ async def test_aspect_feedback_retries_when_lint_fails_and_model_fixes_on_retry(
     fix; on the second pass aspects all pass."""
     # Workspace: pyproject with ruff declared so code_lint aspect activates.
     (tmp_path / "pyproject.toml").write_text(
-        "[project]\nname='demo'\ndependencies=[]\n"
-        "[project.optional-dependencies]\ndev=['ruff>=0.5.0']\n"
+        "[project]\nname='demo'\ndependencies=[]\n[project.optional-dependencies]\ndev=['ruff>=0.5.0']\n"
     )
 
     request, step = await _seed_request_with_step(db_session, mock_tenant_id)
@@ -760,8 +793,7 @@ async def test_aspect_feedback_caps_at_max_retries_and_exits_with_failure(
     deliverable still gets created — the verifier worker then stamps
     the failure on the persisted aspect rows."""
     (tmp_path / "pyproject.toml").write_text(
-        "[project]\nname='demo'\ndependencies=[]\n"
-        "[project.optional-dependencies]\ndev=['ruff>=0.5.0']\n"
+        "[project]\nname='demo'\ndependencies=[]\n[project.optional-dependencies]\ndev=['ruff>=0.5.0']\n"
     )
 
     request, step = await _seed_request_with_step(db_session, mock_tenant_id)

@@ -32,7 +32,13 @@ from backend.src.core.domain import (
     WorkPlanCreatedBy,
     WorkStepStatus,
 )
-from backend.src.core.run_attempt_executor import dispatch_run_attempt
+from backend.src.core.executor_config.protocol import ExecutorClient
+from backend.src.core.planning import build_project_context, decompose_request
+from backend.src.core.run_attempt_executor import (
+    _lookup_executor_config_kind_and_model,
+    dispatch_run_attempt,
+)
+from backend.src.core.executor_config.resolver import resolve_executor
 from backend.src.core.work_steps import (
     WorkStepDraft,
     create_work_plan,
@@ -87,10 +93,12 @@ async def plan_and_dispatch_request(
     per-tenant ``ExecutorConfig`` is resolved; tests inject a stub
     executor to exercise the orchestration without a live LLM.
 
-    G9.0 builds a **single-step** WorkPlan mirroring the Request
-    intent. LLM-decomposed multi-step plans are a later milestone;
-    the WorkStep loop below already handles N steps so that change is
-    purely in how ``steps`` is built.
+    G10 inserts a single decomposer LLM call between the Request
+    arriving and the WorkPlan being built. Same model/auth/tool surface
+    as the worker LLM, no tools, asks the model to chain-of-thought
+    over the ProjectContext and emit a JSON array of WorkStepDrafts.
+    When the decomposer or executor is unavailable, falls back to the
+    G9 single-step plan.
     """
     stmt = select(Request).where(Request.id == request_id, Request.tenant_id == tenant_id)
     request = (await session.execute(stmt)).scalar_one_or_none()
@@ -115,20 +123,32 @@ async def plan_and_dispatch_request(
         await session.flush()
 
     intent = (request.intent or "").strip() or f"Request {request.id}"
-    step_name = intent.splitlines()[0][:_WORK_STEP_NAME_MAX]
+    steps, created_by, resolved_executor, resolved_kind, resolved_model = await _build_work_steps(
+        request=request,
+        tenant_id=tenant_id,
+        session=session,
+        executor=executor,
+        executor_kind=executor_kind,
+        model=model,
+        intent=intent,
+    )
+    # Hand the resolved executor down so dispatch_run_attempt doesn't
+    # re-resolve per WorkStep (saves redundant DB hits + encryption work).
+    executor = resolved_executor
+    executor_kind = resolved_kind
+    model = resolved_model
+
     plan = await create_work_plan(
         request=request,
-        steps=[WorkStepDraft(name=step_name, objective=intent, expected_outputs=[])],
-        created_by=WorkPlanCreatedBy.system,
+        steps=steps,
+        created_by=created_by,
         session=session,
     )
 
-    work_steps = (
-        (await session.execute(select(WorkStep).where(WorkStep.plan_id == plan.id)))
-        .scalars()
-        .all()
-    )
-    for work_step in work_steps:
+    work_steps = (await session.execute(select(WorkStep).where(WorkStep.plan_id == plan.id))).scalars().all()
+    total_steps = len(work_steps)
+    prior_step_names: list[str] = []
+    for step_index, work_step in enumerate(work_steps):
         # ``dispatch_run_attempt`` never raises — failures are encoded
         # as ``RunAttemptStatus.failed`` + a terminal_reason string.
         # It also enqueues the resulting Deliverable on ``proof:queue``
@@ -138,6 +158,9 @@ async def plan_and_dispatch_request(
             work_step=work_step,
             tenant_id=tenant_id,
             session=session,
+            step_index=step_index,
+            total_steps=total_steps,
+            prior_step_names=tuple(prior_step_names),
             stream_manager=stream_manager,
             workspace_dir=workspace_dir,
             executor=executor,  # type: ignore[arg-type]
@@ -152,6 +175,7 @@ async def plan_and_dispatch_request(
             deliverable_id=str(result.deliverable.id) if result.deliverable else None,
         )
         await session.commit()
+        prior_step_names.append(work_step.name)
 
     # If every WorkStep failed before producing a Deliverable, no proof
     # message was enqueued — advance the Request to ``blocked`` here so
@@ -188,22 +212,16 @@ async def advance_request_after_proof(
 
     if work_step.status == WorkStepStatus.verifying:
         if deliverable.proof_state == ProofState.verified:
-            await transition_work_step(
-                step=work_step, target=WorkStepStatus.review_ready, session=session
-            )
+            await transition_work_step(step=work_step, target=WorkStepStatus.review_ready, session=session)
         elif deliverable.proof_state in (
             ProofState.verification_failed,
             ProofState.human_review_required,
         ):
-            await transition_work_step(
-                step=work_step, target=WorkStepStatus.failed, session=session
-            )
+            await transition_work_step(step=work_step, target=WorkStepStatus.failed, session=session)
 
     request = await session.get(Request, work_step.request_id)
     if request is not None:
-        await _maybe_finalize_request(
-            request=request, session=session, stream_manager=stream_manager
-        )
+        await _maybe_finalize_request(request=request, session=session, stream_manager=stream_manager)
 
 
 async def _maybe_finalize_request(
@@ -225,20 +243,13 @@ async def _maybe_finalize_request(
 
     active_plan = (
         await session.execute(
-            select(WorkPlan)
-            .where(WorkPlan.request_id == request.id)
-            .order_by(WorkPlan.version.desc())
-            .limit(1)
+            select(WorkPlan).where(WorkPlan.request_id == request.id).order_by(WorkPlan.version.desc()).limit(1)
         )
     ).scalar_one_or_none()
     if active_plan is None:
         return
 
-    steps = (
-        (await session.execute(select(WorkStep).where(WorkStep.plan_id == active_plan.id)))
-        .scalars()
-        .all()
-    )
+    steps = (await session.execute(select(WorkStep).where(WorkStep.plan_id == active_plan.id))).scalars().all()
     if not steps:
         return
 
@@ -254,16 +265,12 @@ async def _maybe_finalize_request(
     all_ready = all(step.status == WorkStepStatus.review_ready for step in steps)
 
     if any_failed:
-        await transition_request(
-            request=request, target=RequestStatus.blocked, session=session
-        )
+        await transition_request(request=request, target=RequestStatus.blocked, session=session)
         logger.info("request_finalized_blocked", request_id=str(request.id))
         return
 
     if all_ready:
-        await transition_request(
-            request=request, target=RequestStatus.review_ready, session=session
-        )
+        await transition_request(request=request, target=RequestStatus.review_ready, session=session)
         # ``shipped`` is gated on every Deliverable being verified
         # (``_request_has_verified_deliverable_proof``) and fires the
         # G8.3 PR hook. ``transition_request`` raises GreenfieldStateError
@@ -275,3 +282,54 @@ async def _maybe_finalize_request(
             github_client_factory=None,
         )
         logger.info("request_finalized_shipped", request_id=str(request.id))
+
+
+async def _build_work_steps(
+    *,
+    request: Request,
+    tenant_id: uuid.UUID,
+    session: AsyncSession,
+    executor: ExecutorClient | None,
+    executor_kind: str | None,
+    model: str | None,
+    intent: str,
+) -> tuple[list[WorkStepDraft], WorkPlanCreatedBy, ExecutorClient | None, str | None, str | None]:
+    """Resolve the WorkPlan's step list for ``request``.
+
+    Tries the CoT decomposer first when an executor is available. Falls
+    back to the G9 single-step plan when:
+      - no per-tenant ExecutorConfig exists (decomposer would not have
+        a model to call anyway — leave that for dispatch_run_attempt to
+        record as ``executor_unconfigured``);
+      - the decomposer returns no usable steps (handled inside
+        ``decompose_request`` — it already emits a single-step fallback,
+        so this path is just structural defense).
+
+    Returns ``(steps, created_by, executor, executor_kind, model)`` so
+    the caller can reuse the resolved executor for ``dispatch_run_attempt``.
+    """
+    if executor is None:
+        kind, resolved_model = await _lookup_executor_config_kind_and_model(tenant_id=tenant_id, session=session)
+        if kind is not None:
+            resolved = await resolve_executor(tenant_id=tenant_id, session=session)
+            if resolved is not None:
+                executor = resolved
+                executor_kind = kind
+                model = resolved_model
+
+    if executor is None:
+        # No executor configured for this tenant. Build a single-step
+        # plan so dispatch_run_attempt can attribute the failure as
+        # ``executor_unconfigured``.
+        step_name = intent.splitlines()[0][:_WORK_STEP_NAME_MAX]
+        return (
+            [WorkStepDraft(name=step_name, objective=intent, expected_outputs=[])],
+            WorkPlanCreatedBy.system,
+            executor,
+            executor_kind,
+            model,
+        )
+
+    ctx = await build_project_context(request=request, session=session)
+    steps = await decompose_request(ctx, executor=executor, model=model or "")
+    return steps, WorkPlanCreatedBy.llm_assisted, executor, executor_kind, model
