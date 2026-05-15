@@ -189,11 +189,66 @@ async def test_dispatcher_runs_tool_calls_through_registry_and_writes_files(
     assert persisted is not None
     assert persisted.summary == "Added the helper."
     assert persisted.status == DeliverableStatus.draft
+    # The file_write must surface on the deliverable's artifact_refs —
+    # the verifier reads them as ``changed_files`` and the G8.2 commit
+    # step needs them to know what to land on the branch.
+    assert persisted.artifact_refs == ["src/helper.py"]
 
     # Phase machine reached terminal cleanly.
     assert result.attempt.phase == RunAttemptPhase.terminal
     assert result.attempt.status == RunAttemptStatus.completed
     assert result.terminal_reason == "summarized"
+
+
+@pytest.mark.asyncio
+async def test_dispatcher_aggregates_all_writes_into_artifact_refs_deduped(
+    db_session, mock_tenant_id, seeded_tenant, mock_stream_manager, tmp_path
+):
+    """Across multiple rounds the deliverable's ``artifact_refs`` must
+    list every file_write target, in first-seen order, with no
+    duplicates — a file rewritten in a later round appears once."""
+    request, step = await _seed_request_with_step(db_session, mock_tenant_id)
+    executor = _ScriptedExecutor(
+        tool_call_scripts=[
+            [
+                {
+                    "id": "c1",
+                    "name": "file_write",
+                    "arguments": {"path": "src/a.py", "content": "A = 1\n"},
+                }
+            ],
+            [
+                {
+                    "id": "c2",
+                    "name": "file_write",
+                    "arguments": {"path": "src/b.py", "content": "B = 2\n"},
+                },
+                {
+                    "id": "c3",
+                    "name": "file_write",
+                    "arguments": {"path": "src/a.py", "content": "A = 11\n"},
+                },
+            ],
+        ],
+        final_text="Wrote two files.",
+    )
+
+    result = await dispatch_run_attempt(
+        request=request,
+        work_step=step,
+        tenant_id=mock_tenant_id,
+        session=db_session,
+        stream_manager=mock_stream_manager,
+        executor=executor,
+        executor_kind="injected",
+        model="stub-model",
+        workspace_dir=tmp_path,
+    )
+
+    assert result.deliverable is not None
+    persisted = await db_session.get(Deliverable, result.deliverable.id)
+    assert persisted is not None
+    assert persisted.artifact_refs == ["src/a.py", "src/b.py"]
 
 
 @pytest.mark.asyncio
