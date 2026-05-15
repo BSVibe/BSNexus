@@ -36,6 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.src.core.deliverables import WorkOutputDraft, create_deliverable_from_work_output
 from backend.src.core.domain import (
     DeliverableType,
+    ProofState,
     RunAttemptPhase,
     RunAttemptStatus,
     WorkStepStatus,
@@ -68,7 +69,7 @@ SUMMARY_PREVIEW_CHARS = 500
 # runaway loops, but we also bound the *number of LLM round-trips* in
 # case the model returns zero tool_calls but garbage text repeatedly
 # (no ToolEvent rows means the round-budget logic never fires).
-MAX_WORK_LOOP_ITERATIONS = 12
+MAX_WORK_LOOP_ITERATIONS = 24
 MAX_NO_WORK_NUDGES = 2
 
 
@@ -155,9 +156,33 @@ async def dispatch_run_attempt(
         )
     except _ToolLoopTerminated as terminated:
         await transition_work_step(step=work_step, target=WorkStepStatus.failed, session=session)
+        # Partial-work preservation: if the model produced any file
+        # writes before termination, surface them as a deliverable
+        # marked ``human_review_required`` so the founder can inspect
+        # what landed instead of staring at a null deliverable. No
+        # proof:queue enqueue — the verifier must not overwrite the
+        # state we just stamped, and a non-converged run can't be
+        # auto-verified anyway.
+        partial_deliverable = None
+        if terminated.written_paths:
+            partial_deliverable = await create_deliverable_from_work_output(
+                tenant_id=tenant_id,
+                draft=WorkOutputDraft(
+                    project_id=request.project_id,
+                    request_id=request.id,
+                    work_step_id=work_step.id,
+                    title=work_step.name,
+                    summary=(terminated.final_text or "")[:SUMMARY_PREVIEW_CHARS] or None,
+                    type=DeliverableType.code,
+                    artifact_refs=list(terminated.written_paths),
+                ),
+                session=session,
+            )
+            partial_deliverable.proof_state = ProofState.human_review_required
+            await session.flush()
         return DispatchRunAttemptResult(
             attempt=terminated.attempt,
-            deliverable=None,
+            deliverable=partial_deliverable,
             terminal_reason=terminated.reason,
         )
     except Exception as exc:
@@ -379,12 +404,27 @@ def _workspace_overview(workspace_dir: Path | str | None) -> str:
 class _ToolLoopTerminated(Exception):
     """Raised inside the work-phase loop when ``record_tool_event``
     fires a terminal reason (budget / repetition). The outer handler
-    transitions the work step and returns the dispatcher result."""
+    transitions the work step and returns the dispatcher result.
 
-    def __init__(self, *, attempt: RunAttempt, reason: str) -> None:
+    ``written_paths`` carries any ``file_write`` targets that *did*
+    land before termination so the dispatcher can surface them as a
+    ``human_review_required`` deliverable instead of dropping the work
+    silently.
+    """
+
+    def __init__(
+        self,
+        *,
+        attempt: RunAttempt,
+        reason: str,
+        written_paths: list[str] | None = None,
+        final_text: str = "",
+    ) -> None:
         super().__init__(reason)
         self.attempt = attempt
         self.reason = reason
+        self.written_paths = list(written_paths or [])
+        self.final_text = final_text
 
 
 async def _run_work_phase(
@@ -479,7 +519,12 @@ async def _run_work_phase(
                 event_result = await record_tool_event(attempt=attempt, event_input=event_input, session=session)
             except Exception as exc:
                 # Tool not allowed in this phase, etc. — surface and stop.
-                raise _ToolLoopTerminated(attempt=attempt, reason=f"tool_event_error:{exc.__class__.__name__}") from exc
+                raise _ToolLoopTerminated(
+                    attempt=attempt,
+                    reason=f"tool_event_error:{exc.__class__.__name__}",
+                    written_paths=written_paths,
+                    final_text=final_text,
+                ) from exc
 
             messages.append(
                 {
@@ -492,6 +537,8 @@ async def _run_work_phase(
                 raise _ToolLoopTerminated(
                     attempt=attempt,
                     reason=event_result.terminal_reason or "work_loop_terminated",
+                    written_paths=written_paths,
+                    final_text=final_text,
                 )
             if event_result.nudge:
                 messages.append(
@@ -512,7 +559,12 @@ async def _run_work_phase(
         terminal_reason="work_loop_iteration_cap",
         session=session,
     )
-    raise _ToolLoopTerminated(attempt=attempt, reason="work_loop_iteration_cap")
+    raise _ToolLoopTerminated(
+        attempt=attempt,
+        reason="work_loop_iteration_cap",
+        written_paths=written_paths,
+        final_text=final_text,
+    )
 
 
 async def _invoke_tool_safely(

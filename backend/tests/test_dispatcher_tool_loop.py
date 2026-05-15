@@ -513,6 +513,130 @@ async def test_dispatcher_sends_repetition_nudge_back_to_model(
 
 
 @pytest.mark.asyncio
+async def test_dispatcher_preserves_partial_work_when_budget_hits_after_writes(
+    db_session, mock_tenant_id, seeded_tenant, mock_stream_manager, tmp_path
+):
+    """When the work-phase round budget is exhausted but the model
+    *did* produce file writes (real scaffold attempt that doesn't
+    converge to a final summary in time), the partial work must
+    surface as a Deliverable with ``proof_state=human_review_required``
+    and the written paths as ``artifact_refs``. Losing the disk-of-files
+    on every budget hit is unacceptable for non-trivial tasks."""
+    from backend.src.core.domain import ProofState
+    from backend.src.models import RunAttempt, ToolEvent
+
+    # 18 distinct file_writes — enough to exceed work budget (16) by
+    # several rounds, with real artifacts to preserve.
+    scripts: list[list[dict[str, Any]]] = []
+    for i in range(18):
+        scripts.append(
+            [
+                {
+                    "id": f"call_{i}",
+                    "name": "file_write",
+                    "arguments": {"path": f"src/file_{i}.py", "content": f"X = {i}\n"},
+                }
+            ]
+        )
+    request, step = await _seed_request_with_step(db_session, mock_tenant_id)
+    executor = _ScriptedExecutor(tool_call_scripts=scripts, final_text="never reached")
+
+    result = await dispatch_run_attempt(
+        request=request,
+        work_step=step,
+        tenant_id=mock_tenant_id,
+        session=db_session,
+        stream_manager=mock_stream_manager,
+        executor=executor,
+        executor_kind="injected",
+        model="stub-model",
+        workspace_dir=tmp_path,
+    )
+
+    # Budget hit — terminal reason is a budget-class one.
+    assert (
+        "phase_round_budget_exceeded:work" in (result.terminal_reason or "")
+        or "catastrophic_round_budget_exceeded" in (result.terminal_reason or "")
+        or result.terminal_reason == "work_loop_iteration_cap"
+    )
+
+    # Deliverable IS created with the written paths and marked for review.
+    assert result.deliverable is not None
+    persisted = await db_session.get(Deliverable, result.deliverable.id)
+    assert persisted is not None
+    assert persisted.proof_state == ProofState.human_review_required
+    assert len(persisted.artifact_refs) > 0
+    # First-seen-order, deduplicated.
+    assert persisted.artifact_refs == sorted(set(persisted.artifact_refs), key=persisted.artifact_refs.index)
+    # And every artifact is one of the file_write targets the model attempted.
+    for ref in persisted.artifact_refs:
+        assert ref.startswith("src/file_") and ref.endswith(".py")
+
+    # No proof:queue message — we don't want the verifier to overwrite
+    # the human_review_required state we just stamped.
+    assert mock_stream_manager.publish.await_count == 0  # type: ignore[attr-defined]
+
+    # Run attempt + work step are still marked failed (no convergence).
+    await db_session.refresh(step)
+    assert step.status == WorkStepStatus.failed
+    attempt = await db_session.get(RunAttempt, result.attempt.id)
+    assert attempt is not None
+    # Budget / outer-cap terminators set ``failed`` (event-budget) or
+    # ``timed_out`` (outer iteration cap); both mean "didn't converge".
+    assert attempt.status in {RunAttemptStatus.failed, RunAttemptStatus.timed_out}
+
+    # ToolEvent rows exist for every file_write that did land.
+    events = (
+        (await db_session.execute(select(ToolEvent).where(ToolEvent.run_attempt_id == result.attempt.id)))
+        .scalars()
+        .all()
+    )
+    assert len(events) >= 16  # ran out by budget around the 17th
+
+
+@pytest.mark.asyncio
+async def test_dispatcher_real_task_budget_accommodates_scaffold_workflows(
+    db_session, mock_tenant_id, seeded_tenant, mock_stream_manager, tmp_path
+):
+    """A realistic small scaffold (~12 tool calls: README + config +
+    code + tests + a couple shell_exec runs) must converge to
+    ``summarized`` without the budget terminating early. Pins the
+    minimum-task-size envelope so a future ``PHASE_ROUND_BUDGETS[work]``
+    tweak that drops below this floor breaks the test."""
+    scripts: list[list[dict[str, Any]]] = [
+        [{"id": f"c{i}", "name": "file_write", "arguments": {"path": f"f{i}.py", "content": f"V={i}\n"}}]
+        for i in range(10)
+    ]
+    # Two shell_exec rounds (pytest invocations).
+    scripts.extend(
+        [
+            [{"id": "sh1", "name": "shell_exec", "arguments": {"command": "ls"}}],
+            [{"id": "sh2", "name": "shell_exec", "arguments": {"command": "ls -la"}}],
+        ]
+    )
+    request, step = await _seed_request_with_step(db_session, mock_tenant_id)
+    executor = _ScriptedExecutor(tool_call_scripts=scripts, final_text="Scaffolded.")
+
+    result = await dispatch_run_attempt(
+        request=request,
+        work_step=step,
+        tenant_id=mock_tenant_id,
+        session=db_session,
+        stream_manager=mock_stream_manager,
+        executor=executor,
+        executor_kind="injected",
+        model="stub-model",
+        workspace_dir=tmp_path,
+    )
+
+    assert result.terminal_reason == "summarized"
+    assert result.deliverable is not None
+    persisted = await db_session.get(Deliverable, result.deliverable.id)
+    assert persisted is not None
+    assert len(persisted.artifact_refs) == 10
+
+
+@pytest.mark.asyncio
 async def test_dispatcher_caps_outer_loop_iterations(
     db_session, mock_tenant_id, seeded_tenant, mock_stream_manager, tmp_path
 ):
