@@ -36,6 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.src.core.deliverables import WorkOutputDraft, create_deliverable_from_work_output
 from backend.src.core.domain import (
     DeliverableType,
+    ProofAspectStatus,
     ProofState,
     RunAttemptPhase,
     RunAttemptStatus,
@@ -71,6 +72,17 @@ SUMMARY_PREVIEW_CHARS = 500
 # (no ToolEvent rows means the round-budget logic never fires).
 MAX_WORK_LOOP_ITERATIONS = 32
 MAX_NO_WORK_NUDGES = 2
+
+# Aspect-feedback loop: after the model converges (natural exit, no
+# tool_calls), the dispatcher probes the workspace's verification
+# aspects (test / lint / install_smoke / build). If any blocking aspect
+# fails, the failure summary is injected as a user message and the
+# work phase re-enters for ``MAX_ASPECT_RETRY_ROUNDS`` more turns so
+# the model can self-correct from the actual verifier output instead
+# of guessing from prompt rules. Retries are capped so a stubborn
+# failure doesn't pin the model in an infinite loop.
+MAX_ASPECT_RETRIES = 2
+MAX_ASPECT_RETRY_ROUNDS = 10
 
 
 @dataclass(frozen=True)
@@ -154,6 +166,28 @@ async def dispatch_run_attempt(
             workspace_dir=workspace_dir,
             session=session,
         )
+        # Aspect-feedback retry loop. Probe the workspace's verification
+        # aspects; if any blocking aspect failed, inject the failure
+        # output as a user message and re-enter the work phase for up
+        # to MAX_ASPECT_RETRY_ROUNDS more rounds. The model now self-
+        # corrects from the actual verifier output instead of needing
+        # an exhaustive list of "trap X causes Y" rules in the prompt.
+        # Skipped when the work phase produced no writes (nothing to
+        # verify) or the workspace dir isn't set (no aspects apply).
+        if written_paths and workspace_dir is not None:
+            output_text, written_paths = await _aspect_feedback_retry_loop(
+                attempt=attempt,
+                request=request,
+                workspace_dir=workspace_dir,
+                output_text=output_text,
+                written_paths=written_paths,
+                messages=messages,
+                metadata=metadata,
+                model=model or "",
+                executor=executor,
+                tool_registry=tool_registry,
+                session=session,
+            )
     except _ToolLoopTerminated as terminated:
         await transition_work_step(step=work_step, target=WorkStepStatus.failed, session=session)
         # Partial-work preservation: if the model produced any file
@@ -475,6 +509,122 @@ def _workspace_overview(workspace_dir: Path | str | None) -> str:
     return "\n".join(overview)
 
 
+async def _aspect_feedback_retry_loop(
+    *,
+    attempt: RunAttempt,
+    request: Request,
+    workspace_dir: Path | str,
+    output_text: str,
+    written_paths: list[str],
+    messages: list[dict[str, Any]],
+    metadata: dict[str, Any],
+    model: str,
+    executor: ExecutorClient,
+    tool_registry: ToolRegistry | None,
+    session: AsyncSession,
+) -> tuple[str, list[str]]:
+    """Re-enter ``_run_work_phase`` up to ``MAX_ASPECT_RETRIES`` times
+    when the model converged but verification aspects failed.
+
+    Each retry: probe blocking aspects via ``probe_aspects`` (no DB
+    persistence; idempotent), if any failed inject the failure as a
+    user message + the model's prior summary as an assistant turn,
+    and run the work phase for ``MAX_ASPECT_RETRY_ROUNDS`` more rounds.
+    Stops when aspects pass or retries exhaust.
+
+    Returns the final ``(output_text, written_paths)`` — written_paths
+    accumulates across retries. Telemetry records ``aspect_retries``."""
+    # Lazy import: ``run_attempt_executor`` is imported by
+    # ``verification`` indirectly via orchestration; the deferred import
+    # mirrors the circular-import break we set up for ``advance_request_after_proof``.
+    from backend.src.core.verification import probe_aspects  # noqa: PLC0415
+
+    retries = 0
+    while retries < MAX_ASPECT_RETRIES:
+        try:
+            results = await probe_aspects(
+                workspace_root=workspace_dir,
+                deliverable_type=DeliverableType.code,
+                changed_files=tuple(written_paths),
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception(
+                "aspect_probe_crashed_during_retry_loop",
+                run_attempt_id=str(attempt.id),
+                request_id=str(request.id),
+                error=str(exc),
+            )
+            break
+
+        failures = [r for r in results if r.blocking and r.status != ProofAspectStatus.passed]
+        if not failures:
+            break
+
+        retries += 1
+        logger.info(
+            "aspect_feedback_retry",
+            run_attempt_id=str(attempt.id),
+            retry=retries,
+            failures=[f.aspect_type.value for f in failures],
+        )
+
+        feedback = _format_aspect_feedback(failures, retries_left=MAX_ASPECT_RETRIES - retries)
+        messages.append({"role": "assistant", "content": output_text or "(continued)"})
+        messages.append({"role": "user", "content": feedback})
+
+        try:
+            output_text, written_paths = await _run_work_phase(
+                attempt=attempt,
+                messages=messages,
+                metadata=metadata,
+                model=model,
+                executor=executor,
+                tool_registry=tool_registry,
+                workspace_dir=workspace_dir,
+                session=session,
+                max_iterations=MAX_ASPECT_RETRY_ROUNDS,
+                initial_written_paths=written_paths,
+            )
+        except _ToolLoopTerminated:
+            # Retry consumed its budget mid-fix. Don't escalate to the
+            # outer partial-work path — the prior pass's work_step
+            # state machine handled that already. Just exit with what
+            # we have.
+            break
+
+    # New dict reference so SQLAlchemy detects the JSON change (the
+    # default Mapped[dict] without MutableDict wrapping doesn't track
+    # in-place mutations).
+    telemetry = dict(attempt.telemetry or {})
+    telemetry["aspect_retries"] = retries
+    attempt.telemetry = telemetry
+    await session.flush()
+    return output_text, written_paths
+
+
+def _format_aspect_feedback(failures, retries_left: int) -> str:
+    """Compose a user message describing aspect failures so the model
+    can self-correct from the actual verifier output."""
+    parts = [
+        "The verification aspects you must pass before this work step ships "
+        "have FAILED. The deliverable will be auto-rejected unless every "
+        "blocking aspect ``passed``. Fix the underlying issues in the "
+        "workspace files, then re-run the relevant verifier command yourself "
+        "to confirm before sending your final plain-text summary."
+    ]
+    for failure in failures:
+        parts.append(
+            f"\n[{failure.aspect_type.value}] status={failure.status.value} "
+            f"exit_code={failure.exit_code}"
+        )
+        parts.append(failure.summary[:1500] if failure.summary else "(no summary)")
+    parts.append(
+        f"\nYou have {retries_left} aspect-retry round(s) left after this turn. "
+        "Use them — silent re-summary without fixing the failures wastes them."
+    )
+    return "\n".join(parts)
+
+
 class _ToolLoopTerminated(Exception):
     """Raised inside the work-phase loop when ``record_tool_event``
     fires a terminal reason (budget / repetition). The outer handler
@@ -511,6 +661,8 @@ async def _run_work_phase(
     tool_registry: ToolRegistry | None,
     workspace_dir: Path | str | None,
     session: AsyncSession,
+    max_iterations: int | None = None,
+    initial_written_paths: list[str] | None = None,
 ) -> tuple[str, list[str]]:
     """Tool-call loop for the work phase. Returns ``(final_text,
     written_paths)`` — the model's final plain-text response (persisted
@@ -521,16 +673,20 @@ async def _run_work_phase(
 
     The loop is bounded by both the per-phase ``record_tool_event``
     budget (already wired into the phase machine) and
-    ``MAX_WORK_LOOP_ITERATIONS`` as an outer safety net.
+    ``max_iterations`` (default ``MAX_WORK_LOOP_ITERATIONS``) as an
+    outer safety net. ``initial_written_paths`` lets the aspect-
+    feedback retry loop continue from a prior pass's accumulated
+    artifacts without losing them.
     """
     work_tools = list(ALLOWED_TOOLS_BY_PHASE[RunAttemptPhase.work])
     tools_schema = tool_registry.schema_for(work_tools) if tool_registry is not None else None
     workspace_dir_str = str(workspace_dir) if workspace_dir is not None else None
     final_text = ""
-    written_paths: list[str] = []
+    written_paths: list[str] = list(initial_written_paths or [])
     no_work_nudges = 0
+    iteration_cap = max_iterations if max_iterations is not None else MAX_WORK_LOOP_ITERATIONS
 
-    for _ in range(MAX_WORK_LOOP_ITERATIONS):
+    for _ in range(iteration_cap):
         executor_result = await executor.execute(
             messages=messages,
             metadata=metadata,
