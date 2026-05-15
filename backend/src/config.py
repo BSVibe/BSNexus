@@ -114,14 +114,18 @@ class Settings(BsvibeSettings):
     bsvibe_client_secret: str = ""
 
     # ── bsvibe-authz dispatch ───────────────────────────────────────
-    # 2-way auth: opaque RFC 7662 introspection → JWT.
-    # ``BSV_*``-prefixed aliases let prod operators use one consistent
-    # naming scheme across every product Settings class — matches the
-    # alias set on :class:`bsvibe_authz.Settings` so a single ``.env``
-    # configures the lib + product layers.
+    # User JWT verification with a JWT-shaped PAT introspection
+    # fallback (RFC 7662). ``BSV_*``-prefixed aliases let prod
+    # operators use one consistent naming scheme across every product
+    # Settings class — matches the alias set on
+    # :class:`bsvibe_authz.Settings` so a single ``.env`` configures
+    # the lib + product layers.
 
-    # RFC 7662 introspection endpoint for opaque ``bsv_sk_*`` tokens.
-    # Empty default → opaque path falls through to the JWT verifier.
+    # RFC 7662 introspection endpoint for the PAT-JWT fallback (tokens
+    # signed with SERVICE_TOKEN_SIGNING_SECRET, verified by jti via
+    # BSVibe-Auth's /oauth/introspect). The legacy ``bsv_sk_*`` opaque
+    # dispatch was retired in bsvibe-authz 1.3.0 — JWT-shape-gated only.
+    # Empty default → introspection fallback is disabled.
     introspection_url: str = Field(
         default="",
         validation_alias=AliasChoices("introspection_url", "bsv_introspection_url"),

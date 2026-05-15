@@ -2,8 +2,10 @@
 
 Single-file end-to-end exercise of the auth surface area:
 
-  (a) opaque token (``bsv_sk_*``) via mocked introspection — viewer role,
-      admin route returns 403 (opaque tokens cannot grant admin)
+  (a) PAT JWT (JWT-shaped, signed with the PAT signing secret rather
+      than ``USER_JWT_SECRET``) via mocked introspection — viewer
+      role, admin route returns 403 (PAT JWTs without an admin
+      ``app_metadata.role`` cannot grant admin)
   (b) e2e bypass (``settings.e2e_test_token`` set, non-prod) keeps working
   (c) garbage bearer ⇒ 401
 
@@ -11,13 +13,18 @@ These overlap deliberately with ``test_token_cutover_dispatch.py``: that
 file pins each dispatch branch in isolation; this file is the smoke test
 that proves the wired path is live (route → ``get_current_user`` →
 ``_dispatch_token`` → ``BSVibeUser`` → ``require_permission``).
+
+The legacy ``bsv_sk_*`` opaque token dispatch was retired in
+bsvibe-authz 1.3.0 — JWT shape is now the dispatch gate.
 """
 
 from __future__ import annotations
 
 import os
+import time
 from unittest.mock import AsyncMock, patch
 
+import jwt as pyjwt
 import pytest
 import pytest_asyncio
 from fastapi import APIRouter, Depends, FastAPI
@@ -29,6 +36,27 @@ from backend.src.core.auth import Permission, require_permission
 from backend.src.core.tenant_context import BSVibeUser
 from backend.src.main import create_app
 from backend.src.storage.database import Base, get_db
+
+# Signing material used to forge a PAT-JWT-shaped token whose
+# ``verify_user_jwt`` step fails — driving the introspection fallback.
+_PAT_SIGNING_SECRET = "dev-pat-signing-secret-with-at-least-32-bytes"
+_USER_JWT_SECRET = "dev-user-jwt-secret-with-at-least-32-bytes-different"
+
+
+def _build_pat_jwt(*, sub: str, scope: str = "bsnexus.projects.read") -> str:
+    """Forge a JWT-shaped token that ``verify_user_jwt`` will reject so
+    the dispatch falls through to introspection."""
+    now = int(time.time())
+    payload = {
+        "iss": "https://auth.bsvibe.dev",
+        "sub": sub,
+        "aud": "bsnexus",
+        "scope": scope,
+        "iat": now,
+        "exp": now + 3600,
+        "token_type": "pat",
+    }
+    return pyjwt.encode(payload, _PAT_SIGNING_SECRET, algorithm="HS256")
 
 
 @pytest_asyncio.fixture
@@ -96,32 +124,41 @@ def _scrub_env() -> dict[str, str]:
     return {k: v for k, v in os.environ.items() if k != "ENVIRONMENT"}
 
 
-# ── (a) Opaque path ──────────────────────────────────────────────────
+# ── (a) PAT-JWT introspection-fallback path ──────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_smoke_opaque_viewer_returns_403(smoke_client):
-    """Opaque tokens cannot grant admin via introspection alone (no
-    app_metadata path). The smoke route is admin-gated → 403."""
+async def test_smoke_pat_jwt_viewer_returns_403(smoke_client):
+    """PAT JWTs verified via introspection cannot grant admin (no
+    ``app_metadata.role`` path). The smoke route is admin-gated → 403.
+
+    Post-1.3.0 surrogate for the retired ``bsv_sk_*`` opaque smoke
+    test — the bearer is a JWT-shaped token signed with the PAT
+    secret (so ``verify_user_jwt`` fails) and the lib falls through
+    to ``verify_via_introspection``.
+    """
     from bsvibe_authz.types import IntrospectionResponse
 
     fake_client = AsyncMock()
     fake_client.introspect = AsyncMock(
         return_value=IntrospectionResponse(
             active=True,
-            sub="opaque-viewer",
+            sub="pat-viewer",
             scope=["bsnexus.projects.read"],
         ),
     )
 
+    pat_jwt = _build_pat_jwt(sub="pat-viewer")
+
     with (
         patch.dict(os.environ, _scrub_env(), clear=True),
+        patch.dict(os.environ, {"USER_JWT_SECRET": _USER_JWT_SECRET}),
         patch("backend.src.core.auth.settings.e2e_test_token", ""),
         patch("backend.src.core.auth._get_introspection_client", return_value=fake_client),
     ):
         resp = await smoke_client.get(
             "/api/v1/_test/admin-only",
-            headers={"Authorization": "Bearer bsv_sk_narrow-scope"},
+            headers={"Authorization": f"Bearer {pat_jwt}"},
         )
 
     assert resp.status_code == 403, resp.text
@@ -161,8 +198,8 @@ async def test_smoke_e2e_bypass_still_authenticates_in_dev(smoke_client):
 
 @pytest.mark.asyncio
 async def test_smoke_invalid_token_returns_401(smoke_client):
-    """Garbage bearer that's neither opaque nor a JWT must produce a
-    clean 401 — and the response MUST NOT echo the raw token."""
+    """Garbage bearer that isn't a valid JWT must produce a clean
+    401 — and the response MUST NOT echo the raw token."""
     bogus = "not-a-token-at-all"
     with (
         patch.dict(os.environ, _scrub_env(), clear=True),

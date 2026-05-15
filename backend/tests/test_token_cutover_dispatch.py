@@ -1,9 +1,18 @@
 """Auth dispatch via ``bsvibe-authz``.
 
-Pin: ``backend.src.core.auth.get_current_user`` dispatches by token prefix:
+Pin: ``backend.src.core.auth.get_current_user`` runs the bsvibe-authz
+flow:
 
-  * ``bsv_sk_*`` → :func:`bsvibe_authz.verify_opaque_token`
-  * otherwise    → :func:`bsvibe_authz.verify_user_jwt`
+  * JWT-shaped token → :func:`bsvibe_authz.verify_user_jwt`. On
+    failure, if the token still *looks* like a JWT and an
+    introspection client is configured, fall through to
+    :func:`bsvibe_authz.verify_via_introspection` (formerly
+    ``verify_opaque_token``). This serves PAT JWTs from the device
+    grant, which are signed with ``SERVICE_TOKEN_SIGNING_SECRET``
+    rather than ``USER_JWT_SECRET``.
+  * Non-JWT-shaped token → 401 without ever calling introspection.
+    The legacy ``bsv_sk_*`` opaque token prefix dispatch was retired
+    in bsvibe-authz 1.3.0 (Tier 2 of the 2026-05 auth cleanup).
 
 Pre-existing guarantees that MUST hold:
 
@@ -14,8 +23,10 @@ Pre-existing guarantees that MUST hold:
 from __future__ import annotations
 
 import os
-from unittest.mock import patch
+import time
+from unittest.mock import AsyncMock, patch
 
+import jwt as pyjwt
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -24,6 +35,33 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from backend.src.main import create_app
 from backend.src.storage.database import Base, get_db
+
+# Signing material used to forge a PAT-JWT-shaped token whose signature
+# verifier (``verify_user_jwt`` with ``USER_JWT_SECRET``) fails — driving
+# the introspection fallback in the new bsvibe-authz dispatch.
+_PAT_SIGNING_SECRET = "dev-pat-signing-secret-with-at-least-32-bytes"
+_USER_JWT_SECRET = "dev-user-jwt-secret-with-at-least-32-bytes-different"
+
+
+def _build_pat_jwt(*, sub: str = "pat-user", scope: str = "bsnexus.projects.read") -> str:
+    """Forge a JWT-shaped token that ``verify_user_jwt`` will reject.
+
+    Signed with a secret that is NOT ``USER_JWT_SECRET``, so the lib's
+    first verification step fails. Because the token still *looks* like
+    a JWT (three base64url segments), the dispatch falls through to the
+    introspection client — mirroring the device-grant PAT JWT flow.
+    """
+    now = int(time.time())
+    payload = {
+        "iss": "https://auth.bsvibe.dev",
+        "sub": sub,
+        "aud": "bsnexus",
+        "scope": scope,
+        "iat": now,
+        "exp": now + 3600,
+        "token_type": "pat",
+    }
+    return pyjwt.encode(payload, _PAT_SIGNING_SECRET, algorithm="HS256")
 
 
 @pytest_asyncio.fixture
@@ -84,7 +122,7 @@ async def test_arbitrary_bsv_admin_token_returns_401(authd_client):
 
 @pytest.mark.asyncio
 async def test_invalid_token_returns_401(authd_client):
-    """A garbage bearer that is neither ``bsv_sk_`` nor a valid JWT must
+    """A garbage bearer that is neither JWT-shaped nor a valid JWT must
     return 401 — the JWT verifier rejects it via the bsvibe-authz
     dispatch path."""
     env = {k: v for k, v in os.environ.items() if k != "ENVIRONMENT"}
@@ -127,21 +165,58 @@ async def test_e2e_bypass_short_circuits_before_dispatch(authd_client):
 
 
 @pytest.mark.asyncio
-async def test_opaque_token_passes_when_introspection_returns_active(authd_client):
-    """A ``bsv_sk_*`` opaque token must hit the introspection client and,
-    on an active response, resolve to a User."""
-    from unittest.mock import AsyncMock
+async def test_pat_jwt_passes_when_introspection_returns_active(authd_client):
+    """A JWT-shaped token whose ``verify_user_jwt`` step fails (signed
+    with the PAT signing secret rather than the user JWT secret) MUST
+    fall through to the introspection client and, on an active
+    response, resolve to a User.
 
+    This is the post-1.3.0 surrogate for the retired ``bsv_sk_*``
+    opaque path — JWT shape is now the dispatch gate.
+    """
     from bsvibe_authz.types import IntrospectionResponse
 
     fake_client = AsyncMock()
     fake_client.introspect = AsyncMock(
         return_value=IntrospectionResponse(
             active=True,
-            sub="opaque-user-123",
+            sub="pat-jwt-user",
             scope=["bsnexus.projects.read"],
         ),
     )
+
+    pat_jwt = _build_pat_jwt(sub="pat-jwt-user")
+
+    env = {k: v for k, v in os.environ.items() if k != "ENVIRONMENT"}
+    with (
+        patch.dict(os.environ, env, clear=True),
+        patch.dict(os.environ, {"USER_JWT_SECRET": _USER_JWT_SECRET}),
+        patch("backend.src.core.auth.settings.e2e_test_token", ""),
+        patch("backend.src.core.auth._get_introspection_client", return_value=fake_client),
+    ):
+        resp = await authd_client.get(
+            "/api/v1/auth/me",
+            headers={"Authorization": f"Bearer {pat_jwt}"},
+        )
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["id"] == "pat-jwt-user"
+    fake_client.introspect.assert_awaited_once_with(pat_jwt)
+
+
+@pytest.mark.asyncio
+async def test_legacy_bsv_sk_prefix_no_longer_dispatches(authd_client):
+    """Regression guard for the 1.3.0 opaque retirement.
+
+    A ``bsv_sk_*`` token is no longer JWT-shaped and is no longer
+    recognised by any prefix branch — it must 401 WITHOUT triggering
+    introspection. Before 1.3.0 this token shape was a dedicated
+    dispatch branch; after, it is identical to any other garbage
+    bearer.
+    """
+    fake_client = AsyncMock()
+    fake_client.introspect = AsyncMock()
 
     env = {k: v for k, v in os.environ.items() if k != "ENVIRONMENT"}
     with (
@@ -154,54 +229,35 @@ async def test_opaque_token_passes_when_introspection_returns_active(authd_clien
             headers={"Authorization": "Bearer bsv_sk_some-opaque-token"},
         )
 
-    assert resp.status_code == 200, resp.text
-    body = resp.json()
-    assert body["id"] == "opaque-user-123"
-    fake_client.introspect.assert_awaited_once_with("bsv_sk_some-opaque-token")
-
-
-@pytest.mark.asyncio
-async def test_opaque_token_path_disabled_returns_401(authd_client):
-    """When the introspection client is not configured the opaque path
-    returns 401 — no fall-through to the JWT verifier."""
-    env = {k: v for k, v in os.environ.items() if k != "ENVIRONMENT"}
-    with (
-        patch.dict(os.environ, env, clear=True),
-        patch("backend.src.core.auth.settings.introspection_url", ""),
-        patch("backend.src.core.auth.settings.e2e_test_token", ""),
-        patch("backend.src.core.auth._introspection_client", None),
-    ):
-        resp = await authd_client.get(
-            "/api/v1/auth/me",
-            headers={"Authorization": "Bearer bsv_sk_no-introspection"},
-        )
     assert resp.status_code == 401, resp.text
+    fake_client.introspect.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 async def test_query_string_token_works_for_sse(authd_client):
     """Browsers can't set Authorization headers on EventSource. The
     ``?token=`` query-string fallback must accept the same dispatch."""
-    from unittest.mock import AsyncMock
-
     from bsvibe_authz.types import IntrospectionResponse
 
     fake_client = AsyncMock()
     fake_client.introspect = AsyncMock(
         return_value=IntrospectionResponse(
             active=True,
-            sub="opaque-sse-user",
+            sub="pat-sse-user",
             scope=["bsnexus.events.read"],
         ),
     )
 
+    pat_jwt = _build_pat_jwt(sub="pat-sse-user", scope="bsnexus.events.read")
+
     env = {k: v for k, v in os.environ.items() if k != "ENVIRONMENT"}
     with (
         patch.dict(os.environ, env, clear=True),
+        patch.dict(os.environ, {"USER_JWT_SECRET": _USER_JWT_SECRET}),
         patch("backend.src.core.auth.settings.e2e_test_token", ""),
         patch("backend.src.core.auth._get_introspection_client", return_value=fake_client),
     ):
-        resp = await authd_client.get("/api/v1/auth/me?token=bsv_sk_query_string")
+        resp = await authd_client.get(f"/api/v1/auth/me?token={pat_jwt}")
 
     assert resp.status_code == 200, resp.text
 
