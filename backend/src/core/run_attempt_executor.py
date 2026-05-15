@@ -586,11 +586,21 @@ async def _aspect_feedback_retry_loop(
                 initial_written_paths=written_paths,
             )
         except _ToolLoopTerminated:
-            # Retry consumed its budget mid-fix. Don't escalate to the
-            # outer partial-work path — the prior pass's work_step
-            # state machine handled that already. Just exit with what
-            # we have.
-            break
+            # Retry consumed its budget mid-fix. ``finish_run_attempt``
+            # already ran inside ``_run_work_phase`` (the attempt is
+            # now ``terminal``), so the outer dispatcher MUST take the
+            # partial-work path next, not the natural-exit path — its
+            # next call is ``advance_phase`` which would crash on a
+            # terminal attempt. Re-raise so the outer ``except
+            # _ToolLoopTerminated`` handler stamps the partial deliverable.
+            # ``_run_work_phase`` already carried the accumulated
+            # written_paths into ``terminated.written_paths``; just
+            # record the partial retry count before re-raising.
+            telemetry = dict(attempt.telemetry or {})
+            telemetry["aspect_retries"] = retries
+            attempt.telemetry = telemetry
+            await session.flush()
+            raise
 
     # New dict reference so SQLAlchemy detects the JSON change (the
     # default Mapped[dict] without MutableDict wrapping doesn't track
