@@ -680,12 +680,68 @@ def is_setup_only_command(command: str | Sequence[str]) -> bool:
     return any(normalized[: len(prefix)] == prefix for prefix in SETUP_ONLY_COMMANDS)
 
 
+@dataclass(frozen=True)
+class AspectProbeResult:
+    """Aspect outcome from a dry-run probe — no DB persistence, no
+    ``VerificationAspect`` row created. Used by the dispatcher to inject
+    aspect-failure feedback back into the work-phase loop so the model
+    can self-correct before the verifier worker stamps the final proof.
+    """
+
+    aspect_type: ProofAspectType
+    status: ProofAspectStatus
+    summary: str
+    exit_code: int | None
+    blocking: bool
+
+
+async def probe_aspects(
+    *,
+    workspace_root: Path | str,
+    deliverable_type: DeliverableType,
+    changed_files: Sequence[str] = (),
+) -> list[AspectProbeResult]:
+    """Run every applicable aspect against the workspace without
+    persisting anything. Returns the per-aspect results so the caller
+    can decide to inject feedback / retry the work phase. The actual
+    verifier-worker run later re-runs the same aspects and persists
+    them; this probe is idempotent so the re-run is cheap when all
+    aspects already pass."""
+    root = Path(workspace_root)
+    specs = select_verification_aspects(
+        workspace_root=root,
+        deliverable_type=deliverable_type,
+        changed_files=changed_files,
+    )
+    results: list[AspectProbeResult] = []
+    for spec in specs:
+        runner = _RUNNERS.get(spec.aspect_type, _run_default_aspect)
+        try:
+            status, summary, exit_code = await runner(spec, root)
+        except Exception as exc:  # noqa: BLE001
+            status = ProofAspectStatus.error
+            summary = f"probe crashed: {exc.__class__.__name__}: {exc}"
+            exit_code = None
+        results.append(
+            AspectProbeResult(
+                aspect_type=spec.aspect_type,
+                status=status,
+                summary=summary,
+                exit_code=exit_code,
+                blocking=spec.blocking,
+            )
+        )
+    return results
+
+
 __all__ = [
+    "AspectProbeResult",
     "AspectSpec",
     "SETUP_ONLY_COMMANDS",
     "aspects_for_deliverable",
     "is_setup_only_command",
     "latest_aspect_of_type",
+    "probe_aspects",
     "rollup_proof_state",
     "run_verification",
     "select_verification_aspects",

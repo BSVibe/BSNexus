@@ -685,3 +685,115 @@ async def test_dispatcher_caps_outer_loop_iterations(
     )
     await db_session.refresh(step)
     assert step.status == WorkStepStatus.failed
+
+
+# ─────────────────── Aspect-feedback retry loop tests ─────────────────────
+
+
+@pytest.mark.asyncio
+async def test_aspect_feedback_retries_when_lint_fails_and_model_fixes_on_retry(
+    db_session, mock_tenant_id, seeded_tenant, mock_stream_manager, tmp_path
+):
+    """The model converges with files written; the workspace's ruff
+    declaration triggers code_lint which fails on the first pass; the
+    feedback loop injects the failure + lets the model file_write a
+    fix; on the second pass aspects all pass."""
+    # Workspace: pyproject with ruff declared so code_lint aspect activates.
+    (tmp_path / "pyproject.toml").write_text(
+        "[project]\nname='demo'\ndependencies=[]\n"
+        "[project.optional-dependencies]\ndev=['ruff>=0.5.0']\n"
+    )
+
+    request, step = await _seed_request_with_step(db_session, mock_tenant_id)
+    # Scripted executor: round 1 writes a file with a lint error, then
+    # converges (no tool_calls). Round 2 (after feedback) writes a
+    # clean version, then converges again.
+    executor = _ScriptedExecutor(
+        tool_call_scripts=[
+            [
+                {
+                    "id": "c1",
+                    "name": "file_write",
+                    "arguments": {"path": "demo.py", "content": "import time\nX = 1\n"},
+                }
+            ],
+            [
+                {
+                    "id": "c2",
+                    "name": "file_write",
+                    "arguments": {"path": "demo.py", "content": "X = 1\n"},
+                }
+            ],
+        ],
+        final_text="all clean",
+    )
+
+    result = await dispatch_run_attempt(
+        request=request,
+        work_step=step,
+        tenant_id=mock_tenant_id,
+        session=db_session,
+        stream_manager=mock_stream_manager,
+        executor=executor,
+        executor_kind="injected",
+        model="stub-model",
+        workspace_dir=tmp_path,
+    )
+
+    # Convergence reached (terminal "summarized") + the dispatcher kept
+    # the second-pass clean file → final state has no lint error.
+    assert result.terminal_reason == "summarized"
+    final = (tmp_path / "demo.py").read_text()
+    assert "import time" not in final
+    # Telemetry records at least one retry (the first probe surfaces
+    # the F401, the second probe passes).
+    await db_session.refresh(result.attempt)
+    assert (result.attempt.telemetry or {}).get("aspect_retries", 0) >= 1
+
+
+@pytest.mark.asyncio
+async def test_aspect_feedback_caps_at_max_retries_and_exits_with_failure(
+    db_session, mock_tenant_id, seeded_tenant, mock_stream_manager, tmp_path
+):
+    """When the model never fixes the lint error, the retry loop caps
+    at MAX_ASPECT_RETRIES and exits without infinite looping. The
+    deliverable still gets created — the verifier worker then stamps
+    the failure on the persisted aspect rows."""
+    (tmp_path / "pyproject.toml").write_text(
+        "[project]\nname='demo'\ndependencies=[]\n"
+        "[project.optional-dependencies]\ndev=['ruff>=0.5.0']\n"
+    )
+
+    request, step = await _seed_request_with_step(db_session, mock_tenant_id)
+    # Every round writes the SAME lint-broken file then converges.
+    executor = _ScriptedExecutor(
+        tool_call_scripts=[
+            [
+                {
+                    "id": f"c{i}",
+                    "name": "file_write",
+                    "arguments": {"path": "demo.py", "content": f"import time\nX = {i}\n"},
+                }
+            ]
+            for i in range(5)
+        ],
+        final_text="I don't know how to fix this",
+    )
+
+    result = await dispatch_run_attempt(
+        request=request,
+        work_step=step,
+        tenant_id=mock_tenant_id,
+        session=db_session,
+        stream_manager=mock_stream_manager,
+        executor=executor,
+        executor_kind="injected",
+        model="stub-model",
+        workspace_dir=tmp_path,
+    )
+
+    # Terminal still "summarized" (model said it was done each time);
+    # retries hit the cap.
+    assert result.terminal_reason == "summarized"
+    await db_session.refresh(result.attempt)
+    assert (result.attempt.telemetry or {}).get("aspect_retries") == 2
