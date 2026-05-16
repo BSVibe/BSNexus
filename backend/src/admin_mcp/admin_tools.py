@@ -4,8 +4,11 @@ One tool per ``bsnexus`` CLI command. Handlers delegate to the injected
 :data:`LoopbackCaller`, which drives the FastAPI app in-process so MCP
 tools share the EXACT same request handlers the CLI hits over HTTP.
 
-Naming follows ``bsnexus_<subapp>_<action>``. Required scopes mirror the
-REST routes the equivalent CLI command authenticates against.
+Naming follows ``bsnexus_<subapp>_<action>``. ``required_permission``
+mirrors the OpenFGA per-resource permission the equivalent REST route
+enforces (Tier 5 Phase 3a) — a ``bsnexus.<resource>.<action>`` dot
+string that maps to a row of
+``packages/bsvibe-authz/schema/permission_matrix.yaml``.
 
 The admin surface is deliberately read-heavy + a few targeted writes
 (create_project, resolve_decision, verify_deliverable). Write-heavy
@@ -268,7 +271,7 @@ def register_admin_tools(registry: ToolRegistry, lb: LoopbackCaller) -> None:
             input_schema=ProjectsListInput,
             output_schema=AdminToolResponse,
             handler=_h_projects_list(lb),
-            required_scopes=["bsnexus:projects:read"],
+            required_permission="bsnexus.projects.read",
         )
     )
     registry.register(
@@ -278,7 +281,7 @@ def register_admin_tools(registry: ToolRegistry, lb: LoopbackCaller) -> None:
             input_schema=ProjectsShowInput,
             output_schema=AdminToolResponse,
             handler=_h_projects_show(lb),
-            required_scopes=["bsnexus:projects:read"],
+            required_permission="bsnexus.projects.read",
         )
     )
     registry.register(
@@ -288,7 +291,7 @@ def register_admin_tools(registry: ToolRegistry, lb: LoopbackCaller) -> None:
             input_schema=ProjectsCreateInput,
             output_schema=AdminToolResponse,
             handler=_h_projects_create(lb),
-            required_scopes=["bsnexus:projects:write"],
+            required_permission="bsnexus.projects.write",
             audit_event="bsnexus.mcp.projects_create.invoked",
         )
     )
@@ -299,7 +302,7 @@ def register_admin_tools(registry: ToolRegistry, lb: LoopbackCaller) -> None:
             input_schema=ProjectsUpdateInput,
             output_schema=AdminToolResponse,
             handler=_h_projects_update(lb),
-            required_scopes=["bsnexus:projects:write"],
+            required_permission="bsnexus.projects.write",
             audit_event="bsnexus.mcp.projects_update.invoked",
         )
     )
@@ -310,7 +313,7 @@ def register_admin_tools(registry: ToolRegistry, lb: LoopbackCaller) -> None:
             input_schema=ProjectsDeleteInput,
             output_schema=AdminToolResponse,
             handler=_h_projects_delete(lb),
-            required_scopes=["bsnexus:projects:write"],
+            required_permission="bsnexus.projects.write",
             audit_event="bsnexus.mcp.projects_delete.invoked",
         )
     )
@@ -321,7 +324,7 @@ def register_admin_tools(registry: ToolRegistry, lb: LoopbackCaller) -> None:
             input_schema=RequestsListInput,
             output_schema=AdminToolResponse,
             handler=_h_requests_list(lb),
-            required_scopes=["bsnexus:requests:read"],
+            required_permission="bsnexus.requests.read",
         )
     )
     registry.register(
@@ -331,7 +334,7 @@ def register_admin_tools(registry: ToolRegistry, lb: LoopbackCaller) -> None:
             input_schema=DecisionsListInput,
             output_schema=AdminToolResponse,
             handler=_h_decisions_list(lb),
-            required_scopes=["bsnexus:decisions:read"],
+            required_permission="bsnexus.decisions.read",
         )
     )
     registry.register(
@@ -341,7 +344,7 @@ def register_admin_tools(registry: ToolRegistry, lb: LoopbackCaller) -> None:
             input_schema=DecisionsResolveInput,
             output_schema=AdminToolResponse,
             handler=_h_decisions_resolve(lb),
-            required_scopes=["bsnexus:decisions:write"],
+            required_permission="bsnexus.decisions.write",
             audit_event="bsnexus.mcp.decisions_resolve.invoked",
         )
     )
@@ -352,7 +355,7 @@ def register_admin_tools(registry: ToolRegistry, lb: LoopbackCaller) -> None:
             input_schema=DeliverablesListInput,
             output_schema=AdminToolResponse,
             handler=_h_deliverables_list(lb),
-            required_scopes=["bsnexus:deliverables:read"],
+            required_permission="bsnexus.deliverables.read",
         )
     )
     registry.register(
@@ -362,7 +365,7 @@ def register_admin_tools(registry: ToolRegistry, lb: LoopbackCaller) -> None:
             input_schema=DeliverablesVerifyInput,
             output_schema=AdminToolResponse,
             handler=_h_deliverables_verify(lb),
-            required_scopes=["bsnexus:deliverables:write"],
+            required_permission="bsnexus.deliverables.write",
             audit_event="bsnexus.mcp.deliverables_verify.invoked",
         )
     )
@@ -373,7 +376,7 @@ def register_admin_tools(registry: ToolRegistry, lb: LoopbackCaller) -> None:
             input_schema=BriefShowInput,
             output_schema=AdminToolResponse,
             handler=_h_brief_show(lb),
-            required_scopes=["bsnexus:brief:read"],
+            required_permission="bsnexus.brief.read",
         )
     )
 

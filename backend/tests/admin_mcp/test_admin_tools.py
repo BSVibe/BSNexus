@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 from typing import Any
 from unittest.mock import AsyncMock
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
-from bsvibe_authz import User
+from bsvibe_authz import Settings, User
+from bsvibe_authz.cache import PermissionCache
 from mcp.types import CallToolRequest, CallToolRequestParams, ListToolsRequest, ServerResult
 
 from backend.src.admin_mcp.admin_tools import (
@@ -23,7 +24,7 @@ from backend.src.admin_mcp.api import (
 from backend.src.admin_mcp.server import build_server
 
 
-def _make_user(scopes: list[str] | None = None, tenant: UUID | None = None) -> User:
+def _make_user(scopes: list[str] | None = None, tenant: str | None = None) -> User:
     return User(
         id="user-1",
         email="u@example.com",
@@ -32,6 +33,24 @@ def _make_user(scopes: list[str] | None = None, tenant: UUID | None = None) -> U
         is_service=False,
         scope=["bsnexus:*"] if scopes is None else scopes,
     )
+
+
+class _FakeFGA:
+    """Minimal :class:`bsvibe_authz.deps.FGAClientProtocol` stub."""
+
+    def __init__(self, *, allowed: bool) -> None:
+        self._allowed = allowed
+        self.checks: list[tuple[str, str, str]] = []
+
+    async def check(self, user: str, relation: str, object_: str) -> bool:
+        self.checks.append((user, relation, object_))
+        return self._allowed
+
+    async def list_objects(self, user: str, relation: str, type_: str) -> list[str]:
+        return []
+
+    async def write_tuple(self, user: str, relation: str, object_: str) -> None:
+        return None
 
 
 def _make_ctx() -> ToolContext:
@@ -120,18 +139,71 @@ class TestProjectsUpdateRequiresField:
         assert lb.await_count == 0
 
 
-class TestScopeEnforcement:
+class TestPermissionEnforcement:
+    """Tier 5 Phase 3a — MCP tool authz runs the shared OpenFGA
+    ``check_tenant_permission`` instead of scope-claim matching."""
+
     @pytest.mark.asyncio
-    async def test_caller_without_scope_is_denied(self) -> None:
+    async def test_caller_denied_by_openfga_check(self) -> None:
+        """With OpenFGA configured and the model returning False, the
+        dispatcher raises ``permission_denied`` and never calls loopback."""
         lb = AsyncMock()
         reg = ToolRegistry()
         register_admin_tools(reg, lb)
-        # Read tool with empty scope → permission_denied
-        ctx = ToolContext(user=_make_user(scopes=[]))
+        fga = _FakeFGA(allowed=False)
+        ctx = ToolContext(
+            user=_make_user(scopes=[], tenant=str(uuid4())),
+            authz_settings=Settings(
+                openfga_api_url="http://openfga.local",
+                openfga_store_id="store-1",
+                openfga_auth_model_id="model-1",
+            ),
+            fga=fga,
+            cache=PermissionCache(ttl_s=30),
+        )
         with pytest.raises(ToolError) as exc:
             await reg.call_tool("bsnexus_projects_list", {}, ctx)
         assert exc.value.code == "permission_denied"
+        assert "bsnexus.projects.read" in exc.value.message
         assert lb.await_count == 0
+        # The dispatcher ran the tenant-scoped OpenFGA check.
+        assert fga.checks
+        _user, relation, object_ = fga.checks[0]
+        assert relation == "bsnexus_projects_read"
+        assert object_.startswith("tenant:")
+
+    @pytest.mark.asyncio
+    async def test_caller_allowed_by_openfga_check(self) -> None:
+        """OpenFGA configured + model returning True → tool runs."""
+        lb = AsyncMock(return_value=[{"id": "p1"}])
+        reg = ToolRegistry()
+        register_admin_tools(reg, lb)
+        fga = _FakeFGA(allowed=True)
+        ctx = ToolContext(
+            user=_make_user(scopes=[], tenant=str(uuid4())),
+            authz_settings=Settings(
+                openfga_api_url="http://openfga.local",
+                openfga_store_id="store-1",
+                openfga_auth_model_id="model-1",
+            ),
+            fga=fga,
+            cache=PermissionCache(ttl_s=30),
+        )
+        result = await reg.call_tool("bsnexus_projects_list", {}, ctx)
+        assert result == [{"id": "p1"}]
+        assert lb.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_permissive_when_openfga_unconfigured(self) -> None:
+        """No ``authz_settings`` on the context → permissive fallback;
+        an authenticated caller passes even with an empty scope claim."""
+        lb = AsyncMock(return_value=[{"id": "p1"}])
+        reg = ToolRegistry()
+        register_admin_tools(reg, lb)
+        ctx = ToolContext(user=_make_user(scopes=[]))
+        result = await reg.call_tool("bsnexus_projects_list", {}, ctx)
+        assert result == [{"id": "p1"}]
+        assert lb.await_count == 1
 
 
 class TestServerCallToolWrapsInTextContent:
