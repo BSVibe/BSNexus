@@ -21,6 +21,7 @@ os.environ.setdefault("TESTING", "1")
 
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import event
@@ -48,6 +49,30 @@ def _make_mock_user(role: str = "admin") -> MagicMock:
     user.app_metadata = {"role": role, "tenant_id": str(TEST_TENANT_ID)}
     user.user_metadata = {}
     return user
+
+
+@pytest.fixture(autouse=True)
+def fake_aspect_venv(monkeypatch):
+    """Resolve the verifier aspect venv to the test interpreter.
+
+    The verifier builds an isolated venv (workspace install + pytest +
+    ruff) for code_test / code_lint aspects. In unit tests that would
+    mean a network ``pip install`` — slow and flaky (CI hit the 30s
+    pytest-timeout on it). Autouse so EVERY test that transitively runs
+    an aspect skips the network build; the patched build returns
+    ``sys.executable`` (the test env already carries pytest + ruff).
+    Tests that specifically exercise venv-build failure re-patch
+    ``_build_aspect_venv`` in their own body — the later patch wins.
+    The real build is covered by the prod dogfood smoke."""
+    import sys
+    from pathlib import Path
+
+    import backend.src.core.verification as verif
+
+    async def _fake_build(root, tmpdir):
+        return Path(sys.executable), None
+
+    monkeypatch.setattr(verif, "_build_aspect_venv", _fake_build)
 
 
 @pytest_asyncio.fixture

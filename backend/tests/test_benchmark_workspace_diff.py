@@ -168,7 +168,7 @@ async def test_bridge_reports_zero_files_touched_when_executor_does_not_write(
 
 @pytest.mark.asyncio
 async def test_bridge_reports_real_count_when_executor_writes_files(
-    db_engine, test_session_maker, mock_tenant_id, seeded_tenant, tmp_path
+    db_engine, test_session_maker, mock_tenant_id, seeded_tenant, tmp_path, fake_aspect_venv
 ):
     _seed_python_workspace(tmp_path)
     task = BenchmarkTask(
