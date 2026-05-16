@@ -315,4 +315,32 @@ async def test_x_active_tenant_header_threaded_to_authz_dispatch(authd_client):
     # The lib needs a real OpenFGA client to validate header-tenant
     # membership — a Depends() sentinel would AttributeError.
     assert captured["fga"] is not None
+
+
+@pytest.mark.asyncio
+async def test_x_active_tenant_query_param_fallback_for_sse(authd_client):
+    """Tier 3.2: SSE endpoints are consumed via EventSource, which cannot
+    set custom headers. ``get_current_user`` accepts ``?active_tenant=`` as
+    a fallback (mirroring the ``?token=`` bearer fallback) and threads it
+    as ``x_active_tenant``."""
+    from bsvibe_authz import User as AuthzUser
+
+    captured: dict[str, object] = {}
+
+    async def _fake_gcu(**kwargs: object) -> AuthzUser:
+        captured.update(kwargs)
+        return AuthzUser(id="u-1", email="u@bsvibe.dev", active_tenant_id="t-qry")
+
+    env = {k: v for k, v in os.environ.items() if k != "ENVIRONMENT"}
+    with (
+        patch.dict(os.environ, env, clear=True),
+        patch("backend.src.core.auth.settings.e2e_test_token", ""),
+        patch("backend.src.core.auth.bsvibe_authz_get_current_user", _fake_gcu),
+    ):
+        resp = await authd_client.get(
+            "/api/v1/auth/me?token=dummy.jwt.token&active_tenant=t-qry",
+        )
+
+    assert resp.status_code == 200, resp.text
+    assert captured["x_active_tenant"] == "t-qry"
     assert hasattr(captured["fga"], "check")

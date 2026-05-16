@@ -334,12 +334,15 @@ async def get_current_user(
         user = _build_e2e_test_user()
     else:
         # Tier 3.2: the active tenant is an explicit per-request signal —
-        # the raw Supabase JWT no longer carries it. Thread the header
-        # through so the lib resolves + membership-validates it.
-        user = await _dispatch_token(
-            raw_token,
-            x_active_tenant=request.headers.get("X-Active-Tenant"),
+        # the raw Supabase JWT no longer carries it. Thread it through so
+        # the lib resolves + membership-validates it. The SSE endpoint is
+        # consumed via EventSource, which cannot set custom headers — so
+        # accept ``?active_tenant=`` as a fallback, mirroring ``?token=``.
+        x_active_tenant = (
+            request.headers.get("X-Active-Tenant")
+            or request.query_params.get("active_tenant")
         )
+        user = await _dispatch_token(raw_token, x_active_tenant=x_active_tenant)
 
     tenant_id = _tenant_id_from_user(user)
     if tenant_id is not None and tenant_id != DEFAULT_TENANT_ID:
