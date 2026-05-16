@@ -21,7 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.src.core.auth import get_current_user
+from backend.src.core.auth import get_current_user, require_permission
 from backend.src.core.git_ops import BranchOpError, ensure_request_branch
 from backend.src.core.tenant_context import get_tenant_id
 from backend.src.models import Request
@@ -43,7 +43,19 @@ _REASON_TO_STATUS: dict[str, int] = {
 }
 
 
-@router.post("/{request_id}/branch", response_model=RequestBranchResponse)
+# NOTE: this is a mutating POST (ensures a git branch exists), but the
+# Tier-5 permission matrix only defines ``repo_branch.read`` — there is
+# no ``repo_branch.write`` row / OpenFGA relation. ``repo_branch`` is an
+# admin-surface resource (``read`` already requires the ``admin`` role),
+# so gating the ensure-branch POST on ``repo_branch.read`` still
+# restricts it to admins, which is the intended floor. Using a
+# non-matrix ``repo_branch.write`` string would map to an undefined
+# OpenFGA relation. Reported as an ambiguity in the Tier 5 handoff.
+@router.post(
+    "/{request_id}/branch",
+    response_model=RequestBranchResponse,
+    dependencies=[Depends(require_permission("bsnexus.repo_branch.read"))],
+)
 async def ensure_branch_for_request(
     request_id: uuid.UUID,
     _user=Depends(get_current_user),

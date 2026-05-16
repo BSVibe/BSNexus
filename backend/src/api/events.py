@@ -30,7 +30,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.src.core.auth import get_current_user
+from backend.src.core.auth import get_current_user, require_permission
 from backend.src.core.tenant_context import get_tenant_id
 from backend.src.models import Project
 from backend.src.queue.streams import RedisStreamManager
@@ -120,7 +120,7 @@ async def _event_generator(
             yield _format_sse(event_name, data)
 
 
-@router.get("")
+@router.get("", dependencies=[Depends(require_permission("bsnexus.events.read"))])
 async def stream_project_events(
     request: Request,
     project_id: uuid.UUID = Query(...),

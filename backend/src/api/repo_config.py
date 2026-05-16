@@ -31,7 +31,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.config import settings as app_settings
-from backend.src.core.auth import get_current_user
+from backend.src.core.auth import get_current_user, require_permission
 from backend.src.core.encryption import EncryptionManager
 from backend.src.core.tenant_context import get_tenant_id
 from backend.src.models.project import Project
@@ -67,7 +67,11 @@ async def _load_project(
     return project
 
 
-@router.get("", response_model=RepoConfigResponse | None)
+@router.get(
+    "",
+    response_model=RepoConfigResponse | None,
+    dependencies=[Depends(require_permission("bsnexus.repo_config.read"))],
+)
 async def get_repo_config(
     project_id: uuid.UUID = Query(...),
     _user=Depends(get_current_user),
@@ -78,7 +82,11 @@ async def get_repo_config(
     return redacted(project)
 
 
-@router.put("", response_model=RepoConfigResponse)
+@router.put(
+    "",
+    response_model=RepoConfigResponse,
+    dependencies=[Depends(require_permission("bsnexus.repo_config.write"))],
+)
 async def upsert_repo_config(
     payload: RepoConfigUpdate,
     project_id: uuid.UUID = Query(...),
@@ -110,7 +118,11 @@ async def upsert_repo_config(
     return result
 
 
-@router.delete("", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_permission("bsnexus.repo_config.delete"))],
+)
 async def delete_repo_config(
     project_id: uuid.UUID = Query(...),
     _user=Depends(get_current_user),

@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.core.audit import actor_from_user, get_emitter
-from backend.src.core.auth import get_current_user
+from backend.src.core.auth import get_current_user, require_permission
 from backend.src.core.tenant_context import get_tenant_id
 from backend.src.models import Project
 from backend.src.schemas import ProjectCreate, ProjectResponse, ProjectUpdate
@@ -30,7 +30,11 @@ async def _get_project_for_tenant(db: AsyncSession, project_id: uuid.UUID, tenan
     return project
 
 
-@router.get("", response_model=list[ProjectResponse])
+@router.get(
+    "",
+    response_model=list[ProjectResponse],
+    dependencies=[Depends(require_permission("bsnexus.projects.read"))],
+)
 async def list_projects(
     _user=Depends(get_current_user),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
@@ -83,7 +87,12 @@ async def _persist_project_with_audit(
     return project
 
 
-@router.post("", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=ProjectResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission("bsnexus.projects.write"))],
+)
 async def create_project(
     payload: ProjectCreate,
     user=Depends(get_current_user),
@@ -102,7 +111,11 @@ async def create_project(
     return project
 
 
-@router.get("/{project_id}", response_model=ProjectResponse)
+@router.get(
+    "/{project_id}",
+    response_model=ProjectResponse,
+    dependencies=[Depends(require_permission("bsnexus.projects.read"))],
+)
 async def get_project(
     project_id: uuid.UUID,
     _user=Depends(get_current_user),
@@ -112,7 +125,11 @@ async def get_project(
     return await _get_project_for_tenant(db, project_id, tenant_id)
 
 
-@router.patch("/{project_id}", response_model=ProjectResponse)
+@router.patch(
+    "/{project_id}",
+    response_model=ProjectResponse,
+    dependencies=[Depends(require_permission("bsnexus.projects.write"))],
+)
 async def update_project(
     project_id: uuid.UUID,
     payload: ProjectUpdate,
@@ -129,7 +146,11 @@ async def update_project(
     return project
 
 
-@router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{project_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_permission("bsnexus.projects.delete"))],
+)
 async def delete_project(
     project_id: uuid.UUID,
     _user=Depends(get_current_user),

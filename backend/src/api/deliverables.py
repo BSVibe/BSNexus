@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request as HttpReq
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.src.core.auth import get_current_user
+from backend.src.core.auth import get_current_user, require_permission
 from backend.src.core.deliverables import WorkOutputDraft, create_deliverable_from_work_output
 from backend.src.core.domain import (
     DeliverableStatus,
@@ -69,7 +69,12 @@ async def _assert_work_step_belongs(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "WorkStep not found")
 
 
-@router.post("", response_model=DeliverableResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=DeliverableResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission("bsnexus.deliverables.write"))],
+)
 async def create_deliverable(
     payload: DeliverableCreate,
     _user=Depends(get_current_user),
@@ -99,7 +104,11 @@ async def create_deliverable(
     return await _deliverable_response(db, deliverable)
 
 
-@router.get("", response_model=list[DeliverableResponse])
+@router.get(
+    "",
+    response_model=list[DeliverableResponse],
+    dependencies=[Depends(require_permission("bsnexus.deliverables.read"))],
+)
 async def list_deliverables(
     project_id: uuid.UUID | None = Query(None),
     limit: int = Query(_DEFAULT_LIMIT, ge=1, le=_MAX_LIMIT),
@@ -118,7 +127,11 @@ async def list_deliverables(
     return [await _deliverable_response(db, deliverable) for deliverable in deliverables]
 
 
-@router.post("/{deliverable_id}/verify", response_model=DeliverableResponse)
+@router.post(
+    "/{deliverable_id}/verify",
+    response_model=DeliverableResponse,
+    dependencies=[Depends(require_permission("bsnexus.deliverables.write"))],
+)
 async def verify_deliverable(
     deliverable_id: uuid.UUID,
     request: HttpRequest,

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.src.core.auth import get_current_user
+from backend.src.core.auth import get_current_user, require_permission
 from backend.src.core.tenant_context import get_tenant_id
 from backend.src.models import Project, Request
 from backend.src.schemas import RequestResponse
@@ -24,7 +24,11 @@ async def _assert_project_belongs(db: AsyncSession, project_id: uuid.UUID, tenan
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
 
 
-@router.get("", response_model=list[RequestResponse])
+@router.get(
+    "",
+    response_model=list[RequestResponse],
+    dependencies=[Depends(require_permission("bsnexus.requests.read"))],
+)
 async def list_requests(
     project_id: uuid.UUID | None = Query(None),
     limit: int = Query(_DEFAULT_LIMIT, ge=1, le=_MAX_LIMIT),

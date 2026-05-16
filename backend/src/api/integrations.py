@@ -20,7 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.config import settings as app_settings
-from backend.src.core.auth import get_current_user
+from backend.src.core.auth import get_current_user, require_permission
 from backend.src.core.encryption import EncryptionManager
 from backend.src.core.integrations import invalidate_tenant_cache
 from backend.src.core.tenant_context import get_tenant_id
@@ -66,7 +66,11 @@ async def _load_row(
     return (await db.execute(stmt)).scalar_one_or_none()
 
 
-@router.get("", response_model=IntegrationConfigList)
+@router.get(
+    "",
+    response_model=IntegrationConfigList,
+    dependencies=[Depends(require_permission("bsnexus.integrations.read"))],
+)
 async def list_integrations(
     _user=Depends(get_current_user),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
@@ -84,7 +88,11 @@ async def list_integrations(
     )
 
 
-@router.patch("/{provider}", response_model=IntegrationConfigResponse)
+@router.patch(
+    "/{provider}",
+    response_model=IntegrationConfigResponse,
+    dependencies=[Depends(require_permission("bsnexus.integrations.write"))],
+)
 async def update_integration(
     provider: str,
     payload: IntegrationConfigUpdate,
@@ -127,7 +135,11 @@ async def update_integration(
     return redacted(prov, row)
 
 
-@router.post("/{provider}/test", response_model=IntegrationTestResult)
+@router.post(
+    "/{provider}/test",
+    response_model=IntegrationTestResult,
+    dependencies=[Depends(require_permission("bsnexus.integrations.write"))],
+)
 async def test_integration(
     provider: str,
     _user=Depends(get_current_user),
