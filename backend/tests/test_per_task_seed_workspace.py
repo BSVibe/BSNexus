@@ -33,6 +33,7 @@ class _StubExecutor:
         mcp_servers: dict[str, Any] | None = None,
         tools: list[dict[str, Any]] | None = None,
         on_chunk: Callable[[str], Awaitable[None]] | None = None,
+        temperature: float | None = None,
     ) -> dict[str, Any]:
         self.calls.append({"workspace_dir": workspace_dir, "tools": tools})
         if not any(message.get("role") == "tool" for message in messages):

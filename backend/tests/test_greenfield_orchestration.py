@@ -58,6 +58,7 @@ class _StubExecutor:
         mcp_servers: dict[str, Any] | None = None,
         tools: list[dict[str, Any]] | None = None,
         on_chunk: Callable[[str], Awaitable[None]] | None = None,
+        temperature: float | None = None,
     ) -> dict[str, Any]:
         self.calls.append({"model": model})
         if not any(m.get("role") == "tool" for m in messages):
@@ -308,6 +309,7 @@ class _DecomposerStubExecutor:
         mcp_servers: dict[str, Any] | None = None,
         tools: list[dict[str, Any]] | None = None,
         on_chunk: Callable[[str], Awaitable[None]] | None = None,
+        temperature: float | None = None,
     ) -> dict[str, Any]:
         # Decompose phase = tools is None and we have a queued response.
         if tools is None and self.decompose_phase_responses:
