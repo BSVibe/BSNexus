@@ -52,6 +52,10 @@ export const AUTH_URL =
 const LS_ACCESS_TOKEN = 'bsnexus_access_token'
 const LS_REFRESH_TOKEN = 'bsnexus_refresh_token'
 const LS_EXPIRES_AT = 'bsnexus_expires_at'
+// Tier 3.2: the raw Supabase JWT carries no tenant claim — the active
+// tenant rides as an explicit `X-Active-Tenant` request header. Its value
+// comes from the /api/session body; cache it alongside the token.
+const LS_ACTIVE_TENANT = 'bsnexus_active_tenant'
 
 interface SessionTenant {
   id: string
@@ -68,6 +72,7 @@ interface SessionResponse {
 }
 
 let cachedToken: { value: string; expiresAt: number } | null = null
+let cachedActiveTenant: string | null = null
 
 interface AccessTokenOptions {
   probeRemoteSession?: boolean
@@ -97,6 +102,7 @@ function clearLocalStorageTokens(): void {
   localStorage.removeItem(LS_ACCESS_TOKEN)
   localStorage.removeItem(LS_REFRESH_TOKEN)
   localStorage.removeItem(LS_EXPIRES_AT)
+  localStorage.removeItem(LS_ACTIVE_TENANT)
 }
 
 export async function getAccessToken({
@@ -126,14 +132,42 @@ export async function getAccessToken({
       value: data.access_token,
       expiresAt: Date.now() + data.expires_in * 1000,
     }
+    // Tier 3.2: capture the operator-resolved active tenant from the same
+    // /api/session response so the API client can stamp X-Active-Tenant.
+    if (data.active_tenant_id) {
+      cachedActiveTenant = data.active_tenant_id
+      localStorage.setItem(LS_ACTIVE_TENANT, data.active_tenant_id)
+    }
     return data.access_token
   } catch {
     return null
   }
 }
 
+/**
+ * Resolve the active tenant id for the `X-Active-Tenant` request header
+ * (Tier 3.2). Returns the cached value, the localStorage fallback (set by
+ * the auth callback / a previous /api/session probe), or — when neither is
+ * present — triggers `getAccessToken`'s /api/session probe, which captures
+ * it as a side effect, and re-reads. `null` when there is no session.
+ */
+export async function getActiveTenantId({
+  probeRemoteSession = true,
+}: AccessTokenOptions = {}): Promise<string | null> {
+  if (cachedActiveTenant) return cachedActiveTenant
+  const stored = localStorage.getItem(LS_ACTIVE_TENANT)
+  if (stored) {
+    cachedActiveTenant = stored
+    return stored
+  }
+  if (!probeRemoteSession) return null
+  await getAccessToken({ probeRemoteSession })
+  return cachedActiveTenant
+}
+
 export function clearTokenCache() {
   cachedToken = null
+  cachedActiveTenant = null
   clearLocalStorageTokens()
 }
 
