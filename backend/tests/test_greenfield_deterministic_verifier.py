@@ -371,6 +371,71 @@ async def test_run_verification_with_no_applicable_aspects_human_review(
     assert aspects == []
 
 
+# ──────────────── install_smoke module derivation (Cycle 11) ─────────────
+
+
+def test_module_name_root_app_py(tmp_path):
+    from backend.src.core.verification import _pyproject_module_name
+
+    (tmp_path / "app.py").write_text("x = 1\n")
+    (tmp_path / "pyproject.toml").write_text("[project]\nname='whatever'\n")
+    assert _pyproject_module_name(tmp_path / "pyproject.toml", tmp_path) == "app"
+
+
+def test_module_name_src_layout_loose_entry_module(tmp_path):
+    """Cycle 11 dogfood case: Direction said "a single src/app.py is
+    fine" → src/app.py + src/__init__.py. Import target must be
+    ``src.app``, NOT the project name."""
+    from backend.src.core.verification import _pyproject_module_name
+
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "__init__.py").write_text("")
+    (src / "app.py").write_text("x = 1\n")
+    (tmp_path / "pyproject.toml").write_text("[project]\nname='task-tracker'\n")
+    assert _pyproject_module_name(tmp_path / "pyproject.toml", tmp_path) == "src.app"
+
+
+def test_module_name_src_nested_package(tmp_path):
+    from backend.src.core.verification import _pyproject_module_name
+
+    pkg = tmp_path / "src" / "task_tracker"
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text("")
+    (tmp_path / "pyproject.toml").write_text("[project]\nname='task-tracker'\n")
+    assert _pyproject_module_name(tmp_path / "pyproject.toml", tmp_path) == "task_tracker"
+
+
+def test_module_name_falls_back_to_project_name(tmp_path):
+    """No filesystem signal → declared project name (normalized)."""
+    from backend.src.core.verification import _pyproject_module_name
+
+    (tmp_path / "pyproject.toml").write_text("[project]\nname='my-pkg'\n")
+    assert _pyproject_module_name(tmp_path / "pyproject.toml", tmp_path) == "my_pkg"
+
+
+# ─────────────────── install_smoke diagnostic (Cycle 11) ─────────────────
+
+
+def test_install_smoke_hint_packaging_when_package_not_importable():
+    """The package itself missing → packaging-config diagnosis, so the
+    aspect-feedback retry loop can fix pyproject without the universal
+    prompt carrying stack-specific packaging law."""
+    from backend.src.core.verification import _install_smoke_hint
+
+    hint = _install_smoke_hint("task_tracker", "ModuleNotFoundError: No module named 'task_tracker'")
+    assert "packaging config" in hint.lower()
+    assert "pyproject" in hint.lower()
+
+
+def test_install_smoke_hint_missing_dep_when_other_module_missing():
+    """A *different* module missing → missing runtime dependency."""
+    from backend.src.core.verification import _install_smoke_hint
+
+    hint = _install_smoke_hint("task_tracker", "ModuleNotFoundError: No module named 'requests'")
+    assert "runtime dependency" in hint.lower()
+
+
 # ───────────────────── verifier venv (Cycle 9 fix) ──────────────────────
 
 

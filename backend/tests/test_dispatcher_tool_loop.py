@@ -152,9 +152,10 @@ def test_build_messages_includes_step_preamble_for_multi_step() -> None:
     assert "Already completed steps: Schema." in user_block
 
 
-def test_build_messages_system_prompt_has_tdd_rule() -> None:
-    """Rule 13 (test-first) must be in the work-phase system prompt —
-    the primary code-quality lever for Cycle 8."""
+def test_build_messages_system_prompt_has_core_rules() -> None:
+    """The work-phase system prompt keeps the general-principle rules:
+    test-first, no scratch scripts, Direction adherence, green-before-
+    finish."""
     from types import SimpleNamespace
 
     request = SimpleNamespace(intent="x")
@@ -163,11 +164,31 @@ def test_build_messages_system_prompt_has_tdd_rule() -> None:
     system = messages[0]["content"]
     assert "TEST-FIRST" in system
     assert "CONFIRM it fails" in system
-    # Rule 14 — no scratch verify scripts.
     assert "NO SCRATCH SCRIPTS" in system
-    # Rule 15 (Cycle 10) — build exactly what the Direction asks.
     assert "BUILD EXACTLY WHAT THE DIRECTION ASKS" in system
-    assert "sqlite3" in system
+    assert "GREEN BEFORE YOU FINISH" in system
+
+
+def test_build_messages_system_prompt_is_stack_agnostic() -> None:
+    """Cycle 11 cleanup: stack-specific trap rules (Python packaging,
+    docker-compose, flat-layout setuptools) were removed from the
+    universal prompt — the aspect-feedback retry loop self-corrects
+    those from real verifier output. The prompt must not hard-code a
+    single stack's tooling."""
+    from types import SimpleNamespace
+
+    request = SimpleNamespace(intent="x")
+    work_step = SimpleNamespace(name="s", objective="o", expected_outputs=[])
+    messages = _build_messages(request=request, work_step=work_step)
+    system = messages[0]["content"]
+    # No stack-locked trap text.
+    assert "PYTHON PACKAGING" not in system
+    assert "FLAT-LAYOUT SETUPTOOLS" not in system
+    assert "DOCKER COMPOSE" not in system
+    assert "py_modules" not in system
+    # "SQLite" survives only as an illustrative example, not as a
+    # Python-stdlib instruction.
+    assert "Python's built-in" not in system
 
 
 def test_build_messages_injects_agents_md_when_present() -> None:
