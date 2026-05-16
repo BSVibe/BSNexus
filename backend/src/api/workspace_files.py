@@ -24,7 +24,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.src.core.auth import get_current_user
+from backend.src.core.auth import get_current_user, require_permission
 from backend.src.core.tenant_context import get_tenant_id
 from backend.src.models.project import Project
 from backend.src.schemas.workspace import (
@@ -65,7 +65,11 @@ def _resolve_safe_path(workspace_root: Path, sub: str) -> Path:
     return target
 
 
-@router.get("", response_model=WorkspaceTreeResponse)
+@router.get(
+    "",
+    response_model=WorkspaceTreeResponse,
+    dependencies=[Depends(require_permission("bsnexus.workspace_files.read"))],
+)
 async def list_tree(
     project_id: uuid.UUID,
     path: str = Query("", max_length=1000),
@@ -100,7 +104,11 @@ async def list_tree(
     return WorkspaceTreeResponse(path=path, entries=entries)
 
 
-@router.get("/content", response_model=WorkspaceContentResponse)
+@router.get(
+    "/content",
+    response_model=WorkspaceContentResponse,
+    dependencies=[Depends(require_permission("bsnexus.workspace_files.read"))],
+)
 async def read_content(
     project_id: uuid.UUID,
     path: str = Query(..., min_length=1, max_length=1000),

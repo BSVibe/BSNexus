@@ -22,6 +22,8 @@ import enum
 import os
 from typing import Any, cast
 
+from collections.abc import Awaitable, Callable
+
 from bsvibe_authz import (
     IntrospectionCache,
     IntrospectionClient,
@@ -29,6 +31,7 @@ from bsvibe_authz import (
     User as AuthzUser,
 )
 from bsvibe_authz.deps import get_current_user as bsvibe_authz_get_current_user
+from bsvibe_authz.deps import require_permission as authz_require_permission
 from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -131,18 +134,23 @@ def _authz_settings() -> AuthzSettings:
     """Build a :class:`bsvibe_authz.Settings` instance from BSNexus env.
 
     Constructed per-call so test patches against ``backend.src.config.settings``
-    take effect without restarting the process. The OpenFGA fields are
-    placeholders — the dispatch never calls OpenFGA from BSNexus today
-    (RBAC still runs through :class:`Permission` / :func:`require_permission`).
+    take effect without restarting the process. Tier 5: the OpenFGA
+    coordinates are read from env (``OPENFGA_API_URL`` / ``OPENFGA_STORE_ID``
+    / ``OPENFGA_AUTH_MODEL_ID``) so the per-resource ``require_permission``
+    gates actually enforce in prod; empty in local dev / tests keeps the
+    permissive no-op posture.
     """
     user_jwt_secret = os.getenv("USER_JWT_SECRET")
     user_jwt_public_key = os.getenv("USER_JWT_PUBLIC_KEY")
     user_jwt_algorithm = cast(Any, os.getenv("USER_JWT_ALGORITHM", "HS256"))
     return AuthzSettings(
         bsvibe_auth_url=settings.bsvibe_auth_url,
-        openfga_api_url="",
-        openfga_store_id="",
-        openfga_auth_model_id="",
+        # Tier 5: read the OpenFGA coordinates from env so require_permission
+        # actually enforces in prod. Empty (local dev / tests) keeps the
+        # permissive no-op posture.
+        openfga_api_url=os.getenv("OPENFGA_API_URL", ""),
+        openfga_store_id=os.getenv("OPENFGA_STORE_ID", ""),
+        openfga_auth_model_id=os.getenv("OPENFGA_AUTH_MODEL_ID", ""),
         service_token_signing_secret=settings.service_token_signing_secret or "",
         user_jwt_secret=user_jwt_secret,
         user_jwt_public_key=user_jwt_public_key,
@@ -327,13 +335,19 @@ async def get_current_user(
     return user
 
 
-def require_permission(permission: Permission):
-    """FastAPI dependency that checks JWT auth + RBAC permission.
+def require_role_permission(permission: Permission):
+    """FastAPI dependency that checks JWT auth + JWT-claim RBAC permission.
+
+    The pre-Tier-5 role/permission guard — maps the caller's
+    ``app_metadata.role`` claim to a :class:`Permission` set and 403s on
+    a miss. Still used by internal test routers / token-cutover smoke
+    tests. The per-resource REST authorization gate is
+    :func:`require_permission` (Tier 5, OpenFGA-backed).
 
     Usage:
         @router.get("/admin/settings")
         async def get_settings(
-            user: BSVibeUser = Depends(require_permission(Permission.admin_settings)),
+            user: BSVibeUser = Depends(require_role_permission(Permission.admin_settings)),
         ):
             ...
     """
@@ -356,3 +370,57 @@ def require_permission(permission: Permission):
         return user
 
     return _check_permission
+
+
+# ---------------------------------------------------------------------------
+# Tier 5 — per-resource OpenFGA authorization gate
+# ---------------------------------------------------------------------------
+async def _authz_principal(user: BSVibeUser = Depends(get_current_user)) -> AuthzUser:
+    """Adapt BSNexus's :class:`BSVibeUser` into the :class:`bsvibe_authz.User`
+    shape that :func:`bsvibe_authz.deps.require_permission` consumes.
+
+    BSNexus authenticates with ``bsvibe-auth`` (``BSVibeUser`` — no
+    ``is_demo`` / ``is_service`` / ``active_tenant_id`` fields), while
+    the Tier-5 ``require_permission`` dep expects a ``bsvibe-authz``
+    ``User``. This adapter bridges the two so the per-resource OpenFGA
+    gate can be attached to every REST route without swapping the whole
+    auth dispatch.
+
+    Wiring ``get_current_user`` as a sub-dependency means a test
+    ``dependency_overrides[get_current_user]`` flows through here, and
+    the verified tenant id is still stamped onto ``request.state``.
+    """
+    metadata: dict[str, Any] = dict(user.app_metadata or {})
+    return AuthzUser(
+        id=user.id,
+        email=user.email,
+        active_tenant_id=metadata.get("tenant_id"),
+        tenants=[],
+        app_metadata=metadata,
+        user_metadata=dict(user.user_metadata or {}),
+        is_service=False,
+        is_demo=False,
+    )
+
+
+def require_permission(permission: str) -> Callable[..., Awaitable[None]]:
+    """Tier-5 per-resource authorization gate.
+
+    Builds a FastAPI dependency that runs the shared ``bsvibe-authz``
+    OpenFGA ``check(user, relation, object)`` for ``permission`` — a
+    ``"<product>.<resource>.<action>"`` string (e.g.
+    ``"bsnexus.projects.write"``). The minimum role per permission lives
+    in the OpenFGA model, generated from
+    ``packages/bsvibe-authz/schema/permission_matrix.yaml``.
+
+    Permissive mode: when ``OPENFGA_API_URL`` is unset (BSNexus's
+    dev/test/prod today), the dep authenticates the caller and returns
+    without an OpenFGA round-trip. The shared ``bsvibe-authz`` settings
+    read ``OPENFGA_API_URL`` from the environment; with it unset the
+    ``check`` is skipped. The route's own ``tenant_id`` filtering
+    remains the effective gate until tuples exist; flipping on OpenFGA
+    enforces the matrix with no code change.
+
+    Raises 403 on deny.
+    """
+    return authz_require_permission(permission, principal_dep=_authz_principal)

@@ -30,7 +30,6 @@ import structlog
 from bsvibe_authz import IntrospectionClient
 from bsvibe_authz import Settings as AuthzSettings
 from bsvibe_authz.cache import IntrospectionCache
-from bsvibe_authz.deps import get_settings as get_authz_settings
 from fastapi import FastAPI
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 
@@ -41,6 +40,7 @@ from backend.src.admin_mcp.api import (
     resolve_tool_context,
 )
 from backend.src.admin_mcp.server import build_server
+from backend.src.core.auth import _authz_settings
 
 logger = structlog.get_logger(__name__)
 
@@ -166,13 +166,19 @@ _request_headers_var: ContextVar[Mapping[str, str] | None] = ContextVar(
 def _build_introspection_inputs() -> tuple[AuthzSettings | None, IntrospectionClient | None, IntrospectionCache]:
     """Resolve bsvibe-authz Settings + introspection helpers.
 
-    Returns ``(None, None, fresh-cache)`` when the env vars for
-    introspection are missing — bootstrap-only deployments stay bootable.
+    Reuses :func:`backend.src.core.auth._authz_settings` so the MCP tool
+    dispatcher's auth + Tier-5 OpenFGA check share the EXACT same
+    ``bsvibe_authz.Settings`` construction the REST ``require_permission``
+    gate uses (one source of truth for the OpenFGA / JWT / introspection
+    config).
+
+    Returns ``(None, None, fresh-cache)`` when Settings cannot be built —
+    bootstrap-only deployments stay bootable.
     """
     from pydantic import ValidationError
 
     try:
-        authz_settings: AuthzSettings | None = get_authz_settings()
+        authz_settings: AuthzSettings | None = _authz_settings()
     except ValidationError as exc:
         logger.info("mcp_authz_settings_unavailable", reason="missing_env", missing=str(exc))
         return None, None, IntrospectionCache(ttl_s=60)

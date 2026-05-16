@@ -25,7 +25,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.src.core.auth import get_current_user
+from backend.src.core.auth import get_current_user, require_permission
 from backend.src.core.git_ops import PullRequestOpError, open_request_pr
 from backend.src.core.tenant_context import get_tenant_id
 from backend.src.models import Request
@@ -49,7 +49,11 @@ _REASON_TO_STATUS: dict[str, int] = {
 }
 
 
-@router.post("/{request_id}/pr", response_model=RequestPullRequestResponse)
+@router.post(
+    "/{request_id}/pr",
+    response_model=RequestPullRequestResponse,
+    dependencies=[Depends(require_permission("bsnexus.repo_pull_request.write"))],
+)
 async def open_pr_for_request(
     request_id: uuid.UUID,
     _user=Depends(get_current_user),

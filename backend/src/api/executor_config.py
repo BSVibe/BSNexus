@@ -21,7 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.config import settings as app_settings
-from backend.src.core.auth import get_current_user
+from backend.src.core.auth import get_current_user, require_permission
 from backend.src.core.encryption import EncryptionManager
 from backend.src.core.tenant_context import get_tenant_id
 from backend.src.models.executor_config import ExecutorConfig
@@ -46,7 +46,11 @@ async def _load_row(db: AsyncSession, tenant_id: uuid.UUID) -> ExecutorConfig | 
     return (await db.execute(stmt)).scalar_one_or_none()
 
 
-@router.get("", response_model=ExecutorConfigResponse | None)
+@router.get(
+    "",
+    response_model=ExecutorConfigResponse | None,
+    dependencies=[Depends(require_permission("bsnexus.executor_config.read"))],
+)
 async def get_executor_config(
     response: Response,
     _user=Depends(get_current_user),
@@ -57,7 +61,11 @@ async def get_executor_config(
     return redacted(row)
 
 
-@router.put("", response_model=ExecutorConfigResponse)
+@router.put(
+    "",
+    response_model=ExecutorConfigResponse,
+    dependencies=[Depends(require_permission("bsnexus.executor_config.write"))],
+)
 async def upsert_executor_config(
     payload: ExecutorConfigUpdate,
     _user=Depends(get_current_user),

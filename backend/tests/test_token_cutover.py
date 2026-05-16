@@ -12,7 +12,7 @@ Single-file end-to-end exercise of the auth surface area:
 These overlap deliberately with ``test_token_cutover_dispatch.py``: that
 file pins each dispatch branch in isolation; this file is the smoke test
 that proves the wired path is live (route → ``get_current_user`` →
-``_dispatch_token`` → ``BSVibeUser`` → ``require_permission``).
+``_dispatch_token`` → ``BSVibeUser`` → ``require_role_permission``).
 
 The legacy ``bsv_sk_*`` opaque token dispatch was retired in
 bsvibe-authz 1.3.0 — JWT shape is now the dispatch gate.
@@ -32,7 +32,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from backend.src.core.auth import Permission, require_permission
+from backend.src.core.auth import Permission, require_role_permission
 from backend.src.core.tenant_context import BSVibeUser
 from backend.src.main import create_app
 from backend.src.storage.database import Base, get_db
@@ -88,7 +88,7 @@ def _build_admin_router() -> APIRouter:
 
     @router.get("/api/v1/_test/admin-only")
     async def _admin_only(
-        user: BSVibeUser = Depends(require_permission(Permission.admin_settings)),
+        user: BSVibeUser = Depends(require_role_permission(Permission.admin_settings)),
     ) -> dict[str, str]:
         return {"id": user.id, "role": str(user.app_metadata.get("role"))}
 

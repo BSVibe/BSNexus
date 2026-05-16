@@ -6,7 +6,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request as HttpRequest, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.src.core.auth import get_current_user
+from backend.src.core.auth import get_current_user, require_permission
 from backend.src.core.directions import ingest_direction
 from backend.src.core.tenant_context import get_tenant_id
 from backend.src.schemas import (
@@ -25,7 +25,12 @@ logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/v1/directions", tags=["directions"])
 
 
-@router.post("", response_model=DirectionAckResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=DirectionAckResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_permission("bsnexus.directions.write"))],
+)
 async def post_direction(
     payload: DirectionCreate,
     http_request: HttpRequest,
