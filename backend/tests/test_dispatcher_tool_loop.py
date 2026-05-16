@@ -642,19 +642,21 @@ async def test_dispatcher_sends_repetition_nudge_back_to_model(
 async def test_dispatcher_preserves_partial_work_when_budget_hits_after_writes(
     db_session, mock_tenant_id, seeded_tenant, mock_stream_manager, tmp_path
 ):
-    """When the work-phase round budget is exhausted but the model
-    *did* produce file writes (real scaffold attempt that doesn't
-    converge to a final summary in time), the partial work must
-    surface as a Deliverable with ``proof_state=human_review_required``
-    and the written paths as ``artifact_refs``. Losing the disk-of-files
-    on every budget hit is unacceptable for non-trivial tasks."""
+    """When the work-phase round budget is exhausted with real file
+    writes, the system continues (handoff → fresh RunAttempt) — but the
+    continuation cap is finite. Once the cap is hit and the budget is
+    *still* exhausted, the partial work must surface as a Deliverable
+    with ``proof_state=human_review_required`` and the written paths as
+    ``artifact_refs``. Losing the disk-of-files at the cap is
+    unacceptable for non-trivial tasks."""
     from backend.src.core.domain import ProofState
     from backend.src.models import RunAttempt, ToolEvent
 
-    # 56 distinct file_writes — enough to exceed work budget (48) by
-    # several rounds, with real artifacts to preserve.
+    # 240 distinct file_writes — enough to exhaust the work budget (48)
+    # on the original RunAttempt AND all 3 continuations, so the
+    # continuation cap is reached with the budget still exceeded.
     scripts: list[list[dict[str, Any]]] = []
-    for i in range(56):
+    for i in range(240):
         scripts.append(
             [
                 {
