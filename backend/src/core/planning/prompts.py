@@ -38,6 +38,16 @@ Then output a JSON array of steps. Rules:
        produce
 4. Maximum {max_steps} steps. If the Request would need more, return
    {max_steps} and let the remainder be a follow-up split.
+5. EVERY step must produce a concrete code or file deliverable. NEVER
+   create a step whose only job is to run tests, verify, validate, or
+   "check that everything works" — an automated verifier runs pytest +
+   ruff after EVERY step already. A step like "Run and validate tests"
+   or "Verify endpoint functionality" is invalid: it produces nothing
+   and wastes a step slot. Testing is done *inside* each implementation
+   step (write the test alongside the code), not as a separate step.
+6. Prefer FEWER, meatier steps over many thin ones. A step should be a
+   natural commit-sized unit of work. "Set up pyproject.toml" alone is
+   too thin — fold project scaffolding into the first real step.
 
 It is fine to think out loud before the JSON. Wrap the final JSON in a
 ```json fenced block if you want — both fenced and bare JSON are

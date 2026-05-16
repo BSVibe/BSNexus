@@ -52,6 +52,32 @@ logger = structlog.get_logger(__name__)
 _WORK_STEP_NAME_MAX = 80
 
 
+_DEFAULT_AGENTS_MD = """\
+# AGENTS.md
+
+Project conventions for the AI working in this workspace. The founder
+owns this file — edit it to steer how work is done here. It supplements
+(does not replace) the built-in engineering rules.
+
+## Engineering discipline
+
+- **Test-first.** When implementing behaviour, write the test that pins
+  the contract first, watch it fail, then implement until it passes.
+- **One cohesive change per step.** Keep each step a commit-sized unit.
+- **Green before done.** `python -m pytest`, `python -m ruff check .`,
+  and `python -m ruff format --check .` must all exit 0 before you
+  hand off. These are separate tools — passing one is not passing all.
+- **No scratch scripts.** Don't author `run_tests.py` / `validate_*.py`
+  helper files — run `pytest` directly. They are not deliverables.
+
+## Layout
+
+- Prefer a `src/` package layout with tests under `tests/`.
+- `pyproject.toml` uses PEP 621 (`[project]`), never stdlib modules as
+  dependencies.
+"""
+
+
 def provision_workspace(project: Project) -> Path:
     """Return the on-disk workspace directory for ``project``, creating
     it when missing.
@@ -62,13 +88,30 @@ def provision_workspace(project: Project) -> Path:
     fall back to the managed path so a run never dies on a missing
     directory. The caller persists ``project.workspace_dir`` if this
     function had to assign one.
+
+    Also seeds a default ``AGENTS.md`` when the workspace has none —
+    the founder-editable conventions file. Once the project's repo
+    exists the repo owns it; BSNexus only seeds the initial copy.
     """
     if project.workspace_dir:
         path = Path(project.workspace_dir)
     else:
         path = Path(app_settings.workspace_root).resolve() / str(project.id)
     path.mkdir(parents=True, exist_ok=True)
+    _seed_agents_md(path)
     return path
+
+
+def _seed_agents_md(workspace: Path) -> None:
+    """Write a default ``AGENTS.md`` if the workspace has none. Idempotent
+    and never raises — a seeding failure must not block a run."""
+    agents_md = workspace / "AGENTS.md"
+    if agents_md.exists():
+        return
+    try:
+        agents_md.write_text(_DEFAULT_AGENTS_MD, encoding="utf-8")
+    except OSError as exc:
+        logger.warning("agents_md_seed_failed", workspace=str(workspace), error=str(exc))
 
 
 async def plan_and_dispatch_request(

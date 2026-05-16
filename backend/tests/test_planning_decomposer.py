@@ -270,3 +270,15 @@ async def test_decompose_default_metadata_has_phase_marker() -> None:
     )
     await decompose_request(_ctx("Anything"), executor=llm, model="m")
     assert llm.captured_metadata[0] == {"phase": "decompose"}
+
+
+def test_decomposer_prompt_forbids_verify_only_steps() -> None:
+    """Cycle 8 fix: the decomposer must not emit verify/run-tests steps.
+    Cycle 7 wasted 2 of 6 steps on 'Verify endpoint functionality' and
+    'Run and validate tests', which the verifier already does."""
+    from backend.src.core.planning.prompts import render_decomposer_messages
+
+    messages = render_decomposer_messages(_ctx("Build a thing"), max_steps=6)
+    system = messages[0]["content"]
+    assert "run tests, verify, validate" in system
+    assert "FEWER, meatier steps" in system

@@ -146,6 +146,39 @@ def test_provision_workspace_uses_explicit_dir(tmp_path) -> None:
     assert path.exists()
 
 
+def test_provision_workspace_seeds_default_agents_md(tmp_path) -> None:
+    project = Project(
+        id=uuid.uuid4(),
+        tenant_id=uuid.uuid4(),
+        name="p",
+        description="",
+        workspace_type=WorkspaceType.local_import,
+        workspace_dir=str(tmp_path / "ws"),
+    )
+    path = provision_workspace(project)
+    agents_md = path / "AGENTS.md"
+    assert agents_md.is_file()
+    assert "Test-first" in agents_md.read_text()
+
+
+def test_provision_workspace_preserves_existing_agents_md(tmp_path) -> None:
+    """Once the founder (or the project's repo) owns AGENTS.md, a later
+    provision call must not clobber it."""
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    (ws / "AGENTS.md").write_text("# my own conventions\n")
+    project = Project(
+        id=uuid.uuid4(),
+        tenant_id=uuid.uuid4(),
+        name="p",
+        description="",
+        workspace_type=WorkspaceType.local_import,
+        workspace_dir=str(ws),
+    )
+    provision_workspace(project)
+    assert (ws / "AGENTS.md").read_text() == "# my own conventions\n"
+
+
 # ───────────────────────── plan_and_dispatch_request ───────────────────────
 
 
