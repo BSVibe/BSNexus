@@ -54,6 +54,7 @@ from backend.src.core.domain import (
     ProofState,
 )
 from backend.src.core.verification_contract import VerificationContract, parse_verification_contract
+from backend.src.core.verification_judge import JudgeContext, judge_criteria
 from backend.src.models import Deliverable, VerificationAspect
 
 logger = structlog.get_logger(__name__)
@@ -90,6 +91,7 @@ async def run_verification(
     session: AsyncSession,
     changed_files: Sequence[str] = (),
     verification_contract: dict | None = None,
+    judge: JudgeContext | None = None,
 ) -> None:
     """Run the work step's verification and roll up to
     ``deliverable.proof_state``.
@@ -152,6 +154,7 @@ async def run_verification(
                 root=root,
                 venv_python=venv_python,
                 venv_error=venv_error,
+                judge=judge,
                 deliverable_id=str(deliverable.id),
             )
 
@@ -822,19 +825,22 @@ async def _run_docker_build(
 
 
 async def _run_llm_judge(
-    spec: AspectSpec, workspace_root: Path, venv_python: Path | None = None
+    spec: AspectSpec, workspace_root: Path, judge: JudgeContext | None
 ) -> tuple[ProofAspectStatus, str, int | None]:
-    """P1 stub for the declared ``judge`` check. The real LLM-as-judge
-    runner lands in P2; until then a judge check is ``skipped`` and
-    ``run_verification`` caps the deliverable at
-    ``human_review_required`` so the declared criteria are never
-    silently treated as passed."""
-    n = len(spec.required_refs)
-    return (
-        ProofAspectStatus.skipped,
-        f"llm_judge check ({n} criteria) — LLM-as-judge execution lands in P2",
-        None,
+    """Execute one declared ``judge`` check via the LLM-as-judge. When
+    no :class:`JudgeContext` is available (no executor wired) the check
+    is ``skipped`` — ``run_verification`` then caps the deliverable at
+    ``human_review_required`` so the criteria are never silently
+    treated as passed."""
+    if judge is None:
+        n = len(spec.required_refs)
+        return ProofAspectStatus.skipped, f"llm_judge check ({n} criteria) — no judge executor available", None
+    status, summary = await judge_criteria(
+        criteria=spec.required_refs,
+        workspace_root=workspace_root,
+        judge=judge,
     )
+    return status, summary, None
 
 
 _RUNNERS: dict[ProofAspectType, Any] = {
@@ -843,7 +849,6 @@ _RUNNERS: dict[ProofAspectType, Any] = {
     ProofAspectType.code_install_smoke: _run_install_smoke,
     ProofAspectType.code_build: _run_docker_build,
     ProofAspectType.declared_command: _run_default_aspect,
-    ProofAspectType.llm_judge: _run_llm_judge,
 }
 
 
@@ -853,6 +858,7 @@ async def _run_one_aspect(
     root: Path,
     venv_python: Path | None,
     venv_error: str | None,
+    judge: JudgeContext | None = None,
     deliverable_id: str | None = None,
 ) -> tuple[ProofAspectStatus, str, int | None]:
     """Dispatch one aspect to its runner.
@@ -861,6 +867,17 @@ async def _run_one_aspect(
     the aspect is ``error`` (infra failure → human_review_required in
     roll-up), NOT ``failed`` — a broken verifier env must not count
     against the model's code."""
+    if spec.aspect_type == ProofAspectType.llm_judge:
+        try:
+            return await _run_llm_judge(spec, root, judge)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception(
+                "verification_aspect_runner_crashed",
+                aspect_type=spec.aspect_type.value,
+                deliverable_id=deliverable_id,
+                error=str(exc),
+            )
+            return ProofAspectStatus.error, f"judge runner crashed: {exc.__class__.__name__}: {exc}", None
     needs_venv = _VENV_PYTHON_TOKEN in {part for cmd in spec.commands for part in cmd}
     if needs_venv and venv_python is None:
         return (
@@ -963,6 +980,7 @@ async def probe_aspects(
     deliverable_type: DeliverableType,
     changed_files: Sequence[str] = (),
     verification_contract: dict | None = None,
+    judge: JudgeContext | None = None,
 ) -> list[AspectProbeResult]:
     """Run every applicable aspect against the workspace without
     persisting anything. Returns the per-aspect results so the caller
@@ -988,6 +1006,7 @@ async def probe_aspects(
                 root=root,
                 venv_python=venv_python,
                 venv_error=venv_error,
+                judge=judge,
             )
             results.append(
                 AspectProbeResult(

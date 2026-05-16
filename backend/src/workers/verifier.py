@@ -31,8 +31,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from backend.src.core.domain import ProofState
 from backend.src.core.git_ops import CommitOpError, commit_deliverable
 from backend.src.core.git_ops.branch import GithubClientFactory
+from backend.src.core.executor_config.resolver import ExecutorConfigError, resolve_executor
 from backend.src.core.verification import run_verification
-from backend.src.models import Deliverable, Project, RunAttempt
+from backend.src.core.verification_judge import JudgeContext
+from backend.src.models import Deliverable, ExecutorConfig, Project, RunAttempt
 from backend.src.queue.streams import RedisStreamManager
 
 logger = structlog.get_logger(__name__)
@@ -81,6 +83,7 @@ async def process_one(
         session=session,
         changed_files=tuple(_artifact_paths(deliverable)),
         verification_contract=await _verification_contract_for(session, deliverable),
+        judge=await _judge_context_for(session, tenant_id, deliverable),
     )
 
     if (
@@ -185,6 +188,28 @@ async def _verification_contract_for(session: AsyncSession, deliverable: Deliver
         .limit(1)
     )
     return (await session.execute(stmt)).scalar_one_or_none()
+
+
+async def _judge_context_for(
+    session: AsyncSession, tenant_id: uuid.UUID, deliverable: Deliverable
+) -> JudgeContext | None:
+    """Resolve the tenant's LLM executor for the contract's ``judge``
+    checks. ``None`` (no executor configured / decrypt failure) → judge
+    checks are ``skipped`` → ``human_review_required`` downstream."""
+    try:
+        executor = await resolve_executor(tenant_id=tenant_id, session=session)
+    except ExecutorConfigError:
+        return None
+    if executor is None:
+        return None
+    config = (
+        await session.execute(select(ExecutorConfig).where(ExecutorConfig.tenant_id == tenant_id))
+    ).scalar_one_or_none()
+    return JudgeContext(
+        executor=executor,
+        model=(config.model if config and config.model else ""),
+        metadata={"tenant_id": str(tenant_id), "run_id": f"judge:{deliverable.id}"},
+    )
 
 
 async def _load_project(session: AsyncSession, project_id: uuid.UUID) -> Project:

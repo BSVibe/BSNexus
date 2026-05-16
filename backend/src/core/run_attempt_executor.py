@@ -55,6 +55,7 @@ from backend.src.core.run_attempts import (
     record_tool_event,
 )
 from backend.src.core.tools import ToolError, ToolRegistry
+from backend.src.core.verification_judge import JudgeContext
 from backend.src.core.work_steps import transition_work_step
 from backend.src.models import Deliverable, Request, RunAttempt, WorkStep
 from backend.src.models.executor_config import ExecutorConfig
@@ -379,6 +380,7 @@ async def _execute_one_attempt(
                     session=session,
                     changed_files=tuple(terminated.written_paths),
                     verification_contract=terminated.attempt.verification_contract,
+                    judge=JudgeContext(executor=executor, model=model or "", metadata=metadata),
                 )
             except Exception:
                 logger.exception(
@@ -882,6 +884,7 @@ async def _aspect_feedback_retry_loop(
                 deliverable_type=DeliverableType.code,
                 changed_files=tuple(written_paths),
                 verification_contract=(tool_registry.declared_contract if tool_registry is not None else None),
+                judge=JudgeContext(executor=executor, model=model or "", metadata=metadata),
             )
         except Exception as exc:  # noqa: BLE001
             logger.exception(
