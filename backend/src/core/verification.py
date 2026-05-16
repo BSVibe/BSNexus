@@ -447,18 +447,65 @@ def _pyproject_declares_deps(pyproject: Path) -> bool:
     return any(k for k in poetry_deps if k != "python")
 
 
+_NON_PACKAGE_DIRS = {"tests", "test", "docs", "doc", "examples", "scripts", "build", "dist"}
+_ENTRY_MODULE_NAMES = ("app", "main", "__main__", "cli")
+
+
 def _pyproject_module_name(pyproject: Path, root: Path) -> str | None:
     """Best-effort import name for the smoke ``python -c "import X"``.
 
+    Derives the import target from the *actual workspace layout* first,
+    falling back to the declared project name only when the filesystem
+    gives no signal. The layout-first order matters: a Direction like
+    "a single src/app.py is fine" produces a loose ``src/app.py`` whose
+    importable module is ``src.app`` — NOT ``<project-name>``. Trusting
+    the pyproject name there made install_smoke false-fail every
+    script-style deliverable (Cycle 11 dogfood).
+
     Priority:
-      1. ``app.py`` at workspace root → ``app`` (Heartline pattern)
-      2. ``[project].name`` (PEP 621)
-      3. ``[tool.poetry].name``
-      4. None → smoke import is skipped (returns ``passed`` after
-         install succeeds; install failure still catches dep drift)
+      1. root ``app.py`` / ``main.py`` → that module
+      2. ``src/<pkg>/__init__.py`` → ``<pkg>`` (proper src-layout package)
+      3. ``src/`` is itself a package (``src/__init__.py``) with an
+         entry module → ``src.<entry>``; else ``src``
+      4. loose ``src/<entry>.py`` (no ``src/__init__.py``) → ``<entry>``
+      5. a top-level ``<pkg>/__init__.py`` directory → ``<pkg>``
+      6. ``[project].name`` / ``[tool.poetry].name`` (PEP 621 / Poetry)
+      7. None → smoke import is skipped (install success alone still
+         catches dependency drift)
     """
-    if (root / "app.py").is_file():
-        return "app"
+    # 1. root-level entry module
+    for cand in _ENTRY_MODULE_NAMES:
+        if (root / f"{cand}.py").is_file():
+            return cand
+
+    src = root / "src"
+    if src.is_dir():
+        # 2. src/<pkg>/__init__.py — a real nested package
+        for child in sorted(src.iterdir()):
+            if child.is_dir() and (child / "__init__.py").is_file():
+                return child.name
+        if (src / "__init__.py").is_file():
+            # 3. src/ is itself the package
+            for cand in _ENTRY_MODULE_NAMES:
+                if (src / f"{cand}.py").is_file():
+                    return f"src.{cand}"
+            return "src"
+        # 4. loose src/<entry>.py with no package marker
+        for cand in _ENTRY_MODULE_NAMES:
+            if (src / f"{cand}.py").is_file():
+                return cand
+
+    # 5. a top-level package directory
+    for child in sorted(root.iterdir()):
+        if (
+            child.is_dir()
+            and child.name not in _NON_PACKAGE_DIRS
+            and not child.name.startswith(".")
+            and (child / "__init__.py").is_file()
+        ):
+            return child.name
+
+    # 6. fall back to the declared project name
     try:
         data = tomllib.loads(pyproject.read_text())
     except (OSError, tomllib.TOMLDecodeError):
@@ -572,6 +619,36 @@ async def _run_default_aspect(
     return ProofAspectStatus.passed, f"{cmd_summary} (exit 0)", last_exit
 
 
+def _install_smoke_hint(module: str, output: str) -> str:
+    """Turn a raw ``import`` failure into a self-diagnostic hint so the
+    aspect-feedback retry loop can act on it without the universal
+    system prompt carrying stack-specific packaging law.
+
+    Two distinct failure shapes:
+      - the package itself is not importable → packaging config is
+        wrong (the build doesn't expose the package, or pyproject's
+        project name doesn't match an importable module / a ``src/``
+        layout isn't declared).
+      - some *other* module is missing → a runtime dependency the
+        code imports is absent from the declared dependencies.
+    """
+    if f"No module named '{module}'" in output or f"No module named {module}" in output:
+        return (
+            f"DIAGNOSIS: ``pip install -e .`` succeeded but the package "
+            f"``{module}`` is still not importable. The packaging config does "
+            f"not expose your code as that package. Check that pyproject.toml's "
+            f"build config matches your actual file layout — e.g. a ``src/`` "
+            f"layout must declare its package directory, and the project name "
+            f"must correspond to a real importable module. Align the project "
+            f"name, the package directory, and where the files actually live."
+        )
+    return (
+        "DIAGNOSIS: the package imported but pulled in a module that is not "
+        "installed — a runtime dependency your code imports is missing from "
+        "the declared dependencies. Add the missing dependency to pyproject.toml."
+    )
+
+
 async def _run_install_smoke(
     spec: AspectSpec, workspace_root: Path, venv_python: Path | None = None
 ) -> tuple[ProofAspectStatus, str, int | None]:
@@ -635,8 +712,8 @@ async def _run_install_smoke(
         if exit_code != 0:
             return (
                 ProofAspectStatus.failed,
-                f"`python -c 'import {module}'` failed (exit {exit_code}) — "
-                f"declared deps in pyproject likely miss runtime imports\n{output}",
+                f"`python -c 'import {module}'` failed (exit {exit_code})\n"
+                f"{_install_smoke_hint(module, output)}\n{output}",
                 exit_code,
             )
         return ProofAspectStatus.passed, f"venv + install + import {module} (exit 0)", 0
