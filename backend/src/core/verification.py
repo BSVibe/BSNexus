@@ -27,6 +27,7 @@ roll-up needed.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import shlex
 import shutil
@@ -35,7 +36,7 @@ import sys
 import tempfile
 import tomllib
 import uuid
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -129,32 +130,25 @@ async def run_verification(
         aspects.append(aspect)
     await session.flush()
 
-    for spec, aspect in zip(specs, aspects, strict=True):
-        aspect.status = ProofAspectStatus.running
-        aspect.started_at = datetime.now(UTC)
-        await session.flush()
+    async with _aspect_venv(root, specs) as (venv_python, venv_error):
+        for spec, aspect in zip(specs, aspects, strict=True):
+            aspect.status = ProofAspectStatus.running
+            aspect.started_at = datetime.now(UTC)
+            await session.flush()
 
-        runner = _RUNNERS.get(spec.aspect_type, _run_default_aspect)
-        try:
-            status, summary, exit_code = await runner(spec, root)
-        except Exception as exc:  # noqa: BLE001
-            logger.exception(
-                "verification_aspect_runner_crashed",
-                aspect_type=spec.aspect_type.value,
+            status, summary, exit_code = await _run_one_aspect(
+                spec=spec,
+                root=root,
+                venv_python=venv_python,
+                venv_error=venv_error,
                 deliverable_id=str(deliverable.id),
-                error=str(exc),
-            )
-            status, summary, exit_code = (
-                ProofAspectStatus.error,
-                f"runner crashed: {exc.__class__.__name__}: {exc}",
-                None,
             )
 
-        aspect.status = status
-        aspect.result_summary = (summary or "")[:4000]
-        aspect.exit_code = exit_code
-        aspect.completed_at = datetime.now(UTC)
-        await session.flush()
+            aspect.status = status
+            aspect.result_summary = (summary or "")[:4000]
+            aspect.exit_code = exit_code
+            aspect.completed_at = datetime.now(UTC)
+            await session.flush()
 
     deliverable.proof_state = rollup_proof_state(aspects)
     if deliverable.proof_state == ProofState.verified:
@@ -214,9 +208,7 @@ async def latest_aspect_of_type(
     return (await session.execute(stmt)).scalar_one_or_none()
 
 
-async def aspects_for_deliverable(
-    *, deliverable_id: uuid.UUID, session: AsyncSession
-) -> list[VerificationAspect]:
+async def aspects_for_deliverable(*, deliverable_id: uuid.UUID, session: AsyncSession) -> list[VerificationAspect]:
     stmt = (
         select(VerificationAspect)
         .where(VerificationAspect.deliverable_id == deliverable_id)
@@ -278,10 +270,7 @@ def _code_test_aspect(root: Path, changed_files: Sequence[str]) -> AspectSpec | 
 
 
 def _python_test_runner(root: Path, changed_files: Sequence[str]) -> AspectSpec | None:
-    refs = [
-        name for name in ("pyproject.toml", "pytest.ini", "tox.ini", "setup.cfg")
-        if (root / name).exists()
-    ]
+    refs = [name for name in ("pyproject.toml", "pytest.ini", "tox.ini", "setup.cfg") if (root / name).exists()]
     has_tests_dir = (root / "tests").is_dir()
     root_test_files = _root_pytest_test_files(root)
     changed_test_files = [path for path in changed_files if _is_pytest_test_file(path)]
@@ -294,7 +283,12 @@ def _python_test_runner(root: Path, changed_files: Sequence[str]) -> AspectSpec 
             refs.append(tfile)
     return AspectSpec(
         aspect_type=ProofAspectType.code_test,
-        commands=((sys.executable, "-m", "pytest"),),
+        # ``<venv_python>`` is substituted at run time with an isolated
+        # venv that has the workspace installed + the verifier toolchain
+        # (pytest). The prod container's own interpreter does NOT carry
+        # pytest — it's a dev-only dependency — so running pytest there
+        # always failed "No module named pytest" (the Cycle 7-8 bug).
+        commands=(("<venv_python>", "-m", "pytest"),),
         required_refs=tuple(refs),
         timeout_s=300,
         blocking=True,
@@ -352,9 +346,10 @@ def _code_lint_aspect(root: Path) -> AspectSpec | None:
         return None
     return AspectSpec(
         aspect_type=ProofAspectType.code_lint,
+        # ``<venv_python>`` substituted at run time — see _python_test_runner.
         commands=(
-            (sys.executable, "-m", "ruff", "check", "."),
-            (sys.executable, "-m", "ruff", "format", "--check", "."),
+            ("<venv_python>", "-m", "ruff", "check", "."),
+            ("<venv_python>", "-m", "ruff", "format", "--check", "."),
         ),
         required_refs=("pyproject.toml",),
         timeout_s=60,
@@ -396,9 +391,7 @@ def _code_build_aspect(root: Path) -> AspectSpec | None:
         return None
     return AspectSpec(
         aspect_type=ProofAspectType.code_build,
-        commands=(
-            ("docker", "build", "--quiet", "--tag", "<tmptag>", "."),
-        ),
+        commands=(("docker", "build", "--quiet", "--tag", "<tmptag>", "."),),
         required_refs=("Dockerfile",),
         timeout_s=240,
         blocking=True,
@@ -454,18 +447,65 @@ def _pyproject_declares_deps(pyproject: Path) -> bool:
     return any(k for k in poetry_deps if k != "python")
 
 
+_NON_PACKAGE_DIRS = {"tests", "test", "docs", "doc", "examples", "scripts", "build", "dist"}
+_ENTRY_MODULE_NAMES = ("app", "main", "__main__", "cli")
+
+
 def _pyproject_module_name(pyproject: Path, root: Path) -> str | None:
     """Best-effort import name for the smoke ``python -c "import X"``.
 
+    Derives the import target from the *actual workspace layout* first,
+    falling back to the declared project name only when the filesystem
+    gives no signal. The layout-first order matters: a Direction like
+    "a single src/app.py is fine" produces a loose ``src/app.py`` whose
+    importable module is ``src.app`` — NOT ``<project-name>``. Trusting
+    the pyproject name there made install_smoke false-fail every
+    script-style deliverable (Cycle 11 dogfood).
+
     Priority:
-      1. ``app.py`` at workspace root → ``app`` (Heartline pattern)
-      2. ``[project].name`` (PEP 621)
-      3. ``[tool.poetry].name``
-      4. None → smoke import is skipped (returns ``passed`` after
-         install succeeds; install failure still catches dep drift)
+      1. root ``app.py`` / ``main.py`` → that module
+      2. ``src/<pkg>/__init__.py`` → ``<pkg>`` (proper src-layout package)
+      3. ``src/`` is itself a package (``src/__init__.py``) with an
+         entry module → ``src.<entry>``; else ``src``
+      4. loose ``src/<entry>.py`` (no ``src/__init__.py``) → ``<entry>``
+      5. a top-level ``<pkg>/__init__.py`` directory → ``<pkg>``
+      6. ``[project].name`` / ``[tool.poetry].name`` (PEP 621 / Poetry)
+      7. None → smoke import is skipped (install success alone still
+         catches dependency drift)
     """
-    if (root / "app.py").is_file():
-        return "app"
+    # 1. root-level entry module
+    for cand in _ENTRY_MODULE_NAMES:
+        if (root / f"{cand}.py").is_file():
+            return cand
+
+    src = root / "src"
+    if src.is_dir():
+        # 2. src/<pkg>/__init__.py — a real nested package
+        for child in sorted(src.iterdir()):
+            if child.is_dir() and (child / "__init__.py").is_file():
+                return child.name
+        if (src / "__init__.py").is_file():
+            # 3. src/ is itself the package
+            for cand in _ENTRY_MODULE_NAMES:
+                if (src / f"{cand}.py").is_file():
+                    return f"src.{cand}"
+            return "src"
+        # 4. loose src/<entry>.py with no package marker
+        for cand in _ENTRY_MODULE_NAMES:
+            if (src / f"{cand}.py").is_file():
+                return cand
+
+    # 5. a top-level package directory
+    for child in sorted(root.iterdir()):
+        if (
+            child.is_dir()
+            and child.name not in _NON_PACKAGE_DIRS
+            and not child.name.startswith(".")
+            and (child / "__init__.py").is_file()
+        ):
+            return child.name
+
+    # 6. fall back to the declared project name
     try:
         data = tomllib.loads(pyproject.read_text())
     except (OSError, tomllib.TOMLDecodeError):
@@ -482,28 +522,141 @@ def _pyproject_module_name(pyproject: Path, root: Path) -> str | None:
 # ──────────────────────────── aspect runners ──────────────────────────
 
 
+_VENV_PYTHON_TOKEN = "<venv_python>"
+
+
+def _resolve_command(cmd: Sequence[str], venv_python: Path | None) -> tuple[str, ...]:
+    """Substitute the ``<venv_python>`` placeholder with the verifier
+    venv's interpreter. Falls back to ``sys.executable`` only when no
+    venv was provided — a defensive path; callers mark the aspect
+    ``error`` upstream when the venv build failed, so this fallback
+    should not decide a real verdict."""
+    target = str(venv_python) if venv_python is not None else sys.executable
+    return tuple(target if part == _VENV_PYTHON_TOKEN else part for part in cmd)
+
+
+def _needs_aspect_venv(specs: Sequence[AspectSpec]) -> bool:
+    """True when any aspect command references the ``<venv_python>``
+    token — i.e. a Python pytest/ruff aspect that must run inside an
+    isolated venv carrying the verifier toolchain."""
+    return any(_VENV_PYTHON_TOKEN in cmd for spec in specs for cmd in spec.commands)
+
+
+async def _build_aspect_venv(root: Path, tmpdir: Path) -> tuple[Path | None, str | None]:
+    """Build a venv with the workspace installed + the verifier
+    toolchain (pytest, ruff). Returns ``(venv_python, error)`` — on
+    failure ``venv_python`` is None and ``error`` carries the reason
+    (the caller marks code_test/code_lint as ``error``, not ``failed``,
+    so an infra hiccup doesn't count against the model)."""
+    venv_dir = tmpdir / ".venv"
+    bin_dir = venv_dir / ("Scripts" if sys.platform == "win32" else "bin")
+    python = bin_dir / "python"
+    pip = bin_dir / "pip"
+
+    exit_code, output = await _run_command((sys.executable, "-m", "venv", str(venv_dir)), cwd=root, timeout_s=60)
+    if exit_code != 0:
+        return None, f"verifier venv create failed (exit {exit_code})\n{output}"
+
+    # Install the workspace itself when it's a package, so pytest sees
+    # the workspace's declared deps and ``import <pkg>`` resolves.
+    if (root / "pyproject.toml").exists():
+        exit_code, output = await _run_command((str(pip), "install", "--quiet", "-e", "."), cwd=root, timeout_s=300)
+        if exit_code != 0:
+            return None, f"verifier venv workspace install failed (exit {exit_code})\n{output}"
+
+    # The verifier toolchain — installed unconditionally so code_test /
+    # code_lint can always run regardless of what the workspace declared
+    # (a workspace pyproject may list ruff under [dev] or not at all).
+    exit_code, output = await _run_command(
+        (str(pip), "install", "--quiet", "pytest", "pytest-asyncio", "ruff", "httpx"),
+        cwd=root,
+        timeout_s=300,
+    )
+    if exit_code != 0:
+        return None, f"verifier toolchain install failed (exit {exit_code})\n{output}"
+
+    return python, None
+
+
+@contextlib.asynccontextmanager
+async def _aspect_venv(root: Path, specs: Sequence[AspectSpec]) -> AsyncIterator[tuple[Path | None, str | None]]:
+    """Yield ``(venv_python, error)`` for the duration of an aspect run.
+
+    Builds the venv once when any Python pytest/ruff aspect is present;
+    yields ``(None, None)`` when no venv is needed. The tmp tree is
+    always cleaned up. ``error`` is set (and ``venv_python`` None) when
+    the build failed."""
+    if not _needs_aspect_venv(specs):
+        yield None, None
+        return
+    tmpdir = Path(tempfile.mkdtemp(prefix="bsnexus-aspect-venv-"))
+    try:
+        venv_python, error = await _build_aspect_venv(root, tmpdir)
+        yield venv_python, error
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
 async def _run_default_aspect(
-    spec: AspectSpec, workspace_root: Path
+    spec: AspectSpec, workspace_root: Path, venv_python: Path | None = None
 ) -> tuple[ProofAspectStatus, str, int | None]:
-    """Run each command in order. First non-zero exit → failed."""
+    """Run each command in order. First non-zero exit → failed.
+
+    ``<venv_python>`` placeholders are substituted with the verifier
+    venv interpreter."""
     last_exit: int | None = 0
     for cmd in spec.commands:
-        exit_code, output = await _run_command(cmd, cwd=workspace_root, timeout_s=spec.timeout_s)
+        resolved = _resolve_command(cmd, venv_python)
+        exit_code, output = await _run_command(resolved, cwd=workspace_root, timeout_s=spec.timeout_s)
         last_exit = exit_code
         if exit_code != 0:
             return (
                 ProofAspectStatus.failed,
-                f"`{shlex.join(cmd)}` (exit {exit_code})\n{output}",
+                f"`{shlex.join(resolved)}` (exit {exit_code})\n{output}",
                 exit_code,
             )
-    cmd_summary = " && ".join(shlex.join(cmd) for cmd in spec.commands)
+    cmd_summary = " && ".join(shlex.join(_resolve_command(cmd, venv_python)) for cmd in spec.commands)
     return ProofAspectStatus.passed, f"{cmd_summary} (exit 0)", last_exit
 
 
+def _install_smoke_hint(module: str, output: str) -> str:
+    """Turn a raw ``import`` failure into a self-diagnostic hint so the
+    aspect-feedback retry loop can act on it without the universal
+    system prompt carrying stack-specific packaging law.
+
+    Two distinct failure shapes:
+      - the package itself is not importable → packaging config is
+        wrong (the build doesn't expose the package, or pyproject's
+        project name doesn't match an importable module / a ``src/``
+        layout isn't declared).
+      - some *other* module is missing → a runtime dependency the
+        code imports is absent from the declared dependencies.
+    """
+    if f"No module named '{module}'" in output or f"No module named {module}" in output:
+        return (
+            f"DIAGNOSIS: ``pip install -e .`` succeeded but the package "
+            f"``{module}`` is still not importable. The packaging config does "
+            f"not expose your code as that package. Check that pyproject.toml's "
+            f"build config matches your actual file layout — e.g. a ``src/`` "
+            f"layout must declare its package directory, and the project name "
+            f"must correspond to a real importable module. Align the project "
+            f"name, the package directory, and where the files actually live."
+        )
+    return (
+        "DIAGNOSIS: the package imported but pulled in a module that is not "
+        "installed — a runtime dependency your code imports is missing from "
+        "the declared dependencies. Add the missing dependency to pyproject.toml."
+    )
+
+
 async def _run_install_smoke(
-    spec: AspectSpec, workspace_root: Path
+    spec: AspectSpec, workspace_root: Path, venv_python: Path | None = None
 ) -> tuple[ProofAspectStatus, str, int | None]:
     """Fresh venv + ``pip install -e .`` + ``python -c "import X"``.
+
+    Builds its OWN venv on purpose — a clean-install smoke test must not
+    reuse the shared aspect venv. ``venv_python`` is accepted for runner
+    signature uniformity and ignored.
 
     Catches the heartline-style "import works in workspace because the
     workspace's interpreter already has the dep, but pyproject didn't
@@ -559,8 +712,8 @@ async def _run_install_smoke(
         if exit_code != 0:
             return (
                 ProofAspectStatus.failed,
-                f"`python -c 'import {module}'` failed (exit {exit_code}) — "
-                f"declared deps in pyproject likely miss runtime imports\n{output}",
+                f"`python -c 'import {module}'` failed (exit {exit_code})\n"
+                f"{_install_smoke_hint(module, output)}\n{output}",
                 exit_code,
             )
         return ProofAspectStatus.passed, f"venv + install + import {module} (exit 0)", 0
@@ -569,9 +722,12 @@ async def _run_install_smoke(
 
 
 async def _run_docker_build(
-    spec: AspectSpec, workspace_root: Path
+    spec: AspectSpec, workspace_root: Path, venv_python: Path | None = None
 ) -> tuple[ProofAspectStatus, str, int | None]:
     """``docker build --quiet`` against the workspace's Dockerfile.
+
+    ``venv_python`` is accepted for runner signature uniformity and
+    ignored — docker build needs no Python venv.
 
     Catches the class of Dockerfile bug that pytest/lint/install-smoke
     can't see: deprecated CLI invocations (``poetry export`` removed
@@ -606,9 +762,7 @@ async def _run_docker_build(
         # Best-effort cleanup. If docker isn't reachable here we're
         # already out of the aspect's verdict path; swallow the error.
         try:
-            await _run_command(
-                ("docker", "rmi", "--force", tag), cwd=workspace_root, timeout_s=30
-            )
+            await _run_command(("docker", "rmi", "--force", tag), cwd=workspace_root, timeout_s=30)
         except Exception:  # noqa: BLE001
             pass
 
@@ -621,12 +775,48 @@ _RUNNERS: dict[ProofAspectType, Any] = {
 }
 
 
+async def _run_one_aspect(
+    *,
+    spec: AspectSpec,
+    root: Path,
+    venv_python: Path | None,
+    venv_error: str | None,
+    deliverable_id: str | None = None,
+) -> tuple[ProofAspectStatus, str, int | None]:
+    """Dispatch one aspect to its runner.
+
+    When the aspect needs the verifier venv but the venv build failed,
+    the aspect is ``error`` (infra failure → human_review_required in
+    roll-up), NOT ``failed`` — a broken verifier env must not count
+    against the model's code."""
+    needs_venv = _VENV_PYTHON_TOKEN in {part for cmd in spec.commands for part in cmd}
+    if needs_venv and venv_python is None:
+        return (
+            ProofAspectStatus.error,
+            venv_error or "verifier venv unavailable",
+            None,
+        )
+    runner = _RUNNERS.get(spec.aspect_type, _run_default_aspect)
+    try:
+        return await runner(spec, root, venv_python)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception(
+            "verification_aspect_runner_crashed",
+            aspect_type=spec.aspect_type.value,
+            deliverable_id=deliverable_id,
+            error=str(exc),
+        )
+        return (
+            ProofAspectStatus.error,
+            f"runner crashed: {exc.__class__.__name__}: {exc}",
+            None,
+        )
+
+
 # ──────────────────────────── subprocess helper ──────────────────────────
 
 
-async def _run_command(
-    command: Sequence[str], *, cwd: Path, timeout_s: int
-) -> tuple[int | None, str]:
+async def _run_command(command: Sequence[str], *, cwd: Path, timeout_s: int) -> tuple[int | None, str]:
     try:
         process = await asyncio.create_subprocess_exec(
             *command,
@@ -714,23 +904,23 @@ async def probe_aspects(
         changed_files=changed_files,
     )
     results: list[AspectProbeResult] = []
-    for spec in specs:
-        runner = _RUNNERS.get(spec.aspect_type, _run_default_aspect)
-        try:
-            status, summary, exit_code = await runner(spec, root)
-        except Exception as exc:  # noqa: BLE001
-            status = ProofAspectStatus.error
-            summary = f"probe crashed: {exc.__class__.__name__}: {exc}"
-            exit_code = None
-        results.append(
-            AspectProbeResult(
-                aspect_type=spec.aspect_type,
-                status=status,
-                summary=summary,
-                exit_code=exit_code,
-                blocking=spec.blocking,
+    async with _aspect_venv(root, specs) as (venv_python, venv_error):
+        for spec in specs:
+            status, summary, exit_code = await _run_one_aspect(
+                spec=spec,
+                root=root,
+                venv_python=venv_python,
+                venv_error=venv_error,
             )
-        )
+            results.append(
+                AspectProbeResult(
+                    aspect_type=spec.aspect_type,
+                    status=status,
+                    summary=summary,
+                    exit_code=exit_code,
+                    blocking=spec.blocking,
+                )
+            )
     return results
 
 
