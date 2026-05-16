@@ -46,6 +46,7 @@ from backend.src.core.executor_config.protocol import ExecutorClient
 from backend.src.core.executor_config.resolver import resolve_executor
 from backend.src.core.run_attempts import (
     ALLOWED_TOOLS_BY_PHASE,
+    PHASE_ROUND_BUDGETS,
     ToolEventInput,
     accept_llm_phase_output,
     advance_phase,
@@ -88,6 +89,35 @@ MAX_NO_WORK_NUDGES = 2
 MAX_ASPECT_RETRIES = 2
 MAX_ASPECT_RETRY_ROUNDS = 10
 
+# Tier 1 continuation system. When a RunAttempt exhausts its work-round
+# budget but made real progress (file writes landed), it is NOT a
+# failure — it is a checkpoint. A model-independent handoff record is
+# generated and a fresh RunAttempt for the SAME WorkStep resumes the
+# work. Bounded so genuinely-pathological work still terminates:
+# original attempt + up to MAX_BUDGET_CONTINUATIONS continuations.
+# See ~/Docs/BSNexus_Budget_Handoff_Continuation_Design_2026-05-16.md.
+MAX_BUDGET_CONTINUATIONS = 3
+# Rounds before the work-phase budget at which a soft "wrap up the
+# change you're on, then stop" message is injected so the model lands
+# in a clean state rather than being hard-cut mid-edit.
+SOFT_PRESSURE_HEADROOM = 4
+# Terminal reasons that mean "ran out of room with progress" (→ may
+# continue) vs "genuinely stuck" (→ no continuation).
+_BUDGET_TERMINATION_REASONS = frozenset(
+    {
+        "phase_round_budget_exceeded:work",
+        "work_loop_iteration_cap",
+        "catastrophic_round_budget_exceeded",
+    }
+)
+
+
+def _is_budget_termination(reason: str) -> bool:
+    """True when ``reason`` is a budget-class termination — the model
+    ran out of rounds, as opposed to a genuine stall (0 writes, repeated
+    tool call, tool error)."""
+    return reason in _BUDGET_TERMINATION_REASONS
+
 
 @dataclass(frozen=True)
 class DispatchRunAttemptResult:
@@ -102,6 +132,22 @@ class DispatchRunAttemptResult:
     attempt: RunAttempt
     deliverable: Deliverable | None
     terminal_reason: str
+
+
+@dataclass
+class _AttemptOutcome:
+    """Outcome of one RunAttempt inside ``dispatch_run_attempt``'s
+    continuation loop. Exactly one of the two fields is set:
+
+    - ``result`` — a final ``DispatchRunAttemptResult``; the WorkStep
+      is in a terminal state, stop.
+    - ``handoff`` — the RunAttempt exhausted its budget with real
+      progress; this is the model-independent handoff record for the
+      next continuation RunAttempt to resume from.
+    """
+
+    result: DispatchRunAttemptResult | None = None
+    handoff: dict[str, Any] | None = None
 
 
 async def dispatch_run_attempt(
@@ -119,9 +165,14 @@ async def dispatch_run_attempt(
     total_steps: int | None = None,
     prior_step_names: tuple[str, ...] = (),
 ) -> DispatchRunAttemptResult:
-    """Drive ``work_step`` through one RunAttempt against
-    ``executor`` (resolved if ``None``) and enqueue the resulting
-    Deliverable on ``proof:queue``.
+    """Drive ``work_step`` to a terminal state and enqueue the
+    resulting Deliverable on ``proof:queue``.
+
+    Tier 1 continuation: a RunAttempt that exhausts its work-round
+    budget with real progress is not a failure — a handoff record is
+    generated and a fresh RunAttempt for the SAME WorkStep resumes the
+    work (bounded by ``MAX_BUDGET_CONTINUATIONS``). The WorkStep stays
+    ``running`` across the chain; the founder never sees a budget cut.
 
     Failure modes never raise — they're encoded as
     ``RunAttemptStatus.failed`` with a stable ``terminal_reason``
@@ -141,13 +192,68 @@ async def dispatch_run_attempt(
     if executor_kind is None:
         executor_kind = "injected"
 
+    seed_handoff: dict[str, Any] | None = None
+    outcome = _AttemptOutcome()
+    for continuation_index in range(MAX_BUDGET_CONTINUATIONS + 1):
+        outcome = await _execute_one_attempt(
+            request=request,
+            work_step=work_step,
+            tenant_id=tenant_id,
+            session=session,
+            stream_manager=stream_manager,
+            executor=executor,
+            executor_kind=executor_kind,
+            model=model,
+            workspace_dir=workspace_dir,
+            step_index=step_index,
+            total_steps=total_steps,
+            prior_step_names=prior_step_names,
+            seed_handoff=seed_handoff,
+            can_continue=continuation_index < MAX_BUDGET_CONTINUATIONS,
+        )
+        if outcome.handoff is None:
+            return outcome.result  # type: ignore[return-value]
+        seed_handoff = outcome.handoff
+        logger.info(
+            "run_attempt_continuation",
+            work_step_id=str(work_step.id),
+            continuation=continuation_index + 1,
+        )
+    # The final loop pass ran with can_continue=False, so its outcome
+    # always carries a final result — never a handoff.
+    return outcome.result  # type: ignore[return-value]
+
+
+async def _execute_one_attempt(
+    *,
+    request: Request,
+    work_step: WorkStep,
+    tenant_id: uuid.UUID,
+    session: AsyncSession,
+    stream_manager: RedisStreamManager,
+    executor: ExecutorClient,
+    executor_kind: str,
+    model: str | None,
+    workspace_dir: Path | str | None,
+    step_index: int | None,
+    total_steps: int | None,
+    prior_step_names: tuple[str, ...],
+    seed_handoff: dict[str, Any] | None,
+    can_continue: bool,
+) -> _AttemptOutcome:
+    """Run one RunAttempt for ``work_step``. Returns an ``_AttemptOutcome``
+    — a final result, OR a handoff record signalling continuation when
+    the budget was exhausted with real progress and ``can_continue``."""
     attempt = await create_run_attempt(
         work_step=work_step,
         executor_kind=executor_kind,
         model=model,
         session=session,
     )
-    await transition_work_step(step=work_step, target=WorkStepStatus.running, session=session)
+    # A continuation RunAttempt finds the WorkStep already ``running`` —
+    # it stays ``running`` across the whole RunAttempt chain.
+    if work_step.status != WorkStepStatus.running:
+        await transition_work_step(step=work_step, target=WorkStepStatus.running, session=session)
     await advance_phase(attempt=attempt, target=RunAttemptPhase.work, session=session)
 
     metadata = {
@@ -167,6 +273,7 @@ async def dispatch_run_attempt(
         total_steps=total_steps,
         prior_step_names=prior_step_names,
         agents_md=agents_md,
+        handoff=seed_handoff,
     )
 
     try:
@@ -203,6 +310,25 @@ async def dispatch_run_attempt(
                 session=session,
             )
     except _ToolLoopTerminated as terminated:
+        # Budget-class termination + real progress + room left →
+        # checkpoint, not failure: generate a model-independent handoff
+        # record and signal the continuation loop. The WorkStep stays
+        # ``running`` — a fresh RunAttempt will resume.
+        if can_continue and terminated.written_paths and _is_budget_termination(terminated.reason):
+            handoff = await _generate_handoff_record(
+                attempt=terminated.attempt,
+                work_step=work_step,
+                messages=messages,
+                written_paths=terminated.written_paths,
+                final_text=terminated.final_text,
+                model=model or "",
+                executor=executor,
+                metadata=metadata,
+                workspace_dir=workspace_dir,
+                session=session,
+            )
+            return _AttemptOutcome(handoff=handoff)
+
         await transition_work_step(step=work_step, target=WorkStepStatus.failed, session=session)
         # Partial-work preservation: if the model produced any file
         # writes before termination, surface them as a deliverable
@@ -253,10 +379,12 @@ async def dispatch_run_attempt(
             if partial_deliverable.proof_state == ProofState.verified:
                 partial_deliverable.proof_state = ProofState.human_review_required
                 await session.flush()
-        return DispatchRunAttemptResult(
-            attempt=terminated.attempt,
-            deliverable=partial_deliverable,
-            terminal_reason=terminated.reason,
+        return _AttemptOutcome(
+            result=DispatchRunAttemptResult(
+                attempt=terminated.attempt,
+                deliverable=partial_deliverable,
+                terminal_reason=terminated.reason,
+            )
         )
     except Exception as exc:
         reason = f"executor_error:{exc.__class__.__name__}"
@@ -275,7 +403,9 @@ async def dispatch_run_attempt(
             session=session,
         )
         await transition_work_step(step=work_step, target=WorkStepStatus.failed, session=session)
-        return DispatchRunAttemptResult(attempt=attempt, deliverable=None, terminal_reason=reason)
+        return _AttemptOutcome(
+            result=DispatchRunAttemptResult(attempt=attempt, deliverable=None, terminal_reason=reason)
+        )
 
     await advance_phase(attempt=attempt, target=RunAttemptPhase.verify, session=session)
     await advance_phase(attempt=attempt, target=RunAttemptPhase.summarize, session=session)
@@ -315,10 +445,12 @@ async def dispatch_run_attempt(
         },
     )
 
-    return DispatchRunAttemptResult(
-        attempt=attempt,
-        deliverable=deliverable,
-        terminal_reason="summarized",
+    return _AttemptOutcome(
+        result=DispatchRunAttemptResult(
+            attempt=attempt,
+            deliverable=deliverable,
+            terminal_reason="summarized",
+        )
     )
 
 
@@ -363,6 +495,111 @@ async def _finish_unconfigured(*, work_step: WorkStep, session: AsyncSession) ->
     )
 
 
+_HANDOFF_FIELDS = ("summary", "files_touched", "verification_state", "remaining", "blockers")
+
+
+def _fallback_handoff(written_paths: list[str], final_text: str) -> dict[str, Any]:
+    """Minimal handoff record used when the generation LLM call fails
+    or returns unparseable output. The workspace files are the real
+    state; the record is only an aid (design Q9)."""
+    return {
+        "summary": (final_text or "Previous attempt ran out of round budget.")[:SUMMARY_PREVIEW_CHARS],
+        "files_touched": list(written_paths),
+        "verification_state": "unknown — handoff generation unavailable",
+        "remaining": "Inspect the workspace files for current state, then finish the work step objective.",
+        "blockers": "",
+    }
+
+
+def _coerce_handoff(raw: Any, written_paths: list[str], final_text: str) -> dict[str, Any]:
+    """Normalize an LLM-produced handoff value into the fixed schema."""
+    if not isinstance(raw, dict):
+        return _fallback_handoff(written_paths, final_text)
+    files = raw.get("files_touched")
+    if not isinstance(files, list):
+        files = list(written_paths)
+    else:
+        files = [str(f).strip() for f in files if str(f).strip()] or list(written_paths)
+    return {
+        "summary": str(raw.get("summary") or "").strip() or _fallback_handoff(written_paths, final_text)["summary"],
+        "files_touched": files,
+        "verification_state": str(raw.get("verification_state") or "").strip() or "(unknown)",
+        "remaining": str(raw.get("remaining") or "").strip() or "Finish the work step objective.",
+        "blockers": str(raw.get("blockers") or "").strip(),
+    }
+
+
+async def _generate_handoff_record(
+    *,
+    attempt: RunAttempt,
+    work_step: WorkStep,
+    messages: list[dict[str, Any]],
+    written_paths: list[str],
+    final_text: str,
+    model: str,
+    executor: ExecutorClient,
+    metadata: dict[str, Any],
+    workspace_dir: Path | str | None,
+    session: AsyncSession,
+) -> dict[str, Any]:
+    """Generate a model-independent handoff record for the next
+    continuation RunAttempt and persist it on ``attempt.handoff``.
+
+    One LLM call (no tools) over the work conversation. On any failure
+    a minimal fallback record is used — the continuation still proceeds
+    because the workspace files are the real state."""
+    handoff_messages = [
+        *messages,
+        {
+            "role": "user",
+            "content": (
+                "This work step's attempt has run out of round budget. A FRESH attempt will "
+                "continue it — that attempt will NOT see this conversation, only the workspace "
+                "files on disk plus the handoff record you produce now. Output ONLY a JSON "
+                "object, no prose, with exactly these fields:\n"
+                '{"summary": "one paragraph — what you accomplished", '
+                '"files_touched": ["paths you created or modified"], '
+                '"verification_state": "what passes and what still fails", '
+                '"remaining": "concrete next actions to finish the objective", '
+                '"blockers": "known issues, or empty string"}\n'
+                "Be concrete — the next attempt depends entirely on this record plus the "
+                "workspace files."
+            ),
+        },
+    ]
+    handoff: dict[str, Any]
+    try:
+        result = await executor.execute(
+            messages=handoff_messages,
+            metadata=metadata,
+            model=model,
+            workspace_dir=str(workspace_dir) if workspace_dir is not None else None,
+            tools=None,
+        )
+        text = str(result.get("output_ref") or "")
+        start, end = text.find("{"), text.rfind("}")
+        raw = json.loads(text[start : end + 1]) if 0 <= start < end else None
+        handoff = _coerce_handoff(raw, written_paths, final_text)
+    except Exception as exc:  # noqa: BLE001 — handoff generation must never bubble
+        logger.warning(
+            "handoff_generation_failed",
+            run_attempt_id=str(attempt.id),
+            work_step_id=str(work_step.id),
+            error=str(exc),
+        )
+        handoff = _fallback_handoff(written_paths, final_text)
+
+    attempt.handoff = handoff
+    await session.commit()
+    logger.info(
+        "handoff_record_generated",
+        run_attempt_id=str(attempt.id),
+        work_step_id=str(work_step.id),
+        files=len(handoff["files_touched"]),
+    )
+    return handoff
+
+
 def _build_messages(
     *,
     request: Request,
@@ -372,9 +609,26 @@ def _build_messages(
     total_steps: int | None = None,
     prior_step_names: tuple[str, ...] = (),
     agents_md: str | None = None,
+    handoff: dict[str, Any] | None = None,
 ) -> list[dict[str, str]]:
     expected = "\n".join(f"- {item}" for item in (work_step.expected_outputs or []))
     user_block = f"Request intent:\n{request.intent}\n\n"
+    # Tier 1 continuation — this RunAttempt resumes a predecessor that
+    # ran out of budget. The handoff record is model-independent data
+    # (no inherited LLM message history); the workspace already holds
+    # the prior progress on disk.
+    if handoff:
+        user_block += (
+            "CONTINUATION — a previous attempt at this work step ran out of "
+            "round budget. Resume from its handoff; the workspace already "
+            "contains the prior progress on disk — read it, do NOT recreate "
+            "it.\n"
+            f"  Progress so far: {str(handoff.get('summary') or '').strip()}\n"
+            f"  Files already touched: {', '.join(handoff.get('files_touched') or []) or '(none recorded)'}\n"
+            f"  Verification state: {str(handoff.get('verification_state') or '').strip() or '(unknown)'}\n"
+            f"  Remaining work: {str(handoff.get('remaining') or '').strip() or '(finish the objective below)'}\n"
+            f"  Known blockers: {str(handoff.get('blockers') or '').strip() or '(none recorded)'}\n\n"
+        )
     # Auxiliary, founder-editable conventions. The system prompt above
     # is the universal base; AGENTS.md is per-project guidance the
     # founder owns. Injected into the user block (not the system
@@ -840,6 +1094,25 @@ async def _run_work_phase(
                     reason=event_result.terminal_reason or "work_loop_terminated",
                     written_paths=written_paths,
                     final_text=final_text,
+                )
+            # Tier 1 soft pressure: a few rounds before the work-round
+            # budget, tell the model to land its current change cleanly
+            # and stop, rather than being hard-cut mid-edit. Fires once
+            # per attempt (work rounds only ever increment by 1, so the
+            # equality check crosses exactly once even across aspect-
+            # retry re-entries that share the same cumulative counter).
+            work_rounds = int((attempt.telemetry or {}).get("phase_rounds", {}).get(RunAttemptPhase.work.value, 0))
+            if work_rounds == PHASE_ROUND_BUDGETS[RunAttemptPhase.work] - SOFT_PRESSURE_HEADROOM:
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            "BUDGET NEARLY EXHAUSTED — you have a few rounds left. Finish the "
+                            "change you are on and bring the workspace to a clean, consistent "
+                            "state. Do NOT start new work. If the step is complete, run the "
+                            "verifier and send your final plain-text summary now."
+                        ),
+                    }
                 )
             if event_result.nudge:
                 messages.append(
