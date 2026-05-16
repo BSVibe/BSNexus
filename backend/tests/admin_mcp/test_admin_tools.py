@@ -67,6 +67,19 @@ class TestRegistry:
             assert expected in names, f"missing tool: {expected}"
         assert len(names) == len(EXPECTED_ADMIN_TOOL_NAMES)
 
+    def test_projects_delete_gates_on_delete_permission(self) -> None:
+        """``bsnexus_projects_delete`` must gate on ``bsnexus.projects.delete``
+        (admin) — matching the REST ``DELETE /projects/{id}`` route and the
+        ``permission_matrix.yaml`` row ``bsnexus.projects.delete: admin``.
+        Gating on ``bsnexus.projects.write`` (member) would let members
+        delete projects, contradicting the matrix."""
+        reg = ToolRegistry()
+        lb: Any = AsyncMock()
+        register_admin_tools(reg, lb)
+        tool = reg.get("bsnexus_projects_delete")
+        assert tool is not None
+        assert tool.required_permission == "bsnexus.projects.delete"
+
 
 class TestProjectsList:
     @pytest.mark.asyncio

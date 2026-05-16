@@ -313,7 +313,7 @@ def register_admin_tools(registry: ToolRegistry, lb: LoopbackCaller) -> None:
             input_schema=ProjectsDeleteInput,
             output_schema=AdminToolResponse,
             handler=_h_projects_delete(lb),
-            required_permission="bsnexus.projects.write",
+            required_permission="bsnexus.projects.delete",
             audit_event="bsnexus.mcp.projects_delete.invoked",
         )
     )
