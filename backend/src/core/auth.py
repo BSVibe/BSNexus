@@ -134,18 +134,23 @@ def _authz_settings() -> AuthzSettings:
     """Build a :class:`bsvibe_authz.Settings` instance from BSNexus env.
 
     Constructed per-call so test patches against ``backend.src.config.settings``
-    take effect without restarting the process. The OpenFGA fields are
-    placeholders — the dispatch never calls OpenFGA from BSNexus today
-    (RBAC still runs through :class:`Permission` / :func:`require_permission`).
+    take effect without restarting the process. Tier 5: the OpenFGA
+    coordinates are read from env (``OPENFGA_API_URL`` / ``OPENFGA_STORE_ID``
+    / ``OPENFGA_AUTH_MODEL_ID``) so the per-resource ``require_permission``
+    gates actually enforce in prod; empty in local dev / tests keeps the
+    permissive no-op posture.
     """
     user_jwt_secret = os.getenv("USER_JWT_SECRET")
     user_jwt_public_key = os.getenv("USER_JWT_PUBLIC_KEY")
     user_jwt_algorithm = cast(Any, os.getenv("USER_JWT_ALGORITHM", "HS256"))
     return AuthzSettings(
         bsvibe_auth_url=settings.bsvibe_auth_url,
-        openfga_api_url="",
-        openfga_store_id="",
-        openfga_auth_model_id="",
+        # Tier 5: read the OpenFGA coordinates from env so require_permission
+        # actually enforces in prod. Empty (local dev / tests) keeps the
+        # permissive no-op posture.
+        openfga_api_url=os.getenv("OPENFGA_API_URL", ""),
+        openfga_store_id=os.getenv("OPENFGA_STORE_ID", ""),
+        openfga_auth_model_id=os.getenv("OPENFGA_AUTH_MODEL_ID", ""),
         service_token_signing_secret=settings.service_token_signing_secret or "",
         user_jwt_secret=user_jwt_secret,
         user_jwt_public_key=user_jwt_public_key,
