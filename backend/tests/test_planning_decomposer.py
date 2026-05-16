@@ -281,4 +281,18 @@ def test_decomposer_prompt_forbids_verify_only_steps() -> None:
     messages = render_decomposer_messages(_ctx("Build a thing"), max_steps=6)
     system = messages[0]["content"]
     assert "run tests, verify, validate" in system
-    assert "FEWER, meatier steps" in system
+
+
+def test_decomposer_prompt_biases_to_single_step() -> None:
+    """Cycle 10 fix: the decomposer over-decomposed small apps (1/2/4/6
+    steps for the same Direction, fragmenting one deliverable). The CoT
+    prompt now defaults to ONE step and only splits on independent
+    features or a hard runtime dependency."""
+    from backend.src.core.planning.prompts import render_decomposer_messages
+
+    messages = render_decomposer_messages(_ctx("Build a thing"), max_steps=6)
+    system = messages[0]["content"]
+    assert "THE DEFAULT IS ONE STEP" in system
+    assert "MULTIPLE INDEPENDENT features" in system
+    # Honors the founder's scoping language.
+    assert "keep it tight" in system

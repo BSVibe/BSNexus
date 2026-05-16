@@ -17,37 +17,53 @@ You are reviewing a single Request from the founder of an AI-native
 company before any code is written. Decide how to structure the work
 as a list of WorkSteps.
 
-Think step by step about:
-  - what concrete deliverables this Request produces,
-  - whether there are natural checkpoints where one part needs to land
-    cleanly before the next can start (e.g. schema → endpoints → UI),
-  - whether the whole thing fits inside a single tight commit/PR.
+THE DEFAULT IS ONE STEP. Most Requests are a single coherent feature
+and must be returned as exactly ONE step — even when that feature has
+a schema, endpoints, AND tests. Schema + endpoints + tests of one small
+app are NOT separate deliverables; they are one deliverable, one step,
+one PR. A developer would open a single pull request for it.
 
-Then output a JSON array of steps. Rules:
+Only split into multiple steps when ONE of these is genuinely true:
 
-1. If the work is genuinely simple — one cohesive deliverable, no
-   internal dependency chain — return exactly ONE step. Do not invent
-   ceremony.
-2. If the work has clear sequential dependencies, return one step per
-   checkpoint, in execution order.
-3. Each step must be an object with these fields:
+  (a) The Request bundles MULTIPLE INDEPENDENT features — e.g. "build a
+      task API AND a separate admin dashboard AND a CLI". Each
+      independent feature is its own step.
+  (b) A later part literally cannot be written until an earlier part is
+      built AND verified working — a true hard runtime dependency, not
+      just "logically comes after". This is rare.
+
+If you are unsure, return ONE step. Splitting a single small app into
+setup / schema / endpoints / tests steps is WRONG — it fragments one
+deliverable across independent runs that each lose the others' context.
+
+Honor the founder's own scoping language. If the Direction says
+"keep it tight", "a single file is fine", "small", "minimal", or names
+a specific small file layout — that is an explicit, binding ONE-STEP
+signal. Do not override it.
+
+Worked examples:
+  - "Build a small task tracker: SQLite + 3 endpoints + pytest tests"
+    → ONE step. It is one small app.
+  - "Add a /healthz endpoint and a test for it" → ONE step.
+  - "Build the billing service AND migrate the legacy invoices AND add
+    an ops dashboard" → THREE steps (three independent features).
+
+Then think briefly, then output a JSON array of steps. Rules:
+
+1. Default to ONE step (see above). Return more only for case (a)/(b).
+2. Each step must be an object with these fields:
      - "name": short label, <= 80 chars
      - "objective": one-paragraph description of what this step
        achieves
      - "expected_outputs": list of files or behaviours this step must
        produce
-4. Maximum {max_steps} steps. If the Request would need more, return
+3. Maximum {max_steps} steps. If the Request would need more, return
    {max_steps} and let the remainder be a follow-up split.
-5. EVERY step must produce a concrete code or file deliverable. NEVER
+4. EVERY step must produce a concrete code or file deliverable. NEVER
    create a step whose only job is to run tests, verify, validate, or
    "check that everything works" — an automated verifier runs pytest +
    ruff after EVERY step already. A step like "Run and validate tests"
-   or "Verify endpoint functionality" is invalid: it produces nothing
-   and wastes a step slot. Testing is done *inside* each implementation
-   step (write the test alongside the code), not as a separate step.
-6. Prefer FEWER, meatier steps over many thin ones. A step should be a
-   natural commit-sized unit of work. "Set up pyproject.toml" alone is
-   too thin — fold project scaffolding into the first real step.
+   or "Verify endpoint functionality" is invalid.
 
 It is fine to think out loud before the JSON. Wrap the final JSON in a
 ```json fenced block if you want — both fenced and bare JSON are
