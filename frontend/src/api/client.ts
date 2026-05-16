@@ -1,6 +1,6 @@
 import axios from 'axios'
 import { isDemoMode } from '@bsvibe/demo'
-import { AUTH_URL, getAccessToken, clearTokenCache } from '../hooks/useAuth'
+import { AUTH_URL, getAccessToken, getActiveTenantId, clearTokenCache } from '../hooks/useAuth'
 
 // ``NEXT_PUBLIC_API_URL`` (Next.js) is the canonical client-visible env;
 // the legacy ``VITE_API_URL`` form is accepted as a fallback so existing
@@ -25,6 +25,15 @@ apiClient.interceptors.request.use(async (config) => {
   const token = await getAccessToken()
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
+  }
+  // Tier 3.2: the raw Supabase JWT carries no tenant claim — the backend
+  // resolves the active tenant from this header. Demo sessions are
+  // single-tenant and authenticate by cookie, so the header is moot there.
+  if (!isDemoMode()) {
+    const activeTenant = await getActiveTenantId()
+    if (activeTenant) {
+      config.headers['X-Active-Tenant'] = activeTenant
+    }
   }
   return config
 })
