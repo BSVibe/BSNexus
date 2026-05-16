@@ -51,6 +51,7 @@ class _StubLLM:
         mcp_servers: dict[str, Any] | None = None,
         tools: list[dict[str, Any]] | None = None,
         on_chunk: Callable[[str], Awaitable[None]] | None = None,
+        temperature: float | None = None,
     ) -> dict[str, Any]:
         self.calls.append(messages)
         if self.side_effect is not None:
@@ -178,6 +179,64 @@ async def test_decompose_extracts_json_from_fenced_block() -> None:
 
 
 @pytest.mark.asyncio
+async def test_decompose_accepts_bare_single_step_object() -> None:
+    """Cycle 13 fix: qwen3 emits a bare ``{name, objective, ...}``
+    object (no array wrapper) ~3/8 of the time for one-step plans.
+    The old greedy ``[...]`` regex grabbed the inner expected_outputs
+    array → no_valid_steps. The parser must wrap a bare step object."""
+    bare = json.dumps(
+        {
+            "name": "Build the app",
+            "objective": "Do the whole thing.",
+            "expected_outputs": ["src/app.py", "tests/test_app.py"],
+        }
+    )
+    llm = _StubLLM(responses=[bare])
+    steps = await decompose_request(_ctx("Build a thing"), executor=llm, model="m")
+    assert len(llm.calls) == 1  # parsed first try, no retry
+    assert len(steps) == 1
+    assert steps[0].name == "Build the app"
+
+
+@pytest.mark.asyncio
+async def test_decompose_accepts_bare_object_fenced() -> None:
+    """The bare-object shape also shows up inside a ```json fence."""
+    fenced = "```json\n" + json.dumps({"name": "S", "objective": "O", "expected_outputs": ["a.py"]}) + "\n```"
+    llm = _StubLLM(responses=[fenced])
+    steps = await decompose_request(_ctx("x"), executor=llm, model="m")
+    assert len(steps) == 1
+    assert steps[0].name == "S"
+
+
+@pytest.mark.asyncio
+async def test_decompose_accepts_wrapper_object_with_steps_key() -> None:
+    """A ``{"steps": [...]}`` wrapper object is unwrapped to its list."""
+    wrapped = json.dumps(
+        {
+            "steps": [
+                {"name": "A", "objective": "oa", "expected_outputs": []},
+                {"name": "B", "objective": "ob", "expected_outputs": []},
+            ]
+        }
+    )
+    llm = _StubLLM(responses=[wrapped])
+    steps = await decompose_request(_ctx("x"), executor=llm, model="m")
+    assert [s.name for s in steps] == ["A", "B"]
+
+
+@pytest.mark.asyncio
+async def test_decompose_bare_object_not_misparsed_as_inner_array() -> None:
+    """Regression guard: a bare step object whose expected_outputs is a
+    non-empty string array must NOT be parsed as that inner array."""
+    bare = json.dumps({"name": "N", "objective": "O", "expected_outputs": ["x.py", "y.py", "z.py"]})
+    llm = _StubLLM(responses=[bare])
+    steps = await decompose_request(_ctx("x"), executor=llm, model="m")
+    assert len(steps) == 1
+    assert steps[0].name == "N"
+    assert steps[0].expected_outputs == ["x.py", "y.py", "z.py"]
+
+
+@pytest.mark.asyncio
 async def test_decompose_skips_invalid_step_entries() -> None:
     """Entries missing required fields are dropped instead of crashing
     the whole plan. If every entry is bad we fall back to single-step."""
@@ -211,11 +270,14 @@ async def test_decompose_all_invalid_entries_falls_back() -> None:
 
 @dataclass
 class _MetadataCapturingLLM:
-    """Records the metadata passed on each ``execute`` call so the test
-    can assert the decomposer is forwarding tenant_id/run_id."""
+    """Records the metadata + temperature passed on each ``execute``
+    call so the test can assert the decomposer's wiring."""
 
     response_text: str = ""
     captured_metadata: list[dict[str, Any]] = field(default_factory=list)
+    captured_temperatures: list[float | None] = field(default_factory=list)
+    # When set, the i-th call returns responses[i] instead of response_text.
+    responses: list[str] | None = None
 
     async def execute(
         self,
@@ -227,11 +289,18 @@ class _MetadataCapturingLLM:
         mcp_servers: dict[str, Any] | None = None,
         tools: list[dict[str, Any]] | None = None,
         on_chunk: Callable[[str], Awaitable[None]] | None = None,
+        temperature: float | None = None,
     ) -> dict[str, Any]:
         self.captured_metadata.append(dict(metadata))
+        self.captured_temperatures.append(temperature)
+        if self.responses is not None:
+            idx = len(self.captured_temperatures) - 1
+            text = self.responses[idx] if idx < len(self.responses) else ""
+        else:
+            text = self.response_text
         return {
             "output_type": "text",
-            "output_ref": self.response_text,
+            "output_ref": text,
             "actual_cost_cents": 0,
             "finish_reason": "stop",
             "tool_calls": None,
@@ -272,15 +341,44 @@ async def test_decompose_default_metadata_has_phase_marker() -> None:
     assert llm.captured_metadata[0] == {"phase": "decompose"}
 
 
-def test_decomposer_prompt_forbids_verify_only_steps() -> None:
-    """Cycle 8 fix: the decomposer must not emit verify/run-tests steps.
-    Cycle 7 wasted 2 of 6 steps on 'Verify endpoint functionality' and
-    'Run and validate tests', which the verifier already does."""
+@pytest.mark.asyncio
+async def test_decompose_first_attempt_uses_low_temperature() -> None:
+    """Cycle 13: the decomposer is a structuring decision — attempt 0
+    runs near-greedy so the same Direction yields a stable plan."""
+    llm = _MetadataCapturingLLM(
+        response_text=json.dumps([{"name": "s", "objective": "o", "expected_outputs": []}])
+    )
+    await decompose_request(_ctx("Anything"), executor=llm, model="m")
+    assert llm.captured_temperatures == [0.2]
+
+
+@pytest.mark.asyncio
+async def test_decompose_retry_steps_temperature_up() -> None:
+    """A parse-failure retry must re-sample at a higher temperature —
+    a retry at the same low temp would just repeat the bad output."""
+    llm = _MetadataCapturingLLM(
+        responses=[
+            "not json at all",
+            json.dumps([{"name": "s", "objective": "o", "expected_outputs": []}]),
+        ]
+    )
+    steps = await decompose_request(_ctx("Anything"), executor=llm, model="m")
+    assert llm.captured_temperatures == [0.2, 0.6]
+    assert len(steps) == 1
+
+
+def test_decomposer_prompt_forbids_non_feature_steps() -> None:
+    """Cycle 8/13: the decomposer must not emit setup-only, test-only,
+    or verify-only steps. Cycle 13 found temp 0.2 stabilized n_steps at
+    a consistent-but-wrong 6 (setup / impl / impl / test / test /
+    verify); the prompt now requires every step to be a complete
+    vertical slice."""
     from backend.src.core.planning.prompts import render_decomposer_messages
 
     messages = render_decomposer_messages(_ctx("Build a thing"), max_steps=6)
     system = messages[0]["content"]
-    assert "run tests, verify, validate" in system
+    assert "complete vertical slice" in system.lower()
+    assert "INVALID step names" in system
 
 
 def test_decomposer_prompt_biases_to_single_step() -> None:

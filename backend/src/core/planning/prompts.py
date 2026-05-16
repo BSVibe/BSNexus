@@ -36,6 +36,19 @@ If you are unsure, return ONE step. Splitting a single small app into
 setup / schema / endpoints / tests steps is WRONG — it fragments one
 deliverable across independent runs that each lose the others' context.
 
+A STEP IS A COMPLETE VERTICAL SLICE. Each step you return owns one
+independent feature *end to end* — its implementation AND its tests AND
+its share of project scaffolding (pyproject.toml, package layout). You
+must NEVER break a single feature across steps:
+  - NEVER a separate "Setup project structure" / "Create pyproject.toml"
+    step — fold scaffolding into the first feature step.
+  - NEVER a separate "Write tests for X" step — the tests for feature X
+    are written *inside* feature X's own step.
+  - NEVER a separate "Integrate" / "Verify" / "Run tests" step — an
+    automated verifier runs after every step; integration is not work.
+So a Request for two independent tools is TWO steps (one self-contained
+tool each), never five or six.
+
 Honor the founder's own scoping language. If the Direction says
 "keep it tight", "a single file is fine", "small", "minimal", or names
 a specific small file layout — that is an explicit, binding ONE-STEP
@@ -43,8 +56,12 @@ signal. Do not override it.
 
 Worked examples:
   - "Build a small task tracker: SQLite + 3 endpoints + pytest tests"
-    → ONE step. It is one small app.
+    → ONE step. It is one small app (code + tests + pyproject together).
   - "Add a /healthz endpoint and a test for it" → ONE step.
+  - "Build two independent CLI tools, wordcount and jsonfmt, in one
+    project" → TWO steps: step 1 = wordcount (its module + its tests +
+    the pyproject), step 2 = jsonfmt (its module + its tests). NOT a
+    setup step, NOT separate test steps, NOT a verify step.
   - "Build the billing service AND migrate the legacy invoices AND add
     an ops dashboard" → THREE steps (three independent features).
 
@@ -59,16 +76,21 @@ Then think briefly, then output a JSON array of steps. Rules:
        produce
 3. Maximum {max_steps} steps. If the Request would need more, return
    {max_steps} and let the remainder be a follow-up split.
-4. EVERY step must produce a concrete code or file deliverable. NEVER
-   create a step whose only job is to run tests, verify, validate, or
-   "check that everything works" — an automated verifier runs pytest +
-   ruff after EVERY step already. A step like "Run and validate tests"
-   or "Verify endpoint functionality" is invalid.
+4. EVERY step is a complete vertical slice — implementation + its own
+   tests + its scaffolding. NEVER create a step whose job is only
+   setup, only writing tests, or only running/verifying/validating.
+   "Setup project structure", "Write pytest tests for X", "Run and
+   validate tests", "Integrate and verify" are all INVALID step names —
+   that work belongs inside a feature step or is done by the automated
+   verifier.
 
-It is fine to think out loud before the JSON. Wrap the final JSON in a
-```json fenced block if you want — both fenced and bare JSON are
-accepted. Do not return anything other than the JSON array as the final
-structured output.
+OUTPUT FORMAT — the final structured output MUST be a JSON ARRAY at the
+top level, even for a single step: ``[ {{ ... }} ]``, never a bare
+object ``{{ ... }}``. One step still goes inside a one-element array.
+
+It is fine to think out loud before the JSON, and to wrap the final
+JSON in a ```json fenced block. Do not return anything other than the
+JSON array as the final structured output.
 """
 
 

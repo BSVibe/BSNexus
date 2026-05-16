@@ -56,6 +56,7 @@ class _ScriptedExecutor:
         mcp_servers: dict[str, Any] | None = None,
         tools: list[dict[str, Any]] | None = None,
         on_chunk: Callable[[str], Awaitable[None]] | None = None,
+        temperature: float | None = None,
     ) -> dict[str, Any]:
         # Record what arrived for assertion.
         self.captured_tools.append(tools)
@@ -98,6 +99,7 @@ class _SequenceExecutor:
         mcp_servers: dict[str, Any] | None = None,
         tools: list[dict[str, Any]] | None = None,
         on_chunk: Callable[[str], Awaitable[None]] | None = None,
+        temperature: float | None = None,
     ) -> dict[str, Any]:
         self.captured_messages.append([dict(m) for m in messages])
         assert self.responses, "executor called more times than scripted"

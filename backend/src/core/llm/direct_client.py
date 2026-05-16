@@ -87,6 +87,7 @@ class DirectLLMAdapter:
         mcp_servers: dict[str, Any] | None = None,  # noqa: ARG002 — MCP is a separate path (BSage / BSGateway side)
         tools: list[dict[str, Any]] | None = None,
         on_chunk: Callable[[str], Awaitable[None]] | None = None,
+        temperature: float | None = None,
     ) -> dict[str, Any]:
         """Run a single completion through ``bsvibe_llm`` (``direct=True``)
         and return the shared executor-client result shape.
@@ -96,6 +97,9 @@ class DirectLLMAdapter:
         dispatcher tool loop can dispatch them. Streaming:
         ``LlmClient.complete()`` is non-streaming, so the adapter emits
         one ``on_chunk(text)`` after the full response arrives.
+
+        ``temperature`` (when set) rides in ``extra`` to litellm — used
+        by the decomposer to run its structuring decision near-greedily.
         """
         audit_metadata = _coerce_metadata(metadata)
         # ``extra`` is forwarded verbatim to ``litellm.acompletion``.
@@ -108,6 +112,8 @@ class DirectLLMAdapter:
             extra["api_base"] = self._base_url
         if self._api_key:
             extra["api_key"] = self._api_key
+        if temperature is not None:
+            extra["temperature"] = temperature
         try:
             result = await self._client.complete(
                 messages=messages,
@@ -224,10 +230,7 @@ def _parse_qwen_text_tool_calls(text: str) -> list[dict[str, Any]] | None:
         return None
     extracted: list[dict[str, Any]] = []
     for index, (name, body) in enumerate(_QWEN_FUNCTION_RE.findall(text)):
-        arguments = {
-            key: _strip_one_wrapping_newline(value)
-            for key, value in _QWEN_PARAMETER_RE.findall(body)
-        }
+        arguments = {key: _strip_one_wrapping_newline(value) for key, value in _QWEN_PARAMETER_RE.findall(body)}
         extracted.append({"id": f"qwen_call_{index}", "name": name, "arguments": arguments})
     return extracted or None
 

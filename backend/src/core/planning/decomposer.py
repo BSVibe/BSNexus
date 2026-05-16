@@ -32,9 +32,20 @@ MAX_STEPS = 6
 _PARSE_RETRIES = 1  # one retry on parse failure, then fall back
 _WORK_STEP_NAME_MAX = 80
 
+# Heuristic temperature schedule for the decomposer call, indexed by
+# attempt. The decomposer is a *structuring decision*, not creative
+# generation — at the worker's default sampling temperature the same
+# Direction yielded n_steps in {1,1,1,1,3,6} across runs. Attempt 0
+# runs near-greedy for a stable, repeatable plan; the parse-failure
+# retry steps the temperature up so the re-sample is actually a
+# different draw (a retry at the same low temp would just repeat the
+# unparseable output). Index past the end clamps to the last value.
+_DECOMPOSE_TEMPERATURES = (0.2, 0.6)
 
-_FENCE_RE = re.compile(r"```(?:json)?\s*(\[[\s\S]*?\])\s*```", re.IGNORECASE)
-_BARE_ARRAY_RE = re.compile(r"(\[[\s\S]*\])")
+# Fenced ```json block — capture either a [...] array or a {...} object.
+_FENCE_RE = re.compile(r"```(?:json)?\s*([\[{][\s\S]*[\]}])\s*```", re.IGNORECASE)
+# Keys a wrapper object might nest the step list under.
+_STEP_LIST_KEYS = ("steps", "plan", "worksteps", "work_steps", "tasks")
 
 
 async def decompose_request(
@@ -97,8 +108,15 @@ async def _call_with_parse_retry(
     """
     last_text: str | None = None
     for attempt in range(_PARSE_RETRIES + 1):
+        temperature = _DECOMPOSE_TEMPERATURES[min(attempt, len(_DECOMPOSE_TEMPERATURES) - 1)]
         try:
-            result = await executor.execute(messages=messages, metadata=metadata, model=model, tools=None)
+            result = await executor.execute(
+                messages=messages,
+                metadata=metadata,
+                model=model,
+                tools=None,
+                temperature=temperature,
+            )
         except Exception as exc:  # noqa: BLE001 — decomposer must never bubble
             logger.warning("decompose_executor_error", attempt=attempt, error=str(exc))
             return None
@@ -107,41 +125,89 @@ async def _call_with_parse_retry(
             logger.warning("decompose_empty_output", attempt=attempt)
             continue
         last_text = text
-        # If the text contains a parseable JSON array, return it; else
-        # let the loop retry once more. The retry message is identical:
-        # we're hoping the same prompt sampled differently produces
-        # cleaner JSON.
-        if _extract_json_array(text) is not None:
+        # Parseable step list → done. Otherwise retry: the next attempt
+        # runs at a higher temperature (see _DECOMPOSE_TEMPERATURES) so
+        # the re-sample is genuinely different.
+        if _extract_step_list(text) is not None:
             return text
     return last_text  # may still be unparseable — caller falls back
 
 
-def _extract_json_array(text: str) -> list[Any] | None:
-    """Return the first JSON array found in ``text``, or None.
+def _json_candidate(text: str) -> str | None:
+    """Extract the outermost JSON value substring from ``text``.
 
-    Accepts: bare JSON array, ```json fenced``` block, or prose-then-JSON.
-    """
+    Prefers a ```json fenced``` block; otherwise scans from the first
+    ``[`` or ``{`` with balanced-bracket matching (string-aware), which
+    grabs the *outer* structure — a plain ``[...]``/``{...}`` regex
+    grabs whichever bracket pair appears first and would mis-capture an
+    inner array (e.g. a step object's ``expected_outputs``)."""
     fenced = _FENCE_RE.search(text)
-    candidate = fenced.group(1) if fenced else None
-    if candidate is None:
-        match = _BARE_ARRAY_RE.search(text)
-        candidate = match.group(1) if match else None
+    if fenced:
+        return fenced.group(1)
+    start = next((i for i, ch in enumerate(text) if ch in "[{"), None)
+    if start is None:
+        return None
+    open_ch = text[start]
+    close_ch = "]" if open_ch == "[" else "}"
+    depth = 0
+    in_str = False
+    escaped = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_str:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == open_ch:
+            depth += 1
+        elif ch == close_ch:
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1]
+    return None
+
+
+def _extract_step_list(text: str) -> list[Any] | None:
+    """Return a list of step-candidate values from ``text``, or None.
+
+    Normalizes the three shapes qwen3-coder actually emits:
+      - a JSON array ``[{...}, ...]`` (the asked-for shape)
+      - a bare single-step object ``{name, objective, ...}`` — emitted
+        ~3/8 of the time for one-step plans; wrapped into ``[obj]``
+      - a wrapper object ``{"steps": [...]}`` / ``{"plan": [...]}``
+    """
+    candidate = _json_candidate(text)
     if candidate is None:
         return None
     try:
         parsed = json.loads(candidate)
     except json.JSONDecodeError:
         return None
-    if not isinstance(parsed, list):
-        return None
-    return parsed
+    if isinstance(parsed, list):
+        return parsed
+    if isinstance(parsed, dict):
+        # A bare single-step object.
+        if "name" in parsed and "objective" in parsed:
+            return [parsed]
+        # A wrapper object nesting the list under a known key.
+        for key in _STEP_LIST_KEYS:
+            value = parsed.get(key)
+            if isinstance(value, list):
+                return value
+    return None
 
 
 def _parse_drafts(text: str) -> list[WorkStepDraft]:
     """Parse ``text`` into WorkStepDrafts. Invalid entries are dropped;
     a fully-invalid array returns ``[]`` and the caller falls back to
     the single-step plan."""
-    raw = _extract_json_array(text)
+    raw = _extract_step_list(text)
     if raw is None:
         return []
     drafts: list[WorkStepDraft] = []

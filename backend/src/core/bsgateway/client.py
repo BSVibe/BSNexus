@@ -50,17 +50,13 @@ def _validate_workspace_dir(workspace_dir: str) -> None:
     if not isinstance(workspace_dir, str) or not workspace_dir:
         raise BSGatewayMetadataError("workspace_dir must be a non-empty string")
     if not os.path.isabs(workspace_dir):
-        raise BSGatewayMetadataError(
-            f"workspace_dir must be an absolute path, got {workspace_dir!r}"
-        )
+        raise BSGatewayMetadataError(f"workspace_dir must be an absolute path, got {workspace_dir!r}")
     # ``os.path.normpath`` collapses ``a/../b`` → ``b``; if the original
     # contained a ``..`` segment we reject regardless of whether it
     # resolves above the supplied root, because intent is unclear.
     parts = workspace_dir.replace("\\", "/").split("/")
     if any(p == ".." for p in parts):
-        raise BSGatewayMetadataError(
-            f"workspace_dir must not contain '..' segments, got {workspace_dir!r}"
-        )
+        raise BSGatewayMetadataError(f"workspace_dir must not contain '..' segments, got {workspace_dir!r}")
 
 
 class BSGatewayError(Exception):
@@ -113,6 +109,7 @@ class BSGatewayClient:
         mcp_servers: dict[str, Any] | None = None,
         tools: list[dict[str, Any]] | None = None,  # noqa: ARG002 — BSGateway tool-call wire is a follow-up; G6.6 wires the direct path only
         on_chunk: Callable[[str], Awaitable[None]] | None = None,
+        temperature: float | None = None,
     ) -> dict[str, Any]:
         """POST chat completion, stream the response, return aggregated output.
 
@@ -144,6 +141,8 @@ class BSGatewayClient:
             "stream": True,
             "metadata": payload_metadata,
         }
+        if temperature is not None:
+            payload["temperature"] = temperature
         headers = {
             "Authorization": f"Bearer {self._api_key}",
             "Content-Type": "application/json",
