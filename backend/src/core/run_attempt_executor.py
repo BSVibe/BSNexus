@@ -70,11 +70,11 @@ SUMMARY_PREVIEW_CHARS = 500
 # runaway loops, but we also bound the *number of LLM round-trips* in
 # case the model returns zero tool_calls but garbage text repeatedly
 # (no ToolEvent rows means the round-budget logic never fires).
-# Cycle 10 raised this 40→64: a single-step run that wrote clean code
-# but hit a real verifier error (httpx 0.28 API change) ran out of
-# round-trips mid self-correction. The aspect-feedback retry loop can
-# fix concrete errors — it just needs the headroom to finish.
-MAX_WORK_LOOP_ITERATIONS = 64
+# Tier 1 (2026-05-16) raised this 64→80 to stay above the work-phase
+# round budget (48) plus aspect-feedback retry headroom (≈20) — the
+# outer cap must never bite before the phase budget, which is the
+# signal the continuation system keys on.
+MAX_WORK_LOOP_ITERATIONS = 80
 MAX_NO_WORK_NUDGES = 2
 
 # Aspect-feedback loop: after the model converges (natural exit, no

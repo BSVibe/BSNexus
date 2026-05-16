@@ -29,23 +29,25 @@ ALLOWED_TOOLS_BY_PHASE: dict[RunAttemptPhase, frozenset[str]] = {
 
 PHASE_ROUND_BUDGETS: dict[RunAttemptPhase, int] = {
     RunAttemptPhase.prepare: 3,
-    # ``work`` budget aligned with ``MAX_WORK_LOOP_ITERATIONS`` (32) —
-    # Cycle 4 dogfooding showed Heartline-sized Directions consistently
-    # use 25-27 rounds, exactly straddling the prior 24-budget. The
-    # aspect-feedback retry loop (PR #146) only fires on the model's
-    # natural exit, so budget exhaustion bypasses it entirely. Bumping
-    # to 32 gives the model headroom to converge naturally → aspect-
-    # feedback then gets a chance. Multi-step LLM plan (G9 follow-up)
-    # remains the proper structural fix; this is still a stop-gap.
-    RunAttemptPhase.work: 32,
+    # ``work`` budget. Cycle 7-14 dogfooding telemetry: every productive
+    # work step used 23-33 rounds against the prior 32-budget — i.e. the
+    # budget was cutting the model off mid-self-correction, and the
+    # "model quality ceiling" narrative was substantially a budget
+    # ceiling (qwen3-coder:30b is capable-but-slow). Raised to 48 so the
+    # observed 23-33 range finishes comfortably in one RunAttempt; the
+    # Tier-1 continuation system (handoff → fresh RunAttempt) absorbs
+    # genuine over-runs beyond 48. See
+    # ~/Docs/BSNexus_Budget_Handoff_Continuation_Design_2026-05-16.md.
+    RunAttemptPhase.work: 48,
     RunAttemptPhase.verify: 1,
     RunAttemptPhase.summarize: 2,
     RunAttemptPhase.terminal: 0,
 }
 
 # Total-round catastrophic cap. Must exceed the ``work`` budget plus
-# the other phases combined or the work budget never gets a chance.
-CATASTROPHIC_ROUND_CAP = 40
+# the other phases combined or the work budget never gets a chance
+# (work 48 + prepare 3 + verify 1 + summarize 2 = 54, plus headroom).
+CATASTROPHIC_ROUND_CAP = 64
 REPETITION_WINDOW = 4
 REPETITION_TERMINATION_COUNT = 4
 
