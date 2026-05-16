@@ -53,6 +53,7 @@ from backend.src.core.domain import (
     ProofAspectType,
     ProofState,
 )
+from backend.src.core.verification_contract import VerificationContract, parse_verification_contract
 from backend.src.models import Deliverable, VerificationAspect
 
 logger = structlog.get_logger(__name__)
@@ -88,22 +89,32 @@ async def run_verification(
     workspace_root: Path | str,
     session: AsyncSession,
     changed_files: Sequence[str] = (),
+    verification_contract: dict | None = None,
 ) -> None:
-    """Generate the applicable aspects, run them in sequence, roll up
-    to ``deliverable.proof_state``.
+    """Run the work step's verification and roll up to
+    ``deliverable.proof_state``.
 
-    Soft contract: if no aspects apply, the deliverable falls to
-    ``human_review_required`` (matches the pre-refactor ``no_policy``
-    behaviour). Roll-up never crashes the caller — any infrastructural
-    error in an aspect runner is caught as
-    ``ProofAspectStatus.error`` (also human_review_required at
-    deliverable level)."""
+    When ``verification_contract`` is the work LLM's declared contract,
+    the verifier executes *that* — each ``command`` check is a
+    deterministic aspect, each ``judge`` check an LLM-graded one. When
+    no contract was declared the verifier falls back to heuristic stack
+    detection (`select_verification_aspects`); this fallback is staged
+    for removal once the contract path is dogfood-proven (design D4).
+
+    Soft contract: if nothing applies, the deliverable falls to
+    ``human_review_required``. Roll-up never crashes the caller — an
+    aspect-runner infra error is caught as ``ProofAspectStatus.error``
+    (also human_review_required at deliverable level)."""
     root = Path(workspace_root)
-    specs = select_verification_aspects(
-        workspace_root=root,
-        deliverable_type=deliverable.type,
-        changed_files=changed_files,
-    )
+    contract = parse_verification_contract(verification_contract)
+    if contract is not None:
+        specs = _contract_to_aspect_specs(contract)
+    else:
+        specs = select_verification_aspects(
+            workspace_root=root,
+            deliverable_type=deliverable.type,
+            changed_files=changed_files,
+        )
 
     if not specs:
         deliverable.proof_state = ProofState.human_review_required
@@ -151,6 +162,14 @@ async def run_verification(
             await session.flush()
 
     deliverable.proof_state = rollup_proof_state(aspects)
+    # P1: a declared ``judge`` check cannot execute yet (LLM-as-judge
+    # lands in P2). A skipped judge aspect means a declared criterion
+    # went unverified — never let the deliverable reach ``verified`` on
+    # the strength of the command checks alone.
+    if deliverable.proof_state == ProofState.verified and any(
+        a.aspect_type == ProofAspectType.llm_judge and a.status == ProofAspectStatus.skipped for a in aspects
+    ):
+        deliverable.proof_state = ProofState.human_review_required
     if deliverable.proof_state == ProofState.verified:
         deliverable.status = DeliverableStatus.review_ready
     await session.flush()
@@ -249,6 +268,41 @@ def select_verification_aspects(
     build = _code_build_aspect(root)
     if build is not None:
         specs.append(build)
+    return specs
+
+
+def _contract_to_aspect_specs(contract: VerificationContract) -> list[AspectSpec]:
+    """Convert a declared verification contract into ``AspectSpec``s —
+    one per check. ``command`` checks become deterministic
+    ``declared_command`` aspects; ``judge`` checks become ``llm_judge``
+    aspects (executed in P2; P1 marks them ``skipped``)."""
+    specs: list[AspectSpec] = []
+    for check in contract.checks:
+        if check.kind == "command" and check.command:
+            try:
+                argv = tuple(shlex.split(check.command))
+            except ValueError:
+                continue
+            if not argv:
+                continue
+            specs.append(
+                AspectSpec(
+                    aspect_type=ProofAspectType.declared_command,
+                    commands=(argv,),
+                    timeout_s=300,
+                    blocking=True,
+                )
+            )
+        elif check.kind == "judge":
+            specs.append(
+                AspectSpec(
+                    aspect_type=ProofAspectType.llm_judge,
+                    commands=(),
+                    required_refs=tuple(check.criteria),
+                    timeout_s=120,
+                    blocking=True,
+                )
+            )
     return specs
 
 
@@ -767,11 +821,29 @@ async def _run_docker_build(
             pass
 
 
+async def _run_llm_judge(
+    spec: AspectSpec, workspace_root: Path, venv_python: Path | None = None
+) -> tuple[ProofAspectStatus, str, int | None]:
+    """P1 stub for the declared ``judge`` check. The real LLM-as-judge
+    runner lands in P2; until then a judge check is ``skipped`` and
+    ``run_verification`` caps the deliverable at
+    ``human_review_required`` so the declared criteria are never
+    silently treated as passed."""
+    n = len(spec.required_refs)
+    return (
+        ProofAspectStatus.skipped,
+        f"llm_judge check ({n} criteria) — LLM-as-judge execution lands in P2",
+        None,
+    )
+
+
 _RUNNERS: dict[ProofAspectType, Any] = {
     ProofAspectType.code_test: _run_default_aspect,
     ProofAspectType.code_lint: _run_default_aspect,
     ProofAspectType.code_install_smoke: _run_install_smoke,
     ProofAspectType.code_build: _run_docker_build,
+    ProofAspectType.declared_command: _run_default_aspect,
+    ProofAspectType.llm_judge: _run_llm_judge,
 }
 
 
@@ -890,19 +962,24 @@ async def probe_aspects(
     workspace_root: Path | str,
     deliverable_type: DeliverableType,
     changed_files: Sequence[str] = (),
+    verification_contract: dict | None = None,
 ) -> list[AspectProbeResult]:
     """Run every applicable aspect against the workspace without
     persisting anything. Returns the per-aspect results so the caller
-    can decide to inject feedback / retry the work phase. The actual
-    verifier-worker run later re-runs the same aspects and persists
-    them; this probe is idempotent so the re-run is cheap when all
-    aspects already pass."""
+    can decide to inject feedback / retry the work phase. Uses the
+    declared contract when present, else heuristic detection — same
+    selection as :func:`run_verification`. Idempotent, so the
+    verifier-worker re-run is cheap when all aspects already pass."""
     root = Path(workspace_root)
-    specs = select_verification_aspects(
-        workspace_root=root,
-        deliverable_type=deliverable_type,
-        changed_files=changed_files,
-    )
+    contract = parse_verification_contract(verification_contract)
+    if contract is not None:
+        specs = _contract_to_aspect_specs(contract)
+    else:
+        specs = select_verification_aspects(
+            workspace_root=root,
+            deliverable_type=deliverable_type,
+            changed_files=changed_files,
+        )
     results: list[AspectProbeResult] = []
     async with _aspect_venv(root, specs) as (venv_python, venv_error):
         for spec in specs:

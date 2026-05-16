@@ -224,6 +224,15 @@ async def dispatch_run_attempt(
     return outcome.result  # type: ignore[return-value]
 
 
+def _capture_verification_contract(attempt: RunAttempt, tool_registry: ToolRegistry | None) -> None:
+    """Persist the contract the work LLM declared via the
+    ``declare_verification`` tool onto the RunAttempt. No-op when the
+    model never declared one — that case falls to ``human_review_
+    required`` at verification time (a TDD-less step needs review)."""
+    if tool_registry is not None and tool_registry.declared_contract is not None:
+        attempt.verification_contract = tool_registry.declared_contract
+
+
 async def _execute_one_attempt(
     *,
     request: Request,
@@ -309,7 +318,9 @@ async def _execute_one_attempt(
                 tool_registry=tool_registry,
                 session=session,
             )
+        _capture_verification_contract(attempt, tool_registry)
     except _ToolLoopTerminated as terminated:
+        _capture_verification_contract(terminated.attempt, tool_registry)
         # Budget-class termination + real progress + room left →
         # checkpoint, not failure: generate a model-independent handoff
         # record and signal the continuation loop. The WorkStep stays
@@ -367,6 +378,7 @@ async def _execute_one_attempt(
                     workspace_root=workspace_dir or "/tmp",
                     session=session,
                     changed_files=tuple(terminated.written_paths),
+                    verification_contract=terminated.attempt.verification_contract,
                 )
             except Exception:
                 logger.exception(
@@ -688,14 +700,19 @@ def _build_messages(
                 "lint/format command — and confirm each exits 0. These are separate checks; "
                 "passing one is not passing all. The deliverable is auto-rejected if any verifier "
                 "check is red when you summarize.\n"
-                "10. TEST-FIRST (TDD) — when this step implements behaviour (a function, an "
-                "endpoint, a method), write the test that pins the contract BEFORE the "
-                "implementation: (a) write the test expressing the expected input → output, "
-                "(b) run it and CONFIRM it fails for the right reason — missing behaviour, not a "
-                "syntax error, (c) implement the minimum code to make it pass, (d) re-run until "
-                "green. Test-first nails the contract before the implementation drifts — the "
-                "highest-leverage habit for passing verification on the first round. Skip it only "
-                "for pure-config or pure-docs steps with no behaviour to pin.\n"
+                "10. DECLARE VERIFICATION FIRST, THEN TEST-FIRST (TDD) — before you write "
+                "implementation code, call ``declare_verification`` to commit to HOW this step "
+                "will be checked: the command check(s) that must exit 0 (the test command, the "
+                "lint command, the build command — declare each that applies as a separate "
+                "command check), and/or judge criteria for non-executable work (docs, design). "
+                "The verifier executes exactly what you declare, so declare commands you will "
+                "actually make pass. Then test-first: (a) write the test expressing the expected "
+                "input → output, (b) run it and CONFIRM it fails for the right reason — missing "
+                "behaviour, not a syntax error, (c) implement the minimum code to make it pass, "
+                "(d) re-run until green. Declaring the contract first nails what 'done' means "
+                "before the implementation drifts — the highest-leverage habit for passing "
+                "verification on the first round. For a pure-docs/config step with no behaviour "
+                "to pin, still declare a judge check with concrete criteria.\n"
                 "11. NO SCRATCH SCRIPTS — do NOT create ad-hoc ``run_tests.py`` / "
                 "``validate_*.py`` / ``verify_*.py`` helper files to check your own work. The "
                 "verifier runs the test + lint tools itself. Such files are not deliverables, "
@@ -864,6 +881,7 @@ async def _aspect_feedback_retry_loop(
                 workspace_root=workspace_dir,
                 deliverable_type=DeliverableType.code,
                 changed_files=tuple(written_paths),
+                verification_contract=(tool_registry.declared_contract if tool_registry is not None else None),
             )
         except Exception as exc:  # noqa: BLE001
             logger.exception(

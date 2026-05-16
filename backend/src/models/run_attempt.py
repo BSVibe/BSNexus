@@ -36,6 +36,12 @@ class RunAttempt(Base):
     # is seeded from it — never from this attempt's LLM message history,
     # so a different model (BSGateway routing) can pick the work up.
     handoff: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # Verification Contract: the work LLM declares — before doing the
+    # work, via the ``declare_verification`` tool — how this work step
+    # is to be checked (a list of ``command`` / ``judge`` checks). The
+    # verifier executes this declared contract instead of guessing the
+    # stack. See ~/Docs/BSNexus_Verification_Contract_Design_2026-05-17.
+    verification_contract: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

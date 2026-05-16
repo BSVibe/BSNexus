@@ -83,6 +83,12 @@ class ToolRegistry:
     def __init__(self, *, workspace_dir: Path) -> None:
         self._root = workspace_dir.resolve()
         self._tools: dict[str, ToolDefinition] = {}
+        # The most recent verification contract declared via the
+        # ``declare_verification`` tool, normalized to a JSON dict. The
+        # dispatcher reads this after the work phase and persists it on
+        # ``RunAttempt.verification_contract``. ``None`` means the work
+        # LLM never declared one.
+        self.declared_contract: dict[str, Any] | None = None
         self._register_defaults()
 
     def schema_for(self, names: list[str]) -> list[dict[str, Any]]:
@@ -185,6 +191,54 @@ class ToolRegistry:
             },
             handler=self._shell_exec,
         )
+        self._tools["declare_verification"] = ToolDefinition(
+            name="declare_verification",
+            description=(
+                "Declare HOW this work step will be verified — call this early, before "
+                "writing code, as a TDD-style commitment. Provide a list of checks. A "
+                "'command' check is a shell command whose exit code is the verdict (exit "
+                "0 = pass) — e.g. running the test suite or a linter. A 'judge' check is "
+                "for non-executable criteria (docs, design): a list of concrete, "
+                "independently checkable statements an LLM reviewer will grade. Declare "
+                "test, lint, and build as separate command checks where they apply. You "
+                "may call this again to refine the contract."
+            ),
+            parameters_schema={
+                "type": "object",
+                "properties": {
+                    "checks": {
+                        "type": "array",
+                        "description": "The verification checks for this work step.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "kind": {
+                                    "type": "string",
+                                    "enum": ["command", "judge"],
+                                    "description": "'command' for an executable check, 'judge' for an LLM-graded one.",
+                                },
+                                "command": {
+                                    "type": "string",
+                                    "description": "Shell command to run (kind=command). Exit 0 = pass.",
+                                },
+                                "criteria": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "description": "Concrete checkable statements (kind=judge).",
+                                },
+                                "rationale": {
+                                    "type": "string",
+                                    "description": "Why this check proves the work is done.",
+                                },
+                            },
+                            "required": ["kind"],
+                        },
+                    },
+                },
+                "required": ["checks"],
+            },
+            handler=self._declare_verification,
+        )
 
     def _resolve(self, raw: str) -> Path:
         candidate = (self._root / raw).resolve()
@@ -227,6 +281,29 @@ class ToolRegistry:
         target = self._resolve(raw_path)
         await asyncio.to_thread(_write_text, target, content)
         return f"wrote {raw_path} ({len(content)} chars)"
+
+    async def _declare_verification(self, args: dict[str, Any]) -> str:
+        # Imported here to keep the tools module free of a core import
+        # cycle (verification_contract is pure, but the import site is
+        # kept local for symmetry with the rest of the registry).
+        from backend.src.core.verification_contract import parse_verification_contract  # noqa: PLC0415
+
+        checks = args.get("checks")
+        if not isinstance(checks, list) or not checks:
+            raise ToolError("declare_verification requires a non-empty 'checks' array")
+        contract = parse_verification_contract({"checks": checks})
+        if contract is None:
+            raise ToolError(
+                "declare_verification: no usable check. A 'command' check needs a "
+                "non-empty 'command'; a 'judge' check needs a non-empty 'criteria' list."
+            )
+        self.declared_contract = contract.to_dict()
+        n_cmd = len(contract.command_checks)
+        n_judge = len(contract.judge_checks)
+        return (
+            f"verification contract recorded: {n_cmd} command check(s), "
+            f"{n_judge} judge check(s). Now write the tests, then implement."
+        )
 
     async def _shell_exec(self, args: dict[str, Any]) -> str:
         command = str(args.get("command") or "")

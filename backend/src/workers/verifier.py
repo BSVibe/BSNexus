@@ -32,7 +32,7 @@ from backend.src.core.domain import ProofState
 from backend.src.core.git_ops import CommitOpError, commit_deliverable
 from backend.src.core.git_ops.branch import GithubClientFactory
 from backend.src.core.verification import run_verification
-from backend.src.models import Deliverable, Project
+from backend.src.models import Deliverable, Project, RunAttempt
 from backend.src.queue.streams import RedisStreamManager
 
 logger = structlog.get_logger(__name__)
@@ -80,6 +80,7 @@ async def process_one(
         workspace_root=workspace_root,
         session=session,
         changed_files=tuple(_artifact_paths(deliverable)),
+        verification_contract=await _verification_contract_for(session, deliverable),
     )
 
     if (
@@ -167,6 +168,23 @@ async def _load_scoped(session: AsyncSession, deliverable_id: uuid.UUID, tenant_
     if row is None:
         raise LookupError(f"Deliverable {deliverable_id} not in tenant scope {tenant_id}")
     return row
+
+
+async def _verification_contract_for(session: AsyncSession, deliverable: Deliverable) -> dict | None:
+    """The verification contract the work LLM declared for this
+    deliverable's work step. Read off the most recent RunAttempt of the
+    deliverable's WorkStep — that attempt is the one that produced the
+    deliverable. ``None`` (no contract declared, or no work step) falls
+    to heuristic detection / ``human_review_required`` downstream."""
+    if deliverable.work_step_id is None:
+        return None
+    stmt = (
+        select(RunAttempt.verification_contract)
+        .where(RunAttempt.work_step_id == deliverable.work_step_id)
+        .order_by(RunAttempt.started_at.desc())
+        .limit(1)
+    )
+    return (await session.execute(stmt)).scalar_one_or_none()
 
 
 async def _load_project(session: AsyncSession, project_id: uuid.UUID) -> Project:
