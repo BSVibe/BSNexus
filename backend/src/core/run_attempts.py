@@ -21,7 +21,9 @@ class RunAttemptStateError(ValueError):
 
 ALLOWED_TOOLS_BY_PHASE: dict[RunAttemptPhase, frozenset[str]] = {
     RunAttemptPhase.prepare: frozenset({"file_read", "file_list", "repo_context", "knowledge_search"}),
-    RunAttemptPhase.work: frozenset({"file_write", "file_read", "file_list", "shell_exec"}),
+    RunAttemptPhase.work: frozenset(
+        {"file_write", "file_read", "file_list", "shell_exec", "declare_verification"}
+    ),
     RunAttemptPhase.verify: frozenset({"verifier_command"}),
     RunAttemptPhase.summarize: frozenset(),
     RunAttemptPhase.terminal: frozenset(),

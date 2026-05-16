@@ -109,6 +109,12 @@ class ProofAspectType(str, enum.Enum):
     code_lint = "code_lint"
     code_install_smoke = "code_install_smoke"
     code_build = "code_build"
+    # Verification Contract aspects (2026-05-17). ``declared_command``
+    # is one ``command`` check from the work LLM's declared contract;
+    # ``llm_judge`` is one ``judge`` check (LLM-graded rubric, P2).
+    # These supersede the heuristic ``code_*`` aspects above.
+    declared_command = "declared_command"
+    llm_judge = "llm_judge"
 
 
 class ProofAspectStatus(str, enum.Enum):
