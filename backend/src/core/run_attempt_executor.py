@@ -154,6 +154,7 @@ async def dispatch_run_attempt(
     }
     tool_registry = _build_tool_registry(workspace_dir)
     workspace_overview = _workspace_overview(workspace_dir) if tool_registry is not None else None
+    agents_md = _read_agents_md(workspace_dir)
     messages = _build_messages(
         request=request,
         work_step=work_step,
@@ -161,6 +162,7 @@ async def dispatch_run_attempt(
         step_index=step_index,
         total_steps=total_steps,
         prior_step_names=prior_step_names,
+        agents_md=agents_md,
     )
 
     try:
@@ -365,9 +367,19 @@ def _build_messages(
     step_index: int | None = None,
     total_steps: int | None = None,
     prior_step_names: tuple[str, ...] = (),
+    agents_md: str | None = None,
 ) -> list[dict[str, str]]:
     expected = "\n".join(f"- {item}" for item in (work_step.expected_outputs or []))
     user_block = f"Request intent:\n{request.intent}\n\n"
+    # Auxiliary, founder-editable conventions. The system prompt above
+    # is the universal base; AGENTS.md is per-project guidance the
+    # founder owns. Injected into the user block (not the system
+    # prompt) so it reads as project context, not framework law.
+    if agents_md:
+        user_block += (
+            "Project conventions (from AGENTS.md — follow these unless they "
+            f"conflict with a hard verifier requirement):\n{agents_md.strip()}\n\n"
+        )
     # G10 — when the WorkPlan has multiple steps, tell the model where
     # it sits in the sequence. Keeps each step focused on its own
     # objective instead of trying to satisfy the whole Request in one
@@ -451,11 +463,57 @@ def _build_messages(
                 "   ``[tool.setuptools]``\n"
                 '   ``py_modules = ["app"]``  # the single module that IS the package\n'
                 "This tells setuptools which file is the package and excludes test_app.py from the "
-                "build. Required for any flat-layout install_smoke to pass."
+                "build. Required for any flat-layout install_smoke to pass.\n"
+                "13. TEST-FIRST (TDD) — when this step implements behaviour (a function, an "
+                "endpoint, a class method), write the test that pins the contract BEFORE the "
+                "implementation:\n"
+                "   (a) Write the test file first, expressing the expected input → output.\n"
+                "   (b) Run ``python -m pytest`` and CONFIRM it fails — a test that passes before "
+                "you wrote the code is testing nothing. Read the failure: it should be "
+                "ImportError / AssertionError on the missing behaviour, NOT a syntax error.\n"
+                "   (c) Implement the minimum code to make that test pass.\n"
+                "   (d) Re-run pytest until green.\n"
+                "Writing the test first forces you to nail the contract before the implementation "
+                "drifts. It is the single highest-leverage habit for passing code_test on the "
+                "first verifier round. Skip it only for pure-config or pure-docs steps that have "
+                "no behaviour to pin.\n"
+                "14. NO SCRATCH SCRIPTS — do NOT create ad-hoc ``run_tests.py`` / ``validate_*.py`` "
+                "/ ``verify_*.py`` helper scripts to check your own work. The verifier runs "
+                "``pytest`` + ``ruff`` itself. Such files are not deliverables, they pollute the "
+                "workspace, and ``ruff`` will flag them. Run ``python -m pytest`` directly via "
+                "shell_exec instead."
             ),
         },
         {"role": "user", "content": user_block},
     ]
+
+
+# AGENTS.md — auxiliary, founder-editable per-project conventions. The
+# emerging cross-tool convention (AGENTS.md / CLAUDE.md). BSNexus seeds
+# a default at workspace provision time; once the repo exists the repo
+# owns it. Capped so a runaway file can't blow the prompt budget.
+_AGENTS_MD_MAX_CHARS = 4000
+
+
+def _read_agents_md(workspace_dir: Path | str | None) -> str | None:
+    """Return the workspace-root ``AGENTS.md`` contents, or None when
+    absent / unreadable / empty. Never raises — a missing or broken
+    conventions file just means the universal system prompt stands alone.
+    """
+    if workspace_dir is None:
+        return None
+    path = Path(workspace_dir) / "AGENTS.md"
+    if not path.is_file():
+        return None
+    try:
+        text = path.read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeDecodeError):
+        return None
+    if not text:
+        return None
+    if len(text) > _AGENTS_MD_MAX_CHARS:
+        text = text[:_AGENTS_MD_MAX_CHARS] + "\n…(truncated)"
+    return text
 
 
 def _build_tool_registry(workspace_dir: Path | str | None) -> ToolRegistry | None:

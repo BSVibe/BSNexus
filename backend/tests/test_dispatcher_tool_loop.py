@@ -24,6 +24,7 @@ from backend.src.core.domain import (
 )
 from backend.src.core.run_attempt_executor import (
     _build_messages,
+    _read_agents_md,
     _workspace_overview,
     dispatch_run_attempt,
 )
@@ -149,6 +150,71 @@ def test_build_messages_includes_step_preamble_for_multi_step() -> None:
     user_block = messages[1]["content"]
     assert "step 2 of 3" in user_block
     assert "Already completed steps: Schema." in user_block
+
+
+def test_build_messages_system_prompt_has_tdd_rule() -> None:
+    """Rule 13 (test-first) must be in the work-phase system prompt —
+    the primary code-quality lever for Cycle 8."""
+    from types import SimpleNamespace
+
+    request = SimpleNamespace(intent="x")
+    work_step = SimpleNamespace(name="s", objective="o", expected_outputs=[])
+    messages = _build_messages(request=request, work_step=work_step)
+    system = messages[0]["content"]
+    assert "TEST-FIRST" in system
+    assert "CONFIRM it fails" in system
+    # Rule 14 — no scratch verify scripts.
+    assert "NO SCRATCH SCRIPTS" in system
+
+
+def test_build_messages_injects_agents_md_when_present() -> None:
+    from types import SimpleNamespace
+
+    request = SimpleNamespace(intent="x")
+    work_step = SimpleNamespace(name="s", objective="o", expected_outputs=[])
+    messages = _build_messages(
+        request=request,
+        work_step=work_step,
+        agents_md="# AGENTS.md\n\nAlways use tabs, never spaces.",
+    )
+    user_block = messages[1]["content"]
+    assert "Project conventions (from AGENTS.md" in user_block
+    assert "Always use tabs, never spaces." in user_block
+
+
+def test_build_messages_omits_agents_md_block_when_absent() -> None:
+    from types import SimpleNamespace
+
+    request = SimpleNamespace(intent="x")
+    work_step = SimpleNamespace(name="s", objective="o", expected_outputs=[])
+    messages = _build_messages(request=request, work_step=work_step, agents_md=None)
+    assert "Project conventions (from AGENTS.md" not in messages[1]["content"]
+
+
+def test_read_agents_md_reads_workspace_file(tmp_path):
+    (tmp_path / "AGENTS.md").write_text("# conventions\n\nbe terse\n")
+    assert _read_agents_md(tmp_path) == "# conventions\n\nbe terse"
+
+
+def test_read_agents_md_returns_none_when_absent(tmp_path):
+    assert _read_agents_md(tmp_path) is None
+
+
+def test_read_agents_md_returns_none_for_empty_file(tmp_path):
+    (tmp_path / "AGENTS.md").write_text("   \n  \n")
+    assert _read_agents_md(tmp_path) is None
+
+
+def test_read_agents_md_truncates_oversized_file(tmp_path):
+    (tmp_path / "AGENTS.md").write_text("x" * 9000)
+    result = _read_agents_md(tmp_path)
+    assert result is not None
+    assert result.endswith("…(truncated)")
+    assert len(result) < 9000
+
+
+def test_read_agents_md_none_workspace_returns_none() -> None:
+    assert _read_agents_md(None) is None
 
 
 def test_workspace_overview_includes_small_seed_file_previews(tmp_path):
