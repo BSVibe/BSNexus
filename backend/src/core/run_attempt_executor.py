@@ -481,7 +481,26 @@ def _build_messages(
                 "/ ``verify_*.py`` helper scripts to check your own work. The verifier runs "
                 "``pytest`` + ``ruff`` itself. Such files are not deliverables, they pollute the "
                 "workspace, and ``ruff`` will flag them. Run ``python -m pytest`` directly via "
-                "shell_exec instead."
+                "shell_exec instead.\n"
+                "15. BUILD EXACTLY WHAT THE DIRECTION ASKS — no more, no less. The Request intent "
+                "and work step objective are the contract. Do NOT add infrastructure, drivers, "
+                "async layers, ORMs, abstractions, config systems, or dependencies the Request "
+                "did not ask for. Concretely:\n"
+                '   - Match the stated technology literally. If the Request says "SQLite", use '
+                "Python's built-in ``sqlite3`` module — NOT SQLAlchemy, NOT asyncpg, NOT a "
+                "Postgres driver. ``sqlite3`` is synchronous and standard-library; that is the "
+                "correct choice. Reaching for async DB stacks the Request never mentioned causes "
+                "real failures (e.g. ``MissingGreenlet`` when async code runs in a sync test).\n"
+                '   - Match the stated scale. If the Request says "small", "keep it tight", '
+                '"a single file is fine" — honour it. One ``app.py`` plus one ``test_app.py`` '
+                "is a complete deliverable; do not scatter the same code across ``src/app.py`` "
+                "AND ``src/<pkg>/app.py``. Pick ONE canonical layout and put each thing in "
+                "exactly one place.\n"
+                "   - Use current, non-deprecated APIs for whatever libraries you do use "
+                "(e.g. ``sqlalchemy.orm.declarative_base``, not the deprecated 1.x "
+                "``declarative_base()``). A deprecation warning is a quality miss.\n"
+                "   - Simpler that satisfies the Request beats sophisticated that exceeds it. "
+                "The verifier rewards a working minimal solution, not ambition."
             ),
         },
         {"role": "user", "content": user_block},

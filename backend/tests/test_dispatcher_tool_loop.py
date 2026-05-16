@@ -165,6 +165,9 @@ def test_build_messages_system_prompt_has_tdd_rule() -> None:
     assert "CONFIRM it fails" in system
     # Rule 14 — no scratch verify scripts.
     assert "NO SCRATCH SCRIPTS" in system
+    # Rule 15 (Cycle 10) — build exactly what the Direction asks.
+    assert "BUILD EXACTLY WHAT THE DIRECTION ASKS" in system
+    assert "sqlite3" in system
 
 
 def test_build_messages_injects_agents_md_when_present() -> None:
