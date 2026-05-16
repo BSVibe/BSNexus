@@ -278,3 +278,41 @@ async def test_e2e_bypass_blocked_in_production_environment(authd_client):
             headers={"Authorization": f"Bearer {bypass}"},
         )
     assert resp.status_code == 401, resp.text
+
+
+@pytest.mark.asyncio
+async def test_x_active_tenant_header_threaded_to_authz_dispatch(authd_client):
+    """Tier 3.2: BSNexus re-wraps ``get_current_user`` and calls it
+    directly, so it must thread the ``X-Active-Tenant`` request header —
+    and the OpenFGA client the lib needs to membership-validate it —
+    into the lib call. The raw Supabase JWT carries no tenant claim;
+    without this the active tenant never resolves and every
+    tenant-scoped route 403s."""
+    from bsvibe_authz import User as AuthzUser
+
+    captured: dict[str, object] = {}
+
+    async def _fake_gcu(**kwargs: object) -> AuthzUser:
+        captured.update(kwargs)
+        return AuthzUser(id="u-1", email="u@bsvibe.dev", active_tenant_id="t-hdr")
+
+    env = {k: v for k, v in os.environ.items() if k != "ENVIRONMENT"}
+    with (
+        patch.dict(os.environ, env, clear=True),
+        patch("backend.src.core.auth.settings.e2e_test_token", ""),
+        patch("backend.src.core.auth.bsvibe_authz_get_current_user", _fake_gcu),
+    ):
+        resp = await authd_client.get(
+            "/api/v1/auth/me",
+            headers={
+                "Authorization": "Bearer dummy.jwt.token",
+                "X-Active-Tenant": "t-hdr",
+            },
+        )
+
+    assert resp.status_code == 200, resp.text
+    assert captured["x_active_tenant"] == "t-hdr"
+    # The lib needs a real OpenFGA client to validate header-tenant
+    # membership — a Depends() sentinel would AttributeError.
+    assert captured["fga"] is not None
+    assert hasattr(captured["fga"], "check")

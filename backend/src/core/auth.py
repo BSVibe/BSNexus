@@ -31,6 +31,7 @@ from bsvibe_authz import (
     User as AuthzUser,
 )
 from bsvibe_authz.deps import get_current_user as bsvibe_authz_get_current_user
+from bsvibe_authz.deps import get_openfga_client as bsvibe_authz_get_openfga_client
 from bsvibe_authz.deps import require_permission as authz_require_permission
 from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -241,7 +242,7 @@ def _to_bsvibe_user(authz_user: AuthzUser, *, default_role: str = "viewer") -> B
     )
 
 
-async def _dispatch_token(token: str) -> BSVibeUser:
+async def _dispatch_token(token: str, x_active_tenant: str | None = None) -> BSVibeUser:
     """Run the bsvibe-authz dispatch and return a BSVibeUser.
 
     Delegates to :func:`bsvibe_authz.deps.get_current_user` for the
@@ -256,13 +257,22 @@ async def _dispatch_token(token: str) -> BSVibeUser:
     falls back ``active_tenant_id`` to ``app_metadata.tenant_id`` —
     BSNexus no longer re-decodes the token. ``_to_bsvibe_user`` is the
     sole adapter.
+
+    Tier 3.2: ``get_current_user`` is a FastAPI dependency, but BSNexus
+    re-wraps it and calls it directly — so it must thread the
+    ``X-Active-Tenant`` header (and the OpenFGA client the lib needs to
+    validate membership of it) explicitly. The raw Supabase JWT carries
+    no tenant claim; without this the active tenant is unresolved and
+    every tenant-scoped route 403s.
     """
     try:
         authz_user = await bsvibe_authz_get_current_user(
             authorization=f"Bearer {token}",
+            x_active_tenant=x_active_tenant,
             settings=_authz_settings(),
             introspection_client=_get_introspection_client(),
             introspection_cache=_get_introspection_cache(),
+            fga=bsvibe_authz_get_openfga_client(_authz_settings()),
         )
     except HTTPException as exc:
         # RFC 6750 §3 requires ``WWW-Authenticate: Bearer`` on 401 —
@@ -323,7 +333,13 @@ async def get_current_user(
     if _e2e_bypass_enabled() and raw_token == settings.e2e_test_token:
         user = _build_e2e_test_user()
     else:
-        user = await _dispatch_token(raw_token)
+        # Tier 3.2: the active tenant is an explicit per-request signal —
+        # the raw Supabase JWT no longer carries it. Thread the header
+        # through so the lib resolves + membership-validates it.
+        user = await _dispatch_token(
+            raw_token,
+            x_active_tenant=request.headers.get("X-Active-Tenant"),
+        )
 
     tenant_id = _tenant_id_from_user(user)
     if tenant_id is not None and tenant_id != DEFAULT_TENANT_ID:
