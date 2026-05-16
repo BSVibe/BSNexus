@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 
 import { API_BASE_URL } from '../api/client'
-import { getAccessToken } from './useAuth'
+import { getAccessToken, getActiveTenantId } from './useAuth'
 
 export type ConnectionStatus = 'idle' | 'connecting' | 'open' | 'reconnecting'
 
@@ -39,7 +39,14 @@ export function useProjectEvents(projectId: string | null): ConnectionStatus {
     async function connect() {
       const token = await getAccessToken()
       if (cancelled || !token) return
-      const url = `${API_BASE_URL}/api/v1/events?project_id=${projectId}&token=${encodeURIComponent(token)}`
+      // Tier 3.2: EventSource cannot send the X-Active-Tenant header — pass
+      // the active tenant as a query param, mirroring the ?token= fallback.
+      const activeTenant = await getActiveTenantId()
+      if (cancelled) return
+      const tenantParam = activeTenant
+        ? `&active_tenant=${encodeURIComponent(activeTenant)}`
+        : ''
+      const url = `${API_BASE_URL}/api/v1/events?project_id=${projectId}&token=${encodeURIComponent(token)}${tenantParam}`
       setLiveStatus('connecting')
       es = new EventSource(url)
       esRef.current = es
