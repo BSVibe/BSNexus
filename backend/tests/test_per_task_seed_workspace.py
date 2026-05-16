@@ -154,7 +154,7 @@ async def test_measure_task_applies_seed_workspace_before_dispatch(
 
 @pytest.mark.asyncio
 async def test_measure_task_skips_reset_when_no_seed_workspace(
-    db_session, test_session_maker, mock_tenant_id, seeded_tenant, tmp_path
+    db_session, test_session_maker, mock_tenant_id, seeded_tenant, tmp_path, fake_aspect_venv
 ):
     """Backward-compat: existing tasks without ``seed_workspace`` use
     whatever the bridge caller pre-populated."""
