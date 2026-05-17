@@ -72,6 +72,28 @@ async def test_run_aspect_in_sandbox_passes_on_exit_zero() -> None:
     assert fake.exec_calls == [("pytest", True)]
 
 
+async def test_run_aspect_in_sandbox_resolves_venv_python_token() -> None:
+    """Heuristic-fallback specs (no declared contract) carry the
+    ``<venv_python>`` placeholder — the host path substitutes the
+    verifier venv interpreter. In the sandbox it must resolve to the
+    sandbox image's ``python``, not run literally as `<venv_python>`
+    (→ exit 127 → wrongly skipped)."""
+    from backend.src.core.domain import ProofAspectType
+    from backend.src.core.verification import AspectSpec
+
+    spec = AspectSpec(
+        aspect_type=ProofAspectType.code_test,
+        commands=(("<venv_python>", "-m", "pytest"),),
+        timeout_s=60,
+        blocking=True,
+    )
+    fake = FakeSandboxSession()
+    status, _summary, _exit = await _run_aspect_in_sandbox(spec, fake)
+    assert status == ProofAspectStatus.passed
+    assert fake.exec_calls == [("python -m pytest", True)]
+    assert "<venv_python>" not in fake.exec_calls[0][0]
+
+
 async def test_run_aspect_in_sandbox_fails_on_nonzero_exit() -> None:
     fake = FakeSandboxSession()
     fake.scripted["pytest"] = SandboxResult(exit_code=1, stdout="", stderr="boom", timed_out=False)
