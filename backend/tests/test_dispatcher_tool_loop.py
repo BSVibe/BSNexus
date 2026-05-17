@@ -193,6 +193,35 @@ def test_build_messages_system_prompt_is_stack_agnostic() -> None:
     assert "Python's built-in" not in system
 
 
+def test_build_messages_system_prompt_requires_running_tests_not_compiling() -> None:
+    """Phase A / A1 — the work-phase prompt must tell the model that a
+    compile/import-only check does not verify behaviour: when the step
+    has tests, the declared contract must RUN the test runner. The
+    dogfood weak contract declared ``py_compile test_calc.py`` as its
+    "test" — the prompt must turn that habit around."""
+    from types import SimpleNamespace
+
+    request = SimpleNamespace(intent="x")
+    work_step = SimpleNamespace(name="s", objective="o", expected_outputs=[])
+    messages = _build_messages(request=request, work_step=work_step)
+    system = messages[0]["content"]
+    assert "compiles or imports" in system
+    assert "RUNS the test runner" in system
+
+
+def test_build_messages_green_before_finish_ties_to_declared_checks() -> None:
+    """Phase A / A4 — green-before-finish must point at the contract the
+    model itself declared via ``declare_verification``: run every
+    declared command check and confirm it exits 0 before summarizing."""
+    from types import SimpleNamespace
+
+    request = SimpleNamespace(intent="x")
+    work_step = SimpleNamespace(name="s", objective="o", expected_outputs=[])
+    messages = _build_messages(request=request, work_step=work_step)
+    system = messages[0]["content"]
+    assert "every command check you declared" in system
+
+
 def test_build_messages_injects_agents_md_when_present() -> None:
     from types import SimpleNamespace
 

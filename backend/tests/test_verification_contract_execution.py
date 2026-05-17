@@ -75,6 +75,19 @@ async def test_declare_verification_appears_in_work_phase_schema(tmp_path):
     assert "declare_verification" in names
 
 
+def test_declare_verification_description_warns_against_compile_only_checks(tmp_path):
+    """Phase A / A1 — the tool description must steer the model away
+    from a weak contract: a check that only compiles or imports a file
+    does not verify behaviour; when the step has tests the contract
+    must RUN them. Includes the weak ``py_compile`` example as the
+    canonical anti-pattern."""
+    registry = ToolRegistry(workspace_dir=tmp_path)
+    description = registry.schema_for(["declare_verification"])[0]["function"]["description"]
+    assert "compiles or imports" in description
+    assert "RUNS the test runner" in description
+    assert "py_compile" in description
+
+
 # ───────────────────────── contract-driven verification ──────────────────
 
 

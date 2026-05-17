@@ -200,8 +200,13 @@ class ToolRegistry:
                 "0 = pass) — e.g. running the test suite or a linter. A 'judge' check is "
                 "for non-executable criteria (docs, design): a list of concrete, "
                 "independently checkable statements an LLM reviewer will grade. Declare "
-                "test, lint, and build as separate command checks where they apply. You "
-                "may call this again to refine the contract."
+                "test, lint, and build as separate command checks where they apply. "
+                "A check that only compiles or imports a file (py_compile, a bare "
+                "import) does NOT exercise its behaviour — when the step has tests, "
+                "declare a command that RUNS the test runner, never one that merely "
+                "compiles the test file. Weak (rejected as no real verification): "
+                "`python -m py_compile test_calc.py`. Strong: `pytest test_calc.py`. "
+                "You may call this again to refine the contract."
             ),
             parameters_schema={
                 "type": "object",
