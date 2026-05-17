@@ -29,6 +29,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import os
 import shlex
 import shutil
 import subprocess
@@ -282,16 +283,16 @@ def _contract_to_aspect_specs(contract: VerificationContract) -> list[AspectSpec
     specs: list[AspectSpec] = []
     for check in contract.checks:
         if check.kind == "command" and check.command:
-            try:
-                argv = tuple(shlex.split(check.command))
-            except ValueError:
-                continue
-            if not argv:
-                continue
+            # Run the declared command through a shell — the work LLM
+            # naturally declares pipelines / redirects (`… 2>&1 | head`,
+            # `a && b`); ``create_subprocess_exec`` without a shell would
+            # pass those as literal argv. The verifier venv's bin dir is
+            # prepended to PATH at run time so ``ruff`` / ``pytest`` /
+            # ``python`` resolve to the toolchain, not the bare runtime.
             specs.append(
                 AspectSpec(
                     aspect_type=ProofAspectType.declared_command,
-                    commands=(argv,),
+                    commands=(("sh", "-c", check.command),),
                     timeout_s=300,
                     blocking=True,
                 )
@@ -593,10 +594,27 @@ def _resolve_command(cmd: Sequence[str], venv_python: Path | None) -> tuple[str,
 
 
 def _needs_aspect_venv(specs: Sequence[AspectSpec]) -> bool:
-    """True when any aspect command references the ``<venv_python>``
-    token — i.e. a Python pytest/ruff aspect that must run inside an
-    isolated venv carrying the verifier toolchain."""
-    return any(_VENV_PYTHON_TOKEN in cmd for spec in specs for cmd in spec.commands)
+    """True when an aspect must run inside the verifier venv: either it
+    references the ``<venv_python>`` token (heuristic pytest/ruff
+    aspects) or it is a ``declared_command`` aspect — declared commands
+    run with the venv's bin on PATH so a model-declared ``ruff`` /
+    ``pytest`` / ``python`` resolves to the toolchain, not the bare
+    runtime container."""
+    return any(_VENV_PYTHON_TOKEN in cmd for spec in specs for cmd in spec.commands) or any(
+        spec.aspect_type == ProofAspectType.declared_command for spec in specs
+    )
+
+
+def _venv_env(venv_python: Path | None) -> dict[str, str] | None:
+    """Process env that puts the verifier venv's ``bin`` first on PATH,
+    so a declared command's ``python`` / ``ruff`` / ``pytest`` resolves
+    to the venv toolchain. ``None`` (no venv) → inherit the parent env."""
+    if venv_python is None:
+        return None
+    env = dict(os.environ)
+    env["PATH"] = str(venv_python.parent) + os.pathsep + env.get("PATH", "")
+    env["VIRTUAL_ENV"] = str(venv_python.parent.parent)
+    return env
 
 
 async def _build_aspect_venv(root: Path, tmpdir: Path) -> tuple[Path | None, str | None]:
@@ -660,11 +678,13 @@ async def _run_default_aspect(
     """Run each command in order. First non-zero exit → failed.
 
     ``<venv_python>`` placeholders are substituted with the verifier
-    venv interpreter."""
+    venv interpreter; declared commands additionally run with the venv
+    ``bin`` on PATH (see :func:`_venv_env`)."""
     last_exit: int | None = 0
+    env = _venv_env(venv_python)
     for cmd in spec.commands:
         resolved = _resolve_command(cmd, venv_python)
-        exit_code, output = await _run_command(resolved, cwd=workspace_root, timeout_s=spec.timeout_s)
+        exit_code, output = await _run_command(resolved, cwd=workspace_root, timeout_s=spec.timeout_s, env=env)
         last_exit = exit_code
         if exit_code != 0:
             return (
@@ -878,8 +898,14 @@ async def _run_one_aspect(
                 error=str(exc),
             )
             return ProofAspectStatus.error, f"judge runner crashed: {exc.__class__.__name__}: {exc}", None
-    needs_venv = _VENV_PYTHON_TOKEN in {part for cmd in spec.commands for part in cmd}
+    needs_venv = (
+        _VENV_PYTHON_TOKEN in {part for cmd in spec.commands for part in cmd}
+        or spec.aspect_type == ProofAspectType.declared_command
+    )
     if needs_venv and venv_python is None:
+        # A broken verifier venv must not count against the model — a
+        # declared ``ruff`` / ``pytest`` would false-fail without the
+        # toolchain. ``error`` rolls up to human_review_required.
         return (
             ProofAspectStatus.error,
             venv_error or "verifier venv unavailable",
@@ -905,11 +931,14 @@ async def _run_one_aspect(
 # ──────────────────────────── subprocess helper ──────────────────────────
 
 
-async def _run_command(command: Sequence[str], *, cwd: Path, timeout_s: int) -> tuple[int | None, str]:
+async def _run_command(
+    command: Sequence[str], *, cwd: Path, timeout_s: int, env: dict[str, str] | None = None
+) -> tuple[int | None, str]:
     try:
         process = await asyncio.create_subprocess_exec(
             *command,
             cwd=str(cwd),
+            env=env,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
