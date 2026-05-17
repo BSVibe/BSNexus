@@ -93,9 +93,12 @@ export default function DashboardPage() {
   // is a snapshot — the cutoff doesn't need to drift while the user
   // looks at it.
   const [sevenDaysAgo] = useState(() => Date.now() - 7 * 86400 * 1000)
+  // "Completed" = verifier passed. proof_state is the canonical done
+  // signal; ``status`` never reaches a 'delivered' value (the backend
+  // enum is draft|verifying|review_ready|shipped|rejected).
   const shipped7d = allDeliverables.filter(
     (d) =>
-      d.status === 'delivered' && new Date(d.created_at).getTime() >= sevenDaysAgo,
+      d.proof_state === 'verified' && new Date(d.created_at).getTime() >= sevenDaysAgo,
   )
 
   const filteredProjects = useMemo(() => {
@@ -136,7 +139,7 @@ export default function DashboardPage() {
           deliveredThisWeek:
             bundle?.deliverables.filter(
               (d) =>
-                d.status === 'delivered' &&
+                d.proof_state === 'verified' &&
                 new Date(d.created_at).getTime() >= sevenDaysAgo,
             ).length ?? 0,
         }

@@ -75,12 +75,19 @@ async def _shipped_cards(
     project_id: uuid.UUID | None,
     limit: int,
 ) -> list[dict]:
+    # ``proof_state == verified`` IS the "shipped" signal — the brief
+    # section's contract is "verifier passed → it appears here". A
+    # passing deliverable is stamped ``review_ready``; nothing advances
+    # it to ``shipped`` (server_managed projects have no PR-merge step),
+    # so gating on ``status == shipped`` left this section permanently
+    # empty. Gate on proof_state; accept review_ready + shipped, which
+    # also excludes founder-``rejected`` deliverables.
     stmt = (
         select(Deliverable)
         .where(
             Deliverable.tenant_id == tenant_id,
-            Deliverable.status == DeliverableStatus.shipped,
             Deliverable.proof_state == ProofState.verified,
+            Deliverable.status.in_([DeliverableStatus.review_ready, DeliverableStatus.shipped]),
         )
         .order_by(Deliverable.updated_at.desc())
         .limit(limit)

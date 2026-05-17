@@ -185,7 +185,10 @@ async def test_brief_aggregates_mobile_friendly_sections_and_never_ships_missing
         type=DeliverableType.code,
         title="Verified implementation",
         artifact_refs=["git:verified"],
-        status=DeliverableStatus.shipped,
+        # Realistic post-verification state: run_verification stamps a
+        # passing deliverable ``review_ready`` — nothing advances it to
+        # ``shipped``. The brief "shipped" section keys on proof_state.
+        status=DeliverableStatus.review_ready,
         proof_state=ProofState.verified,
     )
     missing_proof = Deliverable(

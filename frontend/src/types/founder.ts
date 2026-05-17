@@ -30,7 +30,8 @@ export interface Request {
 }
 
 export type DeliverableType = 'code' | 'doc' | 'design' | 'data' | 'url'
-export type DeliverableStatus = 'draft' | 'ready' | 'delivered'
+// Mirrors backend core.domain.DeliverableStatus.
+export type DeliverableStatus = 'draft' | 'verifying' | 'review_ready' | 'shipped' | 'rejected'
 export type StorageBackend = 'git' | 'object' | 'url'
 
 export type ProofState =
