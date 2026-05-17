@@ -709,15 +709,19 @@ async def _run_aspect_in_sandbox(
     work phase's toolchain IS the verification environment (Part B).
 
     A declared-command spec carries one ``("sh", "-c", <command>)``
-    entry; run it via the session's shell. Exit 127 (toolchain absent
-    from the sandbox image) → ``skipped``, never a false ``failed``."""
+    entry; run it via the session's shell. Heuristic-fallback specs
+    (no declared contract) carry the ``<venv_python>`` placeholder —
+    in the sandbox it resolves to the image's ``python`` (the sandbox
+    toolchain IS the verification environment). Exit 127 (toolchain
+    absent from the image) → ``skipped``, never a false ``failed``."""
     last_exit: int | None = 0
     summaries: list[str] = []
     for cmd in spec.commands:
-        if len(cmd) == 3 and cmd[0] == "sh" and cmd[1] == "-c":
-            command = cmd[2]
+        resolved = tuple("python" if part == _VENV_PYTHON_TOKEN else part for part in cmd)
+        if len(resolved) == 3 and resolved[0] == "sh" and resolved[1] == "-c":
+            command = resolved[2]
         else:
-            command = shlex.join(cmd)
+            command = shlex.join(resolved)
         result = await sandbox_session.exec(command, timeout_s=spec.timeout_s, shell=True)
         if result.timed_out:
             return ProofAspectStatus.failed, f"`{command}` timed out after {spec.timeout_s}s", None
