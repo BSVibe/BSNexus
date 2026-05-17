@@ -469,7 +469,18 @@
       "ctaGo": "대시보드로 이동",
       "footer": "Powered by BSVibe"
     },
+    "demo": {
+      "settingUp": "데모 샌드박스를 준비하는 중…",
+      "unavailable": "데모를 사용할 수 없습니다"
+    },
+    "screen": {
+      "emptySpec": "빈 spec — 렌더링할 내용이 없습니다.",
+      "emptyList": "빈 {type}",
+      "imagePlaceholder": "[이미지]",
+      "buttonFallback": "버튼"
+    },
     "help": {
+      "openLabel": "도움말 열기",
       "panel": {
         "title": "도움말",
         "closeLabel": "닫기"

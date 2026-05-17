@@ -469,7 +469,18 @@
       "ctaGo": "Go to Dashboard",
       "footer": "Powered by BSVibe"
     },
+    "demo": {
+      "settingUp": "Setting up your demo sandbox…",
+      "unavailable": "Demo unavailable"
+    },
+    "screen": {
+      "emptySpec": "Empty spec — nothing to render.",
+      "emptyList": "Empty {type}",
+      "imagePlaceholder": "[image]",
+      "buttonFallback": "Button"
+    },
     "help": {
+      "openLabel": "Open help",
       "panel": {
         "title": "Help",
         "closeLabel": "Close"
