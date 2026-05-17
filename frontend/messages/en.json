@@ -120,6 +120,14 @@
         "pending": "pending",
         "shipped": "shipped"
       },
+      "table": {
+        "project": "Project",
+        "status": "Status",
+        "requests": "Requests",
+        "pending": "Pending",
+        "shipped": "Shipped",
+        "updated": "Updated"
+      },
       "createModal": {
         "title": "New project",
         "nameLabel": "Name",
@@ -234,6 +242,12 @@
         "openInFiles": "Open in Files",
         "openInFilesAria": "Open this artifact in the project Files tab",
         "openCommitTitle": "Open GitHub commit {sha}"
+      },
+      "table": {
+        "item": "Item",
+        "status": "Status",
+        "updated": "Updated",
+        "summary": "Summary"
       }
     },
     "decisionInbox": {
@@ -256,7 +270,13 @@
       "customPlaceholder": "Or write your own answer…",
       "resolveButton": "Resolve",
       "resolutionLabel": "Resolution",
-      "byPrefix": "by"
+      "byPrefix": "by",
+      "table": {
+        "question": "Question",
+        "status": "Status",
+        "raised": "Raised",
+        "action": "Action"
+      }
     },
     "inside": {
       "requestsHeading": "Requests",

@@ -120,6 +120,14 @@
         "pending": "대기",
         "shipped": "완료"
       },
+      "table": {
+        "project": "프로젝트",
+        "status": "상태",
+        "requests": "요청",
+        "pending": "대기",
+        "shipped": "완료",
+        "updated": "갱신"
+      },
       "createModal": {
         "title": "새 프로젝트",
         "nameLabel": "이름",
@@ -234,6 +242,12 @@
         "openInFiles": "파일에서 열기",
         "openInFilesAria": "이 artifact 를 프로젝트 파일 탭에서 열기",
         "openCommitTitle": "GitHub 커밋 {sha} 열기"
+      },
+      "table": {
+        "item": "항목",
+        "status": "상태",
+        "updated": "갱신",
+        "summary": "요약"
       }
     },
     "decisionInbox": {
@@ -256,7 +270,13 @@
       "customPlaceholder": "직접 답변을 입력하세요…",
       "resolveButton": "해결",
       "resolutionLabel": "결정",
-      "byPrefix": "by"
+      "byPrefix": "by",
+      "table": {
+        "question": "질문",
+        "status": "상태",
+        "raised": "등록",
+        "action": "조치"
+      }
     },
     "inside": {
       "requestsHeading": "요청",
