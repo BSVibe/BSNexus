@@ -1,5 +1,7 @@
 'use client'
 
+import { useTranslations } from 'next-intl'
+
 import { DemoBanner, useAutoDemoSession } from '@bsvibe/demo'
 import { AuthContext } from '../auth/AuthContext'
 import { injectDemoToken } from '../../hooks/useAuth'
@@ -42,6 +44,7 @@ export default function DemoModeProvider({
 }: {
   children: React.ReactNode
 }) {
+  const t = useTranslations('nexus.demo')
   const { loading, error } = useAutoDemoSession(DEMO_API_URL, {
     onSessionReady: ({ token, expiresIn }) => {
       // Park the demo JWT in cachedToken so api/client's
@@ -77,7 +80,7 @@ export default function DemoModeProvider({
             animation: 'spin 0.9s linear infinite',
           }}
         />
-        <p style={{ fontSize: 14 }}>Setting up your demo sandbox…</p>
+        <p style={{ fontSize: 14 }}>{t('settingUp')}</p>
         <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
     )
@@ -97,7 +100,7 @@ export default function DemoModeProvider({
       >
         <div style={{ textAlign: 'center', padding: 32 }}>
           <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 8 }}>
-            Demo unavailable
+            {t('unavailable')}
           </h1>
           <p style={{ color: '#a8adc6', fontSize: 14 }}>{error}</p>
         </div>

@@ -11,7 +11,10 @@
  * and provides sensible visual fallbacks for domain types so every
  * screen looks like something instead of a JSON dump.
  */
+'use client'
+
 import type { CSSProperties, ReactNode } from 'react'
+import { useTranslations } from 'next-intl'
 
 /* ------------------------------------------------------------------ */
 /* Types                                                                */
@@ -40,6 +43,8 @@ export interface DesignTokens {
 interface RenderContext {
   tokens: DesignTokens
   depth: number
+  /** Translator bound to ``nexus.screen`` — see ScreenRenderer. */
+  t: (key: string, values?: Record<string, string>) => string
 }
 
 /* ------------------------------------------------------------------ */
@@ -332,7 +337,7 @@ function renderNode(
           }}
           data-rn-type={type}
         >
-          {textContent ?? (children.length ? children : 'Button')}
+          {textContent ?? (children.length ? children : ctx.t('buttonFallback'))}
         </button>
       )
     }
@@ -404,7 +409,7 @@ function renderNode(
           fontSize: 11,
           ...style,
         }} data-rn-type={type}>
-          {uri ? <img src={uri} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'cover' }} /> : '[image]'}
+          {uri ? <img src={uri} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'cover' }} /> : ctx.t('imagePlaceholder')}
         </div>
       )
     }
@@ -416,7 +421,7 @@ function renderNode(
         return (
           <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: 1, background: '#f3f4f6', borderRadius: 8, overflow: 'hidden', ...style }} data-rn-type={type}>
             {children.length ? children : (
-              <div style={{ padding: 14, color: '#9ca3af', fontSize: 12, fontStyle: 'italic' }}>Empty {type}</div>
+              <div style={{ padding: 14, color: '#9ca3af', fontSize: 12, fontStyle: 'italic' }}>{ctx.t('emptyList', { type })}</div>
             )}
           </div>
         )
@@ -568,15 +573,16 @@ export interface ScreenRendererProps {
 }
 
 export default function ScreenRenderer({ spec, tokens, width = 390, height = 844 }: ScreenRendererProps) {
+  const t = useTranslations('nexus.screen')
   if (!spec || typeof spec !== 'object') {
     return (
       <div className="text-xs text-text-tertiary italic px-3 py-4">
-        Empty spec — nothing to render.
+        {t('emptySpec')}
       </div>
     )
   }
 
-  const ctx: RenderContext = { tokens: tokens ?? {}, depth: 0 }
+  const ctx: RenderContext = { tokens: tokens ?? {}, depth: 0, t }
 
   return (
     <div className="flex items-start justify-center py-4">

@@ -1,5 +1,7 @@
 'use client'
 
+import { useTranslations } from 'next-intl'
+
 import { Badge } from '../common/Badge'
 import { DeliverableCard } from './DeliverableCard'
 import { I } from '../../lib/icons'
@@ -67,12 +69,13 @@ export function Section({
 }
 
 export function DecisionRow({ d }: { d: BriefDecision }) {
+  const t = useTranslations('nexus.decisions')
   return (
     <div className="card" style={{ padding: 14 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
         <I.Inbox size={12} />
         <span style={{ fontSize: 13, color: 'var(--gray-50)', flex: 1 }}>{d.question}</span>
-        {d.blocking && <Badge tone="rose">blocking</Badge>}
+        {d.blocking && <Badge tone="rose">{t('blockingBadge')}</Badge>}
       </div>
       <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{relTime(d.created_at)}</div>
     </div>
