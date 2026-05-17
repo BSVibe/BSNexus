@@ -65,6 +65,26 @@ class Settings(BsvibeSettings):
     # Per-project workspace root — where run outputs land as real files.
     workspace_root: str = "./data/workspaces"
 
+    # Work sandbox (Part B). When enabled, the work phase + verification
+    # run inside a per-project disposable container managed in a DinD
+    # sidecar, instead of host-side subprocesses in the BSNexus
+    # container (which lacks the project toolchain). False keeps the
+    # host-side ``NoopSandboxManager`` — behaviour identical to today.
+    sandbox_enabled: bool = False
+    # DinD endpoint the sandbox manager talks to, e.g.
+    # ``tcp://bsnexus-sandbox-dind:2375``. Empty + sandbox_enabled is a
+    # misconfiguration the manager rejects at startup.
+    docker_host: str = ""
+    # Toolchain image for sandbox containers (python+uv, node+pnpm, go).
+    sandbox_image: str = "bsnexus-sandbox:latest"
+    # Idle sandboxes are torn down after this many seconds; dep trees
+    # persist in the workspace volume so re-acquire stays cheap.
+    sandbox_idle_reap_seconds: int = 1800
+    # Max concurrently-running sandbox containers — a resource backstop
+    # on the host (a local LLM already holds ~20GB). Start at 2; tune
+    # from dogfood. Excess work dispatch waits for a slot.
+    sandbox_max_concurrent: int = 2
+
     # Verifier Worker (decision-locks A1, 2026-05-08). When enabled, the
     # process boots a background ``VerifierWorker`` that consumes the
     # ``verification:queue`` Redis Stream and runs ``Verifier``
