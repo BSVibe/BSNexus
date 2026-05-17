@@ -92,7 +92,11 @@ async def _seed_project(db_session, tenant_id: uuid.UUID, *, workspace_dir: str 
         tenant_id=tenant_id,
         name="g9-orch",
         description="",
-        workspace_type=WorkspaceType.server_managed,
+        # A custom workspace_dir is the local_import shape. A
+        # server_managed project's dir is always the lazily-assigned
+        # ``<workspace_root>/<id>`` — provision_workspace re-provisions
+        # a server_managed dir that points outside workspace_root.
+        workspace_type=WorkspaceType.local_import if workspace_dir else WorkspaceType.server_managed,
         workspace_dir=workspace_dir,
     )
     db_session.add(project)
