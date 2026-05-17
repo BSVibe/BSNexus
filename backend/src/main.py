@@ -1,3 +1,4 @@
+import asyncio
 import faulthandler
 import logging
 import logging.handlers
@@ -195,6 +196,18 @@ async def lifespan(app: FastAPI):
     await request_worker.start()
     app.state.request_worker = request_worker
 
+    # Part B — sandbox idle reaper. Tears down per-project sandbox
+    # containers idle past the threshold so they don't pin host memory.
+    # No-op when sandbox_enabled is false (the resolver returns None).
+    from backend.src.core.sandbox.reaper import sandbox_reaper_loop  # noqa: PLC0415
+    from backend.src.core.sandbox.resolver import get_sandbox_manager  # noqa: PLC0415
+
+    sandbox_manager = get_sandbox_manager()
+    sandbox_reaper_task: asyncio.Task | None = None
+    if sandbox_manager is not None:
+        sandbox_reaper_task = asyncio.create_task(sandbox_reaper_loop(sandbox_manager))
+    app.state.sandbox_reaper_task = sandbox_reaper_task
+
     # ─── Admin MCP lifespan (Round 4) ────────────────────────────────────
     # build_streamable_http_asgi_app reads ``app.state.admin_mcp_session_manager``;
     # the manager's task group must be entered before the first request.
@@ -206,6 +219,8 @@ async def lifespan(app: FastAPI):
             try:
                 yield
             finally:
+                if sandbox_reaper_task is not None:
+                    sandbox_reaper_task.cancel()
                 await request_worker.stop()
                 await verifier_worker.stop()
                 await audit_relay.stop()
@@ -215,6 +230,8 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        if sandbox_reaper_task is not None:
+            sandbox_reaper_task.cancel()
         await request_worker.stop()
         await verifier_worker.stop()
         await audit_relay.stop()

@@ -46,6 +46,7 @@ from backend.src.core.work_steps import (
     transition_work_step,
 )
 from backend.src.models import Deliverable, Project, Request, WorkPlan, WorkStep
+from backend.src.models.project import WorkspaceType
 
 logger = structlog.get_logger(__name__)
 
@@ -93,10 +94,30 @@ def provision_workspace(project: Project) -> Path:
     the founder-editable conventions file. Once the project's repo
     exists the repo owns it; BSNexus only seeds the initial copy.
     """
+    managed = Path(app_settings.workspace_root).resolve() / str(project.id)
     if project.workspace_dir:
         path = Path(project.workspace_dir)
+        # A server_managed project whose workspace_dir points OUTSIDE
+        # the current workspace_root is stale — typically stamped
+        # before a workspace-root / sandbox-volume migration. Keeping
+        # it makes the sandbox DinD bind-mount resolve to a path it
+        # cannot see. Re-provision under the managed root and re-stamp.
+        # local_import / github_connected projects carry an
+        # intentionally-external workspace_dir — leave those alone.
+        if project.workspace_type == WorkspaceType.server_managed:
+            try:
+                path.resolve().relative_to(Path(app_settings.workspace_root).resolve())
+            except ValueError:
+                logger.info(
+                    "provision_workspace_reprovisioned_stale_dir",
+                    project_id=str(project.id),
+                    stale_dir=str(path),
+                    managed_dir=str(managed),
+                )
+                path = managed
+                project.workspace_dir = str(managed)
     else:
-        path = Path(app_settings.workspace_root).resolve() / str(project.id)
+        path = managed
     path.mkdir(parents=True, exist_ok=True)
     _seed_agents_md(path)
     return path
