@@ -481,7 +481,12 @@ async def test_advance_verified_ships_request(db_session, mock_tenant_id, seeded
 
 
 @pytest.mark.asyncio
-async def test_advance_failed_proof_blocks_request(db_session, mock_tenant_id, seeded_tenant) -> None:
+async def test_advance_failed_proof_routes_request_to_needs_decision(db_session, mock_tenant_id, seeded_tenant) -> None:
+    """A failed-proof WorkStep no longer dead-ends the Request at
+    ``blocked``: the Request moves to ``needs_decision`` and a blocking
+    founder Decision is raised so the founder has recourse."""
+    from backend.src.models import Decision
+
     request, step, deliverable, _ = await _seed_request_at_verifying(
         db_session, mock_tenant_id, proof_state=ProofState.verification_failed
     )
@@ -489,7 +494,13 @@ async def test_advance_failed_proof_blocks_request(db_session, mock_tenant_id, s
     await db_session.refresh(step)
     await db_session.refresh(request)
     assert step.status == WorkStepStatus.failed
-    assert request.status == RequestStatus.blocked
+    assert request.status == RequestStatus.needs_decision
+
+    decisions = (await db_session.execute(select(Decision).where(Decision.request_id == request.id))).scalars().all()
+    assert len(decisions) == 1
+    assert decisions[0].blocking is True
+    assert decisions[0].work_step_id == step.id
+    assert decisions[0].options == ["retry", "reframe"]
 
 
 @pytest.mark.asyncio
@@ -647,9 +658,7 @@ async def test_post_direction_greenfield_autocreates_project(
     assert body["request"] is not None
 
     # Exactly one project now exists, named from the Direction body.
-    projects = (
-        (await db_session.execute(select(Project).where(Project.tenant_id == mock_tenant_id))).scalars().all()
-    )
+    projects = (await db_session.execute(select(Project).where(Project.tenant_id == mock_tenant_id))).scalars().all()
     assert len(projects) == 1
     assert projects[0].name == "Build a small FastAPI task tracker"
 

@@ -470,9 +470,17 @@ async def test_dispatcher_records_failed_tool_call_with_error_message_and_keeps_
 
     # Tool errors are fed back to the LLM, but a workspace run still
     # cannot produce a deliverable unless a later turn writes a file.
+    # A 0-write stall now routes through the continuation path — the
+    # first attempt recorded the denylisted tool call.
     assert result.terminal_reason == "failed_nonconvergent:no_workspace_write"
+    from backend.src.models import RunAttempt as _RunAttempt
+
+    attempts = (
+        (await db_session.execute(select(_RunAttempt).where(_RunAttempt.work_step_id == step.id))).scalars().all()
+    )
+    first_attempt = sorted(attempts, key=lambda a: a.started_at)[0]
     events = (
-        (await db_session.execute(select(ToolEvent).where(ToolEvent.run_attempt_id == result.attempt.id)))
+        (await db_session.execute(select(ToolEvent).where(ToolEvent.run_attempt_id == first_attempt.id)))
         .scalars()
         .all()
     )
@@ -565,11 +573,19 @@ async def test_dispatcher_fails_without_deliverable_when_model_never_writes_work
         workspace_dir=tmp_path,
     )
 
+    # A 0-write stall is no longer a dead-end — it routes through the
+    # Tier 1 continuation path. After the continuation cap the WorkStep
+    # parks at ``needs_decision`` and a blocking founder Decision is
+    # raised; the final RunAttempt is still ``failed`` (no convergence).
     assert result.deliverable is None
     assert result.terminal_reason == "failed_nonconvergent:no_workspace_write"
     assert result.attempt.status == RunAttemptStatus.failed
     await db_session.refresh(step)
-    assert step.status == WorkStepStatus.failed
+    assert step.status == WorkStepStatus.needs_decision
+    from backend.src.models import Decision as _Decision
+
+    decisions = (await db_session.execute(select(_Decision).where(_Decision.work_step_id == step.id))).scalars().all()
+    assert len(decisions) == 1 and decisions[0].blocking is True
     proof_calls = [
         call for call in mock_stream_manager.publish.await_args_list if call.args and call.args[0] == "proof:queue"
     ]
@@ -733,18 +749,28 @@ async def test_dispatcher_preserves_partial_work_when_budget_hits_after_writes(
     # the human_review_required state we just stamped.
     assert mock_stream_manager.publish.await_count == 0  # type: ignore[attr-defined]
 
-    # Run attempt + work step are still marked failed (no convergence).
+    # Continuation cap reached → no dead-end: the WorkStep parks at
+    # ``needs_decision`` and a blocking founder Decision is raised.
     await db_session.refresh(step)
-    assert step.status == WorkStepStatus.failed
+    assert step.status == WorkStepStatus.needs_decision
+    from backend.src.models import Decision as _Decision
+
+    decisions = (await db_session.execute(select(_Decision).where(_Decision.work_step_id == step.id))).scalars().all()
+    assert len(decisions) == 1 and decisions[0].blocking is True
     attempt = await db_session.get(RunAttempt, result.attempt.id)
     assert attempt is not None
     # Budget / outer-cap terminators set ``failed`` (event-budget) or
     # ``timed_out`` (outer iteration cap); both mean "didn't converge".
     assert attempt.status in {RunAttemptStatus.failed, RunAttemptStatus.timed_out}
 
-    # ToolEvent rows exist for every file_write that did land.
+    # ToolEvent rows exist for every file_write that did land on the
+    # FIRST attempt (the continuation chain spans 4 RunAttempt rows).
+    all_attempts = (
+        (await db_session.execute(select(RunAttempt).where(RunAttempt.work_step_id == step.id))).scalars().all()
+    )
+    first_attempt = sorted(all_attempts, key=lambda a: a.started_at)[0]
     events = (
-        (await db_session.execute(select(ToolEvent).where(ToolEvent.run_attempt_id == result.attempt.id)))
+        (await db_session.execute(select(ToolEvent).where(ToolEvent.run_attempt_id == first_attempt.id)))
         .scalars()
         .all()
     )
@@ -833,15 +859,18 @@ async def test_dispatcher_caps_outer_loop_iterations(
     )
 
     assert result.deliverable is None
-    # Either the phase round budget or the outer cap — both are valid
-    # terminators, but the message must be one of the two stable strings.
-    assert (
-        "phase_round_budget_exceeded:work" in result.terminal_reason
-        or "catastrophic_round_budget_exceeded" in result.terminal_reason
-        or result.terminal_reason == "work_loop_iteration_cap"
-    )
+    # The result reflects the FINAL attempt of the continuation chain:
+    # the first attempt exhausts the round budget, later attempts (the
+    # scripts run out) stall with no writes. Every one is an exhaustion-
+    # class terminator — the message must be one of the stable strings.
+    from backend.src.core.run_attempt_executor import _is_budget_termination
+
+    assert _is_budget_termination(result.terminal_reason or "")
+    # Budget exhaustion with 0 writes routes through the continuation
+    # path; at the cap the WorkStep parks at ``needs_decision`` (a
+    # founder Decision is raised) — never a silent ``failed`` dead-end.
     await db_session.refresh(step)
-    assert step.status == WorkStepStatus.failed
+    assert step.status == WorkStepStatus.needs_decision
 
 
 # ─────────────────── Aspect-feedback retry loop tests ─────────────────────

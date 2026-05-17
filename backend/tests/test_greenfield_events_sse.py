@@ -171,9 +171,7 @@ async def test_generator_advances_last_id_so_redelivery_does_not_loop():
 
 
 @pytest.mark.asyncio
-async def test_events_endpoint_404s_cross_tenant_project(
-    client, db_session, mock_tenant_id, seeded_tenant
-):
+async def test_events_endpoint_404s_cross_tenant_project(client, db_session, mock_tenant_id, seeded_tenant):
     from backend.src.models import Tenant
 
     other_tenant_id = uuid.uuid4()
@@ -212,8 +210,8 @@ async def test_resolve_decision_publishes_decision_resolved_event(
     decision = Decision(
         tenant_id=mock_tenant_id,
         project_id=project.id,
-        question="Ship now or hold?",
-        options=["ship", "hold"],
+        question="How should the stalled work move forward?",
+        options=["retry", "reframe"],
         blocking=True,
     )
     db_session.add(decision)
@@ -221,7 +219,7 @@ async def test_resolve_decision_publishes_decision_resolved_event(
 
     resp = await client.post(
         f"/api/v1/decisions/{decision.id}/resolve",
-        json={"resolution": "ship", "resolved_by": "founder@test"},
+        json={"resolution": "retry", "resolved_by": "founder@test"},
         headers={"Authorization": "Bearer fake"},
     )
     assert resp.status_code == 200, resp.text
@@ -234,13 +232,11 @@ async def test_resolve_decision_publishes_decision_resolved_event(
     args = call.args
     assert args[1] == "decision_resolved"
     assert args[2]["id"] == str(decision.id)
-    assert args[2]["resolution"] == "ship"
+    assert args[2]["resolution"] == "retry"
 
 
 @pytest.mark.asyncio
-async def test_events_endpoint_requires_auth(
-    test_app, db_session, mock_tenant_id, mock_stream_manager, seeded_tenant
-):
+async def test_events_endpoint_requires_auth(test_app, db_session, mock_tenant_id, mock_stream_manager, seeded_tenant):
     """EventSource cannot send Authorization headers; the endpoint must
     accept ``?token=`` (handled upstream by ``get_current_user``) and
     reject anonymous opens with 401."""

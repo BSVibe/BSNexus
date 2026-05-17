@@ -15,7 +15,7 @@ class DirectionSource(str, enum.Enum):
 class RequestStatus(str, enum.Enum):
     open = "open"
     running = "running"
-    blocked = "blocked"
+    needs_decision = "needs_decision"
     review_ready = "review_ready"
     shipped = "shipped"
     abandoned = "abandoned"

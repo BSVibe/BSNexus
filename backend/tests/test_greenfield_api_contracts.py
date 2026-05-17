@@ -76,9 +76,7 @@ async def test_post_direction_auto_routes_when_single_project(client, db_session
 
 
 @pytest.mark.asyncio
-async def test_post_direction_asks_routing_question_when_project_is_ambiguous(
-    client, db_session, mock_tenant_id
-):
+async def test_post_direction_asks_routing_question_when_project_is_ambiguous(client, db_session, mock_tenant_id):
     alpha = await _make_project(db_session, mock_tenant_id, "Alpha")
     beta = await _make_project(db_session, mock_tenant_id, "Beta")
 
@@ -194,7 +192,10 @@ async def test_flat_endpoints_are_tenant_scoped(client, db_session, mock_tenant_
     assert cross_project_rows.json() == []
 
 
-def test_request_status_has_proof_blocking_states():
+def test_request_status_has_proof_and_decision_states():
     assert RequestStatus.shipped.value == "shipped"
     assert RequestStatus.review_ready.value == "review_ready"
-    assert RequestStatus.blocked.value == "blocked"
+    # ``blocked`` is retired — a stalled Request waits in
+    # ``needs_decision`` until the founder resolves its Decision.
+    assert RequestStatus.needs_decision.value == "needs_decision"
+    assert not hasattr(RequestStatus, "blocked")

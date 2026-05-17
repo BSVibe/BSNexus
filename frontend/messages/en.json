@@ -267,10 +267,11 @@
       "nothingBlocking": "Nothing blocking.",
       "blockingBadge": "blocking",
       "resolvedBadge": "resolved",
-      "customPlaceholder": "Or write your own answer…",
-      "resolveButton": "Resolve",
       "resolutionLabel": "Resolution",
       "byPrefix": "by",
+      "retryLabel": "Retry",
+      "reframeLabel": "Reframe",
+      "reframePlaceholder": "New direction for the work…",
       "table": {
         "question": "Question",
         "status": "Status",

@@ -150,7 +150,7 @@ export function RequestRow({ r }: { r: BriefRequest }) {
         <span style={{ fontSize: 13, color: 'var(--gray-50)', flex: 1 }}>
           {r.intent || truncId(r.id)}
         </span>
-        <Badge tone={r.status === 'blocked' ? 'rose' : 'blue'} dot>
+        <Badge tone={r.status === 'needs_decision' ? 'rose' : 'blue'} dot>
           {r.status}
         </Badge>
       </div>
@@ -184,17 +184,16 @@ export function RequestRow({ r }: { r: BriefRequest }) {
 }
 
 export function BlockedRow({ item }: { item: BriefBlockedItem }) {
-  if (item.kind === 'request') {
-    return <RequestRow r={item} />
-  }
+  // The ``blocked`` section is deliverable-only — a stalled Request now
+  // surfaces in ``needs_decision`` via its open founder Decision.
   return <DeliverableCard d={item} />
 }
 
 // ─── ResponsiveTable column models ───────────────────────────────────
 //
-// Heterogeneous rows: `blocked` mixes requests and deliverables, so its
-// cells branch on `item.kind`. The desktop table surfaces the same data
-// the row cards do — the mobile renderer reuses the cards verbatim.
+// `blocked` rows are deliverables whose proof failed/missing — the
+// desktop table surfaces the same data the row cards do, and the mobile
+// renderer reuses the cards verbatim.
 
 /** Shared inline-link styling for PR / commit anchors inside table cells. */
 function stopAnchorPropagation(e: React.MouseEvent) {
@@ -218,7 +217,7 @@ export function useRequestColumns(): ResponsiveTableColumn<BriefRequest>[] {
       key: 'status',
       header: t('table.status'),
       cell: (r) => (
-        <Badge tone={r.status === 'blocked' ? 'rose' : 'blue'} dot>
+        <Badge tone={r.status === 'needs_decision' ? 'rose' : 'blue'} dot>
           {r.status}
         </Badge>
       ),
@@ -294,30 +293,17 @@ export function useBlockedColumns(): ResponsiveTableColumn<BriefBlockedItem>[] {
     {
       key: 'item',
       header: t('table.item'),
-      cell: (item) =>
-        item.kind === 'request' ? (
-          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <I.Timeline size={12} />
-            <span style={{ color: 'var(--gray-50)' }}>{item.intent || truncId(item.id)}</span>
-          </span>
-        ) : (
-          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <I.Doc size={12} />
-            <span style={{ color: 'var(--gray-50)' }}>{item.title}</span>
-          </span>
-        ),
+      cell: (item) => (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <I.Doc size={12} />
+          <span style={{ color: 'var(--gray-50)' }}>{item.title}</span>
+        </span>
+      ),
     },
     {
       key: 'status',
       header: t('table.status'),
-      cell: (item) =>
-        item.kind === 'request' ? (
-          <Badge tone="rose" dot>
-            {item.status}
-          </Badge>
-        ) : (
-          <ProofBadge state={item.proof_state} />
-        ),
+      cell: (item) => <ProofBadge state={item.proof_state} />,
     },
     {
       key: 'updated',
@@ -325,7 +311,7 @@ export function useBlockedColumns(): ResponsiveTableColumn<BriefBlockedItem>[] {
       cellClassName: 'whitespace-nowrap',
       cell: (item) => (
         <span className="faded" style={{ fontSize: 11 }}>
-          {relTime(item.kind === 'request' ? item.updated_at : item.created_at)}
+          {relTime(item.created_at)}
         </span>
       ),
     },

@@ -111,8 +111,13 @@ MAX_BUDGET_CONTINUATIONS = 3
 # change you're on, then stop" message is injected so the model lands
 # in a clean state rather than being hard-cut mid-edit.
 SOFT_PRESSURE_HEADROOM = 4
-# Terminal reasons that mean "ran out of room with progress" (→ may
-# continue) vs "genuinely stuck" (→ no continuation).
+# Terminal reasons that mean "the attempt ran out of room" — every one
+# of these routes through the Tier 1 continuation / Decision path
+# rather than dead-ending. Continuation no longer requires file writes:
+# a 0-write exhaustion (``failed_nonconvergent:no_workspace_write``) is
+# just as eligible — a fresh attempt gets a clean budget, and at the
+# continuation cap a founder Decision is raised. There is no longer a
+# silent ``blocked`` dead-end.
 _BUDGET_TERMINATION_REASONS = frozenset(
     {
         "phase_round_budget_exceeded:work",
@@ -122,6 +127,10 @@ _BUDGET_TERMINATION_REASONS = frozenset(
         # budget remained for another retry — a budget-class outcome, so
         # it routes through the same handoff / continuation path.
         "aspect_retry_budget_exhausted",
+        # The model produced no file write within its nudge budget. A
+        # fresh continuation gets a clean round budget; at the cap this
+        # escalates to a founder Decision instead of a dead-end.
+        "failed_nonconvergent:no_workspace_write",
     }
 )
 
@@ -179,6 +188,7 @@ async def dispatch_run_attempt(
     total_steps: int | None = None,
     prior_step_names: tuple[str, ...] = (),
     sandbox_manager: SandboxManager | None = None,
+    seed_handoff: dict[str, Any] | None = None,
 ) -> DispatchRunAttemptResult:
     """Drive ``work_step`` to a terminal state and enqueue the
     resulting Deliverable on ``proof:queue``.
@@ -227,7 +237,9 @@ async def dispatch_run_attempt(
             )
             sandbox_session = None
 
-    seed_handoff: dict[str, Any] | None = None
+    # ``seed_handoff`` from the caller (a ``reframe`` re-engagement after
+    # a founder Decision) seeds the FIRST attempt with founder guidance;
+    # the continuation loop then overwrites it with generated handoffs.
     outcome = _AttemptOutcome()
     for continuation_index in range(MAX_BUDGET_CONTINUATIONS + 1):
         outcome = await _execute_one_attempt(
@@ -359,11 +371,15 @@ async def _execute_one_attempt(
         _capture_verification_contract(attempt, tool_registry)
     except _ToolLoopTerminated as terminated:
         _capture_verification_contract(terminated.attempt, tool_registry)
-        # Budget-class termination + real progress + room left →
-        # checkpoint, not failure: generate a model-independent handoff
-        # record and signal the continuation loop. The WorkStep stays
-        # ``running`` — a fresh RunAttempt will resume.
-        if can_continue and terminated.written_paths and _is_budget_termination(terminated.reason):
+        is_exhaustion = _is_budget_termination(terminated.reason)
+        # Budget / round / no-write exhaustion + room left → checkpoint,
+        # not failure: generate a model-independent handoff record and
+        # signal the continuation loop. The WorkStep stays ``running`` —
+        # a fresh RunAttempt resumes with a clean budget. This fires
+        # regardless of ``written_paths``: a 0-write stall is just as
+        # eligible — the handoff carries an empty file list and the
+        # continuation prompt tells the next attempt to start the work.
+        if can_continue and is_exhaustion:
             handoff = await _generate_handoff_record(
                 attempt=terminated.attempt,
                 work_step=work_step,
@@ -378,59 +394,56 @@ async def _execute_one_attempt(
             )
             return _AttemptOutcome(handoff=handoff)
 
-        await transition_work_step(step=work_step, target=WorkStepStatus.failed, session=session)
-        # Partial-work preservation: if the model produced any file
-        # writes before termination, surface them as a deliverable
-        # so the founder can inspect what landed instead of staring
-        # at a null deliverable. Run aspects on what we have to give
-        # the founder *diagnostic* signal (which lint errors? which
-        # tests fail? does it install?) — but a non-converged run
-        # can never be auto-``verified``, so we cap the roll-up at
-        # ``human_review_required``.
-        # No proof:queue enqueue — the verifier worker must not
-        # overwrite the state we just stamped.
-        partial_deliverable = None
-        if terminated.written_paths:
-            partial_deliverable = await create_deliverable_from_work_output(
+        # Exhaustion with the continuation cap reached → this is NOT a
+        # dead-end. Park the WorkStep at ``needs_decision`` and raise a
+        # blocking founder Decision; resolving it re-dispatches the work.
+        if is_exhaustion:
+            await transition_work_step(step=work_step, target=WorkStepStatus.needs_decision, session=session)
+            # Lazy-import to break the orchestration ↔ run_attempt_executor
+            # import cycle (orchestration imports dispatch_run_attempt).
+            from backend.src.core.orchestration import create_blocking_decision  # noqa: PLC0415
+
+            await create_blocking_decision(
+                request=request,
+                work_step=work_step,
+                reason=terminated.reason,
+                session=session,
+                stream_manager=stream_manager,
+            )
+            partial_deliverable = await _surface_partial_deliverable(
+                terminated=terminated,
+                request=request,
+                work_step=work_step,
                 tenant_id=tenant_id,
-                draft=WorkOutputDraft(
-                    project_id=request.project_id,
-                    request_id=request.id,
-                    work_step_id=work_step.id,
-                    title=work_step.name,
-                    summary=(terminated.final_text or "")[:SUMMARY_PREVIEW_CHARS] or None,
-                    type=DeliverableType.code,
-                    artifact_refs=list(terminated.written_paths),
-                ),
+                workspace_dir=workspace_dir,
+                executor=executor,
+                model=model,
+                metadata=metadata,
+                sandbox_session=sandbox_session,
                 session=session,
             )
-            await session.flush()
-            # Lazy-import: ``orchestration`` → ``run_attempt_executor``
-            # → ``verification`` shares the import-cycle break we set
-            # up for the back-half orchestration hook.
-            from backend.src.core.verification import run_verification  # noqa: PLC0415
-
-            try:
-                await run_verification(
+            await session.commit()
+            return _AttemptOutcome(
+                result=DispatchRunAttemptResult(
+                    attempt=terminated.attempt,
                     deliverable=partial_deliverable,
-                    workspace_root=workspace_dir or "/tmp",
-                    session=session,
-                    changed_files=tuple(terminated.written_paths),
-                    verification_contract=terminated.attempt.verification_contract,
-                    judge=JudgeContext(executor=executor, model=model or "", metadata=metadata),
-                    sandbox_session=sandbox_session,
+                    terminal_reason=terminated.reason,
                 )
-            except Exception:
-                logger.exception(
-                    "partial_deliverable_verification_crashed",
-                    deliverable_id=str(partial_deliverable.id),
-                )
-            # Demote ``verified`` → ``human_review_required``. The
-            # aspects ran for diagnostics, but the model didn't reach
-            # a final summary; the run is non-converged by definition.
-            if partial_deliverable.proof_state == ProofState.verified:
-                partial_deliverable.proof_state = ProofState.human_review_required
-                await session.flush()
+            )
+
+        await transition_work_step(step=work_step, target=WorkStepStatus.failed, session=session)
+        partial_deliverable = await _surface_partial_deliverable(
+            terminated=terminated,
+            request=request,
+            work_step=work_step,
+            tenant_id=tenant_id,
+            workspace_dir=workspace_dir,
+            executor=executor,
+            model=model,
+            metadata=metadata,
+            sandbox_session=sandbox_session,
+            session=session,
+        )
         return _AttemptOutcome(
             result=DispatchRunAttemptResult(
                 attempt=terminated.attempt,
@@ -504,6 +517,76 @@ async def _execute_one_attempt(
             terminal_reason="summarized",
         )
     )
+
+
+async def _surface_partial_deliverable(
+    *,
+    terminated: _ToolLoopTerminated,
+    request: Request,
+    work_step: WorkStep,
+    tenant_id: uuid.UUID,
+    workspace_dir: Path | str | None,
+    executor: ExecutorClient,
+    model: str | None,
+    metadata: dict[str, Any],
+    sandbox_session: SandboxSession | None,
+    session: AsyncSession,
+) -> Deliverable | None:
+    """Partial-work preservation for a terminated RunAttempt.
+
+    If the model produced any file writes before termination, surface
+    them as a deliverable so the founder can inspect what landed instead
+    of staring at a null deliverable. Aspects run for *diagnostic*
+    signal (which lint errors? which tests fail?) — but a non-converged
+    run can never be auto-``verified``, so the roll-up is capped at
+    ``human_review_required``. No ``proof:queue`` enqueue — the verifier
+    worker must not overwrite the state the caller just stamped.
+
+    Returns ``None`` when nothing was written.
+    """
+    if not terminated.written_paths:
+        return None
+    partial_deliverable = await create_deliverable_from_work_output(
+        tenant_id=tenant_id,
+        draft=WorkOutputDraft(
+            project_id=request.project_id,
+            request_id=request.id,
+            work_step_id=work_step.id,
+            title=work_step.name,
+            summary=(terminated.final_text or "")[:SUMMARY_PREVIEW_CHARS] or None,
+            type=DeliverableType.code,
+            artifact_refs=list(terminated.written_paths),
+        ),
+        session=session,
+    )
+    await session.flush()
+    # Lazy-import: ``orchestration`` → ``run_attempt_executor`` →
+    # ``verification`` shares the import-cycle break set up for the
+    # back-half orchestration hook.
+    from backend.src.core.verification import run_verification  # noqa: PLC0415
+
+    try:
+        await run_verification(
+            deliverable=partial_deliverable,
+            workspace_root=workspace_dir or "/tmp",
+            session=session,
+            changed_files=tuple(terminated.written_paths),
+            verification_contract=terminated.attempt.verification_contract,
+            judge=JudgeContext(executor=executor, model=model or "", metadata=metadata),
+            sandbox_session=sandbox_session,
+        )
+    except Exception:
+        logger.exception(
+            "partial_deliverable_verification_crashed",
+            deliverable_id=str(partial_deliverable.id),
+        )
+    # Demote ``verified`` → ``human_review_required``. The aspects ran
+    # for diagnostics, but the model didn't reach a final summary; the
+    # run is non-converged by definition.
+    if partial_deliverable.proof_state == ProofState.verified:
+        partial_deliverable.proof_state = ProofState.human_review_required
+        await session.flush()
+    return partial_deliverable
 
 
 async def _lookup_executor_config_kind_and_model(

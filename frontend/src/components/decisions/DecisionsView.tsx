@@ -8,7 +8,7 @@ import { Badge, StatusDot } from '../common/Badge'
 import { relTime, truncId } from '../../lib/fmt'
 import { type Tone } from '../../lib/tone'
 import { decisionsApi } from '../../api/founder'
-import type { Decision } from '../../types/founder'
+import type { Decision, DecisionResolve } from '../../types/founder'
 
 export default function DecisionsView({ projectId }: { projectId: string }) {
   const t = useTranslations('nexus.decisions')
@@ -20,8 +20,8 @@ export default function DecisionsView({ projectId }: { projectId: string }) {
   })
 
   const resolveMutation = useMutation({
-    mutationFn: ({ id, resolution }: { id: string; resolution: string }) =>
-      decisionsApi.resolve(id, { resolution }),
+    mutationFn: ({ id, payload }: { id: string; payload: DecisionResolve }) =>
+      decisionsApi.resolve(id, payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['decisions', projectId] })
     },
@@ -31,8 +31,8 @@ export default function DecisionsView({ projectId }: { projectId: string }) {
   const open = decisions.filter((d) => !d.resolved_at && !d.blocking)
   const resolved = decisions.filter((d) => d.resolved_at)
 
-  function onResolve(id: string, resolution: string) {
-    resolveMutation.mutate({ id, resolution })
+  function onResolve(id: string, payload: DecisionResolve) {
+    resolveMutation.mutate({ id, payload })
   }
 
   return (
@@ -147,7 +147,7 @@ function DecisionTable({
   decisions: Decision[]
   emptyMessage: string
   pending?: boolean
-  onResolve: (id: string, resolution: string) => void
+  onResolve: (id: string, payload: DecisionResolve) => void
 }) {
   const t = useTranslations('nexus.decisions')
 
@@ -210,7 +210,7 @@ function DecisionTable({
         <DecisionCard
           d={d}
           pending={pending}
-          onResolve={(resolution) => onResolve(d.id, resolution)}
+          onResolve={(payload) => onResolve(d.id, payload)}
         />
       )}
     />
@@ -218,8 +218,10 @@ function DecisionTable({
 }
 
 /**
- * ResolveCell — compact desktop resolve UI: one button per option plus a
- * custom-answer form. Mirrors the actionable portion of `<DecisionCard>`.
+ * ResolveCell — compact desktop resolve UI. The two outcomes are
+ * forward-only: a plain `Retry` button re-dispatches the work as-is, and
+ * a `Reframe` form re-dispatches it with the founder's free-text
+ * guidance. There is no `abandon` — every resolution moves work forward.
  */
 function ResolveCell({
   d,
@@ -228,10 +230,10 @@ function ResolveCell({
 }: {
   d: Decision
   pending?: boolean
-  onResolve: (id: string, resolution: string) => void
+  onResolve: (id: string, payload: DecisionResolve) => void
 }) {
   const t = useTranslations('nexus.decisions')
-  const [custom, setCustom] = useState('')
+  const [guidance, setGuidance] = useState('')
   const isResolved = !!d.resolved_at
 
   if (isResolved) {
@@ -249,38 +251,36 @@ function ResolveCell({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 200 }}>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-        {d.options.map((opt) => (
-          <button
-            key={opt}
-            type="button"
-            className="btn btn-secondary btn-sm"
-            disabled={pending}
-            onClick={() => onResolve(d.id, opt)}
-          >
-            {opt}
-          </button>
-        ))}
-      </div>
+      <button
+        type="button"
+        className="btn btn-secondary btn-sm"
+        disabled={pending}
+        onClick={() => onResolve(d.id, { resolution: 'retry' })}
+        style={{ alignSelf: 'flex-start' }}
+      >
+        {t('retryLabel')}
+      </button>
       <form
         onSubmit={(e) => {
           e.preventDefault()
-          if (custom.trim()) onResolve(d.id, custom.trim())
+          if (guidance.trim()) {
+            onResolve(d.id, { resolution: 'reframe', guidance: guidance.trim() })
+          }
         }}
         style={{ display: 'flex', gap: 6, alignItems: 'center' }}
       >
         <input
           className="input"
-          placeholder={t('customPlaceholder')}
-          value={custom}
-          onChange={(e) => setCustom(e.target.value)}
+          placeholder={t('reframePlaceholder')}
+          value={guidance}
+          onChange={(e) => setGuidance(e.target.value)}
         />
         <button
           type="submit"
           className="btn btn-primary btn-sm"
-          disabled={!custom.trim() || pending}
+          disabled={!guidance.trim() || pending}
         >
-          {t('resolveButton')}
+          {t('reframeLabel')}
         </button>
       </form>
     </div>
@@ -293,11 +293,11 @@ function DecisionCard({
   pending,
 }: {
   d: Decision
-  onResolve: (resolution: string) => void
+  onResolve: (payload: DecisionResolve) => void
   pending?: boolean
 }) {
   const t = useTranslations('nexus.decisions')
-  const [custom, setCustom] = useState('')
+  const [guidance, setGuidance] = useState('')
   const isResolved = !!d.resolved_at
 
   return (
@@ -369,37 +369,36 @@ function DecisionCard({
               marginBottom: 8,
             }}
           >
-            {d.options.map((opt) => (
-              <button
-                key={opt}
-                type="button"
-                className="btn btn-secondary btn-sm"
-                disabled={pending}
-                onClick={() => onResolve(opt)}
-              >
-                {opt}
-              </button>
-            ))}
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled={pending}
+              onClick={() => onResolve({ resolution: 'retry' })}
+            >
+              {t('retryLabel')}
+            </button>
           </div>
           <form
             onSubmit={(e) => {
               e.preventDefault()
-              if (custom.trim()) onResolve(custom.trim())
+              if (guidance.trim()) {
+                onResolve({ resolution: 'reframe', guidance: guidance.trim() })
+              }
             }}
             style={{ display: 'flex', gap: 8, alignItems: 'center' }}
           >
             <input
               className="input"
-              placeholder={t('customPlaceholder')}
-              value={custom}
-              onChange={(e) => setCustom(e.target.value)}
+              placeholder={t('reframePlaceholder')}
+              value={guidance}
+              onChange={(e) => setGuidance(e.target.value)}
             />
             <button
               type="submit"
               className="btn btn-primary btn-sm"
-              disabled={!custom.trim() || pending}
+              disabled={!guidance.trim() || pending}
             >
-              {t('resolveButton')}
+              {t('reframeLabel')}
             </button>
           </form>
         </>

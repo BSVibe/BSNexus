@@ -21,7 +21,7 @@ from typing import Any
 import pytest
 from sqlalchemy import select
 
-from backend.src.core.domain import RunAttemptStatus, WorkPlanCreatedBy, WorkStepStatus
+from backend.src.core.domain import WorkPlanCreatedBy, WorkStepStatus
 from backend.src.core.run_attempt_executor import (
     MAX_BUDGET_CONTINUATIONS,
     _build_messages,
@@ -208,15 +208,49 @@ async def test_budget_exhaustion_with_writes_spawns_continuation(
 
 
 @pytest.mark.asyncio
-async def test_zero_write_stall_does_not_continue(
+async def test_zero_write_stall_spawns_continuation(
     db_session, mock_tenant_id, seeded_tenant, mock_stream_manager, tmp_path
 ):
-    """Budget hit with ZERO file writes is a genuine failure — no
-    handoff, no continuation, exactly one RunAttempt."""
-    for i in range(60):
-        (tmp_path / f"d{i}").mkdir()
-    scripts = [[{"id": f"c{i}", "name": "file_list", "arguments": {"path": f"d{i}"}}] for i in range(60)]
-    executor = _ScriptedExecutor(tool_call_scripts=scripts, final_text="never")
+    """A 0-write exhaustion is no longer a dead-end: it routes through
+    the Tier 1 continuation path just like a budget exhaustion. A model
+    that stalls (no file writes) gets a fresh continuation attempt with
+    a clean budget — at least 2 RunAttempt rows."""
+    # Plain text every call → no tool_calls → after MAX_NO_WORK_NUDGES
+    # nudges the work phase raises ``no_workspace_write`` per attempt.
+    executor = _ScriptedExecutor(tool_call_scripts=[], final_text="here is some prose, no files")
+    request, step = await _seed_request_with_step(db_session, mock_tenant_id)
+
+    result = await dispatch_run_attempt(
+        request=request,
+        work_step=step,
+        tenant_id=mock_tenant_id,
+        session=db_session,
+        stream_manager=mock_stream_manager,
+        executor=executor,
+        executor_kind="injected",
+        model="stub-model",
+        workspace_dir=tmp_path,
+    )
+
+    assert result.terminal_reason == "failed_nonconvergent:no_workspace_write"
+    assert _is_budget_termination(result.terminal_reason or "")
+    attempts = (await db_session.execute(select(RunAttempt).where(RunAttempt.work_step_id == step.id))).scalars().all()
+    assert len(attempts) >= 2, "0-write stall must now spawn a continuation"
+    # The first attempt produced a handoff (empty file list is fine).
+    first = sorted(attempts, key=lambda a: a.started_at)[0]
+    assert first.handoff is not None
+
+
+@pytest.mark.asyncio
+async def test_continuation_cap_creates_decision(
+    db_session, mock_tenant_id, seeded_tenant, mock_stream_manager, tmp_path
+):
+    """When every continuation attempt stalls (0 writes) and the cap is
+    reached, the WorkStep parks at ``needs_decision`` and a blocking
+    founder Decision is raised — never a silent ``failed`` dead-end."""
+    from backend.src.models import Decision
+
+    executor = _ScriptedExecutor(tool_call_scripts=[], final_text="prose only, never writes a file")
     request, step = await _seed_request_with_step(db_session, mock_tenant_id)
 
     result = await dispatch_run_attempt(
@@ -233,10 +267,18 @@ async def test_zero_write_stall_does_not_continue(
 
     assert _is_budget_termination(result.terminal_reason or "")
     attempts = (await db_session.execute(select(RunAttempt).where(RunAttempt.work_step_id == step.id))).scalars().all()
-    assert len(attempts) == 1, "0-write stall must not spawn a continuation"
-    assert attempts[0].handoff is None
+    assert len(attempts) == MAX_BUDGET_CONTINUATIONS + 1 == 4
+
     await db_session.refresh(step)
-    assert step.status == WorkStepStatus.failed
+    assert step.status == WorkStepStatus.needs_decision
+
+    decisions = (await db_session.execute(select(Decision).where(Decision.work_step_id == step.id))).scalars().all()
+    assert len(decisions) == 1
+    decision = decisions[0]
+    assert decision.blocking is True
+    assert decision.options == ["retry", "reframe"]
+    assert decision.request_id == request.id
+    assert decision.resolved_at is None
 
 
 @pytest.mark.asyncio
@@ -245,7 +287,10 @@ async def test_continuation_cap_stops_after_max_attempts(
 ):
     """If every attempt exhausts the budget with writes, continuation
     stops at the cap: original + MAX_BUDGET_CONTINUATIONS RunAttempts,
-    then the WorkStep fails for human review."""
+    then the WorkStep parks at ``needs_decision`` (a founder Decision is
+    raised) — never a silent dead-end."""
+    from backend.src.models import Decision
+
     # 240 writes — enough to exhaust the budget on all 4 attempts.
     executor = _ScriptedExecutor(tool_call_scripts=_write_scripts(240), final_text="never reached")
     request, step = await _seed_request_with_step(db_session, mock_tenant_id)
@@ -266,12 +311,16 @@ async def test_continuation_cap_stops_after_max_attempts(
     attempts = (await db_session.execute(select(RunAttempt).where(RunAttempt.work_step_id == step.id))).scalars().all()
     assert len(attempts) == MAX_BUDGET_CONTINUATIONS + 1 == 4
     await db_session.refresh(step)
-    assert step.status == WorkStepStatus.failed
+    assert step.status == WorkStepStatus.needs_decision
     # Every non-final attempt produced a handoff; the capped final one did not.
     by_start = sorted(attempts, key=lambda a: a.started_at)
     assert all(a.handoff is not None for a in by_start[:-1])
     assert by_start[-1].handoff is None
-    assert by_start[-1].status in {RunAttemptStatus.failed, RunAttemptStatus.timed_out}
+    # The cap raised exactly one blocking founder Decision.
+    decisions = (await db_session.execute(select(Decision).where(Decision.work_step_id == step.id))).scalars().all()
+    assert len(decisions) == 1
+    assert decisions[0].blocking is True
+    assert decisions[0].options == ["retry", "reframe"]
 
 
 @pytest.mark.asyncio
@@ -335,9 +384,7 @@ async def test_aspect_retry_budget_floor_routes_to_continuation(
         workspace_dir=tmp_path,
     )
 
-    attempts = (
-        (await db_session.execute(select(RunAttempt).where(RunAttempt.work_step_id == step.id))).scalars().all()
-    )
+    attempts = (await db_session.execute(select(RunAttempt).where(RunAttempt.work_step_id == step.id))).scalars().all()
     # The budget floor routed to a handoff → a continuation RunAttempt.
     assert len(attempts) >= 2
     first = sorted(attempts, key=lambda a: a.started_at)[0]

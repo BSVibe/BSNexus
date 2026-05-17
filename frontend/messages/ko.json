@@ -267,10 +267,11 @@
       "nothingBlocking": "차단된 항목이 없습니다.",
       "blockingBadge": "차단",
       "resolvedBadge": "해결됨",
-      "customPlaceholder": "직접 답변을 입력하세요…",
-      "resolveButton": "해결",
       "resolutionLabel": "결정",
       "byPrefix": "by",
+      "retryLabel": "다시 시도",
+      "reframeLabel": "방향 재설정",
+      "reframePlaceholder": "작업에 대한 새 방향…",
       "table": {
         "question": "질문",
         "status": "상태",

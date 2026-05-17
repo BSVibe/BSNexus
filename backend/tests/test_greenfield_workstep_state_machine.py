@@ -64,10 +64,10 @@ async def test_create_work_plan_creates_steps_and_moves_request_to_running(db_se
 
     await db_session.refresh(request)
     steps = (
-        await db_session.execute(
-            select(WorkStep).where(WorkStep.request_id == request.id).order_by(WorkStep.name)
-        )
-    ).scalars().all()
+        (await db_session.execute(select(WorkStep).where(WorkStep.request_id == request.id).order_by(WorkStep.name)))
+        .scalars()
+        .all()
+    )
 
     assert plan.status == WorkPlanStatus.active
     assert plan.version == 1
@@ -109,9 +109,7 @@ async def test_work_step_cannot_skip_state_transitions(db_session, mock_tenant_i
         created_by=WorkPlanCreatedBy.system,
         session=db_session,
     )
-    work_step = (
-        await db_session.execute(select(WorkStep).where(WorkStep.plan_id == plan.id))
-    ).scalar_one()
+    work_step = (await db_session.execute(select(WorkStep).where(WorkStep.plan_id == plan.id))).scalar_one()
 
     with pytest.raises(GreenfieldStateError):
         await transition_work_step(step=work_step, target=WorkStepStatus.review_ready, session=db_session)
@@ -126,19 +124,34 @@ async def test_work_step_cannot_skip_state_transitions(db_session, mock_tenant_i
 
 
 @pytest.mark.asyncio
-async def test_request_blocked_resume_review_ready_path_is_server_gated(db_session, mock_tenant_id, seeded_tenant):
+async def test_request_needs_decision_resume_review_ready_path_is_server_gated(
+    db_session, mock_tenant_id, seeded_tenant
+):
     request = await _make_request(db_session, mock_tenant_id)
 
     with pytest.raises(GreenfieldStateError):
         await transition_request(request=request, target=RequestStatus.review_ready, session=db_session)
 
     await transition_request(request=request, target=RequestStatus.running, session=db_session)
-    await transition_request(request=request, target=RequestStatus.blocked, session=db_session)
-    assert request.status == RequestStatus.blocked
+    await transition_request(request=request, target=RequestStatus.needs_decision, session=db_session)
+    assert request.status == RequestStatus.needs_decision
 
     await transition_request(request=request, target=RequestStatus.running, session=db_session)
     await transition_request(request=request, target=RequestStatus.review_ready, session=db_session)
     assert request.status == RequestStatus.review_ready
+
+
+@pytest.mark.asyncio
+async def test_request_running_to_blocked_is_no_longer_valid(db_session, mock_tenant_id, seeded_tenant):
+    from backend.src.core.state_machines import REQUEST_TRANSITIONS, can_transition_request
+
+    request = await _make_request(db_session, mock_tenant_id)
+    await transition_request(request=request, target=RequestStatus.running, session=db_session)
+
+    assert RequestStatus.needs_decision in REQUEST_TRANSITIONS[RequestStatus.running]
+    assert can_transition_request(RequestStatus.needs_decision, RequestStatus.running)
+    # 'blocked' is retired — the enum no longer carries it.
+    assert not hasattr(RequestStatus, "blocked")
 
 
 @pytest.mark.asyncio
