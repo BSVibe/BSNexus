@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.core.auth import get_current_user, require_permission
+from backend.src.core.orchestration import re_engage_request
 from backend.src.core.tenant_context import get_tenant_id
 from backend.src.models import Decision, Project
 from backend.src.queue.streams import RedisStreamManager
@@ -70,7 +71,7 @@ async def resolve_decision(
     decision_id: uuid.UUID,
     payload: DecisionResolve,
     request: Request,
-    _user=Depends(get_current_user),
+    user=Depends(get_current_user),
     tenant_id: uuid.UUID = Depends(get_tenant_id),
     db: AsyncSession = Depends(get_db),
 ) -> Decision:
@@ -80,9 +81,22 @@ async def resolve_decision(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Decision not found")
 
     decision.resolution = payload.resolution
-    decision.resolved_by = payload.resolved_by
+    # The founder UI omits ``resolved_by`` — attribute the resolution to
+    # the authenticated user (email, falling back to id). An explicit
+    # payload value still wins.
+    decision.resolved_by = payload.resolved_by or user.email or str(user.id)
+    decision.guidance = payload.guidance
     decision.resolved_at = datetime.now(timezone.utc)
     await db.commit()
+    await db.refresh(decision)
+
+    # Forward-only routing — resolving a blocking Decision re-engages
+    # the stalled Request. ``re_engage_request`` flips the Request +
+    # WorkStep back to ``running`` and ENQUEUES a re-dispatch on
+    # ``request:queue``; the multi-round LLM tool loop runs on the
+    # RequestWorker, never inline in this HTTP handler.
+    stream_manager: RedisStreamManager = request.app.state.stream_manager
+    await re_engage_request(decision=decision, session=db, stream_manager=stream_manager)
     await db.refresh(decision)
 
     # G7.2 — fan the resolution onto the project's SSE stream so any
@@ -90,7 +104,6 @@ async def resolve_decision(
     # Frontend ``useProjectEvents`` handler invalidates the
     # ``['decisions', projectId]`` and ``['runs', projectId]`` queries
     # on this event.
-    stream_manager: RedisStreamManager = request.app.state.stream_manager
     await stream_manager.publish_project_event(
         str(decision.project_id),
         "decision_resolved",

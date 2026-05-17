@@ -48,8 +48,9 @@ async def build_brief_snapshot(
 
     Wire shape — :class:`backend.src.schemas.greenfield.BriefSnapshotResponse` —
     is strongly typed per section. ``shipped`` carries verified deliverables
-    only; deliverables whose proof failed/missing surface in ``blocked``
-    alongside blocked Requests via a discriminated union.
+    only; the ``blocked`` section carries deliverables whose proof
+    failed/missing. A stalled Request waits in ``needs_decision`` and
+    surfaces there via its open founder Decision.
 
     ``next`` is reserved for AI-recommended directions; it stays empty
     until that surface lands (file-disposition.md REVIEW_LATER).
@@ -131,15 +132,15 @@ async def _blocked_cards(
     project_id: uuid.UUID | None,
     limit: int,
 ) -> list[dict]:
-    """Discriminated union — blocked-status Requests + deliverables with
-    failed/missing proof. Frontend narrows on ``kind``."""
-    request_cards = await _request_cards(session, tenant_id, project_id, RequestStatus.blocked, limit)
-    blocked: list[dict] = [{**card, "kind": "request"} for card in request_cards]
+    """Deliverables with failed / missing proof.
 
-    remaining = max(limit - len(blocked), 0)
-    if remaining == 0:
-        return blocked
-
+    The ``RequestStatus.blocked`` dead-end is retired — a stalled
+    Request now waits in ``needs_decision`` and already surfaces in the
+    ``needs_decision`` section via its open founder Decision (see
+    ``_decision_cards``). So this section is now deliverable-only;
+    every card carries ``kind == "deliverable"`` for the frontend's
+    discriminated union.
+    """
     stmt = (
         select(Deliverable)
         .where(
@@ -154,11 +155,12 @@ async def _blocked_cards(
             Deliverable.status == DeliverableStatus.shipped,
         )
         .order_by(Deliverable.updated_at.desc())
-        .limit(remaining)
+        .limit(limit)
     )
     if project_id is not None:
         stmt = stmt.where(Deliverable.project_id == project_id)
     deliverables = (await session.execute(stmt)).scalars().all()
+    blocked: list[dict] = []
     for deliverable in deliverables:
         card = await _deliverable_card(session, deliverable)
         blocked.append({**card, "kind": "deliverable"})
@@ -196,9 +198,7 @@ async def _request_cards(
     ]
 
 
-async def _latest_test_aspect(
-    session: AsyncSession, deliverable_id: uuid.UUID
-) -> VerificationAspect | None:
+async def _latest_test_aspect(session: AsyncSession, deliverable_id: uuid.UUID) -> VerificationAspect | None:
     """Return the most recent ``code_test`` aspect for a deliverable.
 
     The Brief card surfaces the test aspect as the primary verifier

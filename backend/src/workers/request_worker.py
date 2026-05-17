@@ -26,7 +26,11 @@ import uuid
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from backend.src.core.orchestration import plan_and_dispatch_request
+from backend.src.core.orchestration import (
+    RE_ENGAGE_KIND,
+    plan_and_dispatch_request,
+    re_dispatch_decision,
+)
 from backend.src.queue.streams import RedisStreamManager
 
 logger = structlog.get_logger(__name__)
@@ -41,14 +45,33 @@ async def process_one(
     tenant_id: uuid.UUID,
     session: AsyncSession,
     stream_manager: RedisStreamManager,
+    kind: str | None = None,
+    decision_id: uuid.UUID | None = None,
 ) -> None:
-    """Drive one queued Request into execution.
+    """Drive one queued ``request:queue`` message.
 
-    Raises ``LookupError`` for a cross-tenant ``request_id`` so the
-    caller can ack-then-skip a poisoned message. Idempotent — a
-    re-delivered message for a Request that is no longer ``open`` is a
-    safe no-op (see ``plan_and_dispatch_request``).
+    Two message kinds share the stream:
+      - default (no ``kind``) → ``plan_and_dispatch_request``: a
+        freshly-created Request from the Direction chat.
+      - ``kind=re_engage`` → ``re_dispatch_decision``: a founder
+        resolved a blocking Decision; the stalled WorkStep is
+        re-dispatched (``retry`` / ``reframe``).
+
+    Raises ``LookupError`` for a cross-tenant id so the caller can
+    ack-then-skip a poisoned message. Idempotent — a re-delivered
+    message for a Request that is no longer in the expected state is a
+    safe no-op.
     """
+    if kind == RE_ENGAGE_KIND:
+        if decision_id is None:
+            raise ValueError("re_engage message missing decision_id")
+        await re_dispatch_decision(
+            decision_id=decision_id,
+            tenant_id=tenant_id,
+            session=session,
+            stream_manager=stream_manager,
+        )
+        return
     await plan_and_dispatch_request(
         request_id=request_id,
         tenant_id=tenant_id,
@@ -135,15 +158,15 @@ class RequestWorker:
 
     async def _handle_message(self, message: dict) -> None:
         message_id = message.get("_message_id")
+        kind = message.get("kind")
         try:
             request_id = uuid.UUID(str(message["request_id"]))
             tenant_id = uuid.UUID(str(message["tenant_id"]))
+            decision_id = uuid.UUID(str(message["decision_id"])) if message.get("decision_id") is not None else None
         except (KeyError, ValueError, TypeError) as exc:
             logger.warning("request_worker_bad_message", error=str(exc), message=message)
             if message_id:
-                await self._stream_manager.acknowledge(
-                    REQUEST_QUEUE_STREAM, REQUEST_QUEUE_GROUP, message_id
-                )
+                await self._stream_manager.acknowledge(REQUEST_QUEUE_STREAM, REQUEST_QUEUE_GROUP, message_id)
             return
 
         async with self._session_factory() as session:
@@ -153,6 +176,8 @@ class RequestWorker:
                     tenant_id=tenant_id,
                     session=session,
                     stream_manager=self._stream_manager,
+                    kind=kind,
+                    decision_id=decision_id,
                 )
             except LookupError:
                 logger.warning(
@@ -170,9 +195,7 @@ class RequestWorker:
                 return
 
         if message_id:
-            await self._stream_manager.acknowledge(
-                REQUEST_QUEUE_STREAM, REQUEST_QUEUE_GROUP, message_id
-            )
+            await self._stream_manager.acknowledge(REQUEST_QUEUE_STREAM, REQUEST_QUEUE_GROUP, message_id)
 
 
 __all__ = [

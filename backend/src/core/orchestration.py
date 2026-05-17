@@ -45,12 +45,87 @@ from backend.src.core.work_steps import (
     transition_request,
     transition_work_step,
 )
-from backend.src.models import Deliverable, Project, Request, WorkPlan, WorkStep
+from backend.src.models import Decision, Deliverable, Project, Request, WorkPlan, WorkStep
 from backend.src.models.project import WorkspaceType
 
 logger = structlog.get_logger(__name__)
 
 _WORK_STEP_NAME_MAX = 80
+
+# Forward-only founder Decision options. There is deliberately no
+# ``abandon`` — an "abandon" option is itself a non-recourse. Every
+# Decision resolution moves the work forward.
+DECISION_OPTIONS: list[str] = ["retry", "reframe"]
+
+
+async def create_blocking_decision(
+    *,
+    request: Request,
+    work_step: WorkStep | None,
+    reason: str,
+    session: AsyncSession,
+    stream_manager: object | None = None,
+) -> Decision:
+    """Raise a blocking founder ``Decision`` for a stalled WorkStep.
+
+    Created when work genuinely cannot auto-proceed — the continuation
+    cap was reached, or a WorkStep finished ``failed`` with no recourse.
+    The Request waits in ``needs_decision`` until the founder resolves
+    this Decision; resolving it re-dispatches the work (``retry`` /
+    ``reframe``). There is no dead-end.
+
+    The Decision is added + flushed (not committed) — the caller owns
+    the transaction boundary so the WorkStep / Request transitions land
+    atomically with the Decision row.
+
+    When ``stream_manager`` is supplied, a ``decision`` project event is
+    published so the founder's Decisions view updates live instead of
+    waiting for a manual refresh. Publishing is soft — a stream hiccup
+    must not abort the orchestration that raised the Decision.
+    """
+    step_name = work_step.name if work_step is not None else "the work"
+    question = (
+        f'Work on "{step_name}" stalled and cannot continue on its own '
+        f"(reason: {reason}). Choose how to move it forward: retry the "
+        "work as-is, or reframe it with new direction."
+    )
+    decision = Decision(
+        tenant_id=request.tenant_id,
+        project_id=request.project_id,
+        request_id=request.id,
+        work_step_id=work_step.id if work_step is not None else None,
+        question=question,
+        options=list(DECISION_OPTIONS),
+        blocking=True,
+    )
+    session.add(decision)
+    await session.flush()
+    logger.info(
+        "blocking_decision_created",
+        request_id=str(request.id),
+        work_step_id=str(work_step.id) if work_step is not None else None,
+        decision_id=str(decision.id),
+        reason=reason,
+    )
+    if stream_manager is not None:
+        try:
+            await stream_manager.publish_project_event(
+                str(request.project_id),
+                "decision",
+                {
+                    "id": str(decision.id),
+                    "project_id": str(request.project_id),
+                    "request_id": str(request.id),
+                    "blocking": True,
+                },
+            )
+        except Exception as exc:  # noqa: BLE001 — soft: never abort orchestration
+            logger.warning(
+                "blocking_decision_event_publish_failed",
+                decision_id=str(decision.id),
+                error=str(exc),
+            )
+    return decision
 
 
 _DEFAULT_AGENTS_MD = """\
@@ -242,8 +317,189 @@ async def plan_and_dispatch_request(
         prior_step_names.append(work_step.name)
 
     # If every WorkStep failed before producing a Deliverable, no proof
-    # message was enqueued — advance the Request to ``blocked`` here so
-    # it doesn't sit at ``running`` forever with nothing in flight.
+    # message was enqueued — finalize the Request here so it doesn't sit
+    # at ``running`` forever with nothing in flight. ``_maybe_finalize_
+    # request`` routes a stuck Request to ``needs_decision`` (raising a
+    # founder Decision) rather than a dead-end.
+    await _maybe_finalize_request(request=request, session=session, stream_manager=stream_manager)
+
+
+# Re-engagement queue contract — a re-engage message reuses the
+# ``request:queue`` stream but carries ``kind=re_engage`` + the
+# ``decision_id`` so the RequestWorker routes it to
+# ``re_dispatch_decision`` instead of ``plan_and_dispatch_request``.
+RE_ENGAGE_KIND = "re_engage"
+
+
+async def re_engage_request(
+    *,
+    decision: Decision,
+    session: AsyncSession,
+    stream_manager: object,
+) -> bool:
+    """Move a ``needs_decision`` Request + WorkStep back to ``running``
+    and enqueue a re-dispatch on ``request:queue``.
+
+    Called from the Decision resolve handler. Enqueue-only — the actual
+    ``dispatch_run_attempt`` (a multi-round LLM tool loop) runs on the
+    RequestWorker, never inline in the HTTP handler.
+
+    Returns ``True`` when a re-dispatch was enqueued, ``False`` when the
+    Decision is not attached to a re-engageable Request (no request_id,
+    or the Request is not ``needs_decision``) — a non-blocking,
+    informational Decision, or one already re-engaged.
+    """
+    if decision.request_id is None:
+        return False
+    request = await session.get(Request, decision.request_id)
+    if request is None or request.status != RequestStatus.needs_decision:
+        return False
+
+    await transition_request(request=request, target=RequestStatus.running, session=session)
+    if decision.work_step_id is not None:
+        work_step = await session.get(WorkStep, decision.work_step_id)
+        # Re-engage ANY non-running stuck step — both ``needs_decision``
+        # (executor continuation-cap park) and ``failed`` (a
+        # verification-failed deliverable backstopped by
+        # ``_maybe_finalize_request``). Both now have a forward edge to
+        # ``running``; leaving a ``failed`` step un-transitioned would
+        # crash the re-dispatch in ``_execute_one_attempt``
+        # (``failed → running`` would otherwise be an illegal jump).
+        if work_step is not None and work_step.status in (
+            WorkStepStatus.needs_decision,
+            WorkStepStatus.failed,
+        ):
+            await transition_work_step(step=work_step, target=WorkStepStatus.running, session=session)
+    await session.commit()
+
+    if stream_manager is None:
+        logger.warning(
+            "re_engage_request_not_enqueued_no_stream_manager",
+            request_id=str(request.id),
+            decision_id=str(decision.id),
+        )
+        return False
+
+    await stream_manager.publish(
+        "request:queue",
+        {
+            "kind": RE_ENGAGE_KIND,
+            "decision_id": str(decision.id),
+            "request_id": str(request.id),
+            "tenant_id": str(request.tenant_id),
+        },
+    )
+    logger.info(
+        "re_engage_request_enqueued",
+        request_id=str(request.id),
+        decision_id=str(decision.id),
+        resolution=decision.resolution,
+    )
+    return True
+
+
+async def re_dispatch_decision(
+    *,
+    decision_id: uuid.UUID,
+    tenant_id: uuid.UUID,
+    session: AsyncSession,
+    stream_manager: object,
+    executor: object | None = None,
+    executor_kind: str | None = None,
+    model: str | None = None,
+) -> None:
+    """Re-dispatch the WorkStep behind a resolved founder Decision.
+
+    Runs on the RequestWorker (off the HTTP path). The Decision's
+    WorkStep is driven through a fresh ``dispatch_run_attempt``. For a
+    ``reframe`` resolution the founder's free-text ``guidance`` is
+    seeded into a continuation handoff so ``_build_messages`` injects it
+    as added direction; ``retry`` re-runs the step as-is.
+
+    Idempotent-ish: a Decision whose Request is no longer ``running``
+    (already re-finalized) is a safe no-op.
+    """
+    decision = (
+        await session.execute(select(Decision).where(Decision.id == decision_id, Decision.tenant_id == tenant_id))
+    ).scalar_one_or_none()
+    if decision is None:
+        raise LookupError(f"Decision {decision_id} not in tenant scope {tenant_id}")
+    if decision.request_id is None or decision.work_step_id is None:
+        logger.info("re_dispatch_decision_skip_no_step", decision_id=str(decision_id))
+        return
+
+    request = await session.get(Request, decision.request_id)
+    work_step = await session.get(WorkStep, decision.work_step_id)
+    if request is None or work_step is None:
+        return
+    if request.status != RequestStatus.running:
+        logger.info(
+            "re_dispatch_decision_skip_non_running",
+            decision_id=str(decision_id),
+            request_status=request.status.value,
+        )
+        return
+
+    project = await session.get(Project, request.project_id)
+    if project is None:
+        raise LookupError(f"Project {request.project_id} not found")
+    workspace_dir = provision_workspace(project)
+
+    # Recompute the step-position context the same way
+    # ``plan_and_dispatch_request`` does — load the WorkStep's plan
+    # steps, find this step's index, collect prior step names — so the
+    # re-dispatched attempt's prompt keeps its "step N of M" + prior-step
+    # framing instead of being re-run context-blind. WorkStep has no
+    # explicit order column; ``create_work_plan`` inserts steps in plan
+    # order and ``plan_and_dispatch_request`` reads them back the same
+    # unordered way, so this mirrors the original dispatch ordering.
+    plan_steps = (await session.execute(select(WorkStep).where(WorkStep.plan_id == work_step.plan_id))).scalars().all()
+    total_steps = len(plan_steps) or None
+    step_index: int | None = None
+    prior_step_names: list[str] = []
+    for idx, plan_step in enumerate(plan_steps):
+        if plan_step.id == work_step.id:
+            step_index = idx
+            break
+        prior_step_names.append(plan_step.name)
+
+    # For ``reframe`` seed the founder's guidance into a continuation
+    # handoff — ``_build_messages`` renders the handoff as a CONTINUATION
+    # block, so the guidance reaches the next attempt's messages as
+    # added founder direction. ``retry`` carries no handoff.
+    seed_handoff: dict[str, object] | None = None
+    if decision.resolution == "reframe" and (decision.guidance or "").strip():
+        seed_handoff = {
+            "summary": "The founder reviewed the stalled work and gave new direction.",
+            "files_touched": [],
+            "verification_state": "(re-engaged after a founder Decision)",
+            "remaining": (decision.guidance or "").strip(),
+            "blockers": "",
+        }
+
+    result = await dispatch_run_attempt(
+        request=request,
+        work_step=work_step,
+        tenant_id=tenant_id,
+        session=session,
+        step_index=step_index,
+        total_steps=total_steps,
+        prior_step_names=tuple(prior_step_names),
+        stream_manager=stream_manager,
+        workspace_dir=workspace_dir,
+        executor=executor,  # type: ignore[arg-type]
+        executor_kind=executor_kind,
+        model=model,
+        seed_handoff=seed_handoff,
+    )
+    await session.commit()
+    logger.info(
+        "re_dispatch_decision_done",
+        decision_id=str(decision_id),
+        request_id=str(request.id),
+        work_step_id=str(work_step.id),
+        terminal_reason=result.terminal_reason,
+    )
     await _maybe_finalize_request(request=request, session=session, stream_manager=stream_manager)
 
 
@@ -266,7 +522,8 @@ async def advance_request_after_proof(
         human_review_required).
       - then ``_maybe_finalize_request`` checks whether every WorkStep
         on the Request is terminal and advances the Request to
-        ``shipped`` (all review_ready) or ``blocked`` (any failed).
+        ``shipped`` (all review_ready) or ``needs_decision`` (any
+        failed / needs_decision step — a founder Decision is raised).
     """
     if deliverable.work_step_id is None:
         return
@@ -299,8 +556,14 @@ async def _maybe_finalize_request(
 
     All steps ``review_ready`` → ``running → review_ready → shipped``.
     The ``shipped`` transition fires the G8.3 PR hook inside
-    ``transition_request``. Any step ``failed`` → ``running →
-    blocked``.
+    ``transition_request``. Any step ``failed`` → for each such step
+    without an open Decision a blocking founder Decision is raised, and
+    the Request moves ``running → needs_decision``. There is no
+    ``blocked`` dead-end — the founder always has recourse.
+
+    A step ``needs_decision`` is itself terminal-for-finalization: the
+    executor continuation cap already raised its Decision, so this only
+    needs to move the Request to ``needs_decision``.
     """
     if request.status != RequestStatus.running:
         return
@@ -321,16 +584,46 @@ async def _maybe_finalize_request(
         WorkStepStatus.review_ready,
         WorkStepStatus.failed,
         WorkStepStatus.skipped,
+        # ``needs_decision`` is terminal-for-finalization: the executor
+        # continuation cap already parked the step here and raised its
+        # Decision. The Request must not sit at ``running`` forever.
+        WorkStepStatus.needs_decision,
     }
     if any(step.status not in terminal for step in steps):
         return  # still work in flight
 
-    any_failed = any(step.status == WorkStepStatus.failed for step in steps)
+    stuck_steps = [step for step in steps if step.status in (WorkStepStatus.failed, WorkStepStatus.needs_decision)]
     all_ready = all(step.status == WorkStepStatus.review_ready for step in steps)
 
-    if any_failed:
-        await transition_request(request=request, target=RequestStatus.blocked, session=session)
-        logger.info("request_finalized_blocked", request_id=str(request.id))
+    if stuck_steps:
+        # No dead-end: route to ``needs_decision``. The executor
+        # continuation cap already raised a Decision for any step it
+        # parked at ``needs_decision``; here we backstop the ``failed``
+        # steps that have no open Decision yet (e.g. an executor error
+        # or an ``executor_unconfigured`` finish).
+        open_decision_step_ids = set(
+            (
+                await session.execute(
+                    select(Decision.work_step_id).where(
+                        Decision.request_id == request.id,
+                        Decision.resolved_at.is_(None),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for step in stuck_steps:
+            if step.id not in open_decision_step_ids:
+                await create_blocking_decision(
+                    request=request,
+                    work_step=step,
+                    reason=f"work_step_{step.status.value}",
+                    session=session,
+                    stream_manager=stream_manager,
+                )
+        await transition_request(request=request, target=RequestStatus.needs_decision, session=session)
+        logger.info("request_finalized_needs_decision", request_id=str(request.id))
         return
 
     if all_ready:

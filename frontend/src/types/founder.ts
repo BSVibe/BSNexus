@@ -5,7 +5,7 @@
 export type RequestStatus =
   | 'open'
   | 'running'
-  | 'blocked'
+  | 'needs_decision'
   | 'review_ready'
   | 'shipped'
   | 'abandoned'
@@ -101,7 +101,16 @@ export interface Decision {
   resolved_at: string | null
   resolution: string | null
   resolved_by: string | null
+  guidance: string | null
   created_at: string
+}
+
+/** Forward-only Decision resolution — there is no `abandon`. `reframe`
+ * carries the founder's free-text `guidance` as added direction. */
+export interface DecisionResolve {
+  resolution: 'retry' | 'reframe'
+  resolved_by?: string | null
+  guidance?: string | null
 }
 
 export type RunStatus = 'pending' | 'running' | 'blocked' | 'done'
@@ -255,9 +264,11 @@ export interface BriefRequest {
   pr_url: string | null
 }
 
-export type BriefBlockedItem =
-  | (BriefRequest & { kind: 'request' })
-  | (BriefDeliverable & { kind: 'deliverable' })
+// The ``blocked`` Brief section is deliverable-only — the
+// ``RequestStatus.blocked`` dead-end is retired; a stalled Request waits
+// in ``needs_decision`` and surfaces via its open Decision. ``kind`` is
+// retained so the existing discriminated-narrowing call sites compile.
+export type BriefBlockedItem = BriefDeliverable & { kind: 'deliverable' }
 
 export interface BriefNextHint {
   summary: string

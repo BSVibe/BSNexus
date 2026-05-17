@@ -41,5 +41,9 @@ class Decision(Base):
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     resolution: Mapped[str | None] = mapped_column(Text, nullable=True)
     resolved_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Founder free-text direction supplied when a blocking Decision is
+    # resolved with ``reframe`` — seeded into the re-dispatch as added
+    # direction. ``None`` for ``retry`` and for informational Decisions.
+    guidance: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

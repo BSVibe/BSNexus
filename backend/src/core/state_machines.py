@@ -11,11 +11,11 @@ from backend.src.core.domain import (
 REQUEST_TRANSITIONS: dict[RequestStatus, set[RequestStatus]] = {
     RequestStatus.open: {RequestStatus.running, RequestStatus.abandoned},
     RequestStatus.running: {
-        RequestStatus.blocked,
+        RequestStatus.needs_decision,
         RequestStatus.review_ready,
         RequestStatus.abandoned,
     },
-    RequestStatus.blocked: {RequestStatus.running, RequestStatus.abandoned},
+    RequestStatus.needs_decision: {RequestStatus.running, RequestStatus.abandoned},
     RequestStatus.review_ready: {RequestStatus.running, RequestStatus.shipped},
     RequestStatus.shipped: set(),
     RequestStatus.abandoned: set(),
@@ -31,7 +31,12 @@ WORK_STEP_TRANSITIONS: dict[WorkStepStatus, set[WorkStepStatus]] = {
     WorkStepStatus.needs_decision: {WorkStepStatus.running, WorkStepStatus.skipped},
     WorkStepStatus.verifying: {WorkStepStatus.review_ready, WorkStepStatus.failed},
     WorkStepStatus.review_ready: set(),
-    WorkStepStatus.failed: set(),
+    # ``failed`` is no longer a dead-end: a founder Decision backstops a
+    # ``failed`` WorkStep (verification-failed deliverable / executor
+    # error) and resolving it with ``retry`` re-engages the step. The
+    # re-dispatch transitions ``failed → running``, consistent with the
+    # no-dead-end model — every stuck step has a forward edge.
+    WorkStepStatus.failed: {WorkStepStatus.running},
     WorkStepStatus.skipped: set(),
 }
 

@@ -2,6 +2,7 @@ import apiClient from './client'
 import type {
   CompositionSnapshot,
   Decision,
+  DecisionResolve,
   Deliverable,
   ExecutionRun,
   Request as FounderRequest,
@@ -95,7 +96,7 @@ export const decisionsApi = {
   },
   resolve: async (
     decisionId: string,
-    payload: { resolution: string; resolved_by?: string | null },
+    payload: DecisionResolve,
   ): Promise<Decision> => {
     const { data } = await apiClient.post<Decision>(
       `/api/v1/decisions/${decisionId}/resolve`,

@@ -163,19 +163,19 @@ async def test_brief_aggregates_mobile_friendly_sections_and_never_ships_missing
         intent="Running request",
         status=RequestStatus.running,
     )
-    blocked_request = await _make_request(
+    stalled_request = await _make_request(
         db_session,
         mock_tenant_id,
         project.id,
-        intent="Blocked request",
-        status=RequestStatus.blocked,
+        intent="Stalled request",
+        status=RequestStatus.needs_decision,
     )
     decision = Decision(
         tenant_id=mock_tenant_id,
         project_id=project.id,
-        request_id=blocked_request.id,
-        question="Ship with current test evidence?",
-        options=["ship", "hold"],
+        request_id=stalled_request.id,
+        question="How should the stalled work move forward?",
+        options=["retry", "reframe"],
         blocking=True,
     )
     verified = Deliverable(
@@ -233,18 +233,12 @@ async def test_brief_aggregates_mobile_friendly_sections_and_never_ships_missing
     assert "verified_at" in shipped_card
     assert "created_at" in shipped_card
 
-    # G7.1 — blocked is a Pydantic discriminated union: blocked Requests
-    # (kind=request) live alongside deliverables whose proof failed/missing
-    # (kind=deliverable). Both surface to the founder; static type
-    # narrowing happens on the frontend via the ``kind`` discriminator.
+    # The ``blocked`` section is now deliverable-only — the
+    # ``RequestStatus.blocked`` dead-end is retired. A stalled Request
+    # waits in ``needs_decision`` and surfaces there via its open
+    # founder Decision (asserted below).
     blocked_cards = brief["sections"]["blocked"]
-    blocked_request_card = next(
-        card for card in blocked_cards if card["kind"] == "request" and card["id"] == str(blocked_request.id)
-    )
-    assert blocked_request_card["intent"] == "Blocked request"
-    assert blocked_request_card["status"] == "blocked"
-    assert "title" not in blocked_request_card  # renamed to ``intent`` for greenfield Request
-
+    assert all(card["kind"] == "deliverable" for card in blocked_cards)
     blocked_deliverable_card = next(
         card for card in blocked_cards if card["kind"] == "deliverable" and card["id"] == str(missing_proof.id)
     )
@@ -252,11 +246,12 @@ async def test_brief_aggregates_mobile_friendly_sections_and_never_ships_missing
     assert blocked_deliverable_card["title"] == missing_proof.title
     assert "label" not in blocked_deliverable_card  # ``label`` collapsed into ``kind`` discriminator
 
-    # G7.1 — typed BriefDecisionCard for needs_decision; uses ``question``
-    # (matches backend Decision.question column) not the legacy ``title``.
+    # The stalled Request surfaces via its open blocking Decision in the
+    # ``needs_decision`` section — typed BriefDecisionCard, uses
+    # ``question`` (matches the Decision.question column).
     [decision_card] = brief["sections"]["needs_decision"]
     assert decision_card["id"] == str(decision.id)
-    assert decision_card["question"] == "Ship with current test evidence?"
+    assert decision_card["question"] == "How should the stalled work move forward?"
     assert decision_card["blocking"] is True
     assert "title" not in decision_card
 

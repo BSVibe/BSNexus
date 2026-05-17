@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -75,8 +75,15 @@ class DirectionAckResponse(BaseModel):
 
 
 class DecisionResolve(BaseModel):
-    resolution: str = Field(..., min_length=1)
-    resolved_by: str = Field(..., min_length=1)
+    # Forward-only — there is deliberately no ``abandon``. ``retry``
+    # re-dispatches the work as-is; ``reframe`` re-dispatches it with
+    # the founder's free-text ``guidance`` seeded as added direction.
+    resolution: Literal["retry", "reframe"]
+    # Optional — the resolve handler derives ``resolved_by`` from the
+    # authenticated user when the payload omits it (the founder UI sends
+    # only ``{resolution[, guidance]}``). An explicit value still wins.
+    resolved_by: str | None = Field(default=None, min_length=1)
+    guidance: str | None = Field(default=None, max_length=4000)
 
     model_config = ConfigDict(extra="forbid")
 
@@ -93,6 +100,7 @@ class DecisionResponse(BaseModel):
     resolved_at: datetime | None
     resolution: str | None
     resolved_by: str | None
+    guidance: str | None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -182,7 +190,7 @@ class BriefDecisionCard(BaseModel):
 
 
 class BriefRequestCard(BaseModel):
-    """Brief running/blocked-request item — typed sibling of frontend
+    """Brief running-request item — typed sibling of frontend
     ``BriefRequest``. Backed by the Request row directly; greenfield Brief
     surfaces Requests, not legacy ExecutionRuns."""
 
@@ -199,19 +207,16 @@ class BriefRequestCard(BaseModel):
     pr_url: str | None = None
 
 
-class BriefBlockedRequestCard(BriefRequestCard):
-    kind: Literal["request"] = "request"
-
-
 class BriefBlockedDeliverableCard(BriefDeliverableCard):
+    # The ``blocked`` section is now deliverable-only — the
+    # ``RequestStatus.blocked`` dead-end is retired; a stalled Request
+    # waits in ``needs_decision`` and surfaces there via its open
+    # founder Decision. ``kind`` is retained so the frontend's existing
+    # discriminated-union narrowing keeps compiling.
     kind: Literal["deliverable"] = "deliverable"
 
 
-# Pydantic discriminated union — frontend narrows via ``kind``.
-BriefBlockedItem = Annotated[
-    BriefBlockedRequestCard | BriefBlockedDeliverableCard,
-    Field(discriminator="kind"),
-]
+BriefBlockedItem = BriefBlockedDeliverableCard
 
 
 class BriefNextHint(BaseModel):

@@ -62,9 +62,10 @@ def _validate_workspace_dir(workspace_dir: str) -> None:
 class BSGatewayError(Exception):
     """Raised when BSGateway returns a terminal error chunk or HTTP error.
 
-    The orchestrator catches this at the executor boundary and
-    transitions the run to ``blocked`` — no in-band retry logic here
-    (rate-limit / timeout retries belong inside the BSGateway worker).
+    The orchestrator catches this at the executor boundary and routes
+    the run through the continuation / Decision path — no in-band retry
+    logic here (rate-limit / timeout retries belong inside the
+    BSGateway worker).
 
     ``partial_output`` carries the text streamed before the failure
     happened so the founder still sees what claude produced (the
