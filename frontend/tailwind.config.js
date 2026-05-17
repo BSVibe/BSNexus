@@ -13,6 +13,10 @@ export default {
     // ship Tailwind utility classes inline) so the generated CSS contains
     // their `border-l-4`, `min-h-[44px]`, `bg-gray-950`, etc. utilities.
     './node_modules/@bsvibe/layout/dist/**/*.{js,jsx,ts,tsx}',
+    // Scan @bsvibe/ui (ResponsiveTable et al. ship Tailwind utility
+    // classes inline — `sm:table`, `overflow-x-auto`, `border-gray-800`,
+    // …) so the generated CSS contains the dual-render breakpoint rules.
+    './node_modules/@bsvibe/ui/dist/**/*.{js,jsx,ts,tsx}',
   ],
   theme: {
     extend: {

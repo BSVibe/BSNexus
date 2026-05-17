@@ -12,7 +12,15 @@ import { DirectionInputCard } from '../dashboard/DirectionInputCard'
 import HomeView from '../brief/HomeView'
 import RepoConfigModal from '../settings/RepoConfigModal'
 import WorkspaceIndex from '../workspace/WorkspaceIndex'
-import { Section, DeliverableCard, RequestRow, BlockedRow } from '../brief/sections'
+import {
+  TableSection,
+  DeliverableCard,
+  RequestRow,
+  BlockedRow,
+  useRequestColumns,
+  useDeliverableColumns,
+  useBlockedColumns,
+} from '../brief/sections'
 import { briefApi } from '../../api/brief'
 import { projectsApi, type Project } from '../../api/projects'
 import { decisionsApi } from '../../api/founder'
@@ -43,6 +51,9 @@ export default function ProjectPage() {
   const t = useTranslations('nexus.project')
   const tBrief = useTranslations('nexus.brief')
   const tCommon = useTranslations('nexus.common')
+  const requestColumns = useRequestColumns()
+  const deliverableColumns = useDeliverableColumns()
+  const blockedColumns = useBlockedColumns()
   const params = useParams<{ projectId?: string | string[] }>()
   const rawProjectId = params?.projectId
   const projectId = Array.isArray(rawProjectId) ? rawProjectId[0] : rawProjectId
@@ -298,34 +309,38 @@ export default function ProjectPage() {
           <div style={{ maxWidth: 900, margin: '0 auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 24 }}>
             <DecisionsView projectId={projectId} />
             {(brief?.sections.blocked.length ?? 0) > 0 && (
-              <Section
+              <TableSection
                 title={tBrief('section.blocked')}
                 count={brief?.sections.blocked.length ?? 0}
                 emptyText={tBrief('section.blockedEmpty')}
-              >
-                {brief?.sections.blocked.map((item) => (
-                  <BlockedRow key={`${item.kind}-${item.id}`} item={item} />
-                ))}
-              </Section>
+                columns={blockedColumns}
+                rows={brief?.sections.blocked ?? []}
+                rowKey={(item) => `${item.kind}-${item.id}`}
+                renderMobileCard={(item) => <BlockedRow item={item} />}
+              />
             )}
           </div>
         )}
         {tab === 'work' && (
           <div style={{ maxWidth: 900, margin: '0 auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 24 }}>
-            <Section
+            <TableSection
               title={tBrief('section.running')}
               count={brief?.sections.running.length ?? 0}
               emptyText={tBrief('section.runningEmpty')}
-            >
-              {brief?.sections.running.map((r) => <RequestRow key={r.id} r={r} />)}
-            </Section>
-            <Section
+              columns={requestColumns}
+              rows={brief?.sections.running ?? []}
+              rowKey={(r) => r.id}
+              renderMobileCard={(r) => <RequestRow r={r} />}
+            />
+            <TableSection
               title={tBrief('section.shipped')}
               count={brief?.sections.shipped.length ?? 0}
               emptyText={tBrief('section.shippedEmpty')}
-            >
-              {brief?.sections.shipped.map((d) => <DeliverableCard key={d.id} d={d} />)}
-            </Section>
+              columns={deliverableColumns}
+              rows={brief?.sections.shipped ?? []}
+              rowKey={(d) => d.id}
+              renderMobileCard={(d) => <DeliverableCard d={d} />}
+            />
           </div>
         )}
         {tab === 'files' && (

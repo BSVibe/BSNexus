@@ -4,6 +4,8 @@ import { useMemo, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ResponsiveTable } from '@bsvibe/ui'
+import type { ResponsiveTableColumn } from '@bsvibe/ui'
 
 import { Badge, StatusDot } from '../common/Badge'
 import { DecisionInboxStrip } from '../dashboard/DecisionInboxStrip'
@@ -115,6 +117,32 @@ export default function DashboardPage() {
     }
     return byProject
   }, [projects, allRequests, allDecisions, allDeliverables])
+
+  // Row model for the project table — bundles each project with its
+  // derived activity counts so both the desktop cells and the mobile
+  // card renderer read from one object.
+  const projectRows = useMemo<ProjectRow[]>(
+    () =>
+      filteredProjects.map((p) => {
+        const bundle = perProject.get(p.id)
+        return {
+          project: p,
+          activeReqCount:
+            bundle?.requests.filter(
+              (r) => r.status === 'open' || r.status === 'running',
+            ).length ?? 0,
+          openDecisions:
+            bundle?.decisions.filter((d) => !d.resolved_at).length ?? 0,
+          deliveredThisWeek:
+            bundle?.deliverables.filter(
+              (d) =>
+                d.status === 'delivered' &&
+                new Date(d.created_at).getTime() >= sevenDaysAgo,
+            ).length ?? 0,
+        }
+      }),
+    [filteredProjects, perProject, sevenDaysAgo],
+  )
 
   const [createName, setCreateName] = useState('')
   const [createDesc, setCreateDesc] = useState('')
@@ -236,51 +264,17 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill,minmax(340px,1fr))',
-          gap: 12,
-        }}
-      >
-        {filteredProjects.map((p) => {
-          const bundle = perProject.get(p.id)
-          return (
-            <ProjectCard
-              key={p.id}
-              project={p}
-              activeReqCount={
-                bundle?.requests.filter(
-                  (r) => r.status === 'open' || r.status === 'running',
-                ).length ?? 0
-              }
-              openDecisions={
-                bundle?.decisions.filter((d) => !d.resolved_at).length ?? 0
-              }
-              deliveredThisWeek={
-                bundle?.deliverables.filter(
-                  (d) =>
-                    d.status === 'delivered' &&
-                    new Date(d.created_at).getTime() >= sevenDaysAgo,
-                ).length ?? 0
-              }
-              onOpen={() => router.push(`/projects/${p.id}`)}
-            />
-          )
-        })}
-        {!isLoading && filteredProjects.length === 0 && (
-          <div
-            className="card"
-            style={{ gridColumn: '1/-1', padding: 48, textAlign: 'center' }}
-          >
-            <div style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>
-              {projects.length === 0
-                ? t('empty.noProjects')
-                : t('empty.noFilterMatch')}
-            </div>
-          </div>
-        )}
-      </div>
+      <ProjectTable
+        rows={projectRows}
+        emptyMessage={
+          isLoading
+            ? tCommon('loading')
+            : projects.length === 0
+              ? t('empty.noProjects')
+              : t('empty.noFilterMatch')
+        }
+        onOpen={(id) => router.push(`/projects/${id}`)}
+      />
 
       {createOpen && (
         <CreateProjectModal
@@ -301,6 +295,133 @@ export default function DashboardPage() {
         />
       )}
     </div>
+  )
+}
+
+interface ProjectRow {
+  project: Project
+  activeReqCount: number
+  openDecisions: number
+  deliveredThisWeek: number
+}
+
+/**
+ * ProjectTable — the dashboard project collection rendered through the
+ * shared `<ResponsiveTable>`. Desktop (`sm:`+) gets a real `<table>`;
+ * mobile keeps the existing `<ProjectCard>` grid look via
+ * `renderMobileCard` so the card layout doesn't regress.
+ */
+function ProjectTable({
+  rows,
+  emptyMessage,
+  onOpen,
+}: {
+  rows: readonly ProjectRow[]
+  emptyMessage: string
+  onOpen: (projectId: string) => void
+}) {
+  const t = useTranslations('nexus.dashboard.table')
+  const tStatus = useTranslations('nexus.status')
+
+  function statusLabel(status: string): string {
+    if (status === 'active') return tStatus('active')
+    if (status === 'archived') return tStatus('archived')
+    return status
+  }
+
+  const columns: ResponsiveTableColumn<ProjectRow>[] = [
+    {
+      key: 'project',
+      header: t('project'),
+      cell: ({ project }) => (
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm"
+          style={{ justifyContent: 'flex-start', textAlign: 'left', padding: 0 }}
+          onClick={() => onOpen(project.id)}
+        >
+          <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--gray-50)' }}>
+              {project.name}
+            </span>
+            <span className="mono faded" style={{ fontSize: 11 }} title={project.id}>
+              {truncId(project.id)}
+            </span>
+          </span>
+        </button>
+      ),
+    },
+    {
+      key: 'status',
+      header: t('status'),
+      cell: ({ project }) => (
+        <Badge tone={statusTone(project.status)} dot>
+          {statusLabel(project.status)}
+        </Badge>
+      ),
+    },
+    {
+      key: 'requests',
+      header: t('requests'),
+      cellClassName: 'whitespace-nowrap',
+      cell: (row) => (
+        <span className="hl mono" style={{ fontSize: 12 }}>
+          {row.activeReqCount}
+        </span>
+      ),
+    },
+    {
+      key: 'pending',
+      header: t('pending'),
+      cellClassName: 'whitespace-nowrap',
+      cell: (row) => (
+        <span className="hl mono" style={{ fontSize: 12 }}>
+          {row.openDecisions}
+        </span>
+      ),
+    },
+    {
+      key: 'shipped',
+      header: t('shipped'),
+      cellClassName: 'whitespace-nowrap',
+      cell: (row) => (
+        <span className="hl mono" style={{ fontSize: 12 }}>
+          {row.deliveredThisWeek}
+        </span>
+      ),
+    },
+    {
+      key: 'updated',
+      header: t('updated'),
+      cellClassName: 'whitespace-nowrap',
+      cell: ({ project }) => (
+        <span
+          className="faded"
+          style={{ fontSize: 11 }}
+          title={new Date(project.updated_at).toLocaleString()}
+        >
+          {relTime(project.updated_at)}
+        </span>
+      ),
+    },
+  ]
+
+  return (
+    <ResponsiveTable
+      columns={columns}
+      rows={rows}
+      rowKey={(row) => row.project.id}
+      emptyMessage={emptyMessage}
+      renderMobileCard={(row) => (
+        <ProjectCard
+          project={row.project}
+          activeReqCount={row.activeReqCount}
+          openDecisions={row.openDecisions}
+          deliveredThisWeek={row.deliveredThisWeek}
+          onOpen={() => onOpen(row.project.id)}
+        />
+      )}
+    />
   )
 }
 

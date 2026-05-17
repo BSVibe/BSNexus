@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ResponsiveTable } from '@bsvibe/ui'
+import type { ResponsiveTableColumn } from '@bsvibe/ui'
 
 import { Badge, StatusDot } from '../common/Badge'
 import { relTime, truncId } from '../../lib/fmt'
@@ -29,6 +31,10 @@ export default function DecisionsView({ projectId }: { projectId: string }) {
   const open = decisions.filter((d) => !d.resolved_at && !d.blocking)
   const resolved = decisions.filter((d) => d.resolved_at)
 
+  function onResolve(id: string, resolution: string) {
+    resolveMutation.mutate({ id, resolution })
+  }
+
   return (
     <div className="decisions-view" style={{ overflow: 'auto', height: '100%' }}>
       <div className="decisions-view__inner" style={{ maxWidth: 820, margin: '0 auto' }}>
@@ -41,37 +47,30 @@ export default function DecisionsView({ projectId }: { projectId: string }) {
         ) : (
           <>
             <Section title={t('section.blocking')} count={blocking.length} tone="rose">
-              {blocking.length === 0 && <EmptyInbox label={t('nothingBlocking')} />}
-              {blocking.map((d) => (
-                <DecisionCard
-                  key={d.id}
-                  d={d}
-                  pending={resolveMutation.isPending}
-                  onResolve={(resolution) =>
-                    resolveMutation.mutate({ id: d.id, resolution })
-                  }
-                />
-              ))}
+              <DecisionTable
+                decisions={blocking}
+                emptyMessage={t('nothingBlocking')}
+                pending={resolveMutation.isPending}
+                onResolve={onResolve}
+              />
             </Section>
             {open.length > 0 && (
               <Section title={t('section.open')} count={open.length}>
-                {open.map((d) => (
-                  <DecisionCard
-                    key={d.id}
-                    d={d}
-                    pending={resolveMutation.isPending}
-                    onResolve={(resolution) =>
-                      resolveMutation.mutate({ id: d.id, resolution })
-                    }
-                  />
-                ))}
+                <DecisionTable
+                  decisions={open}
+                  emptyMessage={t('inboxClear')}
+                  pending={resolveMutation.isPending}
+                  onResolve={onResolve}
+                />
               </Section>
             )}
             {resolved.length > 0 && (
               <Section title={t('section.resolved')} count={resolved.length}>
-                {resolved.map((d) => (
-                  <DecisionCard key={d.id} d={d} onResolve={() => undefined} />
-                ))}
+                <DecisionTable
+                  decisions={resolved}
+                  emptyMessage={t('inboxClear')}
+                  onResolve={() => undefined}
+                />
               </Section>
             )}
           </>
@@ -112,7 +111,7 @@ function Section({
           {count}
         </span>
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>{children}</div>
+      {children}
     </section>
   )
 }
@@ -129,6 +128,161 @@ function EmptyInbox({ label }: { label: string }) {
       }}
     >
       {label}
+    </div>
+  )
+}
+
+/**
+ * DecisionTable — the per-section list rendered through the shared
+ * `<ResponsiveTable>`. Desktop gets a real `<table>` with one row per
+ * decision; mobile keeps the rich `<DecisionCard>` via `renderMobileCard`
+ * so the resolve form's vertical layout isn't squeezed into table cells.
+ */
+function DecisionTable({
+  decisions,
+  emptyMessage,
+  pending,
+  onResolve,
+}: {
+  decisions: Decision[]
+  emptyMessage: string
+  pending?: boolean
+  onResolve: (id: string, resolution: string) => void
+}) {
+  const t = useTranslations('nexus.decisions')
+
+  const columns: ResponsiveTableColumn<Decision>[] = [
+    {
+      key: 'question',
+      header: t('table.question'),
+      cell: (d) => (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span style={{ color: 'var(--gray-50)', fontWeight: 500 }}>{d.question}</span>
+          <span className="mono faded" style={{ fontSize: 11 }}>
+            {truncId(d.id)}
+            {d.request_id ? ` · ${truncId(d.request_id)}` : ''}
+          </span>
+        </div>
+      ),
+    },
+    {
+      key: 'status',
+      header: t('table.status'),
+      cell: (d) =>
+        d.resolved_at ? (
+          <Badge tone="emerald" dot>
+            {t('resolvedBadge')}
+          </Badge>
+        ) : d.blocking ? (
+          <Badge tone="rose" dot>
+            {t('blockingBadge')}
+          </Badge>
+        ) : (
+          <span className="faded" style={{ fontSize: 12 }}>
+            {t('section.open')}
+          </span>
+        ),
+    },
+    {
+      key: 'raised',
+      header: t('table.raised'),
+      cellClassName: 'whitespace-nowrap',
+      cell: (d) => (
+        <span className="faded" style={{ fontSize: 11 }}>
+          {relTime(d.created_at)}
+        </span>
+      ),
+    },
+    {
+      key: 'action',
+      header: t('table.action'),
+      cell: (d) => <ResolveCell d={d} pending={pending} onResolve={onResolve} />,
+    },
+  ]
+
+  return (
+    <ResponsiveTable
+      columns={columns}
+      rows={decisions}
+      rowKey={(d) => d.id}
+      emptyMessage={emptyMessage}
+      renderMobileCard={(d) => (
+        <DecisionCard
+          d={d}
+          pending={pending}
+          onResolve={(resolution) => onResolve(d.id, resolution)}
+        />
+      )}
+    />
+  )
+}
+
+/**
+ * ResolveCell — compact desktop resolve UI: one button per option plus a
+ * custom-answer form. Mirrors the actionable portion of `<DecisionCard>`.
+ */
+function ResolveCell({
+  d,
+  pending,
+  onResolve,
+}: {
+  d: Decision
+  pending?: boolean
+  onResolve: (id: string, resolution: string) => void
+}) {
+  const t = useTranslations('nexus.decisions')
+  const [custom, setCustom] = useState('')
+  const isResolved = !!d.resolved_at
+
+  if (isResolved) {
+    return (
+      <span style={{ fontSize: 12, color: 'var(--gray-200)' }}>
+        {d.resolution}
+        {d.resolved_by && (
+          <span className="faded mono" style={{ fontSize: 11, marginLeft: 6 }}>
+            · {t('byPrefix')} {d.resolved_by}
+          </span>
+        )}
+      </span>
+    )
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 200 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        {d.options.map((opt) => (
+          <button
+            key={opt}
+            type="button"
+            className="btn btn-secondary btn-sm"
+            disabled={pending}
+            onClick={() => onResolve(d.id, opt)}
+          >
+            {opt}
+          </button>
+        ))}
+      </div>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (custom.trim()) onResolve(d.id, custom.trim())
+        }}
+        style={{ display: 'flex', gap: 6, alignItems: 'center' }}
+      >
+        <input
+          className="input"
+          placeholder={t('customPlaceholder')}
+          value={custom}
+          onChange={(e) => setCustom(e.target.value)}
+        />
+        <button
+          type="submit"
+          className="btn btn-primary btn-sm"
+          disabled={!custom.trim() || pending}
+        >
+          {t('resolveButton')}
+        </button>
+      </form>
     </div>
   )
 }

@@ -1,14 +1,18 @@
 'use client'
 
 import { useTranslations } from 'next-intl'
+import { ResponsiveTable } from '@bsvibe/ui'
+import type { ResponsiveTableColumn } from '@bsvibe/ui'
 
 import { Badge } from '../common/Badge'
 import { DeliverableCard } from './DeliverableCard'
+import { ProofBadge } from '../common/ProofBadge'
 import { I } from '../../lib/icons'
 import { relTime, truncId } from '../../lib/fmt'
 import type {
   BriefBlockedItem,
   BriefDecision,
+  BriefDeliverable,
   BriefRequest,
 } from '../../types/founder'
 
@@ -17,6 +21,11 @@ import type {
  *
  * The Brief still owns the data shape (`briefApi.forProject().sections`);
  * each tab renders one section using the row components below.
+ *
+ * Tabular adoption: the per-section lists now render through the shared
+ * `<ResponsiveTable>` (`@bsvibe/ui`). Desktop (`sm:`+) gets a real
+ * `<table>`; mobile keeps the existing card components via
+ * `renderMobileCard` so the founder card look doesn't regress.
  */
 
 export function Section({
@@ -34,29 +43,7 @@ export function Section({
 }) {
   return (
     <section>
-      {title != null && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-          <h2
-            style={{
-              fontSize: 14,
-              fontWeight: 600,
-              color: 'var(--gray-50)',
-              margin: 0,
-            }}
-          >
-            {title}
-          </h2>
-          <span
-            className="mono"
-            style={{
-              fontSize: 11,
-              color: tone === 'rose' && count > 0 ? 'var(--color-rose)' : 'var(--text-tertiary)',
-            }}
-          >
-            {count}
-          </span>
-        </div>
-      )}
+      <SectionHeader title={title} count={count} tone={tone} />
       {count === 0 ? (
         <div className="card" style={{ padding: 16, fontSize: 12, color: 'var(--text-tertiary)' }}>
           {emptyText}
@@ -64,6 +51,79 @@ export function Section({
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>{children}</div>
       )}
+    </section>
+  )
+}
+
+function SectionHeader({
+  title,
+  count,
+  tone,
+}: {
+  title?: string
+  count: number
+  tone?: 'rose'
+}) {
+  if (title == null) return null
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+      <h2
+        style={{
+          fontSize: 14,
+          fontWeight: 600,
+          color: 'var(--gray-50)',
+          margin: 0,
+        }}
+      >
+        {title}
+      </h2>
+      <span
+        className="mono"
+        style={{
+          fontSize: 11,
+          color: tone === 'rose' && count > 0 ? 'var(--color-rose)' : 'var(--text-tertiary)',
+        }}
+      >
+        {count}
+      </span>
+    </div>
+  )
+}
+
+/**
+ * TableSection — Section chrome (title + count + empty-state) over a
+ * `<ResponsiveTable>`. Used by the Brief tabs so the desktop side gets a
+ * real table while mobile keeps the row cards via `renderMobileCard`.
+ */
+export function TableSection<TRow>({
+  title,
+  count,
+  tone,
+  emptyText,
+  columns,
+  rows,
+  rowKey,
+  renderMobileCard,
+}: {
+  title?: string
+  count: number
+  tone?: 'rose'
+  emptyText: string
+  columns: readonly ResponsiveTableColumn<TRow>[]
+  rows: readonly TRow[]
+  rowKey: (row: TRow) => string
+  renderMobileCard: (row: TRow, index: number) => React.ReactNode
+}) {
+  return (
+    <section>
+      <SectionHeader title={title} count={count} tone={tone} />
+      <ResponsiveTable
+        columns={columns}
+        rows={rows}
+        rowKey={rowKey}
+        renderMobileCard={renderMobileCard}
+        emptyMessage={emptyText}
+      />
     </section>
   )
 }
@@ -128,6 +188,148 @@ export function BlockedRow({ item }: { item: BriefBlockedItem }) {
     return <RequestRow r={item} />
   }
   return <DeliverableCard d={item} />
+}
+
+// ─── ResponsiveTable column models ───────────────────────────────────
+//
+// Heterogeneous rows: `blocked` mixes requests and deliverables, so its
+// cells branch on `item.kind`. The desktop table surfaces the same data
+// the row cards do — the mobile renderer reuses the cards verbatim.
+
+/** Shared inline-link styling for PR / commit anchors inside table cells. */
+function stopAnchorPropagation(e: React.MouseEvent) {
+  e.stopPropagation()
+}
+
+export function useRequestColumns(): ResponsiveTableColumn<BriefRequest>[] {
+  const t = useTranslations('nexus.brief')
+  return [
+    {
+      key: 'item',
+      header: t('table.item'),
+      cell: (r) => (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <I.Timeline size={12} />
+          <span style={{ color: 'var(--gray-50)' }}>{r.intent || truncId(r.id)}</span>
+        </span>
+      ),
+    },
+    {
+      key: 'status',
+      header: t('table.status'),
+      cell: (r) => (
+        <Badge tone={r.status === 'blocked' ? 'rose' : 'blue'} dot>
+          {r.status}
+        </Badge>
+      ),
+    },
+    {
+      key: 'updated',
+      header: t('table.updated'),
+      cellClassName: 'whitespace-nowrap',
+      cell: (r) => (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11 }}>
+          <span className="faded">{relTime(r.updated_at)}</span>
+          {r.pr_number && r.pr_url && (
+            <a
+              href={r.pr_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={stopAnchorPropagation}
+              style={{ color: 'var(--blue-500)', textDecoration: 'none' }}
+              title={r.pr_url}
+            >
+              PR #{r.pr_number}
+            </a>
+          )}
+        </span>
+      ),
+    },
+  ]
+}
+
+export function useDeliverableColumns(): ResponsiveTableColumn<BriefDeliverable>[] {
+  const t = useTranslations('nexus.brief')
+  return [
+    {
+      key: 'item',
+      header: t('table.item'),
+      cell: (d) => (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <I.Doc size={12} />
+          <span style={{ color: 'var(--gray-50)' }}>{d.title}</span>
+        </span>
+      ),
+    },
+    {
+      key: 'status',
+      header: t('table.status'),
+      cell: (d) => <ProofBadge state={d.proof_state} />,
+    },
+    {
+      key: 'summary',
+      header: t('table.summary'),
+      cell: (d) => (
+        <span className="mono faded" style={{ fontSize: 11 }} title={d.proof_summary ?? undefined}>
+          {d.proof_summary ?? '—'}
+        </span>
+      ),
+    },
+    {
+      key: 'updated',
+      header: t('table.updated'),
+      cellClassName: 'whitespace-nowrap',
+      cell: (d) => (
+        <span className="faded" style={{ fontSize: 11 }}>
+          {relTime(d.created_at)}
+        </span>
+      ),
+    },
+  ]
+}
+
+export function useBlockedColumns(): ResponsiveTableColumn<BriefBlockedItem>[] {
+  const t = useTranslations('nexus.brief')
+  return [
+    {
+      key: 'item',
+      header: t('table.item'),
+      cell: (item) =>
+        item.kind === 'request' ? (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <I.Timeline size={12} />
+            <span style={{ color: 'var(--gray-50)' }}>{item.intent || truncId(item.id)}</span>
+          </span>
+        ) : (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <I.Doc size={12} />
+            <span style={{ color: 'var(--gray-50)' }}>{item.title}</span>
+          </span>
+        ),
+    },
+    {
+      key: 'status',
+      header: t('table.status'),
+      cell: (item) =>
+        item.kind === 'request' ? (
+          <Badge tone="rose" dot>
+            {item.status}
+          </Badge>
+        ) : (
+          <ProofBadge state={item.proof_state} />
+        ),
+    },
+    {
+      key: 'updated',
+      header: t('table.updated'),
+      cellClassName: 'whitespace-nowrap',
+      cell: (item) => (
+        <span className="faded" style={{ fontSize: 11 }}>
+          {relTime(item.kind === 'request' ? item.updated_at : item.created_at)}
+        </span>
+      ),
+    },
+  ]
 }
 
 export { DeliverableCard }
