@@ -92,17 +92,18 @@ async def test_ensure_personal_tenant_inserts_and_updates(db_session):
 
 
 @pytest.mark.asyncio
-async def test_ensure_personal_tenant_swallows_slug_conflict(db_session):
-    """A stale row holding the same slug under a different tenant_id must
-    not crash ensure_personal_tenant.
+async def test_ensure_personal_tenant_projects_new_row_when_slug_already_used(db_session):
+    """When a stale row already holds this user's slug under a DIFFERENT
+    tenant id, ``ensure_personal_tenant`` must still project a fresh row
+    for the user's current tenant id.
 
-    Production hit this when prior partial e2e runs left tenant rows
-    with slug=user_id but a different generated tenant_id; the next
-    authenticated request from that user blew up with IntegrityError
-    on the slug unique constraint. Both the SQLite fallback (this test)
-    and the PostgreSQL path (mirrored try/except in
-    backend/src/core/tenant_context.py) must swallow the conflict and
-    leave the stale row alone.
+    Production bug (found 2026-05-17 via web-UI dogfood): BSVibe
+    reassigned a founder's tenant id; the old ``tenants`` row still held
+    the slug (=user id); the old code swallowed the slug-UNIQUE
+    violation and never created the new row, so every write under the
+    new tenant id FK-violated and the founder could not submit a
+    Direction. The slug UNIQUE constraint was dropped — both projection
+    rows now coexist and the new tenant id is usable.
     """
     user_id = "u-conflict"
     target_tid = derive_personal_tenant_id(user_id)
@@ -115,9 +116,12 @@ async def test_ensure_personal_tenant_swallows_slug_conflict(db_session):
     user = _user(id_=user_id, email="u@e")
     await ensure_personal_tenant(db_session, target_tid, user)
 
+    # The new tenant row exists — the thing every write under it needs.
+    target_row = (await db_session.execute(select(Tenant).where(Tenant.id == target_tid))).scalar_one()
+    assert target_row.slug == user_id
+    # The stale row is left untouched; both projections coexist.
     rows = (await db_session.execute(select(Tenant).where(Tenant.slug == user_id))).scalars().all()
-    assert len(rows) == 1
-    assert rows[0].id == other_tid
+    assert {r.id for r in rows} == {other_tid, target_tid}
 
 
 @pytest.mark.asyncio

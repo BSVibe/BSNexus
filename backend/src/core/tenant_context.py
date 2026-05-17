@@ -103,6 +103,10 @@ async def ensure_personal_tenant(db: AsyncSession, tenant_id: uuid.UUID, user: B
     upsert is a single statement. On SQLite (used by some unit tests) we
     fall back to a SELECT + INSERT/UPDATE pair since SQLite needs the
     sqlite-specific ``insert`` and not all driver versions support it.
+
+    ``slug`` carries no UNIQUE constraint (see the ``Tenant`` model):
+    when BSVibe reassigns a user's tenant id this projects a fresh row
+    for the new id while the old row lingers under the same slug.
     """
     from backend.src.models import Tenant  # local import to dodge cycles
 
@@ -126,17 +130,12 @@ async def ensure_personal_tenant(db: AsyncSession, tenant_id: uuid.UUID, user: B
             await db.execute(stmt)
             await db.commit()
         except IntegrityError:
-            # ``ON CONFLICT (id)`` does not cover the ``slug`` unique
-            # constraint. A stale row from a prior partial write can hold
-            # this user's slug under a different tenant_id; swallow the
-            # collision so the request can continue using the stale row.
+            # ``ON CONFLICT (id)`` makes the upsert idempotent, so an
+            # IntegrityError here is an unexpected concurrent race. Roll
+            # back so the session stays usable; the row another request
+            # committed is equivalent.
             await db.rollback()
-            logger.warning(
-                "tenant_slug_conflict_swallowed",
-                slug=slug,
-                attempted_id=str(tenant_id),
-                exc_info=True,
-            )
+            logger.warning("tenant_upsert_conflict", attempted_id=str(tenant_id), exc_info=True)
         return
 
     # Dialect-agnostic fallback (SQLite tests, etc.)
