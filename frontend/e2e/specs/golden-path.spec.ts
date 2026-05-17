@@ -72,15 +72,13 @@ test.describe('Golden path — Direction → Brief deliverable', () => {
 
     await blockSSORedirect(page)
     await injectAuth(page)
-    // Pin English locale — devcontainer default is Korean and the
-    // submit button label assertion below is English-only.
-    await page.addInitScript(() => {
-      localStorage.setItem('bsnexus.locale', 'en')
-    })
 
     const state = makeFounderState(PROJECT_ID, 'Golden Path')
     await installFounderMocks(page, state)
-    await page.goto(`/projects/${PROJECT_ID}?tab=home`)
+    // English locale is the `/en` URL prefix now (next-intl `[locale]`
+    // routing, `localePrefix: 'as-needed'` with default `ko`) — the
+    // submit-button label assertion below is English-only.
+    await page.goto(`/en/projects/${PROJECT_ID}?tab=home`)
 
     const card = page.getByTestId('direction-input-card')
     await expect(card).toBeVisible({ timeout: 10_000 })

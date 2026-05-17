@@ -6,7 +6,7 @@
    ``text-text-primary``, the ``brand``/``product`` palettes, the typography
    plugin) keep working without a hand-conversion to ``@theme`` blocks. */
 @import "tailwindcss";
-@config "../../tailwind.config.js";
+@config "../../../tailwind.config.js";
 
 :root {
   /* gray */

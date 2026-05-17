@@ -1,6 +1,8 @@
 'use client'
 
 import { useTranslations } from 'next-intl'
+import { usePathname, useRouter } from 'next/navigation'
+import { useCurrentLocale } from '@bsvibe/i18n'
 import {
   LanguageToggle,
   ResponsiveSidebar,
@@ -14,8 +16,7 @@ import { StatusDot } from '../common/Badge'
 import { I } from '../../lib/icons'
 import { statusTone } from '../../lib/tone'
 import { useAuthContext } from '../auth/AuthContext'
-import { SUPPORTED_LOCALES, type Locale } from '../../i18n'
-import { useLocale } from '../../i18n/LocaleContext'
+import { SUPPORTED_LOCALES } from '../../i18n'
 import type { Project } from '../../api/projects'
 
 interface SidebarProps {
@@ -46,9 +47,24 @@ export default function Sidebar({
   onOpenChange,
 }: SidebarProps) {
   const { user, logout, tenants, switchTenant } = useAuthContext()
-  const { locale, setLocale } = useLocale()
+  const router = useRouter()
+  const pathname = usePathname() ?? '/'
+  const locale = useCurrentLocale()
   const t = useTranslations('nexus.layout')
   const tAuth = useTranslations('nexus.auth')
+
+  // Locale switcher — mirrors BSupervisor's `SidebarLocaleSwitcher`, with
+  // the default-locale direction flipped. BSNexus default is `ko`
+  // (`localePrefix: 'as-needed'`), so Korean is bare-rooted and English
+  // carries the `/en` prefix. Strip any leading `/ko|/en` segment, then
+  // re-prefix only when switching to the non-default locale (`en`).
+  const handleLocaleChange = (next: string) => {
+    if (next === locale) return
+    const stripped = pathname.replace(/^\/(ko|en)(?=\/|$)/, '') || '/'
+    const nextPath =
+      next === 'en' ? `/en${stripped === '/' ? '' : stripped}` : stripped
+    router.replace(nextPath)
+  }
 
   const items: SidebarItem[] = [
     ...projects.map<SidebarItem>((p) => ({
@@ -144,7 +160,7 @@ export default function Sidebar({
           <LanguageToggle
             value={locale}
             options={SUPPORTED_LOCALES.map((l) => ({ value: l, label: l.toUpperCase() }))}
-            onChange={(next) => setLocale(next as Locale)}
+            onChange={handleLocaleChange}
             ariaLabel={t('language')}
             dataTestId="sidebar-language-switcher"
           />

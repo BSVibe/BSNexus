@@ -24,11 +24,6 @@ test.describe('Mobile viewport: BSNexus core flow', () => {
     if (testInfo.project.name === 'chromium') {
       testInfo.skip()
     }
-    // Pin English locale — devcontainer default is Korean and the
-    // assertions below match English link names ("Dashboard", etc.).
-    await page.addInitScript(() => {
-      localStorage.setItem('bsnexus.locale', 'en')
-    })
     // Suppress the Next.js dev runtime-error overlay so it doesn't intercept
     // pointer events. The pre-existing GlobalChat `q.data.forEach` overlay
     // is unrelated to mobile chrome and is tracked separately.
@@ -37,7 +32,10 @@ test.describe('Mobile viewport: BSNexus core flow', () => {
       css.textContent = 'nextjs-portal, [data-nextjs-toast], [data-nextjs-dialog-overlay] { display: none !important; }'
       document.head.appendChild(css)
     })
-    await setupPage(page, '/settings')
+    // English locale is the `/en` URL prefix now (next-intl `[locale]`
+    // routing, `localePrefix: 'as-needed'` with default `ko`) — the
+    // assertions below match English link names ("Dashboard", etc.).
+    await setupPage(page, '/en/settings')
   })
 
   test('settings page renders without horizontal overflow on mobile', async ({ page }) => {

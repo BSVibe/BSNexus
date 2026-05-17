@@ -1,5 +1,5 @@
 import { Suspense } from 'react'
-import LandingPage from '../components/pages/LandingPage'
+import LandingPage from '../../components/pages/LandingPage'
 
 /**
  * Public landing route. ``LandingPage`` is a client component (uses

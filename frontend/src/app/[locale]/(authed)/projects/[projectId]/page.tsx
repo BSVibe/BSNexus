@@ -1,5 +1,5 @@
 import { Suspense } from 'react'
-import ProjectPage from '../../../../components/pages/ProjectPage'
+import ProjectPage from '../../../../../components/pages/ProjectPage'
 
 /**
  * ``/projects/<id>`` — resolves the dynamic ``projectId`` segment
