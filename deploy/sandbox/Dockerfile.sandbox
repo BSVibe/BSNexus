@@ -21,7 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         nodejs npm \
         golang \
     && rm -rf /var/lib/apt/lists/* \
-    && npm install -g pnpm \
+    && npm install -g pnpm@9 \
     && useradd -m -u 1000 sandbox
 
 # Baseline Python test/lint toolchain so the common Python path works

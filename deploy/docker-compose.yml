@@ -81,6 +81,19 @@ services:
   #   DOCKER_HOST=tcp://bsnexus-sandbox-dind:2375 ./scripts/build-sandbox-image.sh
   # builds + `docker save | docker load`s the sandbox image into this
   # daemon (a host build is invisible here).
+  # One-shot: a fresh named volume's root is root-owned, but bsnexus-app
+  # (uid 1000) must create per-project dirs in it and the sandbox image
+  # (uid 1000) must write into them. chown the volume root once before
+  # `app` starts.
+  workspace-init:
+    image: alpine:3
+    container_name: bsnexus-workspace-init
+    command: ["sh", "-c", "chown 1000:1000 /workspaces && chmod 775 /workspaces"]
+    volumes:
+      - bsnexus-workspaces:/workspaces
+    networks:
+      - bsnexus-network
+
   sandbox-dind:
     logging: *default-logging
     image: docker:27-dind
@@ -140,6 +153,8 @@ services:
         condition: service_healthy
       sandbox-dind:
         condition: service_started
+      workspace-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s

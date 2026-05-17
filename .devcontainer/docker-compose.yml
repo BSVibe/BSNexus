@@ -45,6 +45,18 @@ services:
         condition: service_healthy
       sandbox-dind:
         condition: service_started
+      workspace-init:
+        condition: service_completed_successfully
+    networks:
+      - bsnexus-network
+
+  # One-shot: chown the fresh workspace volume root to uid 1000 so the
+  # app + the uid-1000 sandbox image can create/write project dirs.
+  workspace-init:
+    image: alpine:3
+    command: ["sh", "-c", "chown 1000:1000 /workspaces && chmod 775 /workspaces"]
+    volumes:
+      - bsnexus-workspaces:/workspaces
     networks:
       - bsnexus-network
 
