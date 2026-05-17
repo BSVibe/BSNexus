@@ -11,11 +11,14 @@ the host-side fallback used while ``sandbox_enabled`` is false.
 
 from __future__ import annotations
 
+from backend.src.core.sandbox.docker_manager import DockerSandboxManager, DockerSandboxSession
 from backend.src.core.sandbox.errors import SandboxError, SandboxUnavailable
 from backend.src.core.sandbox.noop_manager import NoopSandboxManager, NoopSandboxSession
 from backend.src.core.sandbox.protocol import SandboxManager, SandboxResult, SandboxSession
 
 __all__ = [
+    "DockerSandboxManager",
+    "DockerSandboxSession",
     "NoopSandboxManager",
     "NoopSandboxSession",
     "SandboxError",
