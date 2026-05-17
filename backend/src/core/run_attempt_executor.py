@@ -89,6 +89,13 @@ MAX_NO_WORK_NUDGES = 2
 # failure doesn't pin the model in an infinite loop.
 MAX_ASPECT_RETRIES = 2
 MAX_ASPECT_RETRY_ROUNDS = 10
+# Work-rounds that must remain in the budget for another retry to be
+# worth starting. Below this floor the retry would be cut short by the
+# budget anyway — give up and route through the Tier 1 handoff /
+# escalation path (a fresh continuation gets a full budget; if at the
+# continuation cap it escalates to a founder Decision). Prevents the
+# loop from burning the last few rounds on a doomed partial retry.
+ASPECT_RETRY_BUDGET_FLOOR = 12
 
 # Tier 1 continuation system. When a RunAttempt exhausts its work-round
 # budget but made real progress (file writes landed), it is NOT a
@@ -109,6 +116,10 @@ _BUDGET_TERMINATION_REASONS = frozenset(
         "phase_round_budget_exceeded:work",
         "work_loop_iteration_cap",
         "catastrophic_round_budget_exceeded",
+        # The aspect-feedback loop gave up because too little work-round
+        # budget remained for another retry — a budget-class outcome, so
+        # it routes through the same handoff / continuation path.
+        "aspect_retry_budget_exhausted",
     }
 )
 
@@ -898,6 +909,40 @@ async def _aspect_feedback_retry_loop(
         failures = [r for r in results if r.blocking and r.status != ProofAspectStatus.passed]
         if not failures:
             break
+
+        # Budget cap: only retry if enough work-round budget remains for
+        # a meaningful work→test→feedback pass. Below the floor, give up
+        # and route through Tier 1 — "aspect_retry_budget_exhausted" is
+        # a budget-class terminator, so _execute_one_attempt either
+        # spawns a fresh continuation (full budget) or, at the
+        # continuation cap, escalates to a founder Decision. Burning the
+        # last few rounds on a doomed partial retry helps nobody.
+        work_rounds = int((attempt.telemetry or {}).get("phase_rounds", {}).get(RunAttemptPhase.work.value, 0))
+        remaining = PHASE_ROUND_BUDGETS[RunAttemptPhase.work] - work_rounds
+        if remaining < ASPECT_RETRY_BUDGET_FLOOR:
+            logger.info(
+                "aspect_retry_budget_floor_reached",
+                run_attempt_id=str(attempt.id),
+                request_id=str(request.id),
+                work_rounds=work_rounds,
+                remaining=remaining,
+                retries=retries,
+            )
+            telemetry = dict(attempt.telemetry or {})
+            telemetry["aspect_retries"] = retries
+            attempt.telemetry = telemetry
+            await finish_run_attempt(
+                attempt=attempt,
+                status=RunAttemptStatus.timed_out,
+                terminal_reason="aspect_retry_budget_exhausted",
+                session=session,
+            )
+            raise _ToolLoopTerminated(
+                attempt=attempt,
+                reason="aspect_retry_budget_exhausted",
+                written_paths=written_paths,
+                final_text=output_text,
+            )
 
         retries += 1
         logger.info(

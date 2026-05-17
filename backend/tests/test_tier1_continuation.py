@@ -298,3 +298,48 @@ async def test_soft_pressure_message_injected_before_budget(
     assert any(
         "BUDGET NEARLY EXHAUSTED" in str(m.get("content")) for captured in executor.captured_messages for m in captured
     )
+
+
+@pytest.mark.asyncio
+async def test_aspect_retry_budget_floor_routes_to_continuation(
+    db_session, mock_tenant_id, seeded_tenant, mock_stream_manager, tmp_path
+):
+    """When the work phase converges having burned most of its budget
+    and a declared check still fails, the aspect-feedback loop must NOT
+    start a doomed retry — it routes through the Tier 1 handoff path
+    (``aspect_retry_budget_exhausted``) so a fresh continuation gets a
+    full budget."""
+    (tmp_path / "pyproject.toml").write_text('[project]\nname="x"\nversion="0"\n')
+    # 1 declare_verification (a failing `false` command check) + 40
+    # file_writes → the work phase converges at ~41 work rounds, leaving
+    # fewer than ASPECT_RETRY_BUDGET_FLOOR rounds in the 48-round budget.
+    declare = [
+        {
+            "id": "d",
+            "name": "declare_verification",
+            "arguments": {"checks": [{"kind": "command", "command": "false"}]},
+        }
+    ]
+    executor = _ScriptedExecutor(tool_call_scripts=[declare, *_write_scripts(40)], final_text="Converged.")
+    request, step = await _seed_request_with_step(db_session, mock_tenant_id)
+
+    await dispatch_run_attempt(
+        request=request,
+        work_step=step,
+        tenant_id=mock_tenant_id,
+        session=db_session,
+        stream_manager=mock_stream_manager,
+        executor=executor,
+        executor_kind="injected",
+        model="stub-model",
+        workspace_dir=tmp_path,
+    )
+
+    attempts = (
+        (await db_session.execute(select(RunAttempt).where(RunAttempt.work_step_id == step.id))).scalars().all()
+    )
+    # The budget floor routed to a handoff → a continuation RunAttempt.
+    assert len(attempts) >= 2
+    first = sorted(attempts, key=lambda a: a.started_at)[0]
+    assert first.terminal_reason == "aspect_retry_budget_exhausted"
+    assert first.handoff is not None
