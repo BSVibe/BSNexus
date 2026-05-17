@@ -54,6 +54,8 @@ from backend.src.core.run_attempts import (
     finish_run_attempt,
     record_tool_event,
 )
+from backend.src.core.sandbox import SandboxError, SandboxManager, SandboxSession
+from backend.src.core.sandbox.resolver import get_sandbox_manager
 from backend.src.core.tools import ToolError, ToolRegistry
 from backend.src.core.verification_judge import JudgeContext
 from backend.src.core.work_steps import transition_work_step
@@ -176,6 +178,7 @@ async def dispatch_run_attempt(
     step_index: int | None = None,
     total_steps: int | None = None,
     prior_step_names: tuple[str, ...] = (),
+    sandbox_manager: SandboxManager | None = None,
 ) -> DispatchRunAttemptResult:
     """Drive ``work_step`` to a terminal state and enqueue the
     resulting Deliverable on ``proof:queue``.
@@ -204,6 +207,26 @@ async def dispatch_run_attempt(
     if executor_kind is None:
         executor_kind = "injected"
 
+    # Part B — acquire the project's sandbox session once; it is reused
+    # across the whole continuation chain and aspect-retry rounds (the
+    # sandbox is per-project, not per-RunAttempt). With sandbox_enabled
+    # false this resolves to a host-side NoopSandboxManager — behaviour
+    # identical to before Part B. A sandbox backend that is unreachable
+    # degrades to the host path rather than failing the work step.
+    if sandbox_manager is None:
+        sandbox_manager = get_sandbox_manager()
+    sandbox_session: SandboxSession | None = None
+    if workspace_dir is not None:
+        try:
+            sandbox_session = await sandbox_manager.acquire(request.project_id, str(workspace_dir))
+        except SandboxError:
+            logger.exception(
+                "sandbox_acquire_failed_degrading_to_host",
+                request_id=str(request.id),
+                project_id=str(request.project_id),
+            )
+            sandbox_session = None
+
     seed_handoff: dict[str, Any] | None = None
     outcome = _AttemptOutcome()
     for continuation_index in range(MAX_BUDGET_CONTINUATIONS + 1):
@@ -222,6 +245,7 @@ async def dispatch_run_attempt(
             prior_step_names=prior_step_names,
             seed_handoff=seed_handoff,
             can_continue=continuation_index < MAX_BUDGET_CONTINUATIONS,
+            sandbox_session=sandbox_session,
         )
         if outcome.handoff is None:
             return outcome.result  # type: ignore[return-value]
@@ -261,6 +285,7 @@ async def _execute_one_attempt(
     prior_step_names: tuple[str, ...],
     seed_handoff: dict[str, Any] | None,
     can_continue: bool,
+    sandbox_session: SandboxSession | None = None,
 ) -> _AttemptOutcome:
     """Run one RunAttempt for ``work_step``. Returns an ``_AttemptOutcome``
     — a final result, OR a handoff record signalling continuation when
@@ -283,7 +308,7 @@ async def _execute_one_attempt(
         "request_id": str(request.id),
         "project_id": str(request.project_id),
     }
-    tool_registry = _build_tool_registry(workspace_dir)
+    tool_registry = _build_tool_registry(workspace_dir, sandbox_session)
     workspace_overview = _workspace_overview(workspace_dir) if tool_registry is not None else None
     agents_md = _read_agents_md(workspace_dir)
     messages = _build_messages(
@@ -784,14 +809,17 @@ def _read_agents_md(workspace_dir: Path | str | None) -> str | None:
     return text
 
 
-def _build_tool_registry(workspace_dir: Path | str | None) -> ToolRegistry | None:
+def _build_tool_registry(
+    workspace_dir: Path | str | None,
+    sandbox_session: SandboxSession | None = None,
+) -> ToolRegistry | None:
     if workspace_dir is None:
         return None
     path = Path(workspace_dir)
     if not path.exists():
         logger.warning("dispatch_run_attempt_workspace_missing", workspace=str(path))
         return None
-    return ToolRegistry(workspace_dir=path)
+    return ToolRegistry(workspace_dir=path, sandbox=sandbox_session)
 
 
 # G6.7 — pass a short workspace tree summary in the first user
