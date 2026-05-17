@@ -60,6 +60,17 @@ async def _tenant_projects(session: AsyncSession, tenant_id: uuid.UUID) -> list[
     return list((await session.execute(stmt)).scalars())
 
 
+_PROJECT_NAME_MAX = 80
+_PROJECT_DESC_MAX = 1000
+
+
+def _project_name_from_body(body: str) -> str:
+    """Derive a project name from the Direction body's first line."""
+    stripped = (body or "").strip()
+    first_line = stripped.splitlines()[0].strip() if stripped else ""
+    return first_line[:_PROJECT_NAME_MAX].strip() or "New Project"
+
+
 async def ingest_direction(
     *,
     payload: DirectionCreate,
@@ -75,6 +86,19 @@ async def ingest_direction(
         selected_project = next((project for project in projects if project.id == payload.project_id), None)
         if selected_project is None:
             raise LookupError("Project not found")
+    elif not projects:
+        # Greenfield: the founder's first Direction has no project to
+        # land in. A project is mandatory for any work — every Request,
+        # WorkPlan and Deliverable is project-scoped — so bootstrap one
+        # from the Direction itself rather than dead-ending the founder
+        # on a "which project?" prompt with zero options to pick.
+        selected_project = Project(
+            tenant_id=tenant_id,
+            name=_project_name_from_body(payload.body),
+            description=payload.body.strip()[:_PROJECT_DESC_MAX],
+        )
+        session.add(selected_project)
+        await session.flush()
     else:
         hint = _normalise_hint(payload.target_hint)
         if hint:

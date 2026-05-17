@@ -625,6 +625,37 @@ async def test_post_direction_enqueues_request_on_queue(
 
 
 @pytest.mark.asyncio
+async def test_post_direction_greenfield_autocreates_project(
+    client, db_session, mock_tenant_id, seeded_tenant, mock_stream_manager
+) -> None:
+    """A founder's first Direction — no project_id, zero existing
+    projects — bootstraps a project from the Direction itself instead
+    of dead-ending on a routing prompt with no options."""
+    resp = await client.post(
+        "/api/v1/directions",
+        json={"source": "web", "body": "Build a small FastAPI task tracker"},
+        headers={"Authorization": "Bearer fake"},
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    # A Request was opened (not a routing prompt).
+    assert body["routing"] is None
+    assert body["request"] is not None
+
+    # Exactly one project now exists, named from the Direction body.
+    projects = (
+        (await db_session.execute(select(Project).where(Project.tenant_id == mock_tenant_id))).scalars().all()
+    )
+    assert len(projects) == 1
+    assert projects[0].name == "Build a small FastAPI task tracker"
+
+    # The Request was enqueued so the autonomous loop starts.
+    publish_calls = [c for c in mock_stream_manager.publish.await_args_list if c.args and c.args[0] == "request:queue"]
+    assert len(publish_calls) == 1
+    assert publish_calls[0].args[1]["request_id"] == body["request"]["id"]
+
+
+@pytest.mark.asyncio
 async def test_post_direction_routing_required_does_not_enqueue(
     client, db_session, mock_tenant_id, seeded_tenant, mock_stream_manager
 ) -> None:
