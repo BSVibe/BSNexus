@@ -13,15 +13,15 @@ FROM python:3.11-slim-bookworm
 # uv — Python package manager (matches BSNexus's own toolchain).
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
-# System basics + Node + Go. apt versions are intentionally fine for a
-# disposable work sandbox; per-project custom images are a later
-# refinement (the eventual .bsnexus/ plug-in point).
+# System basics + Go (apt) + Node 22 (NodeSource — bookworm's apt Node
+# is 18, too old for current pnpm). Per-project custom images are a
+# later refinement (the eventual .bsnexus/ plug-in point).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates curl git build-essential \
-        nodejs npm \
-        golang \
+        ca-certificates curl git build-essential golang \
+    && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/* \
-    && npm install -g pnpm@9 \
+    && npm install -g pnpm \
     && useradd -m -u 1000 sandbox
 
 # Baseline Python test/lint toolchain so the common Python path works
