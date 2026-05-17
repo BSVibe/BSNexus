@@ -74,6 +74,34 @@ services:
   # Backend
   # ===========================================================================
 
+  # Work sandbox (Part B) — Docker-in-Docker sidecar. Per-project work
+  # sandboxes run INSIDE this daemon, isolated from the host Docker.
+  # Privileged (rootless DinD fails on the Docker Desktop linuxkit
+  # kernel). One-time setup before flipping SANDBOX_ENABLED on:
+  #   DOCKER_HOST=tcp://bsnexus-sandbox-dind:2375 ./scripts/build-sandbox-image.sh
+  # builds + `docker save | docker load`s the sandbox image into this
+  # daemon (a host build is invisible here).
+  sandbox-dind:
+    logging: *default-logging
+    image: docker:27-dind
+    container_name: bsnexus-sandbox-dind
+    privileged: true
+    restart: unless-stopped
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+    command: ["--tls=false"]
+    volumes:
+      - bsnexus-workspaces:/workspaces
+      - sandbox-dind-lib:/var/lib/docker
+    deploy:
+      resources:
+        limits:
+          memory: 10G
+        reservations:
+          memory: 512M
+    networks:
+      - bsnexus-network
+
   app:
     logging: *default-logging
     build:
@@ -99,11 +127,19 @@ services:
       EXECUTION_TIMEOUT_SECONDS: ${EXECUTION_TIMEOUT_SECONDS:-3600}
       DEFAULT_LLM_MODEL: ${DEFAULT_LLM_MODEL:-}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # Work sandbox (Part B). SANDBOX_ENABLED stays false until the
+      # sidecar is up and the sandbox image is loaded — flipping it on
+      # is the cutover. Rollback = set false + redeploy.
+      SANDBOX_ENABLED: ${SANDBOX_ENABLED:-false}
+      DOCKER_HOST: ${DOCKER_HOST:-tcp://bsnexus-sandbox-dind:2375}
+      WORKSPACE_ROOT: ${WORKSPACE_ROOT:-/workspaces}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      sandbox-dind:
+        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s
@@ -118,6 +154,9 @@ services:
           memory: 512M
     volumes:
       - ../logs:/app/logs
+      # Part B — project workspaces on a named volume so the sandbox
+      # containers (created inside the DinD) can bind-mount them.
+      - bsnexus-workspaces:/workspaces
     networks:
       - bsnexus-network
 
@@ -152,6 +191,12 @@ volumes:
     name: bsnexus-postgres-data
   redis-data:
     name: bsnexus-redis-data
+  # Part B — project workspaces, shared between app and sandbox-dind.
+  bsnexus-workspaces:
+    name: bsnexus-workspaces
+  # The DinD's own image/layer store (keeps the sandbox image across restarts).
+  sandbox-dind-lib:
+    name: bsnexus-sandbox-dind-lib
 
 networks:
   bsnexus-network:
