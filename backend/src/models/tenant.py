@@ -15,7 +15,13 @@ class Tenant(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    slug: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
+    # ``slug`` is an informational projection of the BSVibe user id — it
+    # is never queried. It is NOT unique: when BSVibe reassigns a user's
+    # tenant id, ``ensure_personal_tenant`` projects a fresh row for the
+    # new id while the old row lingers harmlessly with the same slug. A
+    # UNIQUE here would block that insert and FK-break every write under
+    # the new tenant.
+    slug: Mapped[str] = mapped_column(String(100), nullable=False)
     mission: Mapped[str | None] = mapped_column(Text, nullable=True)
     owner_user_id: Mapped[str] = mapped_column(String(255), nullable=False)
     plan: Mapped[str] = mapped_column(String(50), nullable=False, default="free", server_default="free")
