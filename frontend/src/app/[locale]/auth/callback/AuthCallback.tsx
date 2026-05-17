@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { consumeAuthCallback } from '../../../hooks/useAuth'
+import { consumeAuthCallback } from '../../../../hooks/useAuth'
 
 /**
  * Client-only auth callback. Parses access_token / refresh_token from

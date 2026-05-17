@@ -1,5 +1,5 @@
 import { Suspense } from 'react'
-import DashboardPage from '../../../components/pages/DashboardPage'
+import DashboardPage from '../../../../components/pages/DashboardPage'
 
 export default function Page() {
   // Suspense is required: DashboardPage calls useSearchParams() to

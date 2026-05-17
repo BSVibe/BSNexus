@@ -1,5 +1,5 @@
-import Layout from '../../components/layout/Layout'
-import ProtectedRoute from '../../components/auth/ProtectedRoute'
+import Layout from '../../../components/layout/Layout'
+import ProtectedRoute from '../../../components/auth/ProtectedRoute'
 
 /**
  * Route-group layout that gates every authed page (``/dashboard``,

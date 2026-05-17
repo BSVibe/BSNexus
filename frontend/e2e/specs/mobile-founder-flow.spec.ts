@@ -239,10 +239,12 @@ async function suppressNextRuntimeOverlay(page: Page): Promise<void> {
   })
 }
 
-async function pinEnglishLocale(page: Page): Promise<void> {
-  await page.addInitScript(() => {
-    localStorage.setItem('bsnexus.locale', 'en')
-  })
+// English locale is the `/en` URL prefix now (next-intl `[locale]`
+// routing, `localePrefix: 'as-needed'` with default `ko`). Tests that
+// assert English copy navigate via `enPath()`; tests that assert Korean
+// copy navigate to the bare path.
+function enPath(path: string): string {
+  return `/en${path}`
 }
 
 test.describe('G7 mobile founder flow — Direct / Decide / Review', () => {
@@ -255,14 +257,13 @@ test.describe('G7 mobile founder flow — Direct / Decide / Review', () => {
     captured = []
     await blockSSORedirect(page)
     await injectAuth(page)
-    await pinEnglishLocale(page)
     await suppressNextRuntimeOverlay(page)
     await mockAllApis(page)
     await installFlatFounderMocks(page, captured)
   })
 
   test('Direct — Direction input card on dashboard posts to /api/v1/directions', async ({ page }) => {
-    await page.goto('/dashboard', { waitUntil: 'networkidle' })
+    await page.goto(enPath('/dashboard'), { waitUntil: 'networkidle' })
 
     const card = page.getByTestId('direction-input-card')
     await expect(card).toBeVisible()
@@ -291,7 +292,7 @@ test.describe('G7 mobile founder flow — Direct / Decide / Review', () => {
   })
 
   test('Direct — submit button meets the 44px touch-target floor', async ({ page }) => {
-    await page.goto('/dashboard', { waitUntil: 'networkidle' })
+    await page.goto(enPath('/dashboard'), { waitUntil: 'networkidle' })
 
     const card = page.getByTestId('direction-input-card')
     await expect(card).toBeVisible()
@@ -339,7 +340,7 @@ test.describe('G7 mobile founder flow — Direct / Decide / Review', () => {
   })
 
   test('Review — Re-verify button on the Deliverable card meets the 44px touch-target floor', async ({ page }) => {
-    await page.goto(`/projects/${PROJECT_ID}?tab=work`, { waitUntil: 'networkidle' })
+    await page.goto(enPath(`/projects/${PROJECT_ID}?tab=work`), { waitUntil: 'networkidle' })
 
     const verifyBtn = page.getByRole('button', { name: /re-run verification/i }).first()
     await expect(verifyBtn).toBeVisible({ timeout: 10_000 })

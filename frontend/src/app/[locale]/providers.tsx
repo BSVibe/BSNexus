@@ -4,10 +4,9 @@ import { useState } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { isDemoMode } from '@bsvibe/demo'
 
-import AuthProvider from '../components/auth/AuthProvider'
-import DemoModeProvider from '../components/demo/DemoModeProvider'
-import { ToastContainer } from '../components/common'
-import IntlProvider from '../i18n/IntlProvider'
+import AuthProvider from '../../components/auth/AuthProvider'
+import DemoModeProvider from '../../components/demo/DemoModeProvider'
+import { ToastContainer } from '../../components/common'
 
 /**
  * Client-side providers shared by every page. ``QueryClient`` is created
@@ -16,11 +15,12 @@ import IntlProvider from '../i18n/IntlProvider'
  * the JWT probe runs; ``ToastContainer`` is mounted at the root so
  * toasts overlay any route.
  *
- * ``IntlProvider`` wraps next-intl's ``NextIntlClientProvider`` and the
- * ``LocaleContext`` switcher. It sits inside the auth boundary so the
- * Settings language picker can persist without flashing the loading
- * spinner first; messages are bundled at build time so there's no
- * async hop on locale change.
+ * next-intl context is no longer mounted here — the ``[locale]`` root
+ * layout wraps the whole tree in ``BSVibeIntlProvider`` from
+ * ``@bsvibe/i18n`` *outside* this component, so the provider exists
+ * before anything inside ``Providers`` renders. Locale is now derived
+ * from the URL segment (``localePrefix: 'as-needed'``, default ``ko``)
+ * instead of localStorage.
  */
 export default function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(() => new QueryClient())
@@ -30,12 +30,10 @@ export default function Providers({ children }: { children: React.ReactNode }) {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <IntlProvider>
-        <Gate>
-          {children}
-          <ToastContainer />
-        </Gate>
-      </IntlProvider>
+      <Gate>
+        {children}
+        <ToastContainer />
+      </Gate>
     </QueryClientProvider>
   )
 }

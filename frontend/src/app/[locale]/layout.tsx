@@ -1,9 +1,12 @@
 import type { Metadata, Viewport } from 'next'
 import { JetBrains_Mono, Plus_Jakarta_Sans } from 'next/font/google'
+import { notFound } from 'next/navigation'
+import { getMessages, setRequestLocale } from 'next-intl/server'
+import { BSVibeIntlProvider, isSupportedLocale } from '@bsvibe/i18n'
 
 import './globals.css'
 import Providers from './providers'
-import { ServiceWorkerRegister } from '../components/pwa/ServiceWorkerRegister'
+import { ServiceWorkerRegister } from '../../components/pwa/ServiceWorkerRegister'
 
 const plusJakartaSans = Plus_Jakarta_Sans({
   subsets: ['latin'],
@@ -49,14 +52,43 @@ export const viewport: Viewport = {
   viewportFit: 'cover',
 }
 
-export default function RootLayout({
+// next-intl `[locale]` segment — middleware (`localePrefix: 'as-needed'`,
+// default `ko`) routes Korean at the bare path and English under `/en`.
+export function generateStaticParams() {
+  return [{ locale: 'ko' }, { locale: 'en' }]
+}
+
+/**
+ * Root layout for BSNexus — owns ``<html>`` because the next-intl
+ * ``[locale]`` pattern makes ``app/[locale]/layout.tsx`` the root layout
+ * (there is no ``app/layout.tsx``). It keeps everything the legacy root
+ * layout had — ``next/font`` variables, metadata, viewport, the Material
+ * Symbols stylesheet link, ``<ServiceWorkerRegister/>`` — and adds the
+ * next-intl plumbing: locale guard, ``setRequestLocale``, message load,
+ * and ``BSVibeIntlProvider``.
+ *
+ * ``BSVibeIntlProvider`` wraps ``Providers`` so next-intl context exists
+ * before anything inside the auth/query boundary renders.
+ */
+export default async function RootLayout({
   children,
+  params,
 }: {
   children: React.ReactNode
+  params: Promise<{ locale: string }>
 }) {
+  const { locale } = await params
+  if (!isSupportedLocale(locale)) {
+    notFound()
+  }
+  // Tell next-intl which locale this server render is for so any RSC
+  // `getTranslations()` calls in nested layouts/pages resolve correctly.
+  setRequestLocale(locale)
+  const messages = await getMessages()
+
   return (
     <html
-      lang="en"
+      lang={locale}
       suppressHydrationWarning
       className={`${plusJakartaSans.variable} ${jetbrainsMono.variable}`}
     >
@@ -77,7 +109,9 @@ export default function RootLayout({
         />
       </head>
       <body suppressHydrationWarning>
-        <Providers>{children}</Providers>
+        <BSVibeIntlProvider locale={locale} messages={messages}>
+          <Providers>{children}</Providers>
+        </BSVibeIntlProvider>
         <ServiceWorkerRegister />
       </body>
     </html>

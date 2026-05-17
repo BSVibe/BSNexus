@@ -1,5 +1,5 @@
 import { Suspense } from 'react'
-import ProjectPage from '../../../components/pages/ProjectPage'
+import ProjectPage from '../../../../components/pages/ProjectPage'
 
 /**
  * Bare ``/projects`` (no id) — matches the React-Router optional param
