@@ -54,6 +54,7 @@ from backend.src.core.domain import (
     ProofAspectType,
     ProofState,
 )
+from backend.src.core.sandbox import SandboxSession
 from backend.src.core.verification_contract import VerificationContract, parse_verification_contract
 from backend.src.core.verification_judge import JudgeContext, judge_criteria
 from backend.src.models import Deliverable, VerificationAspect
@@ -93,6 +94,7 @@ async def run_verification(
     changed_files: Sequence[str] = (),
     verification_contract: dict | None = None,
     judge: JudgeContext | None = None,
+    sandbox_session: SandboxSession | None = None,
 ) -> None:
     """Run the work step's verification and roll up to
     ``deliverable.proof_state``.
@@ -144,7 +146,7 @@ async def run_verification(
         aspects.append(aspect)
     await session.flush()
 
-    async with _aspect_venv(root, specs) as (venv_python, venv_error):
+    async with _aspect_venv(root, specs, skip=sandbox_session is not None) as (venv_python, venv_error):
         for spec, aspect in zip(specs, aspects, strict=True):
             aspect.status = ProofAspectStatus.running
             aspect.started_at = datetime.now(UTC)
@@ -157,6 +159,7 @@ async def run_verification(
                 venv_error=venv_error,
                 judge=judge,
                 deliverable_id=str(deliverable.id),
+                sandbox_session=sandbox_session,
             )
 
             aspect.status = status
@@ -654,14 +657,17 @@ async def _build_aspect_venv(root: Path, tmpdir: Path) -> tuple[Path | None, str
 
 
 @contextlib.asynccontextmanager
-async def _aspect_venv(root: Path, specs: Sequence[AspectSpec]) -> AsyncIterator[tuple[Path | None, str | None]]:
+async def _aspect_venv(
+    root: Path, specs: Sequence[AspectSpec], *, skip: bool = False
+) -> AsyncIterator[tuple[Path | None, str | None]]:
     """Yield ``(venv_python, error)`` for the duration of an aspect run.
 
     Builds the venv once when any Python pytest/ruff aspect is present;
     yields ``(None, None)`` when no venv is needed. The tmp tree is
     always cleaned up. ``error`` is set (and ``venv_python`` None) when
-    the build failed."""
-    if not _needs_aspect_venv(specs):
+    the build failed. ``skip=True`` (sandbox mode — the sandbox image
+    carries the toolchain) yields ``(None, None)`` without a build."""
+    if skip or not _needs_aspect_venv(specs):
         yield None, None
         return
     tmpdir = Path(tempfile.mkdtemp(prefix="bsnexus-aspect-venv-"))
@@ -694,6 +700,39 @@ async def _run_default_aspect(
             )
     cmd_summary = " && ".join(shlex.join(_resolve_command(cmd, venv_python)) for cmd in spec.commands)
     return ProofAspectStatus.passed, f"{cmd_summary} (exit 0)", last_exit
+
+
+async def _run_aspect_in_sandbox(
+    spec: AspectSpec, sandbox_session: SandboxSession
+) -> tuple[ProofAspectStatus, str, int | None]:
+    """Run a declared-command aspect inside the project sandbox — the
+    work phase's toolchain IS the verification environment (Part B).
+
+    A declared-command spec carries one ``("sh", "-c", <command>)``
+    entry; run it via the session's shell. Exit 127 (toolchain absent
+    from the sandbox image) → ``skipped``, never a false ``failed``."""
+    last_exit: int | None = 0
+    summaries: list[str] = []
+    for cmd in spec.commands:
+        if len(cmd) == 3 and cmd[0] == "sh" and cmd[1] == "-c":
+            command = cmd[2]
+        else:
+            command = shlex.join(cmd)
+        result = await sandbox_session.exec(command, timeout_s=spec.timeout_s, shell=True)
+        if result.timed_out:
+            return ProofAspectStatus.failed, f"`{command}` timed out after {spec.timeout_s}s", None
+        if result.exit_code == 127:
+            return (
+                ProofAspectStatus.skipped,
+                f"`{command}`: command not found in the sandbox toolchain (skipped)",
+                127,
+            )
+        last_exit = result.exit_code
+        if result.exit_code != 0:
+            output = "\n".join(chunk for chunk in (result.stdout, result.stderr) if chunk)
+            return ProofAspectStatus.failed, f"`{command}` (exit {result.exit_code})\n{output}", result.exit_code
+        summaries.append(command)
+    return ProofAspectStatus.passed, f"{' && '.join(summaries)} (exit 0)", last_exit
 
 
 def _install_smoke_hint(module: str, output: str) -> str:
@@ -880,13 +919,16 @@ async def _run_one_aspect(
     venv_error: str | None,
     judge: JudgeContext | None = None,
     deliverable_id: str | None = None,
+    sandbox_session: SandboxSession | None = None,
 ) -> tuple[ProofAspectStatus, str, int | None]:
     """Dispatch one aspect to its runner.
 
     When the aspect needs the verifier venv but the venv build failed,
     the aspect is ``error`` (infra failure → human_review_required in
     roll-up), NOT ``failed`` — a broken verifier env must not count
-    against the model's code."""
+    against the model's code. When ``sandbox_session`` is set (Part B),
+    command aspects run inside the project sandbox instead of a host
+    venv; judge aspects still run via the LLM call."""
     if spec.aspect_type == ProofAspectType.llm_judge:
         try:
             return await _run_llm_judge(spec, root, judge)
@@ -898,6 +940,17 @@ async def _run_one_aspect(
                 error=str(exc),
             )
             return ProofAspectStatus.error, f"judge runner crashed: {exc.__class__.__name__}: {exc}", None
+    if sandbox_session is not None:
+        try:
+            return await _run_aspect_in_sandbox(spec, sandbox_session)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception(
+                "verification_aspect_runner_crashed",
+                aspect_type=spec.aspect_type.value,
+                deliverable_id=deliverable_id,
+                error=str(exc),
+            )
+            return ProofAspectStatus.error, f"sandbox runner crashed: {exc.__class__.__name__}: {exc}", None
     needs_venv = (
         _VENV_PYTHON_TOKEN in {part for cmd in spec.commands for part in cmd}
         or spec.aspect_type == ProofAspectType.declared_command
@@ -1010,6 +1063,7 @@ async def probe_aspects(
     changed_files: Sequence[str] = (),
     verification_contract: dict | None = None,
     judge: JudgeContext | None = None,
+    sandbox_session: SandboxSession | None = None,
 ) -> list[AspectProbeResult]:
     """Run every applicable aspect against the workspace without
     persisting anything. Returns the per-aspect results so the caller
@@ -1028,7 +1082,7 @@ async def probe_aspects(
             changed_files=changed_files,
         )
     results: list[AspectProbeResult] = []
-    async with _aspect_venv(root, specs) as (venv_python, venv_error):
+    async with _aspect_venv(root, specs, skip=sandbox_session is not None) as (venv_python, venv_error):
         for spec in specs:
             status, summary, exit_code = await _run_one_aspect(
                 spec=spec,
@@ -1036,6 +1090,7 @@ async def probe_aspects(
                 venv_python=venv_python,
                 venv_error=venv_error,
                 judge=judge,
+                sandbox_session=sandbox_session,
             )
             results.append(
                 AspectProbeResult(

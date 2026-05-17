@@ -23,6 +23,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
     && apt-get clean && rm -rf /var/lib/apt/lists/* \
     && groupadd -r appuser && useradd -r -g appuser -u 1000 appuser
 
+# Docker CLI client only (no daemon) — Part B's sandbox manager shells
+# out to `docker` against the bsnexus-sandbox-dind sidecar via
+# DOCKER_HOST. No socket mount; the app talks TCP to the DinD.
+ARG DOCKER_CLI_VERSION=27.5.1
+RUN ARCH="$(uname -m)" \
+    && curl -fsSL "https://download.docker.com/linux/static/stable/${ARCH}/docker-${DOCKER_CLI_VERSION}.tgz" \
+    | tar xz -C /tmp \
+    && mv /tmp/docker/docker /usr/local/bin/docker \
+    && rm -rf /tmp/docker
+
 # Copy Python packages
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 

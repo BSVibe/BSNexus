@@ -14,6 +14,10 @@ services:
       - ..:/workspace:cached
       - claude-code-bashhistory:/commandhistory
       - ~/.claude:/home/vscode/.claude:cached
+      # Part B — shared workspace volume; the same volume is mounted in
+      # sandbox-dind at the same path so a sandbox container created
+      # with `-v /workspaces/<id>:/work` resolves inside the DinD.
+      - bsnexus-workspaces:/workspaces
     ports:
       - "${EXTERNAL_BACKEND_PORT:-8000}:8000"
       - "${EXTERNAL_FRONTEND_PORT:-3000}:3000"
@@ -24,6 +28,12 @@ services:
       - LANG=C.UTF-8
       - LC_ALL=C.UTF-8
       - UV_LINK_MODE=copy
+      # Part B work sandbox — DinD endpoint + workspace volume path.
+      # SANDBOX_ENABLED stays false: the sidecar exists for integration
+      # tests; the loop runs host-side until PR 8 flips it.
+      - DOCKER_HOST=tcp://sandbox-dind:2375
+      - WORKSPACE_ROOT=/workspaces
+      - SANDBOX_ENABLED=false
     stdin_open: true
     tty: true
     command: >
@@ -33,6 +43,37 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      sandbox-dind:
+        condition: service_started
+      workspace-init:
+        condition: service_completed_successfully
+    networks:
+      - bsnexus-network
+
+  # One-shot: chown the fresh workspace volume root to uid 1000 so the
+  # app + the uid-1000 sandbox image can create/write project dirs.
+  workspace-init:
+    image: alpine:3
+    command: ["sh", "-c", "chown 1000:1000 /workspaces && chmod 775 /workspaces"]
+    volumes:
+      - bsnexus-workspaces:/workspaces
+    networks:
+      - bsnexus-network
+
+  # Part B — Docker-in-Docker sidecar. Per-project work sandboxes run
+  # INSIDE this daemon, isolated from the host Docker. Privileged (not
+  # rootless — rootless DinD fails on the Docker Desktop linuxkit
+  # kernel). DOCKER_TLS_CERTDIR empty → unencrypted TCP on 2375.
+  sandbox-dind:
+    image: docker:27-dind
+    privileged: true
+    restart: unless-stopped
+    environment:
+      - DOCKER_TLS_CERTDIR=
+    command: ["--tls=false"]
+    volumes:
+      - bsnexus-workspaces:/workspaces
+      - sandbox-dind-lib:/var/lib/docker
     networks:
       - bsnexus-network
 
@@ -95,6 +136,10 @@ volumes:
   redis-data:
   postgres-data:
   minio-data:
+  # Part B — project workspaces, shared between app and sandbox-dind.
+  bsnexus-workspaces:
+  # DinD's own image/layer store (so the sandbox image survives restarts).
+  sandbox-dind-lib:
 
 
 networks:

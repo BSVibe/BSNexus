@@ -23,6 +23,15 @@ RUN apt-get update && \
 RUN sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && \
     locale-gen en_US.UTF-8
 
+# Docker CLI client only (no daemon) — the work-sandbox manager shells
+# out to `docker` against the sandbox-dind sidecar via DOCKER_HOST.
+ARG DOCKER_CLI_VERSION=27.5.1
+RUN ARCH="$(uname -m)" && \
+    curl -fsSL "https://download.docker.com/linux/static/stable/${ARCH}/docker-${DOCKER_CLI_VERSION}.tgz" \
+    | tar xz -C /tmp && \
+    mv /tmp/docker/docker /usr/local/bin/docker && \
+    rm -rf /tmp/docker
+
 ARG USERNAME=vscode
 ARG GROUPNAME=vscode
 ARG USER_UID=1000
