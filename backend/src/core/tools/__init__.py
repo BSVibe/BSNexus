@@ -27,6 +27,8 @@ from typing import Any
 
 import structlog
 
+from backend.src.core.sandbox import SandboxError, SandboxSession
+
 logger = structlog.get_logger(__name__)
 
 
@@ -80,8 +82,12 @@ class ToolRegistry:
     holds the workspace root and stateful denylist enforcement.
     """
 
-    def __init__(self, *, workspace_dir: Path) -> None:
+    def __init__(self, *, workspace_dir: Path, sandbox: SandboxSession | None = None) -> None:
         self._root = workspace_dir.resolve()
+        # Part B — when a sandbox session is supplied, shell_exec and the
+        # file tools run via ``docker exec`` inside the project sandbox
+        # instead of host subprocesses. ``None`` keeps the host path.
+        self._sandbox = sandbox
         self._tools: dict[str, ToolDefinition] = {}
         # The most recent verification contract declared via the
         # ``declare_verification`` tool, normalized to a JSON dict. The
@@ -257,6 +263,15 @@ class ToolRegistry:
         raw_path = str(args.get("path") or "")
         if not raw_path:
             raise ToolError("file_read requires 'path'")
+        if self._sandbox is not None:
+            try:
+                data = await self._sandbox.read_file(raw_path, FILE_READ_MAX_BYTES)
+            except SandboxError as exc:
+                raise ToolError(f"file_read: {exc}") from exc
+            text = data.decode("utf-8", errors="replace")
+            if len(data) >= FILE_READ_MAX_BYTES:
+                text += f"\n... (truncated at {FILE_READ_MAX_BYTES} bytes)"
+            return text
         target = self._resolve(raw_path)
         if not target.exists():
             raise ToolError(f"file_read: not found: {raw_path}")
@@ -266,6 +281,12 @@ class ToolRegistry:
 
     async def _file_list(self, args: dict[str, Any]) -> str:
         raw_path = str(args.get("path") or ".")
+        if self._sandbox is not None:
+            try:
+                entries = await self._sandbox.list_dir(raw_path)
+            except SandboxError as exc:
+                raise ToolError(f"file_list: {exc}") from exc
+            return "\n".join(entries) if entries else "(empty)"
         target = self._resolve(raw_path)
         if not target.exists():
             raise ToolError(f"file_list: not found: {raw_path}")
@@ -281,8 +302,15 @@ class ToolRegistry:
         content = args.get("content")
         if not isinstance(content, str):
             raise ToolError("file_write requires string 'content'")
-        if len(content.encode("utf-8")) > FILE_WRITE_MAX_BYTES:
+        encoded = content.encode("utf-8")
+        if len(encoded) > FILE_WRITE_MAX_BYTES:
             raise ToolError(f"file_write: content exceeds {FILE_WRITE_MAX_BYTES} bytes")
+        if self._sandbox is not None:
+            try:
+                await self._sandbox.write_file(raw_path, encoded)
+            except SandboxError as exc:
+                raise ToolError(f"file_write: {exc}") from exc
+            return f"wrote {raw_path} ({len(content)} chars)"
         target = self._resolve(raw_path)
         await asyncio.to_thread(_write_text, target, content)
         return f"wrote {raw_path} ({len(content)} chars)"
@@ -318,6 +346,12 @@ class ToolRegistry:
         for pattern in SHELL_DENYLIST_PATTERNS:
             if pattern in normalized:
                 raise ToolError(f"shell_exec: refused by denylist: {pattern.strip()!r}")
+        if self._sandbox is not None:
+            result = await self._sandbox.exec(command, timeout_s=SHELL_TIMEOUT_S, shell=True)
+            if result.timed_out:
+                raise ToolError(f"shell_exec: timed out after {SHELL_TIMEOUT_S}s")
+            output = "\n".join(chunk for chunk in (result.stdout, result.stderr) if chunk)
+            return f"exit={result.exit_code}\n{output[-4000:]}"
         try:
             parts = shlex.split(command)
         except ValueError as exc:
