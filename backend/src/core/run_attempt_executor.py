@@ -210,13 +210,13 @@ async def dispatch_run_attempt(
     # Part B — acquire the project's sandbox session once; it is reused
     # across the whole continuation chain and aspect-retry rounds (the
     # sandbox is per-project, not per-RunAttempt). With sandbox_enabled
-    # false this resolves to a host-side NoopSandboxManager — behaviour
-    # identical to before Part B. A sandbox backend that is unreachable
-    # degrades to the host path rather than failing the work step.
+    # false the resolver returns None → no session → the host path runs
+    # unchanged. A sandbox backend that is unreachable degrades to the
+    # host path rather than failing the work step.
     if sandbox_manager is None:
         sandbox_manager = get_sandbox_manager()
     sandbox_session: SandboxSession | None = None
-    if workspace_dir is not None:
+    if sandbox_manager is not None and workspace_dir is not None:
         try:
             sandbox_session = await sandbox_manager.acquire(request.project_id, str(workspace_dir))
         except SandboxError:
@@ -354,6 +354,7 @@ async def _execute_one_attempt(
                 executor=executor,
                 tool_registry=tool_registry,
                 session=session,
+                sandbox_session=sandbox_session,
             )
         _capture_verification_contract(attempt, tool_registry)
     except _ToolLoopTerminated as terminated:
@@ -417,6 +418,7 @@ async def _execute_one_attempt(
                     changed_files=tuple(terminated.written_paths),
                     verification_contract=terminated.attempt.verification_contract,
                     judge=JudgeContext(executor=executor, model=model or "", metadata=metadata),
+                    sandbox_session=sandbox_session,
                 )
             except Exception:
                 logger.exception(
@@ -901,6 +903,7 @@ async def _aspect_feedback_retry_loop(
     executor: ExecutorClient,
     tool_registry: ToolRegistry | None,
     session: AsyncSession,
+    sandbox_session: SandboxSession | None = None,
 ) -> tuple[str, list[str]]:
     """Re-enter ``_run_work_phase`` up to ``MAX_ASPECT_RETRIES`` times
     when the model converged but verification aspects failed.
@@ -927,6 +930,7 @@ async def _aspect_feedback_retry_loop(
                 changed_files=tuple(written_paths),
                 verification_contract=(tool_registry.declared_contract if tool_registry is not None else None),
                 judge=JudgeContext(executor=executor, model=model or "", metadata=metadata),
+                sandbox_session=sandbox_session,
             )
         except Exception as exc:  # noqa: BLE001
             logger.exception(

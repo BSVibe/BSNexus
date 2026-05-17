@@ -32,6 +32,8 @@ from backend.src.core.domain import ProofState
 from backend.src.core.git_ops import CommitOpError, commit_deliverable
 from backend.src.core.git_ops.branch import GithubClientFactory
 from backend.src.core.executor_config.resolver import ExecutorConfigError, resolve_executor
+from backend.src.core.sandbox import SandboxError
+from backend.src.core.sandbox.resolver import get_sandbox_manager
 from backend.src.core.verification import run_verification
 from backend.src.core.verification_judge import JudgeContext
 from backend.src.models import Deliverable, ExecutorConfig, Project, RunAttempt
@@ -77,6 +79,23 @@ async def process_one(
         # returns []. Phantom root avoids a FileNotFoundError lower down.
         workspace_root = workspace_root or "/tmp"
 
+    # Part B — verification runs declared command checks inside the
+    # project's sandbox (the same toolchain the work phase used). With
+    # sandbox_enabled false the resolver returns None → the host venv
+    # path runs unchanged. An unreachable sandbox degrades to the host
+    # path rather than failing the proof.
+    sandbox_session = None
+    sandbox_manager = get_sandbox_manager()
+    if sandbox_manager is not None and workspace_root not in ("", "/tmp") and Path(workspace_root).exists():
+        try:
+            sandbox_session = await sandbox_manager.acquire(deliverable.project_id, workspace_root)
+        except SandboxError:
+            logger.exception(
+                "verifier_sandbox_acquire_failed_degrading_to_host",
+                deliverable_id=str(deliverable_id),
+                project_id=str(deliverable.project_id),
+            )
+
     await run_verification(
         deliverable=deliverable,
         workspace_root=workspace_root,
@@ -84,6 +103,7 @@ async def process_one(
         changed_files=tuple(_artifact_paths(deliverable)),
         verification_contract=await _verification_contract_for(session, deliverable),
         judge=await _judge_context_for(session, tenant_id, deliverable),
+        sandbox_session=sandbox_session,
     )
 
     if (
