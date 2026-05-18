@@ -15,10 +15,15 @@ Routes (flat per CLAUDE.md A3):
   - null    → clear the secret
   - string  → encrypt + replace
 
-Cross-tenant lookups 404 (never leak existence). Setting a repo binding
-does not change ``workspace_type`` — that surface is orthogonal and
-covers source-of-truth-workspace decisions; the repo binding here is
-the *delivery* target (where branches/commits/PRs will land).
+Cross-tenant lookups 404 (never leak existence).
+
+Binding a repo flips ``workspace_type`` to ``github_connected`` (and a
+DELETE reverts it to ``server_managed``). Phase 3 made the binding the
+project's *source of truth*: the orchestrator clones a github_connected
+project's repo into the workspace so the work LLM edits real files.
+The founder just "connects a repo"; the ``workspace_type`` knob stays
+invisible. (Pre-Phase-3 the binding was delivery-target-only and left
+``workspace_type`` untouched.)
 """
 
 from __future__ import annotations
@@ -34,7 +39,7 @@ from backend.src.config import settings as app_settings
 from backend.src.core.auth import get_current_user, require_permission
 from backend.src.core.encryption import EncryptionManager
 from backend.src.core.tenant_context import get_tenant_id
-from backend.src.models.project import Project
+from backend.src.models.project import Project, WorkspaceType
 from backend.src.schemas.repo_config import (
     RepoConfigResponse,
     RepoConfigUpdate,
@@ -105,6 +110,12 @@ async def upsert_repo_config(
         else:
             project.github_token_encrypted = None
 
+    # Binding a repo IS connecting the project to it — the orchestrator
+    # clones a github_connected project's repo into the workspace so the
+    # work LLM edits real files. The founder "connects a repo"; the
+    # workspace_type knob stays invisible.
+    project.workspace_type = WorkspaceType.github_connected
+
     await db.commit()
     await db.refresh(project)
     logger.info(
@@ -133,6 +144,11 @@ async def delete_repo_config(
     project.github_repo_url = None
     project.github_branch = None
     project.github_token_encrypted = None
+    # No repo left to clone — hand the project back to a managed
+    # workspace. Only un-flip a project the binding itself set to
+    # github_connected; leave server_managed / local_import untouched.
+    if project.workspace_type == WorkspaceType.github_connected:
+        project.workspace_type = WorkspaceType.server_managed
     await db.commit()
     logger.info("repo_config_cleared", project_id=str(project.id), tenant_id=str(tenant_id))
     return Response(status_code=status.HTTP_204_NO_CONTENT)
