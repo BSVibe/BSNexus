@@ -272,9 +272,15 @@ async def test_delete_404_when_project_missing(client, mock_tenant_id, seeded_te
 
 
 @pytest.mark.asyncio
-async def test_repo_config_does_not_change_workspace_type(client, db_session, mock_tenant_id, seeded_tenant):
+async def test_put_repo_config_flips_workspace_type_to_github_connected(
+    client, db_session, mock_tenant_id, seeded_tenant
+):
+    """Phase 3: binding a repo IS connecting the project to it — the
+    orchestrator clones a github_connected project's repo into the
+    workspace. A founder 'connects a repo'; the workspace_type knob
+    stays invisible."""
     project = await _seed_project(db_session, mock_tenant_id)
-    initial = project.workspace_type
+    assert project.workspace_type == WorkspaceType.server_managed
     await client.put(
         "/api/v1/repo-config",
         params={"project_id": str(project.id)},
@@ -282,4 +288,49 @@ async def test_repo_config_does_not_change_workspace_type(client, db_session, mo
         headers={"Authorization": "Bearer fake"},
     )
     await db_session.refresh(project)
-    assert project.workspace_type == initial, "G8.0 binds the delivery target; it does not flip workspace_type."
+    assert project.workspace_type == WorkspaceType.github_connected
+
+
+@pytest.mark.asyncio
+async def test_delete_repo_config_reverts_workspace_type_to_server_managed(
+    client, db_session, mock_tenant_id, seeded_tenant
+):
+    """Clearing the repo binding hands the project back to a managed
+    workspace — there is no longer a repo to clone."""
+    project = await _seed_project(db_session, mock_tenant_id)
+    await client.put(
+        "/api/v1/repo-config",
+        params={"project_id": str(project.id)},
+        json={"repo_url": "https://github.com/a/b", "branch": "main", "token": "tok"},
+        headers={"Authorization": "Bearer fake"},
+    )
+    await db_session.refresh(project)
+    assert project.workspace_type == WorkspaceType.github_connected
+
+    resp = await client.delete(
+        "/api/v1/repo-config",
+        params={"project_id": str(project.id)},
+        headers={"Authorization": "Bearer fake"},
+    )
+    assert resp.status_code == 204, resp.text
+    await db_session.refresh(project)
+    assert project.workspace_type == WorkspaceType.server_managed
+
+
+@pytest.mark.asyncio
+async def test_delete_repo_config_leaves_non_github_workspace_type(
+    client, db_session, mock_tenant_id, seeded_tenant
+):
+    """A DELETE on a project that was never github_connected (e.g. a
+    local_import project) must not silently flip it."""
+    project = await _seed_project(db_session, mock_tenant_id)
+    project.workspace_type = WorkspaceType.local_import
+    await db_session.commit()
+    resp = await client.delete(
+        "/api/v1/repo-config",
+        params={"project_id": str(project.id)},
+        headers={"Authorization": "Bearer fake"},
+    )
+    assert resp.status_code == 204, resp.text
+    await db_session.refresh(project)
+    assert project.workspace_type == WorkspaceType.local_import

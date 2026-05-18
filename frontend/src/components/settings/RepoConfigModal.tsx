@@ -13,9 +13,10 @@ import {
 /**
  * RepoConfigModal — G8.0.1 per-project repo binding admin.
  *
- * The repo binding is the *delivery target* — where future
- * branches/commits/PRs will land (G8.1+). It is not a workspace
- * switch; the project's ``workspace_type`` is unchanged by binding.
+ * Binding a repo connects the project to it: the backend flips
+ * ``workspace_type`` to ``github_connected`` so the orchestrator
+ * clones the repo into the workspace, and future branches/commits/PRs
+ * land on it. Clearing the binding reverts to a managed workspace.
  *
  * Token is tri-state on save:
  *   - blank input + no stored token → never sent (preserve = none)
