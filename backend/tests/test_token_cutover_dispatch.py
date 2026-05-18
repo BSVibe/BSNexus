@@ -270,7 +270,14 @@ async def test_e2e_bypass_blocked_in_production_environment(authd_client):
     it as an invalid JWT."""
     bypass = "leaked-dev-bypass"
     with (
-        patch.dict(os.environ, {"ENVIRONMENT": "production"}, clear=False),
+        # A real production deployment also has OpenFGA configured;
+        # bsvibe-authz 2.2.0 rejects ENVIRONMENT=production with an empty
+        # OPENFGA_API_URL, so simulate a *complete* prod env here.
+        patch.dict(
+            os.environ,
+            {"ENVIRONMENT": "production", "OPENFGA_API_URL": "http://openfga.test:8080"},
+            clear=False,
+        ),
         patch("backend.src.core.auth.settings.e2e_test_token", bypass),
     ):
         resp = await authd_client.get(

@@ -287,7 +287,14 @@ async def test_e2e_test_token_blocked_in_production_environment(real_auth_client
     bypass = "leaked-dev-bypass"
 
     with (
-        patch.dict(os.environ, {"ENVIRONMENT": "production"}, clear=False),
+        # A real production deployment also has OpenFGA configured;
+        # bsvibe-authz 2.2.0 rejects ENVIRONMENT=production with an empty
+        # OPENFGA_API_URL, so simulate a *complete* prod env here.
+        patch.dict(
+            os.environ,
+            {"ENVIRONMENT": "production", "OPENFGA_API_URL": "http://openfga.test:8080"},
+            clear=False,
+        ),
         patch("backend.src.core.auth.settings.e2e_test_token", bypass),
         patch("backend.src.core.auth.settings.e2e_test_user_id", "e2e-test-user"),
         patch("backend.src.core.auth.settings.e2e_test_user_email", "e2e@bsnexus.test"),
