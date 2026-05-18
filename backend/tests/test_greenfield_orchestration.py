@@ -287,6 +287,57 @@ async def test_plan_and_dispatch_provisions_managed_workspace(
     assert Path(project.workspace_dir).exists()
 
 
+@pytest.mark.asyncio
+async def test_plan_and_dispatch_clones_github_connected_repo(
+    db_session, mock_tenant_id, seeded_tenant, tmp_path
+) -> None:
+    """A github_connected project's bound repo is cloned into the
+    workspace before the work phase — the LLM sees real repo files."""
+    import subprocess
+
+    upstream = tmp_path / "upstream"
+    upstream.mkdir()
+    env = {
+        "GIT_AUTHOR_NAME": "t",
+        "GIT_AUTHOR_EMAIL": "t@t",
+        "GIT_COMMITTER_NAME": "t",
+        "GIT_COMMITTER_EMAIL": "t@t",
+        "PATH": "/usr/bin:/bin:/usr/local/bin",
+    }
+    subprocess.run(["git", "init", "-b", "main"], cwd=upstream, check=True, env=env)
+    (upstream / "existing.py").write_text("# existing repo file\n")
+    subprocess.run(["git", "add", "."], cwd=upstream, check=True, env=env)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=upstream, check=True, env=env)
+
+    workspace = tmp_path / "ws"
+    project = Project(
+        tenant_id=mock_tenant_id,
+        name="gh-connected",
+        description="",
+        workspace_type=WorkspaceType.github_connected,
+        workspace_dir=str(workspace),
+        github_repo_url=f"file://{upstream}",
+        github_branch="main",
+    )
+    db_session.add(project)
+    await db_session.commit()
+    await db_session.refresh(project)
+    request = await _seed_open_request(db_session, mock_tenant_id, project)
+
+    await plan_and_dispatch_request(
+        request_id=request.id,
+        tenant_id=mock_tenant_id,
+        session=db_session,
+        stream_manager=AsyncMock(),
+        executor=_StubExecutor(),
+        executor_kind="injected",
+        model="stub-model",
+    )
+    # The cloned repo's file landed in the workspace the work phase ran against.
+    assert (workspace / "existing.py").read_text() == "# existing repo file\n"
+    assert (workspace / ".git").is_dir()
+
+
 # ───────────────────────── G10 decomposer wiring ──────────────────────────
 
 
