@@ -432,6 +432,18 @@ async def _execute_one_attempt(
             )
 
         await transition_work_step(step=work_step, target=WorkStepStatus.failed, session=session)
+        # Defensive: every non-budget terminator should have finished its
+        # RunAttempt at the raise site, but guard against a leaked
+        # ``running`` attempt here too — the one place all
+        # ``_ToolLoopTerminated`` flows converge — so a forgotten
+        # raise-site never leaves a zombie row behind a failed WorkStep.
+        if terminated.attempt.status == RunAttemptStatus.running:
+            await finish_run_attempt(
+                attempt=terminated.attempt,
+                status=RunAttemptStatus.failed,
+                terminal_reason=terminated.reason,
+                session=session,
+            )
         partial_deliverable = await _surface_partial_deliverable(
             terminated=terminated,
             request=request,
@@ -1257,7 +1269,28 @@ async def _run_work_phase(
             try:
                 event_result = await record_tool_event(attempt=attempt, event_input=event_input, session=session)
             except Exception as exc:
-                # Tool not allowed in this phase, etc. — surface and stop.
+                # Tool not allowed in this phase / RunAttempt already
+                # terminal, etc. — surface and stop. Finish the attempt
+                # here, consistently with the no-write and iteration-cap
+                # raise sites: otherwise the attempt is left ``running``
+                # (a zombie row) while the handler only fails the
+                # WorkStep. The exception message is logged because the
+                # ``terminal_reason`` only keeps the class name.
+                logger.warning(
+                    "tool_event_record_failed",
+                    run_attempt_id=str(attempt.id),
+                    tool_name=tool_name,
+                    phase=attempt.phase.value,
+                    error_class=exc.__class__.__name__,
+                    error=str(exc),
+                )
+                if attempt.status == RunAttemptStatus.running:
+                    await finish_run_attempt(
+                        attempt=attempt,
+                        status=RunAttemptStatus.failed,
+                        terminal_reason=f"tool_event_error:{exc.__class__.__name__}",
+                        session=session,
+                    )
                 raise _ToolLoopTerminated(
                     attempt=attempt,
                     reason=f"tool_event_error:{exc.__class__.__name__}",

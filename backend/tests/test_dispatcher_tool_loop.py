@@ -981,3 +981,49 @@ async def test_aspect_feedback_caps_at_max_retries_and_exits_with_failure(
     assert result.terminal_reason == "summarized"
     await db_session.refresh(result.attempt)
     assert (result.attempt.telemetry or {}).get("aspect_retries") == 2
+
+
+@pytest.mark.asyncio
+async def test_dispatcher_finishes_run_attempt_when_tool_event_raises_state_error(
+    db_session, mock_tenant_id, seeded_tenant, mock_stream_manager, tmp_path, monkeypatch
+):
+    """A ``RunAttemptStateError`` out of ``record_tool_event`` must
+    terminate the RunAttempt cleanly. Regression: the ``tool_event_error``
+    raise site skipped ``finish_run_attempt`` (unlike the no-write and
+    iteration-cap siblings), so the attempt was left ``running`` — a
+    zombie row — while the WorkStep moved to ``failed``. Surfaced by the
+    no-blocked reframe re-dispatch dogfood (2026-05-18)."""
+    from backend.src.core import run_attempt_executor as _rae
+    from backend.src.core.run_attempts import RunAttemptStateError
+
+    request, step = await _seed_request_with_step(db_session, mock_tenant_id)
+    tool_call = [{"id": "c1", "name": "file_write", "arguments": {"path": "x.py", "content": "X = 1\n"}}]
+    executor = _ScriptedExecutor(tool_call_scripts=[tool_call], final_text="done")
+
+    async def _boom(*args, **kwargs):
+        raise RunAttemptStateError("RunAttempt is terminal")
+
+    monkeypatch.setattr(_rae, "record_tool_event", _boom)
+
+    result = await dispatch_run_attempt(
+        request=request,
+        work_step=step,
+        tenant_id=mock_tenant_id,
+        session=db_session,
+        stream_manager=mock_stream_manager,
+        executor=executor,
+        executor_kind="injected",
+        model="stub-model",
+        workspace_dir=tmp_path,
+    )
+
+    # The terminal reason carries the failing exception class.
+    assert result.terminal_reason.startswith("tool_event_error:RunAttemptStateError")
+    # The RunAttempt must NOT be left running (no zombie row).
+    await db_session.refresh(result.attempt)
+    assert result.attempt.status != RunAttemptStatus.running
+    assert result.attempt.status == RunAttemptStatus.failed
+    assert result.attempt.completed_at is not None
+    # The WorkStep still transitions to failed (already worked).
+    await db_session.refresh(step)
+    assert step.status == WorkStepStatus.failed

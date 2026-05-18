@@ -27,8 +27,11 @@ export default function DecisionsView({ projectId }: { projectId: string }) {
     },
   })
 
-  const blocking = decisions.filter((d) => !d.resolved_at && d.blocking)
-  const open = decisions.filter((d) => !d.resolved_at && !d.blocking)
+  // Every founder Decision is forward-only — it parks the Request until
+  // the founder picks retry/reframe, never a dead-end. So the inbox is
+  // just two lanes: awaiting the founder, and resolved. The retired
+  // ``blocked`` vocabulary (a rose "차단" section/badge) is gone.
+  const pending = decisions.filter((d) => !d.resolved_at)
   const resolved = decisions.filter((d) => d.resolved_at)
 
   function onResolve(id: string, payload: DecisionResolve) {
@@ -46,18 +49,10 @@ export default function DecisionsView({ projectId }: { projectId: string }) {
           <EmptyInbox label={t('inboxClear')} />
         ) : (
           <>
-            <Section title={t('section.blocking')} count={blocking.length} tone="rose">
-              <DecisionTable
-                decisions={blocking}
-                emptyMessage={t('nothingBlocking')}
-                pending={resolveMutation.isPending}
-                onResolve={onResolve}
-              />
-            </Section>
-            {open.length > 0 && (
-              <Section title={t('section.open')} count={open.length}>
+            {pending.length > 0 && (
+              <Section title={t('section.pending')} count={pending.length} tone="amber">
                 <DecisionTable
-                  decisions={open}
+                  decisions={pending}
                   emptyMessage={t('inboxClear')}
                   pending={resolveMutation.isPending}
                   onResolve={onResolve}
@@ -173,14 +168,10 @@ function DecisionTable({
           <Badge tone="emerald" dot>
             {t('resolvedBadge')}
           </Badge>
-        ) : d.blocking ? (
-          <Badge tone="rose" dot>
-            {t('blockingBadge')}
-          </Badge>
         ) : (
-          <span className="faded" style={{ fontSize: 12 }}>
-            {t('section.open')}
-          </span>
+          <Badge tone="amber" dot>
+            {t('section.pending')}
+          </Badge>
         ),
     },
     {
@@ -319,14 +310,13 @@ function DecisionCard({
               marginBottom: 6,
             }}
           >
-            {d.blocking && !isResolved && (
-              <Badge tone="rose" dot>
-                {t('blockingBadge')}
-              </Badge>
-            )}
-            {isResolved && (
+            {isResolved ? (
               <Badge tone="emerald" dot>
                 {t('resolvedBadge')}
+              </Badge>
+            ) : (
+              <Badge tone="amber" dot>
+                {t('section.pending')}
               </Badge>
             )}
             <span
