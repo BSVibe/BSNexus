@@ -184,6 +184,23 @@ def test_provision_workspace_preserves_existing_agents_md(tmp_path) -> None:
     assert (ws / "AGENTS.md").read_text() == "# my own conventions\n"
 
 
+def test_provision_workspace_skips_agents_md_for_github_connected(tmp_path) -> None:
+    """G-B: a github_connected project's repo carries its own
+    conventions (and AGENTS.md, if any) once cloned in. Seeding
+    BSNexus's Python-flavoured default would misdirect the work LLM
+    into a Python verification contract on a non-Python repo."""
+    project = Project(
+        id=uuid.uuid4(),
+        tenant_id=uuid.uuid4(),
+        name="p",
+        description="",
+        workspace_type=WorkspaceType.github_connected,
+        workspace_dir=str(tmp_path / "ws"),
+    )
+    path = provision_workspace(project)
+    assert not (path / "AGENTS.md").exists()
+
+
 # ───────────────────────── plan_and_dispatch_request ───────────────────────
 
 

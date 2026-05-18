@@ -167,8 +167,10 @@ def provision_workspace(project: Project) -> Path:
     function had to assign one.
 
     Also seeds a default ``AGENTS.md`` when the workspace has none —
-    the founder-editable conventions file. Once the project's repo
-    exists the repo owns it; BSNexus only seeds the initial copy.
+    the founder-editable conventions file — EXCEPT for
+    ``github_connected`` projects, whose cloned repo owns its own
+    conventions (seeding BSNexus's Python-flavoured default there
+    misdirects the work LLM on a non-Python repo).
     """
     managed = Path(app_settings.workspace_root).resolve() / str(project.id)
     if project.workspace_dir:
@@ -195,7 +197,13 @@ def provision_workspace(project: Project) -> Path:
     else:
         path = managed
     path.mkdir(parents=True, exist_ok=True)
-    _seed_agents_md(path)
+    # G-B: a github_connected project's repo carries its own
+    # conventions (and AGENTS.md, if any) once ``ensure_repo_cloned``
+    # clones it in. Seeding BSNexus's Python-flavoured default here
+    # would misdirect the work LLM into declaring a Python verification
+    # contract (ruff / pytest) on a non-Python repo.
+    if project.workspace_type != WorkspaceType.github_connected:
+        _seed_agents_md(path)
     return path
 
 
