@@ -260,11 +260,9 @@
       "loading": "Loading…",
       "inboxClear": "Inbox clear.",
       "section": {
-        "blocking": "Blocking",
-        "open": "Open",
+        "pending": "Pending",
         "resolved": "Resolved"
       },
-      "nothingBlocking": "Nothing blocking.",
       "blockingBadge": "blocking",
       "resolvedBadge": "resolved",
       "resolutionLabel": "Resolution",
