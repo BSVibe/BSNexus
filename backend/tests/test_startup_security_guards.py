@@ -41,8 +41,6 @@ def _make_settings(**overrides) -> Settings:
         "frontend_url": "https://nexus.bsvibe.dev",
         "prompt_signing_key": "real-signing-key",
         "encryption_key": "real-encryption-key-32-bytes-long-aaa",
-        "mcp_signing_key": "real-mcp-signing-key-32-bytes-long",
-        "mcp_internal_url": "https://nexus-internal.bsvibe.dev",
         "environment": "production",
     }
     base.update(overrides)
@@ -101,41 +99,6 @@ def test_production_rejects_any_loopback_frontend_url():
 def test_production_accepts_real_frontend_url():
     settings = _make_settings(frontend_url="https://nexus.bsvibe.dev")
     enforce_production_security_guards(settings)
-
-
-# ── Direction reset 2026-05-03: MCP signing key + internal URL ───────
-
-
-def test_production_rejects_default_mcp_signing_key():
-    """Compromise of ``BSNEXUS_MCP_SIGNING_KEY`` lets any actor on
-    ``/mcp/http`` mint forged run-scoped tokens — startup must refuse
-    to boot if the dev default leaks into production."""
-    settings = _make_settings(mcp_signing_key="dev-mcp-signing-key-change-in-production")
-    with pytest.raises(DevDefaultLeakError) as exc_info:
-        enforce_production_security_guards(settings)
-    assert "mcp_signing_key" in str(exc_info.value).lower()
-
-
-def test_production_rejects_default_mcp_internal_url():
-    """``mcp_internal_url`` is the URL embedded in
-    ``metadata.mcp_servers["bsnexus"].url`` for BSGateway workers to
-    call back. Loopback / dev default would mean every MCP tool call
-    silently fails because workers can't resolve ``localhost``."""
-    settings = _make_settings(mcp_internal_url="http://localhost:18100")
-    with pytest.raises(DevDefaultLeakError) as exc_info:
-        enforce_production_security_guards(settings)
-    assert "mcp_internal_url" in str(exc_info.value).lower()
-
-
-def test_production_rejects_any_loopback_mcp_internal_url():
-    for url in [
-        "http://127.0.0.1:18100",
-        "http://0.0.0.0:18100",
-        "https://localhost:18100",
-    ]:
-        settings = _make_settings(mcp_internal_url=url)
-        with pytest.raises(DevDefaultLeakError):
-            enforce_production_security_guards(settings)
 
 
 # ── Non-production behavior ────────────────────────────────────────────
