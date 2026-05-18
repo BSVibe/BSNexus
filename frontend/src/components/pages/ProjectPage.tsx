@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -56,7 +56,15 @@ export default function ProjectPage() {
   const blockedColumns = useBlockedColumns()
   const params = useParams<{ projectId?: string | string[] }>()
   const rawProjectId = params?.projectId
-  const projectId = Array.isArray(rawProjectId) ? rawProjectId[0] : rawProjectId
+  const segment = Array.isArray(rawProjectId) ? rawProjectId[0] : rawProjectId
+  // ``/projects/new`` has no dedicated route — it falls through to this
+  // dynamic ``[projectId]`` segment. Creation actually lives in the
+  // Dashboard's CreateProjectModal (``/dashboard?new=1``). Treat the
+  // ``new`` segment as a non-id so project-scoped fetches never fire
+  // against the literal string ``new`` (which 422s); the redirect below
+  // bounces the founder to the real creation surface.
+  const isCreatePlaceholder = segment === 'new'
+  const projectId = isCreatePlaceholder ? undefined : segment
   const search = useSearchParams()
   const tab = parseTab(search.get('tab'))
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -123,6 +131,13 @@ export default function ProjectPage() {
     else next.set('tab', id)
     router.replace(buildProjectUrl(next))
   }
+
+  // ``/projects/new`` is not a real project — bounce to the Dashboard
+  // creation modal. Done in an effect (a navigation side effect, not a
+  // render-time mutation) so the first paint stays clean.
+  useEffect(() => {
+    if (isCreatePlaceholder) router.replace('/dashboard?new=1')
+  }, [isCreatePlaceholder, router])
 
   if (!projectId) {
     return (

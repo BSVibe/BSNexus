@@ -141,7 +141,7 @@
         "heading": "Give a direction",
         "placeholder": "Tell BSNexus what to do next. Short and clear works best.",
         "textareaLabel": "Direction body",
-        "hint": "mobile_web · greenfield direction",
+        "hint": "Each direction opens a Request — BSNexus decomposes and runs it.",
         "submit": "Direct",
         "submitting": "Sending…",
         "error": "Could not send direction. Try again.",

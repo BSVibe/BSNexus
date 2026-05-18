@@ -224,6 +224,10 @@ kbd {
 .badge {
   display: inline-flex; align-items: center; gap: 4px;
   padding: 2px 8px; font-size: 11px; font-weight: 500;
+  /* A pill badge must never wrap — in a narrow table cell a wrapped
+     multi-word label (e.g. KO "대기 중") collapses the rounded shape
+     into a clipped circle. Keep the label on one line. */
+  white-space: nowrap;
   border-radius: var(--r-full);
   border: 1px solid var(--border-default);
   color: var(--gray-300); background: var(--bg-elevated);

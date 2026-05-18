@@ -78,7 +78,13 @@ export default function Sidebar({
       groupLabel: t('projects'),
     })),
     {
-      href: '/projects/new',
+      // Project creation lives in the Dashboard's CreateProjectModal,
+      // opened via the ``?new=1`` query param. ``/projects/new`` is NOT a
+      // route — it collides with the ``[projectId]`` dynamic segment, so
+      // every project-scoped fetch (project / brief / decisions / SSE)
+      // would 422 against the literal id ``new``. Mirrors the command
+      // palette's ``newProject`` action.
+      href: '/dashboard?new=1',
       label: (
         <span style={{ color: 'var(--text-tertiary)' }}>
           + {t('newProject')}
