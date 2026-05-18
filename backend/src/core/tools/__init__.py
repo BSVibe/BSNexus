@@ -212,6 +212,11 @@ class ToolRegistry:
                 "declare a command that RUNS the test runner, never one that merely "
                 "compiles the test file. Weak (rejected as no real verification): "
                 "`python -m py_compile test_calc.py`. Strong: `pytest test_calc.py`. "
+                "SCOPE every command to the files you changed, never the whole repo: "
+                "a repo-wide lint/format (e.g. `ruff check .`, `pnpm lint`) fails on "
+                "pre-existing debt you did not touch, and trying to satisfy it "
+                "rewrites unrelated files. Pass the changed paths explicitly — e.g. "
+                "`ruff check src/foo.py`, `pytest tests/test_foo.py`. "
                 "You may call this again to refine the contract."
             ),
             parameters_schema={

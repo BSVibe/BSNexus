@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import select
@@ -185,6 +186,109 @@ async def test_request_cannot_ship_without_verified_deliverable_proof(db_session
 
     await transition_request(request=request, target=RequestStatus.shipped, session=db_session)
     assert request.status == RequestStatus.shipped
+
+
+@pytest.mark.asyncio
+async def test_request_ships_when_latest_deliverable_per_step_is_verified(
+    db_session, mock_tenant_id, seeded_tenant
+):
+    """G-D: a retried / reframed Request accumulates the superseded
+    failed deliverable alongside the new one on the same WorkStep. The
+    ship gate must judge only the LATEST deliverable per WorkStep — a
+    stale ``verification_failed`` must not block ``shipped`` forever."""
+    request = await _make_request(db_session, mock_tenant_id)
+    plan = await create_work_plan(
+        request=request,
+        steps=[WorkStepDraft(name="impl", objective="do it")],
+        created_by=WorkPlanCreatedBy.llm_assisted,
+        session=db_session,
+    )
+    step = (await db_session.execute(select(WorkStep).where(WorkStep.plan_id == plan.id))).scalar_one()
+
+    base = datetime(2026, 5, 18, 10, 0, 0, tzinfo=timezone.utc)
+    stale_failed = Deliverable(
+        tenant_id=request.tenant_id,
+        project_id=request.project_id,
+        request_id=request.id,
+        work_step_id=step.id,
+        type=DeliverableType.code,
+        title="attempt 1 (failed)",
+        artifact_refs=["git:old"],
+        status=DeliverableStatus.review_ready,
+        proof_state=ProofState.verification_failed,
+        created_at=base,
+    )
+    fresh_verified = Deliverable(
+        tenant_id=request.tenant_id,
+        project_id=request.project_id,
+        request_id=request.id,
+        work_step_id=step.id,
+        type=DeliverableType.code,
+        title="attempt 2 (verified)",
+        artifact_refs=["git:new"],
+        status=DeliverableStatus.shipped,
+        proof_state=ProofState.verified,
+        created_at=base + timedelta(hours=1),
+    )
+    db_session.add_all([stale_failed, fresh_verified])
+    await db_session.commit()
+
+    await transition_request(request=request, target=RequestStatus.review_ready, session=db_session)
+    # Gate sees only the latest deliverable per WorkStep — the verified one.
+    await transition_request(request=request, target=RequestStatus.shipped, session=db_session)
+    assert request.status == RequestStatus.shipped
+
+
+@pytest.mark.asyncio
+async def test_request_blocked_when_latest_deliverable_per_step_failed(
+    db_session, mock_tenant_id, seeded_tenant
+):
+    """Inverse of the above — if the LATEST attempt on a WorkStep
+    failed, the Request still must not ship even though an earlier
+    attempt verified."""
+    request = await _make_request(db_session, mock_tenant_id)
+    plan = await create_work_plan(
+        request=request,
+        steps=[WorkStepDraft(name="impl", objective="do it")],
+        created_by=WorkPlanCreatedBy.llm_assisted,
+        session=db_session,
+    )
+    step = (await db_session.execute(select(WorkStep).where(WorkStep.plan_id == plan.id))).scalar_one()
+
+    base = datetime(2026, 5, 18, 10, 0, 0, tzinfo=timezone.utc)
+    db_session.add_all(
+        [
+            Deliverable(
+                tenant_id=request.tenant_id,
+                project_id=request.project_id,
+                request_id=request.id,
+                work_step_id=step.id,
+                type=DeliverableType.code,
+                title="attempt 1 (verified)",
+                artifact_refs=["git:old"],
+                status=DeliverableStatus.review_ready,
+                proof_state=ProofState.verified,
+                created_at=base,
+            ),
+            Deliverable(
+                tenant_id=request.tenant_id,
+                project_id=request.project_id,
+                request_id=request.id,
+                work_step_id=step.id,
+                type=DeliverableType.code,
+                title="attempt 2 (failed)",
+                artifact_refs=["git:new"],
+                status=DeliverableStatus.review_ready,
+                proof_state=ProofState.verification_failed,
+                created_at=base + timedelta(hours=1),
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    await transition_request(request=request, target=RequestStatus.review_ready, session=db_session)
+    with pytest.raises(GreenfieldStateError):
+        await transition_request(request=request, target=RequestStatus.shipped, session=db_session)
 
 
 @pytest.mark.asyncio

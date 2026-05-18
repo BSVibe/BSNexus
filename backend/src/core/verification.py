@@ -54,6 +54,7 @@ from backend.src.core.domain import (
     ProofAspectType,
     ProofState,
 )
+from backend.src.core.repo_deps import ensure_repo_dependencies
 from backend.src.core.sandbox import SandboxSession
 from backend.src.core.verification_contract import VerificationContract, parse_verification_contract
 from backend.src.core.verification_judge import JudgeContext, judge_criteria
@@ -132,6 +133,19 @@ async def run_verification(
     deliverable.proof_state = ProofState.verifying
     deliverable.status = DeliverableStatus.verifying
     await session.flush()
+
+    # G-E: a github_connected repo carries a real dependency tree the
+    # sandbox doesn't ship. Install it once before the aspects run so a
+    # declared ``pytest`` / ``pnpm test`` contract doesn't fail at
+    # collection with ModuleNotFoundError. Best-effort — a failed
+    # install surfaces as a failed aspect, not a verifier crash.
+    if sandbox_session is not None:
+        install = await ensure_repo_dependencies(root=root, sandbox_session=sandbox_session)
+        logger.info(
+            "verification_repo_deps",
+            deliverable_id=str(deliverable.id),
+            install_status=install.status,
+        )
 
     aspects: list[VerificationAspect] = []
     for spec in specs:

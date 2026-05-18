@@ -177,6 +177,30 @@ def _step_snapshot(step: WorkStepDraft) -> dict:
 
 
 async def _request_has_verified_deliverable_proof(*, session: AsyncSession, request_id: uuid.UUID) -> bool:
-    deliverables = (await session.execute(select(Deliverable).where(Deliverable.request_id == request_id))).scalars()
-    proof_states = [deliverable.proof_state for deliverable in deliverables]
-    return bool(proof_states) and all(proof_state == ProofState.verified for proof_state in proof_states)
+    """True when the LATEST deliverable of every WorkStep is verified.
+
+    G-D: a retried / reframed Request accumulates the superseded failed
+    deliverable alongside the new attempt on the same WorkStep. Judging
+    *every* deliverable (``all(verified)``) lets a stale
+    ``verification_failed`` from an earlier attempt block ``shipped``
+    forever. The gate must look only at the most recent deliverable per
+    WorkStep — the attempt that supersedes the rest.
+    """
+    deliverables = (
+        (
+            await session.execute(
+                select(Deliverable)
+                .where(Deliverable.request_id == request_id)
+                .order_by(Deliverable.created_at, Deliverable.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not deliverables:
+        return False
+    # Ordered oldest→newest, so the last write per WorkStep wins.
+    latest_per_step: dict[uuid.UUID | None, Deliverable] = {}
+    for deliverable in deliverables:
+        latest_per_step[deliverable.work_step_id] = deliverable
+    return all(d.proof_state == ProofState.verified for d in latest_per_step.values())
