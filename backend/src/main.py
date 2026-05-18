@@ -299,9 +299,7 @@ def create_app(
     # ─── BSNexus admin MCP (Round 4) ─────────────────────────────────────
     # Mount the streamable-HTTP admin MCP server at /mcp. Tools are wired
     # to the same FastAPI routes the bsnexus CLI hits, authenticated by
-    # the caller's PAT JWT via bsvibe-authz. Distinct from
-    # ``backend.src.mcp`` which serves run-scoped HMAC tokens for
-    # BSGateway-spawned workers (per-run; not user-facing).
+    # the caller's PAT JWT via bsvibe-authz.
     from backend.src.admin_mcp.admin_tools import register_admin_tools  # noqa: PLC0415
     from backend.src.admin_mcp.api import ToolRegistry  # noqa: PLC0415
     from backend.src.admin_mcp.lifespan import (  # noqa: PLC0415

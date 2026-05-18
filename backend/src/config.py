@@ -37,15 +37,6 @@ class Settings(BsvibeSettings):
     # Security - keys
     prompt_signing_key: str = "dev-signing-key-change-in-production"
     encryption_key: str = "dev-encryption-key-change-in-production"
-    # Direction reset 2026-05-03 — BSNexus MCP server signing key.
-    # Run-scoped HMAC tokens are minted per BSGateway chat completion
-    # and verified on every /mcp/http connect. Compromise impersonates
-    # any in-flight run; rotate by restarting all instances.
-    mcp_signing_key: str = "dev-mcp-signing-key-change-in-production"
-    # Address BSGateway workers reach to talk to this BSNexus instance's
-    # MCP server. Default is the dev devcontainer port; production sets
-    # the internal service URL.
-    mcp_internal_url: str = "http://localhost:18100"
 
     # Security - CORS
     cors_allowed_origins: list[str] = []
