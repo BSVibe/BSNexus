@@ -30,6 +30,18 @@ def test_schema_for_silently_skips_unknown_tools(tmp_path):
     assert [s["function"]["name"] for s in schemas] == ["file_read"]
 
 
+def test_declare_verification_description_tells_model_to_scope_to_changed_files(tmp_path):
+    """G-F: a repo-wide lint/format contract (`ruff check .`) fails on
+    pre-existing debt and provokes repo-wide collateral edits. The
+    declare_verification tool must steer the work LLM to scope its
+    commands to the changed paths."""
+    registry = ToolRegistry(workspace_dir=tmp_path)
+    schema = registry.schema_for(["declare_verification"])[0]
+    description = schema["function"]["description"].lower()
+    assert "scope" in description
+    assert "whole repo" in description or "repo-wide" in description
+
+
 @pytest.mark.asyncio
 async def test_file_read_and_list_happy_path(tmp_path):
     (tmp_path / "src").mkdir()
