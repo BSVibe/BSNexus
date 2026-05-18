@@ -141,7 +141,7 @@
         "heading": "지시 보내기",
         "placeholder": "BSNexus 가 다음에 할 일을 짧고 명확하게 적으세요.",
         "textareaLabel": "지시 내용",
-        "hint": "mobile_web · greenfield direction",
+        "hint": "각 지시는 Request로 열리며, BSNexus가 분해해 실행합니다.",
         "submit": "지시하기",
         "submitting": "보내는 중…",
         "error": "지시를 보내지 못했습니다. 다시 시도해 주세요.",
