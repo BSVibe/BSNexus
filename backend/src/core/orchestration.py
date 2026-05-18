@@ -39,6 +39,7 @@ from backend.src.core.run_attempt_executor import (
     dispatch_run_attempt,
 )
 from backend.src.core.executor_config.resolver import resolve_executor
+from backend.src.core.git_ops.clone import ensure_repo_cloned
 from backend.src.core.work_steps import (
     WorkStepDraft,
     create_work_plan,
@@ -260,6 +261,18 @@ async def plan_and_dispatch_request(
     if not project.workspace_dir:
         project.workspace_dir = str(workspace_dir)
         await session.flush()
+
+    # github_connected projects need the real repo in the workspace so
+    # the work LLM edits actual files, not a blank tree. Soft-fail: a
+    # clone error leaves the workspace as provisioned and the run still
+    # proceeds (CloneResult is logged, never raised).
+    clone_result = await ensure_repo_cloned(project=project, workspace_dir=workspace_dir)
+    logger.info(
+        "request_worker_clone",
+        request_id=str(request_id),
+        project_id=str(project.id),
+        clone_status=clone_result.status,
+    )
 
     intent = (request.intent or "").strip() or f"Request {request.id}"
     steps, created_by, resolved_executor, resolved_kind, resolved_model = await _build_work_steps(
