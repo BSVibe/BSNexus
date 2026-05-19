@@ -72,3 +72,38 @@ async def test_create_blocking_decision_tolerates_no_work_step(db_session, mock_
     assert decision.blocking is True
     assert decision.options == ["retry", "reframe"]
     assert request.status != RequestStatus.shipped
+
+
+@pytest.mark.asyncio
+async def test_create_blocking_decision_embeds_verifier_detail(db_session, mock_tenant_id, seeded_tenant):
+    """B: when the verifier output is supplied, the Decision question
+    carries it so the founder sees WHY, not just 'stalled'."""
+    request, step = await _make_request_with_step(db_session, mock_tenant_id)
+
+    decision = await create_blocking_decision(
+        request=request,
+        work_step=step,
+        reason="work_step_failed",
+        session=db_session,
+        detail="[declared_command] failed (exit 137)\n`pnpm build` killed — OOM",
+    )
+    await db_session.commit()
+
+    assert "What the verifier saw:" in decision.question
+    assert "exit 137" in decision.question
+    assert "OOM" in decision.question
+
+
+@pytest.mark.asyncio
+async def test_create_blocking_decision_omits_detail_block_when_none(db_session, mock_tenant_id, seeded_tenant):
+    request, step = await _make_request_with_step(db_session, mock_tenant_id)
+
+    decision = await create_blocking_decision(
+        request=request,
+        work_step=step,
+        reason="continuation_cap_reached",
+        session=db_session,
+    )
+    await db_session.commit()
+
+    assert "What the verifier saw:" not in decision.question

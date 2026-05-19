@@ -27,8 +27,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.src.config import settings as app_settings
 from backend.src.core.domain import (
+    ProofAspectStatus,
     ProofState,
     RequestStatus,
+    RunAttemptStatus,
     WorkPlanCreatedBy,
     WorkStepStatus,
 )
@@ -40,13 +42,23 @@ from backend.src.core.run_attempt_executor import (
 )
 from backend.src.core.executor_config.resolver import resolve_executor
 from backend.src.core.git_ops.clone import ensure_repo_cloned
+from backend.src.core.run_attempts import finish_run_attempt
 from backend.src.core.work_steps import (
     WorkStepDraft,
     create_work_plan,
     transition_request,
     transition_work_step,
 )
-from backend.src.models import Decision, Deliverable, Project, Request, WorkPlan, WorkStep
+from backend.src.models import (
+    Decision,
+    Deliverable,
+    Project,
+    Request,
+    RunAttempt,
+    VerificationAspect,
+    WorkPlan,
+    WorkStep,
+)
 from backend.src.models.project import WorkspaceType
 
 logger = structlog.get_logger(__name__)
@@ -66,6 +78,7 @@ async def create_blocking_decision(
     reason: str,
     session: AsyncSession,
     stream_manager: object | None = None,
+    detail: str | None = None,
 ) -> Decision:
     """Raise a blocking founder ``Decision`` for a stalled WorkStep.
 
@@ -90,6 +103,11 @@ async def create_blocking_decision(
         f"(reason: {reason}). Choose how to move it forward: retry the "
         "work as-is, or reframe it with new direction."
     )
+    # Carry the verifier's actual output into the Decision so the
+    # founder sees WHY it stalled — a bare "stalled" verdict forces a
+    # dig through logs to reframe correctly.
+    if detail:
+        question = f"{question}\n\nWhat the verifier saw:\n{detail.strip()}"
     decision = Decision(
         tenant_id=request.tenant_id,
         project_id=request.project_id,
@@ -566,6 +584,50 @@ async def advance_request_after_proof(
         await _maybe_finalize_request(request=request, session=session, stream_manager=stream_manager)
 
 
+async def _work_step_failure_detail(*, work_step: WorkStep, session: AsyncSession) -> str | None:
+    """The verifier's actual output for a WorkStep's latest deliverable.
+
+    Fed into the founder Decision (B) so it shows WHY the step stalled —
+    a bare ``work_step_failed`` verdict forces the founder to dig
+    through logs before they can reframe correctly. ``None`` when there
+    is no deliverable yet (e.g. a process-lost reap) or no failed
+    aspect to report.
+    """
+    deliverable = (
+        await session.execute(
+            select(Deliverable)
+            .where(Deliverable.work_step_id == work_step.id)
+            .order_by(Deliverable.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if deliverable is None:
+        return None
+    aspects = (
+        (
+            await session.execute(
+                select(VerificationAspect).where(
+                    VerificationAspect.deliverable_id == deliverable.id,
+                    VerificationAspect.status != ProofAspectStatus.passed,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not aspects:
+        return None
+    lines: list[str] = []
+    for aspect in aspects:
+        head = f"[{aspect.aspect_type.value}] {aspect.status.value}"
+        if aspect.exit_code is not None:
+            head += f" (exit {aspect.exit_code})"
+        lines.append(head)
+        if aspect.result_summary:
+            lines.append(aspect.result_summary.strip()[:600])
+    return "\n".join(lines)
+
+
 async def _maybe_finalize_request(
     *,
     request: Request,
@@ -642,6 +704,7 @@ async def _maybe_finalize_request(
                     reason=f"work_step_{step.status.value}",
                     session=session,
                     stream_manager=stream_manager,
+                    detail=await _work_step_failure_detail(work_step=step, session=session),
                 )
         await transition_request(request=request, target=RequestStatus.needs_decision, session=session)
         logger.info("request_finalized_needs_decision", request_id=str(request.id))
@@ -660,6 +723,60 @@ async def _maybe_finalize_request(
             github_client_factory=None,
         )
         logger.info("request_finalized_shipped", request_id=str(request.id))
+
+
+async def reap_orphaned_run_attempts(
+    *,
+    session: AsyncSession,
+    stream_manager: object | None = None,
+) -> int:
+    """Fail RunAttempts left ``running`` by a dead process (G-A).
+
+    A work phase runs in-process. If the process dies mid-phase
+    (container recreate, crash) the RunAttempt is never finished and
+    sits ``running`` forever — a zombie no founder Decision can reach
+    (PR #181's no-zombie fix only covers in-process raise sites).
+
+    Run once at startup: a fresh process is booting, so every
+    ``running`` RunAttempt is by definition orphaned. Each is failed
+    (``process_lost``), its WorkStep failed, and the Request routed to
+    ``needs_decision`` with a founder Decision (retry / reframe) — the
+    same forward-only recourse a normal work failure gets. Per-attempt
+    failures are swallowed so one bad row can't block the rest of the
+    sweep. Returns the number of attempts reaped.
+    """
+    orphaned = (
+        (await session.execute(select(RunAttempt).where(RunAttempt.status == RunAttemptStatus.running)))
+        .scalars()
+        .all()
+    )
+    reaped = 0
+    for attempt in orphaned:
+        try:
+            await finish_run_attempt(
+                attempt=attempt,
+                status=RunAttemptStatus.failed,
+                terminal_reason="process_lost",
+                session=session,
+            )
+            work_step = await session.get(WorkStep, attempt.work_step_id)
+            if work_step is not None and work_step.status in (
+                WorkStepStatus.running,
+                WorkStepStatus.verifying,
+            ):
+                await transition_work_step(step=work_step, target=WorkStepStatus.failed, session=session)
+            if work_step is not None:
+                request = await session.get(Request, work_step.request_id)
+                if request is not None:
+                    await _maybe_finalize_request(
+                        request=request, session=session, stream_manager=stream_manager
+                    )
+            reaped += 1
+        except Exception:  # noqa: BLE001 — one bad row must not abort the sweep
+            logger.exception("reap_orphaned_run_attempt_failed", run_attempt_id=str(attempt.id))
+    if reaped:
+        logger.info("reaped_orphaned_run_attempts", count=reaped)
+    return reaped
 
 
 async def _build_work_steps(

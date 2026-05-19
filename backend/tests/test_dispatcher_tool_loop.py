@@ -171,6 +171,19 @@ def test_build_messages_system_prompt_has_core_rules() -> None:
     assert "GREEN BEFORE YOU FINISH" in system
 
 
+def test_build_messages_system_prompt_mentions_repo_defined_environment() -> None:
+    """Environment setup is repo-defined: the prompt steers the work
+    LLM to author a devcontainer when the repo lacks one."""
+    from types import SimpleNamespace
+
+    request = SimpleNamespace(intent="x")
+    work_step = SimpleNamespace(name="s", objective="o", expected_outputs=[])
+    messages = _build_messages(request=request, work_step=work_step)
+    system = messages[0]["content"]
+    assert "devcontainer.json" in system
+    assert "postCreateCommand" in system
+
+
 def test_build_messages_system_prompt_is_stack_agnostic() -> None:
     """Cycle 11 cleanup: stack-specific trap rules (Python packaging,
     docker-compose, flat-layout setuptools) were removed from the
