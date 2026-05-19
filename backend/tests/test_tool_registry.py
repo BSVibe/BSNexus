@@ -149,3 +149,91 @@ def test_shell_timeout_constant_matches_spec(tmp_path):
     assert SHELL_TIMEOUT_S == 30.0
     # Touch tmp_path to avoid unused-arg lint
     assert isinstance(tmp_path, Path)
+
+
+# ───────────────────────────── file_edit ──────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_file_edit_requires_prior_read(tmp_path):
+    """A local model must edit against real content — file_edit refuses
+    a path it has not file_read (or file_write) this attempt."""
+    (tmp_path / "calc.py").write_text("def add(a, b):\n    return a + b\n")
+    registry = ToolRegistry(workspace_dir=tmp_path)
+    with pytest.raises(ToolError, match="file_read .* before editing"):
+        await registry.invoke(
+            "file_edit",
+            {"path": "calc.py", "old_string": "a + b", "new_string": "a - b"},
+        )
+
+
+@pytest.mark.asyncio
+async def test_file_edit_surgical_replacement_after_read(tmp_path):
+    (tmp_path / "calc.py").write_text("def add(a, b):\n    return a + b\n\ndef noop():\n    pass\n")
+    registry = ToolRegistry(workspace_dir=tmp_path)
+    await registry.invoke("file_read", {"path": "calc.py"})
+    msg = await registry.invoke(
+        "file_edit",
+        {"path": "calc.py", "old_string": "return a + b", "new_string": "return a - b"},
+    )
+    updated = (tmp_path / "calc.py").read_text()
+    assert "return a - b" in updated
+    assert "def noop():\n    pass" in updated  # untouched
+    assert "1 replacement" in msg
+
+
+@pytest.mark.asyncio
+async def test_file_edit_grounded_by_file_write(tmp_path):
+    """Writing a file also grounds it — the LLM supplied the content,
+    so a follow-up edit needs no separate read."""
+    registry = ToolRegistry(workspace_dir=tmp_path)
+    await registry.invoke("file_write", {"path": "n.py", "content": "x = 1\n"})
+    await registry.invoke("file_edit", {"path": "n.py", "old_string": "x = 1", "new_string": "x = 2"})
+    assert (tmp_path / "n.py").read_text() == "x = 2\n"
+
+
+@pytest.mark.asyncio
+async def test_file_edit_old_string_not_found(tmp_path):
+    (tmp_path / "f.py").write_text("hello\n")
+    registry = ToolRegistry(workspace_dir=tmp_path)
+    await registry.invoke("file_read", {"path": "f.py"})
+    with pytest.raises(ToolError, match="not found"):
+        await registry.invoke("file_edit", {"path": "f.py", "old_string": "goodbye", "new_string": "hi"})
+
+
+@pytest.mark.asyncio
+async def test_file_edit_non_unique_old_string_rejected(tmp_path):
+    (tmp_path / "f.py").write_text("v = 0\nv = 0\n")
+    registry = ToolRegistry(workspace_dir=tmp_path)
+    await registry.invoke("file_read", {"path": "f.py"})
+    with pytest.raises(ToolError, match="occurs 2"):
+        await registry.invoke("file_edit", {"path": "f.py", "old_string": "v = 0", "new_string": "v = 1"})
+
+
+@pytest.mark.asyncio
+async def test_file_edit_replace_all(tmp_path):
+    (tmp_path / "f.py").write_text("v = 0\nv = 0\n")
+    registry = ToolRegistry(workspace_dir=tmp_path)
+    await registry.invoke("file_read", {"path": "f.py"})
+    msg = await registry.invoke(
+        "file_edit",
+        {"path": "f.py", "old_string": "v = 0", "new_string": "v = 1", "replace_all": True},
+    )
+    assert (tmp_path / "f.py").read_text() == "v = 1\nv = 1\n"
+    assert "2 replacements" in msg
+
+
+@pytest.mark.asyncio
+async def test_file_edit_identical_strings_rejected(tmp_path):
+    (tmp_path / "f.py").write_text("a\n")
+    registry = ToolRegistry(workspace_dir=tmp_path)
+    await registry.invoke("file_read", {"path": "f.py"})
+    with pytest.raises(ToolError, match="identical"):
+        await registry.invoke("file_edit", {"path": "f.py", "old_string": "a", "new_string": "a"})
+
+
+@pytest.mark.asyncio
+async def test_file_edit_in_work_phase_schema(tmp_path):
+    registry = ToolRegistry(workspace_dir=tmp_path)
+    names = {s["function"]["name"] for s in registry.schema_for(["file_edit"])}
+    assert "file_edit" in names
