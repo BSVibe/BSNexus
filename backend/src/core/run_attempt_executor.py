@@ -1126,22 +1126,67 @@ async def _aspect_feedback_retry_loop(
     return output_text, written_paths
 
 
+# Exit codes whose process leaves no usable stderr — the kernel kills
+# it (or it never started), so the number is the only signal. Each is
+# translated to one factual line so the model isn't left guessing at a
+# silently-truncated log. These are environment/contract failures, NOT
+# code defects.
+_SILENT_EXIT_HINTS: dict[int, str] = {
+    137: (
+        "exit 137 — the process was killed (SIGKILL), almost always out of memory: "
+        "the command is too heavy for the sandbox. This is NOT a code defect — "
+        "declare a lighter verification command."
+    ),
+    143: "exit 143 — the process was terminated (SIGTERM) before it finished.",
+    124: "exit 124 — the command timed out. Declare a faster verification command.",
+    127: (
+        "exit 127 — command not found: the tool is not installed in this "
+        "environment. This is NOT a code defect — declare a command that exists."
+    ),
+    126: "exit 126 — command found but not executable.",
+}
+
+_ASPECT_SUMMARY_CAP = 3000
+
+
 def _format_aspect_feedback(failures, retries_left: int) -> str:
-    """Compose a user message describing aspect failures so the model
-    can self-correct from the actual verifier output."""
+    """Compose a user message reporting the verifier's *actual* output.
+
+    No pre-judged "fix your code" framing: a verification failure is one
+    of two things and the model must decide which from the facts —
+    (1) the code is wrong → fix the workspace files; or (2) the declared
+    verification *command* cannot run in this environment (wrong
+    toolchain, missing dependency, too heavy) → declare a command that
+    does run. Conflating the two is why an environment failure (OOM,
+    ModuleNotFound) never converges — you cannot fix an OOM by editing
+    code. Silent-kill exit codes get a one-line factual translation
+    since the process leaves no log; long output is tail-truncated
+    (a failing build/test log puts the cause last)."""
     parts = [
-        "The verification aspects you must pass before this work step ships "
-        "have FAILED. The deliverable will be auto-rejected unless every "
-        "blocking aspect ``passed``. Fix the underlying issues in the "
-        "workspace files, then re-run the relevant verifier command yourself "
-        "to confirm before sending your final plain-text summary."
+        "The verification aspects for this work step did not pass. A failure "
+        "here is one of TWO things — decide which from the output below: "
+        "(1) your CODE is wrong → fix the workspace files; or (2) the "
+        "verification COMMAND you declared cannot run in this environment "
+        "(wrong toolchain, missing dependency, too heavy / OOM) → re-declare "
+        "a command that actually runs, scoped to the files you changed. "
+        "Then re-run it yourself to confirm before your final summary."
     ]
     for failure in failures:
         parts.append(f"\n[{failure.aspect_type.value}] status={failure.status.value} exit_code={failure.exit_code}")
-        parts.append(failure.summary[:1500] if failure.summary else "(no summary)")
+        hint = _SILENT_EXIT_HINTS.get(failure.exit_code)
+        if hint is not None:
+            parts.append(hint)
+        summary = failure.summary or ""
+        if not summary:
+            parts.append("(no output captured)")
+        elif len(summary) > _ASPECT_SUMMARY_CAP:
+            # Tail, not head — a failing build/test log puts the cause last.
+            parts.append("…(output truncated — showing the tail)\n" + summary[-_ASPECT_SUMMARY_CAP:])
+        else:
+            parts.append(summary)
     parts.append(
         f"\nYou have {retries_left} aspect-retry round(s) left after this turn. "
-        "Use them — silent re-summary without fixing the failures wastes them."
+        "Use them — silent re-summary without addressing the failures wastes them."
     )
     return "\n".join(parts)
 
