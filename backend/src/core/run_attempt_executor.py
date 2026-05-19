@@ -820,9 +820,13 @@ def _build_messages(
                 "5. Stay inside the workspace. Path traversal and destructive shell commands are "
                 "blocked at the tool boundary.\n"
                 "6. PRESERVE existing tests and code. If a file already exists in the workspace, "
-                "file_read it first and ADD to it — do not rewrite the file from scratch and do "
-                "not delete tests that cover behaviour outside this work step's scope. "
-                "Overwriting prior work breaks the cumulative loop.\n"
+                "file_read it first, then change it with file_edit — a surgical exact-string "
+                "replacement. Do NOT use file_write to modify an existing file: file_write "
+                "replaces the whole file, and rewriting a large file from memory silently drops "
+                "or corrupts the parts you did not mean to touch. file_write is for NEW files "
+                "only; file_edit is for changing existing ones. Do not delete tests that cover "
+                "behaviour outside this work step's scope. Overwriting prior work breaks the "
+                "cumulative loop.\n"
                 "7. FIX FAILING TESTS BEFORE ADDING NEW CODE. If the verifier reports a failure, "
                 "read it, fix the code OR the test, and re-run BEFORE moving on. The verifier "
                 "blocks the deliverable on a single failure regardless of how much else is added.\n"
@@ -1304,7 +1308,7 @@ async def _run_work_phase(
             arguments = call.get("arguments") if isinstance(call.get("arguments"), dict) else {}
 
             tool_output, exit_code, writes = await _invoke_tool_safely(tool_registry, tool_name, arguments)
-            if tool_name == "file_write" and exit_code == 0 and writes:
+            if tool_name in ("file_write", "file_edit") and exit_code == 0 and writes:
                 for path in writes:
                     if path not in written_paths:
                         written_paths.append(path)
@@ -1414,7 +1418,7 @@ async def _invoke_tool_safely(
     """Run ``registry.invoke`` and translate failures into a string
     the LLM can read. Returns (output, exit_code, writes)."""
     writes: list[str] = []
-    if name == "file_write":
+    if name in ("file_write", "file_edit"):
         path = arguments.get("path")
         if isinstance(path, str):
             writes.append(path)
@@ -1452,6 +1456,10 @@ def _short_args_summary(tool_name: str, arguments: dict[str, Any]) -> str:
         path = arguments.get("path") or "?"
         content = arguments.get("content") or ""
         return f"file_write {path} ({len(content)} chars)"
+    if tool_name == "file_edit":
+        path = arguments.get("path") or "?"
+        old_len = len(arguments.get("old_string") or "")
+        return f"file_edit {path} (replace {old_len} chars)"
     if tool_name == "shell_exec":
         return f"shell_exec {str(arguments.get('command') or '')[:120]}"
     return f"{tool_name} {json.dumps(arguments)[:200]}"

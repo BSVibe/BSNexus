@@ -1,9 +1,11 @@
 """G6.6 — workspace-scoped tool registry for the dispatcher tool loop.
 
-Four MVP handlers:
+Handlers:
   - ``file_read(path)`` — read text file under workspace_dir
   - ``file_list(path)``  — list directory entries under workspace_dir
   - ``file_write(path, content)`` — create/overwrite file under workspace_dir
+  - ``file_edit(path, old_string, new_string)`` — surgical exact-string
+    replacement; requires the file was ``file_read`` first
   - ``shell_exec(command)`` — run a shell command with cwd=workspace_dir,
     30s timeout, denylist of destructive/network patterns
 
@@ -19,6 +21,7 @@ The registry returns OpenAI-style ``tools=[...]`` JSON schemas that
 from __future__ import annotations
 
 import asyncio
+import os
 import shlex
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -95,6 +98,11 @@ class ToolRegistry:
         # ``RunAttempt.verification_contract``. ``None`` means the work
         # LLM never declared one.
         self.declared_contract: dict[str, Any] | None = None
+        # Paths the LLM has grounded itself in this attempt — via
+        # ``file_read`` (saw the content) or ``file_write`` (supplied
+        # it). ``file_edit`` requires the path to be here so a local
+        # model edits against real content, not a hallucinated recall.
+        self._grounded_paths: set[str] = set()
         self._register_defaults()
 
     def schema_for(self, names: list[str]) -> list[dict[str, Any]]:
@@ -179,6 +187,44 @@ class ToolRegistry:
                 "required": ["path", "content"],
             },
             handler=self._file_write,
+        )
+        self._tools["file_edit"] = ToolDefinition(
+            name="file_edit",
+            description=(
+                "Make a surgical edit to an EXISTING file: replace an exact string with "
+                "another. ALWAYS prefer this over file_write when modifying a file that "
+                "already exists — file_write replaces the whole file, and rewriting a "
+                "large file from memory drops or corrupts the parts you did not mean to "
+                "touch. file_edit changes only what you specify. You MUST file_read the "
+                "file first (so old_string matches the real content). old_string must "
+                "match the file EXACTLY — whitespace and indentation included — and be "
+                "UNIQUE in the file (include enough surrounding context to make it so), "
+                "or set replace_all to change every occurrence."
+            ),
+            parameters_schema={
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Path relative to the workspace root.",
+                    },
+                    "old_string": {
+                        "type": "string",
+                        "description": "Exact text to replace — must occur in the file, uniquely unless replace_all.",
+                    },
+                    "new_string": {
+                        "type": "string",
+                        "description": "Text to replace it with. Must differ from old_string.",
+                    },
+                    "replace_all": {
+                        "type": "boolean",
+                        "description": "Replace every occurrence instead of requiring a unique match (default false).",
+                        "default": False,
+                    },
+                },
+                "required": ["path", "old_string", "new_string"],
+            },
+            handler=self._file_edit,
         )
         self._tools["shell_exec"] = ToolDefinition(
             name="shell_exec",
@@ -276,13 +322,16 @@ class ToolRegistry:
             text = data.decode("utf-8", errors="replace")
             if len(data) >= FILE_READ_MAX_BYTES:
                 text += f"\n... (truncated at {FILE_READ_MAX_BYTES} bytes)"
+            self._grounded_paths.add(os.path.normpath(raw_path))
             return text
         target = self._resolve(raw_path)
         if not target.exists():
             raise ToolError(f"file_read: not found: {raw_path}")
         if not target.is_file():
             raise ToolError(f"file_read: not a file: {raw_path}")
-        return await asyncio.to_thread(_read_text_capped, target, FILE_READ_MAX_BYTES)
+        result = await asyncio.to_thread(_read_text_capped, target, FILE_READ_MAX_BYTES)
+        self._grounded_paths.add(os.path.normpath(raw_path))
+        return result
 
     async def _file_list(self, args: dict[str, Any]) -> str:
         raw_path = str(args.get("path") or ".")
@@ -315,10 +364,75 @@ class ToolRegistry:
                 await self._sandbox.write_file(raw_path, encoded)
             except SandboxError as exc:
                 raise ToolError(f"file_write: {exc}") from exc
+            self._grounded_paths.add(os.path.normpath(raw_path))
             return f"wrote {raw_path} ({len(content)} chars)"
         target = self._resolve(raw_path)
         await asyncio.to_thread(_write_text, target, content)
+        self._grounded_paths.add(os.path.normpath(raw_path))
         return f"wrote {raw_path} ({len(content)} chars)"
+
+    async def _read_for_edit(self, raw_path: str) -> str:
+        """Read a file's full current content for ``file_edit``. Refuses
+        a file larger than the write cap — editing a truncated view
+        would corrupt the tail on write-back."""
+        if self._sandbox is not None:
+            try:
+                data = await self._sandbox.read_file(raw_path, FILE_WRITE_MAX_BYTES + 1)
+            except SandboxError as exc:
+                raise ToolError(f"file_edit: {exc}") from exc
+        else:
+            target = self._resolve(raw_path)
+            if not target.is_file():
+                raise ToolError(f"file_edit: not found: {raw_path}")
+            data = await asyncio.to_thread(target.read_bytes)
+        if len(data) > FILE_WRITE_MAX_BYTES:
+            raise ToolError(f"file_edit: {raw_path} is too large to edit safely")
+        return data.decode("utf-8", errors="replace")
+
+    async def _file_edit(self, args: dict[str, Any]) -> str:
+        raw_path = str(args.get("path") or "")
+        if not raw_path:
+            raise ToolError("file_edit requires 'path'")
+        old_string = args.get("old_string")
+        new_string = args.get("new_string")
+        if not isinstance(old_string, str) or old_string == "":
+            raise ToolError("file_edit requires a non-empty string 'old_string'")
+        if not isinstance(new_string, str):
+            raise ToolError("file_edit requires a string 'new_string'")
+        if old_string == new_string:
+            raise ToolError("file_edit: old_string and new_string are identical — nothing to change")
+        replace_all = bool(args.get("replace_all", False))
+        if os.path.normpath(raw_path) not in self._grounded_paths:
+            raise ToolError(
+                f"file_edit: file_read {raw_path} before editing it — "
+                "old_string must match the file's actual content"
+            )
+        content = await self._read_for_edit(raw_path)
+        occurrences = content.count(old_string)
+        if occurrences == 0:
+            raise ToolError(f"file_edit: old_string not found in {raw_path}")
+        if occurrences > 1 and not replace_all:
+            raise ToolError(
+                f"file_edit: old_string occurs {occurrences}× in {raw_path} — add surrounding "
+                "context to make it unique, or set replace_all=true"
+            )
+        updated = (
+            content.replace(old_string, new_string)
+            if replace_all
+            else content.replace(old_string, new_string, 1)
+        )
+        encoded = updated.encode("utf-8")
+        if len(encoded) > FILE_WRITE_MAX_BYTES:
+            raise ToolError(f"file_edit: result exceeds {FILE_WRITE_MAX_BYTES} bytes")
+        if self._sandbox is not None:
+            try:
+                await self._sandbox.write_file(raw_path, encoded)
+            except SandboxError as exc:
+                raise ToolError(f"file_edit: {exc}") from exc
+        else:
+            await asyncio.to_thread(_write_text, self._resolve(raw_path), updated)
+        count = occurrences if replace_all else 1
+        return f"edited {raw_path} ({count} replacement{'s' if count != 1 else ''})"
 
     async def _declare_verification(self, args: dict[str, Any]) -> str:
         # Imported here to keep the tools module free of a core import
