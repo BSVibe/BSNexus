@@ -29,6 +29,7 @@ from backend.src.config import settings as app_settings
 from backend.src.core.domain import (
     ProofState,
     RequestStatus,
+    RunAttemptStatus,
     WorkPlanCreatedBy,
     WorkStepStatus,
 )
@@ -40,13 +41,14 @@ from backend.src.core.run_attempt_executor import (
 )
 from backend.src.core.executor_config.resolver import resolve_executor
 from backend.src.core.git_ops.clone import ensure_repo_cloned
+from backend.src.core.run_attempts import finish_run_attempt
 from backend.src.core.work_steps import (
     WorkStepDraft,
     create_work_plan,
     transition_request,
     transition_work_step,
 )
-from backend.src.models import Decision, Deliverable, Project, Request, WorkPlan, WorkStep
+from backend.src.models import Decision, Deliverable, Project, Request, RunAttempt, WorkPlan, WorkStep
 from backend.src.models.project import WorkspaceType
 
 logger = structlog.get_logger(__name__)
@@ -660,6 +662,60 @@ async def _maybe_finalize_request(
             github_client_factory=None,
         )
         logger.info("request_finalized_shipped", request_id=str(request.id))
+
+
+async def reap_orphaned_run_attempts(
+    *,
+    session: AsyncSession,
+    stream_manager: object | None = None,
+) -> int:
+    """Fail RunAttempts left ``running`` by a dead process (G-A).
+
+    A work phase runs in-process. If the process dies mid-phase
+    (container recreate, crash) the RunAttempt is never finished and
+    sits ``running`` forever — a zombie no founder Decision can reach
+    (PR #181's no-zombie fix only covers in-process raise sites).
+
+    Run once at startup: a fresh process is booting, so every
+    ``running`` RunAttempt is by definition orphaned. Each is failed
+    (``process_lost``), its WorkStep failed, and the Request routed to
+    ``needs_decision`` with a founder Decision (retry / reframe) — the
+    same forward-only recourse a normal work failure gets. Per-attempt
+    failures are swallowed so one bad row can't block the rest of the
+    sweep. Returns the number of attempts reaped.
+    """
+    orphaned = (
+        (await session.execute(select(RunAttempt).where(RunAttempt.status == RunAttemptStatus.running)))
+        .scalars()
+        .all()
+    )
+    reaped = 0
+    for attempt in orphaned:
+        try:
+            await finish_run_attempt(
+                attempt=attempt,
+                status=RunAttemptStatus.failed,
+                terminal_reason="process_lost",
+                session=session,
+            )
+            work_step = await session.get(WorkStep, attempt.work_step_id)
+            if work_step is not None and work_step.status in (
+                WorkStepStatus.running,
+                WorkStepStatus.verifying,
+            ):
+                await transition_work_step(step=work_step, target=WorkStepStatus.failed, session=session)
+            if work_step is not None:
+                request = await session.get(Request, work_step.request_id)
+                if request is not None:
+                    await _maybe_finalize_request(
+                        request=request, session=session, stream_manager=stream_manager
+                    )
+            reaped += 1
+        except Exception:  # noqa: BLE001 — one bad row must not abort the sweep
+            logger.exception("reap_orphaned_run_attempt_failed", run_attempt_id=str(attempt.id))
+    if reaped:
+        logger.info("reaped_orphaned_run_attempts", count=reaped)
+    return reaped
 
 
 async def _build_work_steps(

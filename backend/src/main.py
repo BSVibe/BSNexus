@@ -158,6 +158,19 @@ async def lifespan(app: FastAPI):
 
     from backend.src.storage.database import async_session
 
+    # G-A — reap RunAttempts orphaned by a dead process (the previous
+    # container died mid-work-phase). Every ``running`` RunAttempt is a
+    # zombie now; fail each + route its Request to ``needs_decision``
+    # with a founder Decision. Runs before the workers so a re-engaged
+    # Request finds a clean slate. Soft — never blocks startup.
+    from backend.src.core.orchestration import reap_orphaned_run_attempts  # noqa: PLC0415
+
+    try:
+        async with async_session() as reaper_session:
+            await reap_orphaned_run_attempts(session=reaper_session, stream_manager=stream_manager)
+    except Exception:  # noqa: BLE001 — a reaper hiccup must not block boot
+        logging.getLogger(__name__).exception("startup_run_attempt_reaper_failed")
+
     # Phase Audit Batch 2 — bsvibe-audit OutboxRelay. Reads
     # ``audit_outbox`` rows that domain code wrote inside their own
     # transactions and ships them to BSVibe-Auth. Disabled (no-op
